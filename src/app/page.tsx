@@ -1,103 +1,132 @@
-import Image from "next/image";
+import { auth } from "@/auth";
+import { loginGoogle, loginMicrosoft, logout } from "@/app/actions";
+import { MailList } from "@/components/MailList";
+import { NlpPanel } from "@/components/NlpPanel";
 
-export default function Home() {
+const google =
+  Boolean(process.env.AUTH_GOOGLE_ID) && Boolean(process.env.AUTH_GOOGLE_SECRET);
+const microsoft =
+  Boolean(process.env.AUTH_MICROSOFT_ENTRA_ID_ID) &&
+  Boolean(process.env.AUTH_MICROSOFT_ENTRA_ID_SECRET);
+
+export default async function Home() {
+  const session = await auth();
+
   return (
-    <div className="font-sans grid grid-rows-[20px_1fr_20px] items-center justify-items-center min-h-screen p-8 pb-20 gap-16 sm:p-20">
-      <main className="flex flex-col gap-[32px] row-start-2 items-center sm:items-start">
-        <Image
-          className="dark:invert"
-          src="/next.svg"
-          alt="Next.js logo"
-          width={180}
-          height={38}
-          priority
-        />
-        <ol className="font-mono list-inside list-decimal text-sm/6 text-center sm:text-left">
-          <li className="mb-2 tracking-[-.01em]">
-            Get started by editing{" "}
-            <code className="bg-black/[.05] dark:bg-white/[.06] font-mono font-semibold px-1 py-0.5 rounded">
-              src/app/page.tsx
-            </code>
-            .
-          </li>
-          <li className="tracking-[-.01em]">
-            Save and see your changes instantly.
-          </li>
-        </ol>
+    <div className="min-h-screen bg-zinc-950 text-zinc-100">
+      <main className="mx-auto flex max-w-2xl flex-col gap-8 px-6 py-16">
+        <header className="space-y-3">
+          <p className="text-xs font-medium uppercase tracking-widest text-teal-400/90">
+            Seer → modern stack
+          </p>
+          <h1 className="text-3xl font-semibold tracking-tight">
+            Email-connected web app
+          </h1>
+          <p className="text-sm leading-relaxed text-zinc-400">
+            The original{" "}
+            <code className="rounded bg-zinc-800 px-1.5 py-0.5 text-zinc-200">
+              seer-master
+            </code>{" "}
+            project used Play 2.2, JavaMail/IMAP for Gmail, and Exchange Web
+            Services with a password form. That stack is not realistically
+            runnable today. This app is a small Next.js replacement that talks
+            to mail the way providers expect now: OAuth 2.0, the Gmail API, and
+            Microsoft Graph.
+          </p>
+        </header>
 
-        <div className="flex gap-4 items-center flex-col sm:flex-row">
-          <a
-            className="rounded-full border border-solid border-transparent transition-colors flex items-center justify-center bg-foreground text-background gap-2 hover:bg-[#383838] dark:hover:bg-[#ccc] font-medium text-sm sm:text-base h-10 sm:h-12 px-4 sm:px-5 sm:w-auto"
-            href="https://vercel.com/new?utm_source=create-next-app&utm_medium=appdir-template-tw&utm_campaign=create-next-app"
-            target="_blank"
-            rel="noopener noreferrer"
-          >
-            <Image
-              className="dark:invert"
-              src="/vercel.svg"
-              alt="Vercel logomark"
-              width={20}
-              height={20}
-            />
-            Deploy now
-          </a>
-          <a
-            className="rounded-full border border-solid border-black/[.08] dark:border-white/[.145] transition-colors flex items-center justify-center hover:bg-[#f2f2f2] dark:hover:bg-[#1a1a1a] hover:border-transparent font-medium text-sm sm:text-base h-10 sm:h-12 px-4 sm:px-5 w-full sm:w-auto md:w-[158px]"
-            href="https://nextjs.org/docs?utm_source=create-next-app&utm_medium=appdir-template-tw&utm_campaign=create-next-app"
-            target="_blank"
-            rel="noopener noreferrer"
-          >
-            Read our docs
-          </a>
-        </div>
+        {!google && !microsoft ? (
+          <section className="rounded-xl border border-amber-500/30 bg-amber-500/5 p-5 text-sm text-amber-100/90">
+            <p className="font-medium">Configure OAuth providers</p>
+            <p className="mt-2 text-amber-100/70">
+              Copy{" "}
+              <code className="rounded bg-zinc-900 px-1 py-0.5">.env.example</code>{" "}
+              to{" "}
+              <code className="rounded bg-zinc-900 px-1 py-0.5">.env.local</code>{" "}
+              and set{" "}
+              <code className="rounded bg-zinc-900 px-1 py-0.5">AUTH_SECRET</code>{" "}
+              plus at least one provider. Restart{" "}
+              <code className="rounded bg-zinc-900 px-1 py-0.5">npm run dev</code>.
+            </p>
+          </section>
+        ) : null}
+
+        <section className="rounded-xl border border-zinc-800 bg-zinc-900/40 p-6">
+          {session?.user ? (
+            <div className="space-y-6">
+              <div className="flex flex-wrap items-center justify-between gap-4">
+                <div>
+                  <p className="text-sm text-zinc-400">Signed in as</p>
+                  <p className="font-medium text-zinc-100">
+                    {session.user.email ?? session.user.name}
+                  </p>
+                  <p className="text-xs text-zinc-500">
+                    Provider: {session.provider ?? "unknown"}
+                  </p>
+                </div>
+                <form action={logout}>
+                  <button
+                    type="submit"
+                    className="rounded-lg border border-zinc-600 px-4 py-2 text-sm font-medium text-zinc-200 transition hover:bg-zinc-800"
+                  >
+                    Sign out
+                  </button>
+                </form>
+              </div>
+              <div>
+                <h2 className="mb-3 text-sm font-medium text-zinc-300">
+                  Recent messages (read-only)
+                </h2>
+                <MailList snippets />
+              </div>
+            </div>
+          ) : (
+            <div className="space-y-4">
+              <p className="text-sm text-zinc-400">
+                Connect an account to verify Gmail API or Microsoft Graph from
+                your machine.
+              </p>
+              <div className="flex flex-wrap gap-3">
+                {google ? (
+                  <form action={loginGoogle}>
+                    <button
+                      type="submit"
+                      className="rounded-lg bg-white px-4 py-2 text-sm font-medium text-zinc-900 transition hover:bg-zinc-200"
+                    >
+                      Continue with Google
+                    </button>
+                  </form>
+                ) : null}
+                {microsoft ? (
+                  <form action={loginMicrosoft}>
+                    <button
+                      type="submit"
+                      className="rounded-lg bg-[#0078d4] px-4 py-2 text-sm font-medium text-white transition hover:bg-[#106ebe]"
+                    >
+                      Continue with Microsoft
+                    </button>
+                  </form>
+                ) : null}
+              </div>
+            </div>
+          )}
+        </section>
+
+        <section className="rounded-xl border border-zinc-800 bg-zinc-900/30 p-6">
+          <NlpPanel />
+        </section>
+
+        <footer className="text-xs text-zinc-600">
+          Callback URLs:{" "}
+          <code className="text-zinc-500">
+            /api/auth/callback/google
+          </code>
+          ,{" "}
+          <code className="text-zinc-500">
+            /api/auth/callback/microsoft-entra-id
+          </code>
+        </footer>
       </main>
-      <footer className="row-start-3 flex gap-[24px] flex-wrap items-center justify-center">
-        <a
-          className="flex items-center gap-2 hover:underline hover:underline-offset-4"
-          href="https://nextjs.org/learn?utm_source=create-next-app&utm_medium=appdir-template-tw&utm_campaign=create-next-app"
-          target="_blank"
-          rel="noopener noreferrer"
-        >
-          <Image
-            aria-hidden
-            src="/file.svg"
-            alt="File icon"
-            width={16}
-            height={16}
-          />
-          Learn
-        </a>
-        <a
-          className="flex items-center gap-2 hover:underline hover:underline-offset-4"
-          href="https://vercel.com/templates?framework=next.js&utm_source=create-next-app&utm_medium=appdir-template-tw&utm_campaign=create-next-app"
-          target="_blank"
-          rel="noopener noreferrer"
-        >
-          <Image
-            aria-hidden
-            src="/window.svg"
-            alt="Window icon"
-            width={16}
-            height={16}
-          />
-          Examples
-        </a>
-        <a
-          className="flex items-center gap-2 hover:underline hover:underline-offset-4"
-          href="https://nextjs.org?utm_source=create-next-app&utm_medium=appdir-template-tw&utm_campaign=create-next-app"
-          target="_blank"
-          rel="noopener noreferrer"
-        >
-          <Image
-            aria-hidden
-            src="/globe.svg"
-            alt="Globe icon"
-            width={16}
-            height={16}
-          />
-          Go to nextjs.org →
-        </a>
-      </footer>
     </div>
   );
 }

@@ -1,0 +1,34 @@
+-- Future parity schema (legacy Seer used MySQL + Slick).
+-- Not executed by the Next.js app; reference when adding Prisma/Drizzle.
+
+-- users (maps SeerUser)
+-- CREATE TABLE users (
+--   id BIGSERIAL PRIMARY KEY,
+--   email TEXT NOT NULL UNIQUE,
+--   name TEXT,
+--   created_at TIMESTAMPTZ DEFAULT now()
+-- );
+
+-- oauth_accounts (Gmail / Microsoft tokens, encrypted at rest)
+-- CREATE TABLE oauth_accounts (
+--   id UUID PRIMARY KEY,
+--   user_id BIGINT NOT NULL REFERENCES users(id),
+--   provider TEXT NOT NULL,
+--   provider_account_id TEXT NOT NULL,
+--   refresh_token TEXT,
+--   access_token TEXT,
+--   expires_at TIMESTAMPTZ
+-- );
+
+-- tasks (maps SeerTask + sentence offsets)
+-- CREATE TABLE tasks (
+--   id TEXT PRIMARY KEY,
+--   user_id BIGINT NOT NULL REFERENCES users(id),
+--   task_type TEXT NOT NULL,
+--   name TEXT,
+--   deferred BOOLEAN DEFAULT false,
+--   score REAL,
+--   sentence TEXT,
+--   email_id TEXT,
+--   metadata JSONB
+-- );

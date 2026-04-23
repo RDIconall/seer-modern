@@ -1,0 +1,64 @@
+openapi: 3.1.0
+info:
+  title: Seer API parity (legacy iOS / Play contract)
+  version: 0.1.0
+  description: >
+    Inventory of routes from seer-master/conf/routes for future native client parity.
+    Implemented handlers may return stubs until DB + processors exist.
+servers:
+  - url: /
+paths:
+  /api/userinfo:
+    get:
+      summary: User settings (legacy IphoneUserinfo)
+      responses:
+        "200":
+          description: OK
+        "401":
+          description: Not signed in
+  /api/alltasks:
+    get:
+      summary: Active tasks (legacy newtasks)
+      parameters:
+        - name: taskID
+          in: query
+          schema: { type: string }
+      responses:
+        "200":
+          description: JSON array of IphoneTask
+  /api/accounts:
+    get:
+      summary: Linked accounts
+      responses:
+        "200":
+          description: JSON array of IphoneAccount
+  /api/contacts:
+    get:
+      summary: Contacts graph
+      responses:
+        "200":
+          description: OK
+  /api/mail:
+    get:
+      summary: Recent inbox (modern; Gmail or Graph)
+      parameters:
+        - name: snippets
+          in: query
+          schema: { type: string, enum: ["1", "true"] }
+      responses:
+        "200":
+          description: { provider, items[] }
+  /api/nlp/classify:
+    post:
+      summary: Hybrid NLP classify email body
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                text: { type: string }
+      responses:
+        "200":
+          description: emailHint + sentences[]
