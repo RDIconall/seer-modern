@@ -13,8 +13,8 @@ const geistMono = Geist_Mono({
 });
 
 export const metadata: Metadata = {
-  title: "Seer (modern)",
-  description: "Gmail and Microsoft mail via OAuth and REST APIs",
+  title: "Inbox Pilot",
+  description: "Email client with action guidance — respond, archive, delete",
 };
 
 export default function RootLayout({
