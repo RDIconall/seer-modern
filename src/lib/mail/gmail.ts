@@ -111,12 +111,16 @@ async function hydrateList(
     };
     const headers = msg.payload?.headers ?? [];
     const fromRaw = headers.find((h) => h.name === "From")?.value ?? "";
+    const toRaw = headers.find((h) => h.name === "To")?.value ?? "";
     const { name, email } = parseAddress(fromRaw);
+    const firstTo = toRaw.split(",")[0]?.trim() ?? "";
+    const peer = firstTo ? parseAddress(firstTo).email : undefined;
     items.push({
       id: msg.id,
       threadId: msg.threadId,
       fromEmail: email,
       fromName: name,
+      peerEmail: peer,
       subject:
         headers.find((h) => h.name === "Subject")?.value ?? "(no subject)",
       snippet: msg.snippet ?? "",

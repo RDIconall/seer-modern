@@ -112,12 +112,12 @@ export function CardStack({
 
   return (
     <div className="flex flex-1 flex-col px-4 pb-2 pt-2">
-      <div className="mb-3 flex items-center justify-between px-1">
-        <div className="flex items-center gap-2 text-sm text-[var(--muted)]">
-          <Layers className="h-4 w-4" />
+      <div className="mb-3 flex items-center justify-between rounded-md bg-[var(--primary-soft)] px-3 py-2">
+        <div className="flex items-center gap-2 text-sm font-semibold text-[var(--fg-strong)]">
+          <Layers className="h-4 w-4 text-[var(--primary)]" />
           <span>Cards</span>
         </div>
-        <span className="text-xs font-medium text-[var(--muted)]">
+        <span className="text-xs font-medium text-[var(--primary)]">
           {progress}
         </span>
       </div>

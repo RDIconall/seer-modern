@@ -43,12 +43,14 @@ type GraphMessage = {
 };
 
 function mapListItem(m: GraphMessage): MailMessageListItem {
+  const peer = m.toRecipients?.[0]?.emailAddress?.address;
   return {
     id: m.id,
     threadId: m.conversationId,
     fromEmail: m.from?.emailAddress?.address ?? "",
     fromName:
       m.from?.emailAddress?.name ?? m.from?.emailAddress?.address ?? "",
+    peerEmail: peer,
     subject: m.subject ?? "(no subject)",
     snippet: m.bodyPreview ?? "",
     receivedAt:
@@ -84,7 +86,7 @@ export async function listGraphFolder(
   url.searchParams.set("$orderby", "receivedDateTime desc");
   url.searchParams.set(
     "$select",
-    "id,conversationId,subject,bodyPreview,receivedDateTime,sentDateTime,isRead,from",
+    "id,conversationId,subject,bodyPreview,receivedDateTime,sentDateTime,isRead,from,toRecipients",
   );
   const res = await fetch(url.toString(), {
     headers: { Authorization: `Bearer ${accessToken}` },
@@ -109,7 +111,7 @@ export async function searchGraph(
   url.searchParams.set("$search", `"${term}"`);
   url.searchParams.set(
     "$select",
-    "id,conversationId,subject,bodyPreview,receivedDateTime,sentDateTime,isRead,from",
+    "id,conversationId,subject,bodyPreview,receivedDateTime,sentDateTime,isRead,from,toRecipients",
   );
   const res = await fetch(url.toString(), {
     headers: {

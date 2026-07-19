@@ -288,17 +288,17 @@ export function DesktopMailApp() {
       {tab !== "cards" ? (
       <>
       <section className="flex w-[360px] shrink-0 flex-col border-r border-[var(--border)]">
-        <header className="shrink-0 border-b border-[var(--border)] px-4 py-3">
-          <div className="flex items-center justify-between">
-            <h1 className="text-lg font-medium">{listTitle}</h1>
+        <header className="shrink-0 border-b border-[var(--border)]">
+          <div className="flex items-center justify-between bg-[var(--primary)] px-4 py-3 text-white">
+            <h1 className="text-lg font-semibold">{listTitle}</h1>
             {tab !== "triage" && mailbox ? (
-              <span className="text-xs text-[var(--muted)]">{mailbox.count}</span>
+              <span className="text-xs text-white/80">{mailbox.count}</span>
             ) : tab === "triage" && triage ? (
-              <span className="text-xs text-[var(--muted)]">{triage.count}</span>
+              <span className="text-xs text-white/80">{triage.count}</span>
             ) : null}
           </div>
           <form
-            className="mt-2 flex items-center gap-2 rounded-md border border-[var(--border)] bg-[var(--card)] px-2.5 py-1.5"
+            className="flex items-center gap-2 border-b border-[var(--border)] bg-[var(--bg)] px-3 py-2"
             onSubmit={(e) => {
               e.preventDefault();
               submitSearch();
@@ -312,6 +312,12 @@ export function DesktopMailApp() {
               className="min-w-0 flex-1 bg-transparent text-sm outline-none placeholder:text-[var(--muted)]"
             />
           </form>
+          {tab === "triage" && triage?.history ? (
+            <p className="bg-[var(--card)] px-4 py-2 text-[11px] text-[var(--muted)]">
+              Based on sent history · {triage.history.engagedCount} people you
+              email · {triage.history.contactCount} contacts
+            </p>
+          ) : null}
         </header>
 
         <div className="flex-1 overflow-y-auto">
@@ -557,36 +563,24 @@ function DesktopMailRow({
         tabIndex={0}
         onClick={onOpen}
         onKeyDown={(e) => e.key === "Enter" && onOpen()}
-        className={`flex cursor-pointer gap-2.5 px-3 py-2.5 pr-16 transition-colors ${
-          selected
-            ? "bg-[var(--primary-soft)]"
-            : "bg-[var(--bg)] hover:bg-[var(--row-hover)]"
-        } ${busy ? "opacity-50" : ""} ${item.isUnread ? "font-medium" : ""}`}
+        className={`mail-row cursor-pointer pr-14 transition-colors ${
+          selected ? "bg-[var(--primary-soft)]" : ""
+        } ${busy ? "opacity-50" : ""} ${item.isUnread ? "unread" : ""}`}
       >
-        <div
-          className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full text-xs font-semibold text-white"
-          style={{ backgroundColor: accent }}
-        >
-          {mailInitial(item.fromName || item.fromEmail)}
-        </div>
+        <span
+          className={`mail-unread-dot ${item.isUnread ? "" : "empty"}`}
+          aria-hidden
+        />
         <div className="min-w-0 flex-1">
           <div className="flex items-baseline justify-between gap-2">
-            <span
-              className={`truncate text-[13px] ${
-                item.isUnread ? "font-semibold text-[var(--unread)]" : ""
-              }`}
-            >
+            <span className="mail-from truncate text-[13px] text-[var(--fg-strong)]">
               {item.fromName || item.fromEmail}
             </span>
             <span className="shrink-0 text-[11px] text-[var(--muted)]">
               {formatMailTime(item.receivedAt)}
             </span>
           </div>
-          <div
-            className={`truncate text-[12px] leading-snug ${
-              item.isUnread ? "font-semibold text-[var(--unread)]" : ""
-            }`}
-          >
+          <div className="mail-subject truncate text-[12px] leading-snug">
             {item.subject}
           </div>
           <div className="truncate text-[11px] leading-snug text-[var(--muted)]">
@@ -595,7 +589,7 @@ function DesktopMailRow({
           {showGuide && g ? (
             <div
               className="mt-0.5 truncate text-[10px] font-medium"
-              style={{ color: g.color }}
+              style={{ color: g.color ?? accent }}
             >
               {g.instruction}
             </div>
@@ -644,10 +638,10 @@ function SectionHeader({
   onAction?: () => void;
 }) {
   return (
-    <div className="sticky top-0 z-10 flex items-center justify-between border-b border-[var(--border)] bg-[var(--card)] px-3 py-1.5">
+    <div className="sticky top-0 z-10 flex items-center justify-between border-b border-[var(--border)] bg-[var(--primary-soft)] px-3 py-2">
       <h2
-        className="text-[10px] font-semibold uppercase tracking-wide"
-        style={{ color: color ?? "var(--muted)" }}
+        className="text-[12px] font-semibold"
+        style={{ color: color ?? "var(--fg-strong)" }}
       >
         {label}
       </h2>
@@ -655,7 +649,7 @@ function SectionHeader({
         <button
           type="button"
           onClick={onAction}
-          className="text-[10px] font-medium text-[var(--primary)] hover:underline"
+          className="text-[11px] font-semibold text-[var(--primary)] hover:underline"
         >
           {actionLabel}
         </button>

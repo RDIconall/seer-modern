@@ -37,6 +37,11 @@ export type TodayData = {
   needsReview: EmailItem[];
   sections: Section[];
   count: number;
+  history?: {
+    builtAt: string;
+    contactCount: number;
+    engagedCount: number;
+  };
 };
 
 export type MailboxData = {

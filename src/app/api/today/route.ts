@@ -5,8 +5,9 @@ import {
   classifyMessage,
   type TriageAction,
 } from "@/lib/inbox/classify";
-import { listGmailInbox } from "@/lib/mail/gmail";
-import { listGraphInbox } from "@/lib/mail/graph";
+import { getOrBuildMailHistory } from "@/lib/inbox/mail-history-store";
+import { listGmailFolder, listGmailInbox } from "@/lib/mail/gmail";
+import { listGraphFolder, listGraphInbox } from "@/lib/mail/graph";
 import { requireMailSession } from "@/lib/mail/session";
 import { getSenderOverride } from "@/lib/store/senders";
 import { NextResponse } from "next/server";
@@ -40,8 +41,20 @@ export async function GET() {
 
     const raw =
       session.provider === "google"
-        ? await listGmailInbox(session.accessToken)
-        : await listGraphInbox(session.accessToken);
+        ? await listGmailInbox(session.accessToken, 50)
+        : await listGraphInbox(session.accessToken, 50);
+
+    const history = await getOrBuildMailHistory(
+      session.email,
+      session.accessToken,
+      {
+        listFolder: (token, folder, max) =>
+          session.provider === "google"
+            ? listGmailFolder(token, folder, max)
+            : listGraphFolder(token, folder, max),
+      },
+      raw,
+    );
 
     const classified: TodayEmail[] = [];
     for (const m of raw) {
@@ -54,6 +67,7 @@ export async function GET() {
           snippet: m.snippet,
         },
         override,
+        history,
       );
       const guide = buildActionGuideQuick(result, m.subject);
       classified.push({ ...m, guide });
@@ -102,6 +116,11 @@ export async function GET() {
       needsReview,
       sections,
       count: classified.length,
+      history: {
+        builtAt: history.builtAt,
+        contactCount: history.contactCount,
+        engagedCount: history.engagedCount,
+      },
     });
   } catch (e) {
     const message = e instanceof Error ? e.message : "Failed to load inbox";

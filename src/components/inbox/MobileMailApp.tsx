@@ -39,7 +39,6 @@ import {
   buildCardDeck,
   ensureRe,
   formatMailTime,
-  mailInitial,
   primaryMailAction,
   type EmailItem,
   type ViewTab,
@@ -176,12 +175,12 @@ export function MobileMailApp() {
       : "";
     return (
       <div className="app-shell fixed inset-0 z-50 flex flex-col bg-[var(--bg)]">
-        <header className="flex items-center gap-1 border-b border-[var(--border)] px-1 py-1">
-          <IconBtn onClick={closeReader} label="Back">
+        <header className="outlook-header flex items-center gap-1 px-1 py-1.5 shadow-sm">
+          <IconBtn onClick={closeReader} label="Back" light>
             <ChevronLeft className="h-6 w-6" />
           </IconBtn>
           <div className="min-w-0 flex-1 px-1">
-            <div className="truncate text-[15px] font-medium">
+            <div className="truncate text-[16px] font-semibold text-white">
               {reader?.subject ?? "…"}
             </div>
           </div>
@@ -189,6 +188,7 @@ export function MobileMailApp() {
             disabled={busyId === readerId}
             onClick={() => runAction(readerId, "archive")}
             label="Archive"
+            light
           >
             <Archive className="h-5 w-5" />
           </IconBtn>
@@ -196,6 +196,7 @@ export function MobileMailApp() {
             disabled={busyId === readerId}
             onClick={() => runAction(readerId, "trash")}
             label="Delete"
+            light
           >
             <Trash2 className="h-5 w-5" />
           </IconBtn>
@@ -204,14 +205,12 @@ export function MobileMailApp() {
         <div className="flex-1 overflow-auto">
           <div className="border-b border-[var(--border)] px-4 py-3">
             <div className="flex items-start gap-3">
-              <div
-                className="flex h-10 w-10 shrink-0 items-center justify-center rounded-full text-sm font-semibold text-white"
-                style={{ backgroundColor: g?.color ?? "var(--primary)" }}
-              >
-                {mailInitial(reader?.fromName ?? "?")}
-              </div>
+              <span
+                className={`mail-unread-dot mt-2 ${reader ? "" : "empty"}`}
+                aria-hidden
+              />
               <div className="min-w-0 flex-1">
-                <div className="truncate font-semibold">
+                <div className="truncate text-[15px] font-semibold text-[var(--fg-strong)]">
                   {reader?.fromName ?? "…"}
                 </div>
                 <div className="truncate text-xs text-[var(--muted)]">
@@ -490,6 +489,16 @@ export function MobileMailApp() {
           )
         ) : null}
 
+        {tab === "triage" && triage ? (
+          <div className="border-b border-[var(--border)] bg-[var(--card)] px-4 py-2">
+            <p className="text-[12px] text-[var(--muted)]">
+              {triage.history
+                ? `Action-oriented from your mail history · ${triage.history.engagedCount} people you email · ${triage.history.contactCount} contacts analyzed`
+                : "Action-oriented triage — respond, archive, or delete"}
+            </p>
+          </div>
+        ) : null}
+
         {tab === "triage" && triage && triage.count === 0 ? (
           <EmptyState text="Nothing to triage" />
         ) : null}
@@ -726,10 +735,10 @@ function SectionHeader({
   onAction?: () => void;
 }) {
   return (
-    <div className="flex items-center justify-between bg-[var(--card)] px-4 py-2">
+    <div className="sticky top-0 z-[1] flex items-center justify-between border-b border-[var(--border)] bg-[var(--primary-soft)] px-4 py-2.5">
       <h2
-        className="text-xs font-medium uppercase tracking-wide"
-        style={{ color: color ?? "var(--muted)" }}
+        className="text-[13px] font-semibold"
+        style={{ color: color ?? "var(--fg-strong)" }}
       >
         {label}
       </h2>
@@ -737,7 +746,7 @@ function SectionHeader({
         <button
           type="button"
           onClick={onAction}
-          className="text-[11px] font-medium text-[var(--primary)]"
+          className="text-[12px] font-semibold text-[var(--primary)]"
         >
           {actionLabel}
         </button>

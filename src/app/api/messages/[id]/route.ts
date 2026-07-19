@@ -1,7 +1,8 @@
 import { buildActionGuideDetailed } from "@/lib/inbox/action-guide";
 import { classifyMessage } from "@/lib/inbox/classify";
-import { getGmailMessage } from "@/lib/mail/gmail";
-import { getGraphMessage } from "@/lib/mail/graph";
+import { getOrBuildMailHistory } from "@/lib/inbox/mail-history-store";
+import { getGmailMessage, listGmailFolder } from "@/lib/mail/gmail";
+import { getGraphMessage, listGraphFolder } from "@/lib/mail/graph";
 import { requireMailSession } from "@/lib/mail/session";
 import { getSenderOverride } from "@/lib/store/senders";
 import { NextResponse } from "next/server";
@@ -22,6 +23,17 @@ export async function GET(
         ? await getGmailMessage(session.accessToken, id)
         : await getGraphMessage(session.accessToken, id);
 
+    const history = await getOrBuildMailHistory(
+      session.email,
+      session.accessToken,
+      {
+        listFolder: (token, folder, max) =>
+          session.provider === "google"
+            ? listGmailFolder(token, folder, max)
+            : listGraphFolder(token, folder, max),
+      },
+    );
+
     const override = await getSenderOverride(message.fromEmail);
     const classification = classifyMessage(
       {
@@ -31,6 +43,7 @@ export async function GET(
         snippet: message.snippet,
       },
       override,
+      history,
     );
 
     const bodyText =

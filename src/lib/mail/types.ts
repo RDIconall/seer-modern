@@ -5,6 +5,8 @@ export type MailMessageListItem = {
   threadId: string;
   fromEmail: string;
   fromName: string;
+  /** Primary To: address — used for sent-folder relationship graph */
+  peerEmail?: string;
   subject: string;
   snippet: string;
   receivedAt: string;

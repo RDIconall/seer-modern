@@ -1,9 +1,10 @@
 import { buildActionGuideQuick } from "@/lib/inbox/action-guide";
 import { classifyMessage } from "@/lib/inbox/classify";
+import { getOrBuildMailHistory } from "@/lib/inbox/mail-history-store";
 import type { IphoneTask } from "@/lib/api-parity/iphone-task-types";
 import { LEGACY_SESSION_COOKIE } from "@/lib/future-ios";
-import { listGmailInbox } from "@/lib/mail/gmail";
-import { listGraphInbox } from "@/lib/mail/graph";
+import { listGmailFolder, listGmailInbox } from "@/lib/mail/gmail";
+import { listGraphFolder, listGraphInbox } from "@/lib/mail/graph";
 import { requireMailSession } from "@/lib/mail/session";
 import { getSenderOverride } from "@/lib/store/senders";
 import { NextResponse } from "next/server";
@@ -24,6 +25,18 @@ export async function GET() {
         ? await listGmailInbox(session.accessToken, 30)
         : await listGraphInbox(session.accessToken, 30);
 
+    const history = await getOrBuildMailHistory(
+      session.email,
+      session.accessToken,
+      {
+        listFolder: (token, folder, max) =>
+          session.provider === "google"
+            ? listGmailFolder(token, folder, max)
+            : listGraphFolder(token, folder, max),
+      },
+      raw,
+    );
+
     const tasks: IphoneTask[] = [];
     for (const m of raw) {
       const override = await getSenderOverride(m.fromEmail);
@@ -35,6 +48,7 @@ export async function GET() {
           snippet: m.snippet,
         },
         override,
+        history,
       );
       const guide = buildActionGuideQuick(classification, m.subject);
       tasks.push({
