@@ -31,7 +31,7 @@ import { z } from "zod";
  * Bump when the prompt/actions change so stale cached decisions
  * are ignored and re-classified.
  */
-export const PROMPT_VERSION = 6;
+export const PROMPT_VERSION = 7;
 
 const ACTIONS = [
   "respond",
@@ -94,7 +94,8 @@ const PREFILTER_RULE_IDS = new Set([
   "noreply-cold-delete",
   "shopping-domain",
   "product-notify-promo",
-  "product-notify-archive",
+  "product-passive-delete",
+  "finance-record-archive",
   "urgency-bait-delete",
   "shipper-status-delete",
 ]);
@@ -254,7 +255,7 @@ Optional predictor fields (omitted when zero/default):
 
 Priority when signals conflict: meeting > contact > engaged rel > past behavior > content.
 USE WORLD KNOWLEDGE of the company behind the email. Airlines = travel. Banks/brokerages = money. Pharmacies/clinics = health. Schools/government = obligations. Judge WHO the company is and WHAT the message means for the user's day — no sent-history is NOT a reason to defer on a recognizable transactional sender.
-PASSIVE STATUS UPDATES need nothing from the user: package shipped/arriving/delivered, order confirmed, ride completed, statement ready → delete_now or read_and_delete. The event happens whether they read it or not. Exception: the sender needs THEM (failed delivery, signature required, pickup, customs, payment problem) → act_today.
+THE RAZOR — apply to every email: does the user personally have to DO anything? PASSIVE "it happened" mail needs nothing: package shipped/arriving/delivered, order confirmed, ride completed, build passed, PR merged, someone starred/liked/followed, weekly digest, statement ready → delete_now or read_and_delete. The event happens whether they read it or not. NEEDS-THEM mail is the exception: failed delivery/signature/pickup/customs, build FAILED, review requested, mentioned/assigned, security alert, payment failed/fraud/overdue, RSVP/invitation → act_today or respond. Records with future lookup value (receipts, invoices, confirmations with reference numbers) → read_and_archive, never delete.
 FAKE URGENCY is the #1 trick: "expires today", "last chance", "action required", "final notice", "reminder:" from bulk/noreply/marketing senders is promo bait — delete_now or glance_promo, NEVER act_today. Urgency is real only from contacts, engaged/known senders, or genuine transactional mail (2FA codes, password resets, security alerts, boarding passes, deliveries, appointments).
 Cold noreply marketing → delete_now or unsubscribe.
 Product/CI (GitHub, Vercel, Figma, etc.) → usually read_and_archive unless promo.

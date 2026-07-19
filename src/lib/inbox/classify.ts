@@ -156,6 +156,17 @@ const DELIVERY_NEEDS_YOU =
   /\b(attempted delivery|delivery (failed|attempt|exception)|signature required|ready for pick ?up|pick ?up (required|by)|customs|duty (owed|payment)|held at|address (issue|problem|confirm)|reschedule|action (needed|required) to receive)\b/i;
 
 /**
+ * Product/service mail that needs the user's hands — as opposed to
+ * passive "it happened" notifications that need nothing.
+ */
+const PRODUCT_NEEDS_YOU =
+  /\b(build (failed|broken)|failing|deploy(ment)? failed|pipeline failed|tests? failed|review requested|requested changes|changes requested|mentioned you|assigned (to )?you|awaiting your (review|approval|response)|approval (needed|required)|security (alert|vulnerability)|vulnerability|new sign-?in|sign-?in attempt|invited you|invitation to|rsvp|sent you a message|direct message)\b/i;
+
+/** Money actually at risk — act, don't just file it. */
+const FINANCE_RISK =
+  /\b(payment (failed|declined|overdue|past due)|card (was )?declined|insufficient funds|overdraft|fraud|unusual activity|suspicious (charge|transaction)|dispute|due (today|tomorrow)|final notice|account (suspended|locked|on hold))\b/i;
+
+/**
  * Urgency bait — marketing's favorite trick. Only counts as urgent when
  * the sender is trusted (contact / engaged / known); from bulk or cold
  * senders it's just a promo wearing a costume.
@@ -427,16 +438,47 @@ function classifyCore(
         ctx,
       );
     }
+    // Receipts/invoices from product senders are records, not noise
+    if (RECEIPT_BLOB.test(blob)) {
+      return hit(
+        "read_and_archive",
+        "MED",
+        "Receipt/statement — nothing to do, but worth keeping for search",
+        "finance-record-archive",
+        ctx,
+      );
+    }
+    // Needs your hands: failed CI, review requested, mentioned, security
+    if (PRODUCT_NEEDS_YOU.test(blob) || PRODUCT_NEEDS_YOU.test(input.subject)) {
+      return hit(
+        "act_today",
+        "MED",
+        "Product notification that needs you (failure / review / mention / security)",
+        "product-needs-you",
+        ctx,
+      );
+    }
+    // Passive "it happened" noise: builds passed, stars, digests, likes
     return hit(
-      "read_and_archive",
+      "read_and_delete",
       "MED",
-      "Product or CI notification",
-      "product-notify-archive",
+      "Passive product notification — it happened whether you read it or not",
+      "product-passive-delete",
       ctx,
     );
   }
 
   if (FINANCE_DOMAINS.test(dom) || RECEIPT_BLOB.test(blob)) {
+    // Money at risk needs you today — declined, fraud, overdue, locked
+    if (FINANCE_RISK.test(blob) || FINANCE_RISK.test(input.subject)) {
+      return hit(
+        "act_today",
+        "HIGH",
+        "Money at risk — declined / fraud / overdue needs you now",
+        "finance-needs-you",
+        ctx,
+      );
+    }
     if (ANOMALY_BLOB.test(blob)) {
       return hit(
         "review_subscription",
@@ -446,11 +488,12 @@ function classifyCore(
         ctx,
       );
     }
+    // Receipts/statements are records: no action, but future value — archive
     return hit(
       "read_and_archive",
       "MED",
-      "Finance or receipt mail",
-      "finance-receipt",
+      "Receipt/statement — nothing to do, but worth keeping for search",
+      "finance-record-archive",
       ctx,
     );
   }
