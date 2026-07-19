@@ -6,6 +6,7 @@ import {
   accessTokenNeedsRefresh,
   refreshAccessToken,
 } from "@/lib/mail/refresh-token";
+import { setActiveAccountId, upsertAccount } from "@/lib/store/accounts";
 
 const googleConfigured =
   Boolean(process.env.AUTH_GOOGLE_ID) &&
@@ -52,18 +53,55 @@ export const { handlers, auth, signIn, signOut } = NextAuth({
       : []),
   ],
   callbacks: {
-    async jwt({ token, account }) {
+    async jwt({ token, account, profile }) {
       if (account) {
         token.accessToken = account.access_token;
-        token.refreshToken = account.refresh_token;
+        token.refreshToken = account.refresh_token ?? token.refreshToken;
         token.expiresAt = account.expires_at;
         token.provider = account.provider;
         token.error = undefined;
+        const email =
+          (profile as { email?: string } | undefined)?.email ??
+          (token.email as string | undefined);
+        if (email && account.provider) {
+          token.email = email;
+          const saved = await upsertAccount({
+            provider: account.provider as "google" | "microsoft-entra-id",
+            email,
+            name:
+              (profile as { name?: string } | undefined)?.name ??
+              email,
+            accessToken: account.access_token,
+            refreshToken: account.refresh_token ?? undefined,
+            expiresAt: account.expires_at,
+          });
+          token.activeAccountId = saved.id;
+          try {
+            await setActiveAccountId(saved.id);
+          } catch {
+            /* cookies() may be unavailable in some auth runtimes */
+          }
+        }
         return token;
       }
 
       if (accessTokenNeedsRefresh(token)) {
-        return refreshAccessToken(token);
+        const refreshed = await refreshAccessToken(token);
+        if (
+          refreshed.accessToken &&
+          !refreshed.error &&
+          token.email &&
+          token.provider
+        ) {
+          await upsertAccount({
+            provider: token.provider as "google" | "microsoft-entra-id",
+            email: token.email as string,
+            accessToken: refreshed.accessToken,
+            refreshToken: refreshed.refreshToken,
+            expiresAt: refreshed.expiresAt,
+          });
+        }
+        return refreshed;
       }
 
       return token;
@@ -72,6 +110,9 @@ export const { handlers, auth, signIn, signOut } = NextAuth({
       session.accessToken = token.accessToken as string | undefined;
       session.provider = token.provider as string | undefined;
       session.error = token.error as string | undefined;
+      if (token.email && session.user) {
+        session.user.email = token.email as string;
+      }
       return session;
     },
   },

@@ -1,3 +1,4 @@
+import { Suspense } from "react";
 import { auth } from "@/auth";
 import {
   DesktopLoginScreen,
@@ -8,7 +9,7 @@ import { DesktopMailApp } from "@/components/inbox/DesktopMailApp";
 export default async function DesktopHome() {
   const session = await auth();
 
-  if (session?.user && session.error) {
+  if (session?.user && session.error && !session.accessToken) {
     return <SessionExpiredScreen />;
   }
 
@@ -16,5 +17,13 @@ export default async function DesktopHome() {
     return <DesktopLoginScreen />;
   }
 
-  return <DesktopMailApp />;
+  return (
+    <Suspense
+      fallback={
+        <p className="p-8 text-center text-sm text-[var(--muted)]">Loading…</p>
+      }
+    >
+      <DesktopMailApp />
+    </Suspense>
+  );
 }

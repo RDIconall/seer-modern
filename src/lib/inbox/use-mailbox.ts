@@ -26,9 +26,39 @@ export function useMailbox(initialTab: ViewTab = "inbox") {
   const [compose, setCompose] = useState<ComposeDraft | null>(null);
   const [toast, setToast] = useState<string | null>(null);
   const [busyId, setBusyId] = useState<string | null>(null);
+  const [identity, setIdentity] = useState<{
+    email: string;
+    name: string;
+    label: string;
+  } | null>(null);
+
+  const refreshIdentity = useCallback(async () => {
+    try {
+      const res = await fetch("/api/accounts", { cache: "no-store" });
+      const json = await res.json();
+      if (!res.ok) return;
+      if (json.active?.email) {
+        setIdentity({
+          email: json.active.email,
+          name: json.active.name ?? json.active.email,
+          label: json.active.label ?? "Account",
+        });
+      }
+    } catch {
+      /* ignore */
+    }
+  }, []);
+
+  useEffect(() => {
+    refreshIdentity();
+  }, [refreshIdentity]);
 
   const accountEmail =
-    mailbox?.accountEmail ?? triage?.accountEmail ?? "Your mailbox";
+    identity?.email ??
+    mailbox?.accountEmail ??
+    triage?.accountEmail ??
+    "Your mailbox";
+  const accountLabel = identity?.label ?? "";
 
   const loadTriage = useCallback(async () => {
     const res = await fetch("/api/today", { cache: "no-store" });
@@ -287,6 +317,9 @@ export function useMailbox(initialTab: ViewTab = "inbox") {
     setToast,
     busyId,
     accountEmail,
+    accountLabel,
+    identity,
+    refreshIdentity,
     load,
     runAction,
     bulkSection,

@@ -16,6 +16,7 @@ import {
   ReplyAll,
   Search,
   Send,
+  Settings,
   Trash2,
   X,
 } from "lucide-react";
@@ -27,10 +28,12 @@ import {
   type ReactNode,
   type TouchEvent,
 } from "react";
+import { useSearchParams } from "next/navigation";
 import { logoutMobile } from "@/app/actions";
 import { ACTION_META, type TriageAction } from "@/lib/inbox/classify";
 import { CardStack } from "@/components/inbox/CardStack";
 import { ComposePanel } from "@/components/inbox/ComposePanel";
+import { SettingsPanel } from "@/components/inbox/SettingsPanel";
 import { useMailbox } from "@/lib/inbox/use-mailbox";
 import {
   buildCardDeck,
@@ -81,7 +84,9 @@ export function MobileMailApp() {
     setToast,
     busyId,
     accountEmail,
+    accountLabel,
     load,
+    refreshIdentity,
     runAction,
     bulkSection,
     teachSender,
@@ -91,14 +96,20 @@ export function MobileMailApp() {
     startReply,
   } = useMailbox();
 
+  const searchParams = useSearchParams();
   const [drawer, setDrawer] = useState(false);
   const [searchOpen, setSearchOpen] = useState(false);
+  const [settingsOpen, setSettingsOpen] = useState(false);
   const searchRef = useRef<HTMLInputElement>(null);
   const cardDeck = useMemo(() => buildCardDeck(triage), [triage]);
 
   useEffect(() => {
     if (searchOpen) searchRef.current?.focus();
   }, [searchOpen]);
+
+  useEffect(() => {
+    if (searchParams.get("settings") === "1") setSettingsOpen(true);
+  }, [searchParams]);
 
   const selectFolder = (next: ViewTab) => {
     hookSelectFolder(next);
@@ -129,6 +140,19 @@ export function MobileMailApp() {
     setSearch("");
     setQuery("");
   };
+
+  if (settingsOpen) {
+    return (
+      <SettingsPanel
+        mobile
+        onClose={() => setSettingsOpen(false)}
+        onAccountsChanged={() => {
+          refreshIdentity();
+          load();
+        }}
+      />
+    );
+  }
 
   if (compose) {
     return (
@@ -255,14 +279,30 @@ export function MobileMailApp() {
             onClick={() => setDrawer(false)}
           />
           <nav className="absolute inset-y-0 left-0 flex w-[82%] max-w-xs flex-col bg-[var(--bg)] pt-[var(--safe-top)] shadow-xl">
-            <div className="border-b border-[var(--border)] px-5 py-4">
+            <button
+              type="button"
+              onClick={() => {
+                setDrawer(false);
+                setSettingsOpen(true);
+              }}
+              className="border-b border-[var(--border)] px-5 py-4 text-left"
+            >
               <div className="text-lg font-medium text-[var(--primary)]">
                 Inbox Pilot
               </div>
               <div className="mt-0.5 truncate text-xs text-[var(--muted)]">
                 {accountEmail}
               </div>
-            </div>
+              {accountLabel ? (
+                <div className="mt-0.5 text-[11px] text-[var(--primary)]">
+                  {accountLabel} · Tap for settings
+                </div>
+              ) : (
+                <div className="mt-0.5 text-[11px] text-[var(--primary)]">
+                  Tap for settings & accounts
+                </div>
+              )}
+            </button>
             <div className="flex-1 overflow-auto py-2">
               <DrawerItem
                 active={tab === "inbox"}
@@ -293,6 +333,15 @@ export function MobileMailApp() {
                 icon={<ListFilter className="h-5 w-5" />}
                 label="Triage"
                 onClick={() => selectFolder("triage")}
+              />
+              <DrawerItem
+                active={false}
+                icon={<Settings className="h-5 w-5" />}
+                label="Settings"
+                onClick={() => {
+                  setDrawer(false);
+                  setSettingsOpen(true);
+                }}
               />
             </div>
             <form
@@ -359,12 +408,15 @@ export function MobileMailApp() {
                 className={`h-5 w-5 ${loading ? "animate-spin" : ""}`}
               />
             </IconBtn>
-            <div
+            <button
+              type="button"
+              onClick={() => setSettingsOpen(true)}
               className="mr-1 flex h-8 w-8 items-center justify-center rounded-full bg-[var(--primary)] text-xs font-semibold text-white"
-              title={accountEmail}
+              title={`${accountEmail} — Settings`}
+              aria-label="Settings"
             >
               {mailInitial(accountEmail)}
-            </div>
+            </button>
           </div>
         )}
         {tab !== "cards" ? (

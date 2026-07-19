@@ -16,5 +16,7 @@ declare module "next-auth/jwt" {
     expiresAt?: number;
     provider?: string;
     error?: string;
+    email?: string;
+    activeAccountId?: string;
   }
 }

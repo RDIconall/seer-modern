@@ -13,12 +13,15 @@ import {
   ReplyAll,
   Search,
   Send,
+  Settings,
   Trash2,
 } from "lucide-react";
-import { useMemo, useState, type ReactNode } from "react";
+import { useEffect, useMemo, useState, type ReactNode } from "react";
+import { useSearchParams } from "next/navigation";
 import { logout } from "@/app/actions";
 import { CardStack } from "@/components/inbox/CardStack";
 import { ComposePanel } from "@/components/inbox/ComposePanel";
+import { SettingsPanel } from "@/components/inbox/SettingsPanel";
 import { ACTION_META, type TriageAction } from "@/lib/inbox/classify";
 import { useMailbox } from "@/lib/inbox/use-mailbox";
 import {
@@ -77,7 +80,9 @@ export function DesktopMailApp() {
     setToast,
     busyId,
     accountEmail,
+    accountLabel,
     load,
+    refreshIdentity,
     runAction,
     bulkSection,
     teachSender,
@@ -87,7 +92,13 @@ export function DesktopMailApp() {
     startReply,
   } = mb;
 
+  const searchParams = useSearchParams();
+  const [settingsOpen, setSettingsOpen] = useState(false);
   const cardDeck = useMemo(() => buildCardDeck(triage), [triage]);
+
+  useEffect(() => {
+    if (searchParams.get("settings") === "1") setSettingsOpen(true);
+  }, [searchParams]);
 
   const replyFromCard = async (id: string) => {
     try {
@@ -127,6 +138,16 @@ export function DesktopMailApp() {
 
   return (
     <div className="flex h-[100dvh] min-h-screen overflow-hidden bg-[var(--bg)] text-[var(--fg)]">
+      {settingsOpen ? (
+        <SettingsPanel
+          onClose={() => setSettingsOpen(false)}
+          onAccountsChanged={() => {
+            refreshIdentity();
+            load();
+          }}
+        />
+      ) : null}
+
       {/* Left sidebar */}
       <aside className="flex w-[220px] shrink-0 flex-col border-r border-[var(--border)]">
         <div className="border-b border-[var(--border)] px-4 py-4">
@@ -162,12 +183,37 @@ export function DesktopMailApp() {
               {label}
             </button>
           ))}
+          <button
+            type="button"
+            onClick={() => setSettingsOpen(true)}
+            className="mb-0.5 flex w-full items-center gap-2.5 rounded-md px-3 py-2 text-sm text-[var(--fg)] hover:bg-[var(--row-hover)]"
+          >
+            <Settings className="h-4 w-4" />
+            Settings
+          </button>
         </nav>
 
         <div className="border-t border-[var(--border)] px-4 py-3">
-          <div className="truncate text-xs text-[var(--muted)]" title={accountEmail}>
-            {accountEmail}
-          </div>
+          <button
+            type="button"
+            onClick={() => setSettingsOpen(true)}
+            className="w-full text-left"
+          >
+            <div
+              className="truncate text-xs font-medium"
+              title={accountEmail}
+            >
+              {accountEmail}
+            </div>
+            {accountLabel ? (
+              <div className="truncate text-[11px] text-[var(--primary)]">
+                {accountLabel}
+              </div>
+            ) : null}
+            <div className="mt-0.5 text-[11px] text-[var(--muted)]">
+              Manage accounts
+            </div>
+          </button>
           <form action={logout} className="mt-2">
             <button
               type="submit"

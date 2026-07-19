@@ -1,3 +1,4 @@
+import { Suspense } from "react";
 import { auth } from "@/auth";
 import {
   MobileLoginScreen,
@@ -8,7 +9,7 @@ import { MobileMailApp } from "@/components/inbox/MobileMailApp";
 export default async function MobileHome() {
   const session = await auth();
 
-  if (session?.user && session.error) {
+  if (session?.user && session.error && !session.accessToken) {
     return <SessionExpiredScreen mobile />;
   }
 
@@ -16,5 +17,13 @@ export default async function MobileHome() {
     return <MobileLoginScreen />;
   }
 
-  return <MobileMailApp />;
+  return (
+    <Suspense
+      fallback={
+        <p className="p-8 text-center text-sm text-[var(--muted)]">Loading…</p>
+      }
+    >
+      <MobileMailApp />
+    </Suspense>
+  );
 }
