@@ -1,10 +1,11 @@
 import { buildActionGuideQuick } from "@/lib/inbox/action-guide";
 import { classifyMessage } from "@/lib/inbox/classify";
 import { getOrBuildMailHistory } from "@/lib/inbox/mail-history-store";
+import type { EmailItem } from "@/lib/inbox/types";
 import { listGmailFolder, searchGmail } from "@/lib/mail/gmail";
 import { listGraphFolder, searchGraph } from "@/lib/mail/graph";
 import { requireMailSession } from "@/lib/mail/session";
-import type { MailFolder } from "@/lib/mail/types";
+import type { MailFolder, MailMessageListItem } from "@/lib/mail/types";
 import { getSenderOverride } from "@/lib/store/senders";
 import { NextResponse } from "next/server";
 
@@ -22,7 +23,7 @@ export async function GET(request: Request) {
     const q = searchParams.get("q") ?? undefined;
     const folder = FOLDERS.has(folderParam) ? folderParam : "inbox";
 
-    let items;
+    let items: MailMessageListItem[];
     if (session.provider === "google") {
       items = q?.trim()
         ? await searchGmail(session.accessToken, q)
@@ -36,7 +37,7 @@ export async function GET(request: Request) {
 
     // Classify inbox (and search) so each row can show why it landed in a bucket
     const shouldClassify = folder === "inbox" || Boolean(q?.trim());
-    let annotated = items;
+    let annotated: EmailItem[] = items;
     if (shouldClassify) {
       const history = await getOrBuildMailHistory(
         session.email,
