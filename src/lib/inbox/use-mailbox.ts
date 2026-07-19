@@ -53,7 +53,7 @@ export function useMailbox(initialTab: ViewTab = "inbox") {
     setLoading(true);
     setError(null);
     try {
-      if (tab === "triage") await loadTriage();
+      if (tab === "triage" || tab === "cards") await loadTriage();
       else await loadMailbox(tab, query);
     } catch (e) {
       setError(e instanceof Error ? e.message : "Load failed");
@@ -262,7 +262,7 @@ export function useMailbox(initialTab: ViewTab = "inbox") {
 
   const submitSearch = useCallback(() => {
     setQuery(search.trim());
-    if (tab === "triage") setTab("inbox");
+    if (tab === "triage" || tab === "cards") setTab("inbox");
   }, [search, tab]);
 
   return {

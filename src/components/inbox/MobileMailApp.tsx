@@ -6,6 +6,7 @@ import {
   ChevronLeft,
   Forward,
   Inbox,
+  Layers,
   ListFilter,
   LogOut,
   Menu,
@@ -20,6 +21,7 @@ import {
 } from "lucide-react";
 import {
   useEffect,
+  useMemo,
   useRef,
   useState,
   type ReactNode,
@@ -27,9 +29,12 @@ import {
 } from "react";
 import { logoutMobile } from "@/app/actions";
 import { ACTION_META, type TriageAction } from "@/lib/inbox/classify";
+import { CardStack } from "@/components/inbox/CardStack";
 import { ComposePanel } from "@/components/inbox/ComposePanel";
 import { useMailbox } from "@/lib/inbox/use-mailbox";
 import {
+  buildCardDeck,
+  ensureRe,
   formatMailTime,
   mailInitial,
   primaryMailAction,
@@ -50,6 +55,7 @@ const FOLDER_LABEL: Record<ViewTab, string> = {
   sent: "Sent",
   trash: "Trash",
   triage: "Triage",
+  cards: "Cards",
 };
 
 export function MobileMailApp() {
@@ -88,6 +94,7 @@ export function MobileMailApp() {
   const [drawer, setDrawer] = useState(false);
   const [searchOpen, setSearchOpen] = useState(false);
   const searchRef = useRef<HTMLInputElement>(null);
+  const cardDeck = useMemo(() => buildCardDeck(triage), [triage]);
 
   useEffect(() => {
     if (searchOpen) searchRef.current?.focus();
@@ -97,6 +104,24 @@ export function MobileMailApp() {
     hookSelectFolder(next);
     setDrawer(false);
     setSearchOpen(false);
+  };
+
+  const replyFromCard = async (id: string) => {
+    try {
+      const res = await fetch(`/api/messages/${id}`);
+      const json = await res.json();
+      if (!res.ok) throw new Error(json.error);
+      setCompose({
+        mode: "reply",
+        to: json.message.fromEmail,
+        cc: "",
+        subject: ensureRe(json.message.subject),
+        body: "",
+        replyToId: id,
+      });
+    } catch (e) {
+      setToast(e instanceof Error ? e.message : "Could not reply");
+    }
   };
 
   const closeSearch = () => {
@@ -258,6 +283,12 @@ export function MobileMailApp() {
                 onClick={() => selectFolder("trash")}
               />
               <DrawerItem
+                active={tab === "cards"}
+                icon={<Layers className="h-5 w-5" />}
+                label="Cards"
+                onClick={() => selectFolder("cards")}
+              />
+              <DrawerItem
                 active={tab === "triage"}
                 icon={<ListFilter className="h-5 w-5" />}
                 label="Triage"
@@ -336,17 +367,25 @@ export function MobileMailApp() {
             </div>
           </div>
         )}
-        <div className="flex items-center justify-between px-3 pt-3 pb-1">
-          <h1 className="text-xl font-normal tracking-tight">
-            {query ? "Search results" : FOLDER_LABEL[tab]}
-          </h1>
-          {tab !== "triage" && mailbox ? (
-            <span className="text-xs text-[var(--muted)]">{mailbox.count}</span>
-          ) : null}
-        </div>
+        {tab !== "cards" ? (
+          <div className="flex items-center justify-between px-3 pt-3 pb-1">
+            <h1 className="text-xl font-normal tracking-tight">
+              {query ? "Search results" : FOLDER_LABEL[tab]}
+            </h1>
+            {tab !== "triage" && mailbox ? (
+              <span className="text-xs text-[var(--muted)]">
+                {mailbox.count}
+              </span>
+            ) : null}
+          </div>
+        ) : null}
       </header>
 
-      <main className="flex-1 overflow-auto pb-24">
+      <main
+        className={`flex flex-1 flex-col overflow-auto pb-24 ${
+          tab === "cards" ? "" : ""
+        }`}
+      >
         {error ? (
           <p className="mx-4 my-3 rounded-lg bg-red-500/10 px-3 py-2 text-sm text-red-600 dark:text-red-300">
             {error}
@@ -354,14 +393,25 @@ export function MobileMailApp() {
         ) : null}
 
         {loading &&
-        ((tab === "triage" && !triage) ||
-          (tab !== "triage" && !mailbox)) ? (
+        (((tab === "triage" || tab === "cards") && !triage) ||
+          (tab !== "triage" && tab !== "cards" && !mailbox)) ? (
           <p className="py-16 text-center text-sm text-[var(--muted)]">
             Loading…
           </p>
         ) : null}
 
-        {tab !== "triage" && mailbox ? (
+        {tab === "cards" && triage ? (
+          <CardStack
+            items={cardDeck}
+            busyId={busyId}
+            onOpen={openReader}
+            onAction={runAction}
+            onReply={replyFromCard}
+            onEmptyRefresh={load}
+          />
+        ) : null}
+
+        {tab !== "triage" && tab !== "cards" && mailbox ? (
           listItems.length === 0 ? (
             <EmptyState
               text={
@@ -466,14 +516,20 @@ export function MobileMailApp() {
       </main>
 
       <nav className="fixed bottom-0 left-0 right-0 z-20 mx-auto max-w-lg border-t border-[var(--border)] bg-[var(--bg)] bottom-nav">
-        <div className="grid grid-cols-3">
+        <div className="grid grid-cols-4">
           <BottomNavItem
             active={tab === "inbox" || tab === "sent" || tab === "trash"}
             label="Mail"
             icon={<Inbox className="h-5 w-5" />}
             onClick={() => {
-              if (tab === "triage") setTab("inbox");
+              if (tab === "triage" || tab === "cards") setTab("inbox");
             }}
+          />
+          <BottomNavItem
+            active={tab === "cards"}
+            label="Cards"
+            icon={<Layers className="h-5 w-5" />}
+            onClick={() => selectFolder("cards")}
           />
           <BottomNavItem
             active={searchOpen}
@@ -490,15 +546,17 @@ export function MobileMailApp() {
         </div>
       </nav>
 
-      <button
-        type="button"
-        onClick={startCompose}
-        className="fixed bottom-[calc(4.25rem+var(--safe-bottom))] right-4 z-30 flex items-center gap-2 rounded-2xl bg-[var(--card)] px-4 py-3.5 text-sm font-medium text-[var(--primary)] shadow-md ring-1 ring-black/5 dark:ring-white/10"
-        aria-label="Compose"
-      >
-        <PenSquare className="h-5 w-5" />
-        Compose
-      </button>
+      {tab !== "cards" ? (
+        <button
+          type="button"
+          onClick={startCompose}
+          className="fixed bottom-[calc(4.25rem+var(--safe-bottom))] right-4 z-30 flex items-center gap-2 rounded-2xl bg-[var(--card)] px-4 py-3.5 text-sm font-medium text-[var(--primary)] shadow-md ring-1 ring-black/5 dark:ring-white/10"
+          aria-label="Compose"
+        >
+          <PenSquare className="h-5 w-5" />
+          Compose
+        </button>
+      ) : null}
 
       {toast ? <Toast message={toast} /> : null}
     </div>

@@ -5,6 +5,7 @@ import {
   Archive,
   Forward,
   Inbox,
+  Layers,
   ListFilter,
   LogOut,
   PenSquare,
@@ -14,12 +15,15 @@ import {
   Send,
   Trash2,
 } from "lucide-react";
-import { useState, type ReactNode } from "react";
+import { useMemo, useState, type ReactNode } from "react";
 import { logout } from "@/app/actions";
+import { CardStack } from "@/components/inbox/CardStack";
 import { ComposePanel } from "@/components/inbox/ComposePanel";
 import { ACTION_META, type TriageAction } from "@/lib/inbox/classify";
 import { useMailbox } from "@/lib/inbox/use-mailbox";
 import {
+  buildCardDeck,
+  ensureRe,
   formatMailTime,
   mailInitial,
   primaryMailAction,
@@ -40,12 +44,14 @@ const FOLDER_LABEL: Record<ViewTab, string> = {
   sent: "Sent",
   trash: "Trash",
   triage: "Triage",
+  cards: "Cards",
 };
 
 const FOLDERS: { tab: ViewTab; label: string; icon: ReactNode }[] = [
   { tab: "inbox", label: "Inbox", icon: <Inbox className="h-4 w-4" /> },
   { tab: "sent", label: "Sent", icon: <Send className="h-4 w-4" /> },
   { tab: "trash", label: "Trash", icon: <Trash2 className="h-4 w-4" /> },
+  { tab: "cards", label: "Cards", icon: <Layers className="h-4 w-4" /> },
   { tab: "triage", label: "Triage", icon: <ListFilter className="h-4 w-4" /> },
 ];
 
@@ -80,6 +86,26 @@ export function DesktopMailApp() {
     startCompose,
     startReply,
   } = mb;
+
+  const cardDeck = useMemo(() => buildCardDeck(triage), [triage]);
+
+  const replyFromCard = async (id: string) => {
+    try {
+      const res = await fetch(`/api/messages/${id}`);
+      const json = await res.json();
+      if (!res.ok) throw new Error(json.error);
+      setCompose({
+        mode: "reply",
+        to: json.message.fromEmail,
+        cc: "",
+        subject: ensureRe(json.message.subject),
+        body: "",
+        replyToId: id,
+      });
+    } catch (e) {
+      setToast(e instanceof Error ? e.message : "Could not reply");
+    }
+  };
 
   if (compose) {
     return (
@@ -154,7 +180,68 @@ export function DesktopMailApp() {
         </div>
       </aside>
 
-      {/* Middle pane — message list */}
+      {tab === "cards" ? (
+        <section className="flex min-w-0 flex-1 flex-col overflow-hidden bg-[var(--card)]/40">
+          {error ? (
+            <p className="mx-6 mt-4 rounded-md bg-red-500/10 px-3 py-2 text-sm text-red-600">
+              {error}
+            </p>
+          ) : null}
+          {loading && !triage ? (
+            <p className="py-20 text-center text-sm text-[var(--muted)]">
+              Loading cards…
+            </p>
+          ) : (
+            <div className="mx-auto flex w-full max-w-xl flex-1 flex-col py-6">
+              <CardStack
+                items={cardDeck}
+                busyId={busyId}
+                onOpen={openReader}
+                onAction={runAction}
+                onReply={replyFromCard}
+                onEmptyRefresh={load}
+              />
+            </div>
+          )}
+          {readerId && reader ? (
+            <div className="fixed inset-y-0 right-0 z-30 flex w-full max-w-xl flex-col border-l border-[var(--border)] bg-[var(--bg)] shadow-xl">
+              <div className="flex items-center justify-between border-b border-[var(--border)] px-4 py-3">
+                <h2 className="truncate text-sm font-medium">{reader.subject}</h2>
+                <button
+                  type="button"
+                  onClick={closeReader}
+                  className="text-sm text-[var(--primary)]"
+                >
+                  Close
+                </button>
+              </div>
+              <div className="flex-1 overflow-auto px-5 py-4">
+                {reader.htmlBody ? (
+                  <div
+                    className="prose prose-sm max-w-none dark:prose-invert"
+                    dangerouslySetInnerHTML={{
+                      __html: DOMPurify.sanitize(reader.htmlBody),
+                    }}
+                  />
+                ) : (
+                  <pre className="whitespace-pre-wrap text-sm">
+                    {reader.textBody}
+                  </pre>
+                )}
+              </div>
+            </div>
+          ) : null}
+          {toast ? (
+            <div className="fixed bottom-6 left-1/2 z-50 -translate-x-1/2 rounded bg-[#323232] px-4 py-2 text-xs text-white">
+              {toast}
+            </div>
+          ) : null}
+        </section>
+      ) : null}
+
+      {/* Middle + reading panes (hidden in Cards mode) */}
+      {tab !== "cards" ? (
+      <>
       <section className="flex w-[360px] shrink-0 flex-col border-r border-[var(--border)]">
         <header className="shrink-0 border-b border-[var(--border)] px-4 py-3">
           <div className="flex items-center justify-between">
@@ -382,6 +469,8 @@ export function DesktopMailApp() {
           </>
         )}
       </main>
+      </>
+      ) : null}
 
       {toast ? <Toast message={toast} /> : null}
     </div>

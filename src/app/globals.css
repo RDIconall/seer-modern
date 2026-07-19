@@ -81,3 +81,8 @@ body {
   padding-top: var(--safe-top);
   min-height: 100dvh;
 }
+
+/* Legacy Seer card deck */
+.seer-card {
+  will-change: transform;
+}

@@ -47,8 +47,26 @@ export type MailboxData = {
   count: number;
 };
 
-export type ViewTab = "inbox" | "sent" | "trash" | "triage";
+export type ViewTab = "inbox" | "sent" | "trash" | "triage" | "cards";
 export type MailAction = "archive" | "trash" | "read";
+
+/** Flatten triage payload into a Seer-style card deck (priority order). */
+export function buildCardDeck(triage: TodayData | null): EmailItem[] {
+  if (!triage) return [];
+  const seen = new Set<string>();
+  const deck: EmailItem[] = [];
+  const push = (items: EmailItem[]) => {
+    for (const item of items) {
+      if (seen.has(item.id)) continue;
+      seen.add(item.id);
+      deck.push(item);
+    }
+  };
+  push(triage.needsReview);
+  for (const section of triage.sections) push(section.items);
+  if (triage.inbox) push(triage.inbox);
+  return deck;
+}
 
 export type ReaderMessage = {
   htmlBody: string;
