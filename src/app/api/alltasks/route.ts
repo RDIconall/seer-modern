@@ -1,5 +1,6 @@
 import { buildActionGuideQuick } from "@/lib/inbox/action-guide";
 import { classifyMessage } from "@/lib/inbox/classify";
+import { classifyInboxWithAssistant } from "@/lib/inbox/gemini-triage";
 import { getOrBuildMailHistory } from "@/lib/inbox/mail-history-store";
 import type { IphoneTask } from "@/lib/api-parity/iphone-task-types";
 import { LEGACY_SESSION_COOKIE } from "@/lib/future-ios";
@@ -11,7 +12,7 @@ import { NextResponse } from "next/server";
 
 /**
  * Legacy Seer GET /api/alltasks — card deck as IphoneTask[].
- * Maps modern inbox + triage classification into the old card shape.
+ * Maps modern inbox + Gemini-first triage into the old card shape.
  */
 export async function GET() {
   try {
@@ -37,19 +38,23 @@ export async function GET() {
       raw,
     );
 
+    const decisions = await classifyInboxWithAssistant(
+      raw.map((m) => ({
+        id: m.id,
+        fromEmail: m.fromEmail,
+        fromName: m.fromName,
+        subject: m.subject,
+        snippet: m.snippet,
+      })),
+      history,
+      (email) => getSenderOverride(email),
+      classifyMessage,
+    );
+
     const tasks: IphoneTask[] = [];
     for (const m of raw) {
-      const override = await getSenderOverride(m.fromEmail);
-      const classification = classifyMessage(
-        {
-          fromEmail: m.fromEmail,
-          fromName: m.fromName,
-          subject: m.subject,
-          snippet: m.snippet,
-        },
-        override,
-        history,
-      );
+      const classification = decisions.get(m.id);
+      if (!classification) continue;
       const guide = buildActionGuideQuick(classification, m.subject);
       tasks.push({
         id: m.id,

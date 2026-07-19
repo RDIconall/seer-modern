@@ -10,6 +10,8 @@ export type Guide = {
   detail?: string;
   /** Audit trail — which rule + history signals fired */
   debug?: ClassifyDebug;
+  /** Who decided: Gemini (preferred), rules fallback, or taught override */
+  source?: "gemini" | "rules" | "override";
 };
 
 export type EmailItem = {
@@ -43,6 +45,13 @@ export type TodayData = {
     builtAt: string;
     contactCount: number;
     engagedCount: number;
+  };
+  assistant?: {
+    engine: string;
+    gemini: number;
+    rules: number;
+    override: number;
+    needsReview: number;
   };
 };
 

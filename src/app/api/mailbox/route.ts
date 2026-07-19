@@ -1,5 +1,6 @@
 import { buildActionGuideQuick } from "@/lib/inbox/action-guide";
 import { classifyMessage } from "@/lib/inbox/classify";
+import { classifyInboxWithAssistant } from "@/lib/inbox/gemini-triage";
 import { getOrBuildMailHistory } from "@/lib/inbox/mail-history-store";
 import type { EmailItem } from "@/lib/inbox/types";
 import { listGmailFolder, searchGmail } from "@/lib/mail/gmail";
@@ -8,6 +9,8 @@ import { requireMailSession } from "@/lib/mail/session";
 import type { MailFolder, MailMessageListItem } from "@/lib/mail/types";
 import { getSenderOverride } from "@/lib/store/senders";
 import { NextResponse } from "next/server";
+
+export const maxDuration = 60;
 
 const FOLDERS = new Set<MailFolder>(["inbox", "sent", "trash"]);
 
@@ -35,9 +38,12 @@ export async function GET(request: Request) {
           : await listGraphFolder(session.accessToken, folder, 40, q);
     }
 
-    // Classify inbox (and search) so each row can show why it landed in a bucket
     const shouldClassify = folder === "inbox" || Boolean(q?.trim());
     let annotated: EmailItem[] = items;
+    let assistant:
+      | { gemini: number; rules: number; override: number }
+      | undefined;
+
     if (shouldClassify) {
       const history = await getOrBuildMailHistory(
         session.email,
@@ -51,22 +57,38 @@ export async function GET(request: Request) {
         folder === "inbox" && !q?.trim() ? items : undefined,
       );
 
+      const decisions = await classifyInboxWithAssistant(
+        items.map((m) => ({
+          id: m.id,
+          fromEmail: m.fromEmail,
+          fromName: m.fromName,
+          subject: m.subject,
+          snippet: m.snippet,
+        })),
+        history,
+        (email) => getSenderOverride(email),
+        classifyMessage,
+      );
+
       annotated = [];
+      let gemini = 0;
+      let rules = 0;
+      let override = 0;
       for (const m of items) {
-        const override = await getSenderOverride(m.fromEmail);
-        const result = classifyMessage(
-          {
-            fromEmail: m.fromEmail,
-            fromName: m.fromName,
-            subject: m.subject,
-            snippet: m.snippet,
-          },
-          override,
-          history,
-        );
-        const guide = buildActionGuideQuick(result, m.subject);
-        annotated.push({ ...m, guide });
+        const result = decisions.get(m.id);
+        if (!result) {
+          annotated.push(m);
+          continue;
+        }
+        if (result.source === "gemini") gemini += 1;
+        else if (result.source === "rules") rules += 1;
+        else override += 1;
+        annotated.push({
+          ...m,
+          guide: buildActionGuideQuick(result, m.subject),
+        });
       }
+      assistant = { gemini, rules, override };
     }
 
     return NextResponse.json({
@@ -77,6 +99,7 @@ export async function GET(request: Request) {
       fetchedAt: new Date().toISOString(),
       items: annotated,
       count: annotated.length,
+      assistant,
     });
   } catch (e) {
     const message = e instanceof Error ? e.message : "Failed to load mailbox";

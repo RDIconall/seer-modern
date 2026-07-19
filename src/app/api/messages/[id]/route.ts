@@ -1,5 +1,6 @@
 import { buildActionGuideDetailed } from "@/lib/inbox/action-guide";
 import { classifyMessage } from "@/lib/inbox/classify";
+import { classifyInboxWithAssistant } from "@/lib/inbox/gemini-triage";
 import { getOrBuildMailHistory } from "@/lib/inbox/mail-history-store";
 import { getGmailMessage, listGmailFolder } from "@/lib/mail/gmail";
 import { getGraphMessage, listGraphFolder } from "@/lib/mail/graph";
@@ -34,21 +35,41 @@ export async function GET(
       },
     );
 
-    const override = await getSenderOverride(message.fromEmail);
-    const classification = classifyMessage(
-      {
-        fromEmail: message.fromEmail,
-        fromName: message.fromName,
-        subject: message.subject,
-        snippet: message.snippet,
-      },
-      override,
-      history,
-    );
-
     const bodyText =
       message.textBody ||
       message.htmlBody.replace(/<[^>]+>/g, " ").replace(/\s+/g, " ");
+
+    const decisions = await classifyInboxWithAssistant(
+      [
+        {
+          id: message.id,
+          fromEmail: message.fromEmail,
+          fromName: message.fromName,
+          subject: message.subject,
+          snippet: (message.snippet || bodyText).slice(0, 600),
+        },
+      ],
+      history,
+      (email) => getSenderOverride(email),
+      classifyMessage,
+    );
+
+    const fromAssistant = decisions.get(message.id);
+    const classification =
+      fromAssistant ??
+      ({
+        ...classifyMessage(
+          {
+            fromEmail: message.fromEmail,
+            fromName: message.fromName,
+            subject: message.subject,
+            snippet: message.snippet,
+          },
+          await getSenderOverride(message.fromEmail),
+          history,
+        ),
+        source: "rules" as const,
+      });
 
     const guide = await buildActionGuideDetailed(
       classification,

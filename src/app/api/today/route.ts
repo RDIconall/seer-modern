@@ -5,12 +5,15 @@ import {
   classifyMessage,
   type TriageAction,
 } from "@/lib/inbox/classify";
+import { classifyInboxWithAssistant } from "@/lib/inbox/gemini-triage";
 import { getOrBuildMailHistory } from "@/lib/inbox/mail-history-store";
 import { listGmailFolder, listGmailInbox } from "@/lib/mail/gmail";
 import { listGraphFolder, listGraphInbox } from "@/lib/mail/graph";
 import { requireMailSession } from "@/lib/mail/session";
 import { getSenderOverride } from "@/lib/store/senders";
 import { NextResponse } from "next/server";
+
+export const maxDuration = 60;
 
 export type TodayEmail = {
   id: string;
@@ -56,25 +59,33 @@ export async function GET() {
       raw,
     );
 
+    const decisions = await classifyInboxWithAssistant(
+      raw.map((m) => ({
+        id: m.id,
+        fromEmail: m.fromEmail,
+        fromName: m.fromName,
+        subject: m.subject,
+        snippet: m.snippet,
+      })),
+      history,
+      (email) => getSenderOverride(email),
+      classifyMessage,
+    );
+
     const classified: TodayEmail[] = [];
+    let geminiCount = 0;
+    let rulesCount = 0;
+    let overrideCount = 0;
     for (const m of raw) {
-      const override = await getSenderOverride(m.fromEmail);
-      const result = classifyMessage(
-        {
-          fromEmail: m.fromEmail,
-          fromName: m.fromName,
-          subject: m.subject,
-          snippet: m.snippet,
-        },
-        override,
-        history,
-      );
+      const result = decisions.get(m.id);
+      if (!result) continue;
+      if (result.source === "gemini") geminiCount += 1;
+      else if (result.source === "rules") rulesCount += 1;
+      else overrideCount += 1;
       const guide = buildActionGuideQuick(result, m.subject);
       classified.push({ ...m, guide });
     }
 
-    // Only true "needs_review" actions go in the review bucket.
-    // LOW confidence still keeps its action so mail isn't left uncategorized.
     const needsReview = classified.filter(
       (e) => e.guide.action === "needs_review",
     );
@@ -116,6 +127,13 @@ export async function GET() {
         builtAt: history.builtAt,
         contactCount: history.contactCount,
         engagedCount: history.engagedCount,
+      },
+      assistant: {
+        engine: "gemini-first",
+        gemini: geminiCount,
+        rules: rulesCount,
+        override: overrideCount,
+        needsReview: needsReview.length,
       },
     });
   } catch (e) {

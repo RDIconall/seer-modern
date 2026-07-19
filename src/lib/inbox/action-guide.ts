@@ -16,6 +16,7 @@ export type ActionGuide = {
   /** Seer NLP detail when available */
   detail?: string;
   debug?: ClassifyResult["debug"];
+  source?: "gemini" | "rules" | "override";
 };
 
 function instructionFor(
@@ -51,7 +52,10 @@ function instructionFor(
 }
 
 export function buildActionGuideQuick(
-  classification: ClassifyResult,
+  classification: ClassifyResult & {
+    source?: "gemini" | "rules" | "override";
+    instruction?: string;
+  },
   subject: string,
 ): ActionGuide {
   const meta = ACTION_META[classification.action];
@@ -61,13 +65,19 @@ export function buildActionGuideQuick(
     color: meta.color,
     confidence: classification.confidence,
     reason: classification.reason,
-    instruction: instructionFor(classification.action, subject),
+    instruction:
+      classification.instruction?.trim() ||
+      instructionFor(classification.action, subject),
     debug: classification.debug,
+    source: classification.source,
   };
 }
 
 export async function buildActionGuideDetailed(
-  classification: ClassifyResult,
+  classification: ClassifyResult & {
+    source?: "gemini" | "rules" | "override";
+    instruction?: string;
+  },
   subject: string,
   snippet: string,
   bodyForNlp?: string,
@@ -103,8 +113,11 @@ export async function buildActionGuideDetailed(
     color: meta.color,
     confidence: classification.confidence,
     reason: classification.reason,
-    instruction: instructionFor(classification.action, subject, detail),
+    instruction:
+      classification.instruction?.trim() ||
+      instructionFor(classification.action, subject, detail),
     detail,
     debug: classification.debug,
+    source: classification.source,
   };
 }

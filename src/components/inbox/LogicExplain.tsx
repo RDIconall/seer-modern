@@ -11,6 +11,15 @@ export function LogicExplain({
   expanded?: boolean;
 }) {
   const d = guide.debug;
+  const sourceLabel =
+    guide.source === "gemini"
+      ? "Gemini"
+      : guide.source === "override"
+        ? "Taught"
+        : guide.source === "rules"
+          ? "Rules"
+          : null;
+
   return (
     <div className="mt-1 space-y-1">
       <div
@@ -19,12 +28,15 @@ export function LogicExplain({
       >
         {guide.label}
         {guide.confidence ? ` · ${guide.confidence}` : ""}
+        {sourceLabel ? ` · ${sourceLabel}` : ""}
       </div>
       <div className="line-clamp-2 text-[11px] leading-snug text-[var(--muted)]">
         {guide.reason}
       </div>
       {expanded && d ? (
         <dl className="mt-1.5 grid grid-cols-[auto_1fr] gap-x-2 gap-y-0.5 rounded-md bg-[var(--card)] px-2 py-1.5 text-[10px] leading-snug text-[var(--fg)]">
+          <dt className="text-[var(--muted)]">Decided by</dt>
+          <dd>{sourceLabel ?? "—"}</dd>
           <dt className="text-[var(--muted)]">Rule</dt>
           <dd className="font-mono break-all">{d.ruleId}</dd>
           <dt className="text-[var(--muted)]">Relationship</dt>
