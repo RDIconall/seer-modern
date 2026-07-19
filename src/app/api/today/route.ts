@@ -11,6 +11,7 @@ import { getPersonalContext } from "@/lib/inbox/personal-context";
 import { loadActionMemory } from "@/lib/store/action-memory";
 import { listGmailFolder, listGmailInbox } from "@/lib/mail/gmail";
 import { listGraphFolder, listGraphInbox } from "@/lib/mail/graph";
+import { makeGmailLabelStore } from "@/lib/mail/seer-labels";
 import { requireMailSession } from "@/lib/mail/session";
 import { getSenderOverride } from "@/lib/store/senders";
 import { NextResponse } from "next/server";
@@ -49,7 +50,7 @@ export async function GET() {
         ? await listGmailInbox(session.accessToken, 50)
         : await listGraphInbox(session.accessToken, 50);
 
-    const [history, personal, actionMemory] = await Promise.all([
+    const [history, personal, actionMemory, labels] = await Promise.all([
       getOrBuildMailHistory(
         session.email,
         session.accessToken,
@@ -67,6 +68,9 @@ export async function GET() {
         provider: session.provider,
       }),
       loadActionMemory(session.email),
+      session.provider === "google"
+        ? makeGmailLabelStore(session.accessToken, session.email)
+        : Promise.resolve(null),
     ]);
 
     const decisions = await classifyInboxWithAssistant(
@@ -77,11 +81,12 @@ export async function GET() {
         fromName: m.fromName,
         subject: m.subject,
         snippet: m.snippet,
+        labelIds: m.labelIds,
       })),
       history,
       (email) => getSenderOverride(email),
       classifyMessage,
-      { personal, actionMemory },
+      { personal, actionMemory, labels },
     );
 
     const classified: TodayEmail[] = [];

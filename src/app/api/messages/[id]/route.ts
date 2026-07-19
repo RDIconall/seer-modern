@@ -6,6 +6,7 @@ import { getPersonalContext } from "@/lib/inbox/personal-context";
 import { loadActionMemory } from "@/lib/store/action-memory";
 import { getGmailMessage, listGmailFolder } from "@/lib/mail/gmail";
 import { getGraphMessage, listGraphFolder } from "@/lib/mail/graph";
+import { makeGmailLabelStore } from "@/lib/mail/seer-labels";
 import { requireMailSession } from "@/lib/mail/session";
 import { getSenderOverride } from "@/lib/store/senders";
 import { NextResponse } from "next/server";
@@ -26,7 +27,7 @@ export async function GET(
         ? await getGmailMessage(session.accessToken, id)
         : await getGraphMessage(session.accessToken, id);
 
-    const [history, personal, actionMemory] = await Promise.all([
+    const [history, personal, actionMemory, labels] = await Promise.all([
       getOrBuildMailHistory(
         session.email,
         session.accessToken,
@@ -43,6 +44,9 @@ export async function GET(
         provider: session.provider,
       }),
       loadActionMemory(session.email),
+      session.provider === "google"
+        ? makeGmailLabelStore(session.accessToken, session.email)
+        : Promise.resolve(null),
     ]);
 
     const bodyText =
@@ -58,12 +62,13 @@ export async function GET(
           fromName: message.fromName,
           subject: message.subject,
           snippet: (message.snippet || bodyText).slice(0, 600),
+          labelIds: message.labelIds,
         },
       ],
       history,
       (email) => getSenderOverride(email),
       classifyMessage,
-      { personal, actionMemory },
+      { personal, actionMemory, labels },
     );
 
     const fromAssistant = decisions.get(message.id);

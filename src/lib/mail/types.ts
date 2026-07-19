@@ -11,6 +11,8 @@ export type MailMessageListItem = {
   snippet: string;
   receivedAt: string;
   isUnread: boolean;
+  /** Provider label ids (Gmail) — carries saved Seer decisions */
+  labelIds?: string[];
 };
 
 export type MailMessageDetail = MailMessageListItem & {

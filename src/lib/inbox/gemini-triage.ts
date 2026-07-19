@@ -11,6 +11,7 @@ import {
   meetingLabel,
   type PersonalContext,
 } from "@/lib/inbox/personal-context";
+import type { SeerLabelStore } from "@/lib/mail/seer-labels";
 import { intelBreakdown, intelContainsAny } from "@/lib/nlp/intel";
 import {
   learnedPrior,
@@ -61,6 +62,8 @@ export type GeminiTriageItem = {
   fromName: string;
   subject: string;
   snippet: string;
+  /** Gmail label ids — may carry a saved Seer decision */
+  labelIds?: string[];
 };
 
 export type DecisionSource = "gemini" | "rules" | "override" | "learned";
@@ -205,6 +208,8 @@ type CompactItem = {
 export type TriageExtras = {
   personal?: PersonalContext | null;
   actionMemory?: ActionMemory | null;
+  /** Gmail: read/write decisions as native Seer/<action> labels */
+  labels?: SeerLabelStore | null;
 };
 
 function compactPayload(
@@ -304,12 +309,15 @@ function toCached(r: AssistantClassifyResult): CachedDecision {
  * 2. Learned priors — the user's own repeated archive/trash actions on
  *    a sender ARE the classifier (free, and self-correcting).
  * 3. Persistent decision cache — already-classified mail costs zero tokens.
- * 4. Rules pre-filter — obvious junk decided locally without an API call
+ * 4. Native Gmail labels — Gemini reviewed once, its call was saved as a
+ *    Seer/<action> label on the message itself (free, survives restarts).
+ * 5. Rules pre-filter — obvious junk decided locally without an API call
  *    (never for contacts or people you're about to meet).
- * 5. Gemini decides the gray zone, fed relationship + contacts + calendar
+ * 6. Gemini decides the gray zone, fed relationship + contacts + calendar
  *    + past-action predictors, in large batches with a static system
- *    prompt (implicit prompt caching) and trimmed payloads.
- * 6. Rules fallback if Gemini is unavailable or misses an id.
+ *    prompt (implicit prompt caching) and trimmed payloads. New calls are
+ *    written back as Gmail labels so they're never paid for again.
+ * 7. Rules fallback if Gemini is unavailable or misses an id.
  */
 export async function classifyInboxWithAssistant(
   accountEmail: string,
@@ -391,7 +399,21 @@ export async function classifyInboxWithAssistant(
       continue;
     }
 
-    // 4. Rules pre-filter: obvious junk never reaches Gemini — but a
+    // 4. Native Gmail label: reviewed once earlier, call saved on the message
+    const labeled = extras?.labels?.lookup(item);
+    if (labeled) {
+      results.set(item.id, {
+        action: labeled,
+        confidence: "HIGH",
+        reason: "Reviewed earlier — decision saved as a Gmail label",
+        debug: debugFor(item, history, `label:Seer/${labeled}`),
+        source: "gemini",
+        cached: true,
+      });
+      continue;
+    }
+
+    // 5. Rules pre-filter: obvious junk never reaches Gemini — but a
     // contact or someone you're meeting soon is never junk.
     const ctx = contextSignals(extras?.personal, item.fromEmail);
     if (!ctx.inContacts && !ctx.meeting) {
@@ -420,7 +442,7 @@ export async function classifyInboxWithAssistant(
     forGemini.push(item);
   }
 
-  // 5. Gemini for the gray zone
+  // 6. Gemini for the gray zone
   if (forGemini.length > 0 && isGeminiConfigured()) {
     try {
       for (let i = 0; i < forGemini.length; i += BATCH) {
@@ -439,7 +461,7 @@ export async function classifyInboxWithAssistant(
     }
   }
 
-  // 6. Rules fallback for anything Gemini missed (not cached, so Gemini
+  // 7. Rules fallback for anything Gemini missed (not cached, so Gemini
   //    gets another shot on the next load)
   for (const item of forGemini) {
     if (results.has(item.id)) continue;
@@ -461,6 +483,15 @@ export async function classifyInboxWithAssistant(
   }
 
   await saveDecisions(accountEmail, toSave).catch(() => {});
+
+  // Save fresh calls as native Gmail labels — reviewed once, never re-paid
+  if (extras?.labels && toSave.size > 0) {
+    const labelWrites = [...toSave.entries()].map(([id, d]) => ({
+      id,
+      action: d.action,
+    }));
+    await extras.labels.persist(labelWrites).catch(() => {});
+  }
 
   return results;
 }

@@ -7,6 +7,7 @@ import { loadActionMemory } from "@/lib/store/action-memory";
 import type { EmailItem } from "@/lib/inbox/types";
 import { listGmailFolder, searchGmail } from "@/lib/mail/gmail";
 import { listGraphFolder, searchGraph } from "@/lib/mail/graph";
+import { makeGmailLabelStore } from "@/lib/mail/seer-labels";
 import { requireMailSession } from "@/lib/mail/session";
 import type { MailFolder, MailMessageListItem } from "@/lib/mail/types";
 import { getSenderOverride } from "@/lib/store/senders";
@@ -53,7 +54,7 @@ export async function GET(request: Request) {
       | undefined;
 
     if (shouldClassify) {
-      const [history, personal, actionMemory] = await Promise.all([
+      const [history, personal, actionMemory, labels] = await Promise.all([
         getOrBuildMailHistory(
           session.email,
           session.accessToken,
@@ -71,6 +72,9 @@ export async function GET(request: Request) {
           provider: session.provider,
         }),
         loadActionMemory(session.email),
+        session.provider === "google"
+          ? makeGmailLabelStore(session.accessToken, session.email)
+          : Promise.resolve(null),
       ]);
 
       const decisions = await classifyInboxWithAssistant(
@@ -81,11 +85,12 @@ export async function GET(request: Request) {
           fromName: m.fromName,
           subject: m.subject,
           snippet: m.snippet,
+          labelIds: m.labelIds,
         })),
         history,
         (email) => getSenderOverride(email),
         classifyMessage,
-        { personal, actionMemory },
+        { personal, actionMemory, labels },
       );
 
       annotated = [];

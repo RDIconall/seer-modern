@@ -128,6 +128,7 @@ async function hydrateList(
         ? new Date(Number(msg.internalDate)).toISOString()
         : new Date().toISOString(),
       isUnread: (msg.labelIds ?? []).includes("UNREAD"),
+      labelIds: msg.labelIds ?? [],
     });
   }
   return items;
@@ -201,6 +202,7 @@ export async function getGmailMessage(
       ? new Date(Number(msg.internalDate)).toISOString()
       : new Date().toISOString(),
     isUnread: (msg.labelIds ?? []).includes("UNREAD"),
+    labelIds: msg.labelIds ?? [],
     textBody: text,
     htmlBody: html,
     toEmail: header("To"),
