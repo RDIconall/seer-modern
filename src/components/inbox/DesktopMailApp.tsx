@@ -22,7 +22,11 @@ import { logout } from "@/app/actions";
 import { CardStack } from "@/components/inbox/CardStack";
 import { ComposePanel } from "@/components/inbox/ComposePanel";
 import { AssistBar } from "@/components/inbox/AssistBar";
-import { LogicExplain, LogicToggle } from "@/components/inbox/LogicExplain";
+import {
+  LogicExplain,
+  LogicToggle,
+  ReaderGuideBar,
+} from "@/components/inbox/LogicExplain";
 import { SettingsPanel } from "@/components/inbox/SettingsPanel";
 import { ACTION_META, type TriageAction } from "@/lib/inbox/classify";
 import { useMailbox } from "@/lib/inbox/use-mailbox";
@@ -156,8 +160,12 @@ export function DesktopMailApp() {
       {/* Left sidebar */}
       <aside className="flex w-[220px] shrink-0 flex-col border-r border-[var(--border)]">
         <div className="border-b border-[var(--border)] px-4 py-4">
-          <div className="seer-brand text-xl">Seer</div>
-          <div className="seer-tagline text-[11px]">Work smarter</div>
+          <div className="flex items-center gap-2">
+            {/* eslint-disable-next-line @next/next/no-img-element */}
+            <img src="/seer-mark.png" alt="" width={26} height={26} />
+            <span className="seer-brand text-lg">Seer</span>
+          </div>
+          <div className="seer-tagline mt-0.5 text-[11px]">Work smarter</div>
         </div>
 
         <div className="px-3 py-3">
@@ -473,8 +481,8 @@ export function DesktopMailApp() {
         ) : (
           <>
             <header className="shrink-0 border-b border-[var(--border)] px-6 py-3">
-              <div className="flex items-start justify-between gap-4">
-                <h2 className="min-w-0 text-xl font-medium leading-snug">
+              <div className="flex flex-wrap items-center justify-between gap-x-4 gap-y-2">
+                <h2 className="min-w-0 flex-1 basis-60 text-xl font-semibold leading-snug text-[var(--fg-strong)]">
                   {reader?.subject ?? "…"}
                 </h2>
                 <ReaderToolbar
@@ -521,10 +529,7 @@ export function DesktopMailApp() {
                       </div>
                     </div>
                     {reader.guide ? (
-                      <div className="mt-3 space-y-1">
-                        <LogicExplain guide={reader.guide} expanded />
-                        <p className="text-sm">{reader.guide.instruction}</p>
-                      </div>
+                      <ReaderGuideBar guide={reader.guide} />
                     ) : null}
                     <AssistBar
                       reader={reader}

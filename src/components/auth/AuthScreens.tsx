@@ -18,11 +18,11 @@ const microsoft =
 function SeerMark({ size = 80 }: { size?: number }) {
   return (
     <Image
-      src="/icons/icon-192.png"
+      src="/seer-mark.png"
       alt="Seer"
       width={size}
       height={size}
-      className="mx-auto rounded-[1.25rem] shadow-sm"
+      className="mx-auto"
       priority
     />
   );
@@ -90,13 +90,7 @@ export function DesktopLoginScreen() {
     <div className="flex min-h-screen bg-[var(--bg)] text-[var(--fg)]">
       <div className="seer-atmosphere hidden w-[42%] flex-col justify-between p-12 md:flex">
         <div className="flex items-center gap-3">
-          <Image
-            src="/icons/icon-192.png"
-            alt=""
-            width={40}
-            height={40}
-            className="rounded-xl"
-          />
+          <Image src="/seer-mark.png" alt="" width={40} height={40} />
           <span className="seer-brand text-2xl">Seer</span>
         </div>
         <div>
@@ -114,13 +108,7 @@ export function DesktopLoginScreen() {
       <div className="flex flex-1 flex-col items-center justify-center px-6 py-16">
         <div className="w-full max-w-sm">
           <div className="mb-1 flex items-center gap-2 md:hidden">
-            <Image
-              src="/icons/icon-192.png"
-              alt=""
-              width={36}
-              height={36}
-              className="rounded-lg"
-            />
+            <Image src="/seer-mark.png" alt="" width={36} height={36} />
             <span className="seer-brand text-2xl">Seer</span>
           </div>
           <h2 className="text-xl font-medium text-[var(--fg-strong)]">Sign in</h2>

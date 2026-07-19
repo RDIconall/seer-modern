@@ -1,6 +1,20 @@
 "use client";
 
+import { ChevronDown } from "lucide-react";
+import { useState } from "react";
 import type { Guide } from "@/lib/inbox/types";
+
+function sourceLabelFor(guide: Guide): string | null {
+  return guide.source === "gemini"
+    ? "Gemini"
+    : guide.source === "override"
+      ? "Taught"
+      : guide.source === "learned"
+        ? "Learned from you"
+        : guide.source === "rules"
+          ? "Rules"
+          : null;
+}
 
 /** Compact audit of why an email got its action. */
 export function LogicExplain({
@@ -11,16 +25,7 @@ export function LogicExplain({
   expanded?: boolean;
 }) {
   const d = guide.debug;
-  const sourceLabel =
-    guide.source === "gemini"
-      ? "Gemini"
-      : guide.source === "override"
-        ? "Taught"
-        : guide.source === "learned"
-          ? "Learned from you"
-          : guide.source === "rules"
-            ? "Rules"
-            : null;
+  const sourceLabel = sourceLabelFor(guide);
 
   return (
     <div className="mt-1 space-y-1">
@@ -83,6 +88,89 @@ export function LogicExplain({
             {d.intel.notices} · follow {d.intel.followUp}
           </dd>
         </dl>
+      ) : null}
+    </div>
+  );
+}
+
+/**
+ * Reader guide: one calm line — what to do — with the reasoning tucked
+ * behind a "Why?" disclosure so the email is visible immediately.
+ */
+export function ReaderGuideBar({ guide }: { guide: Guide }) {
+  const [open, setOpen] = useState(false);
+  const d = guide.debug;
+  const sourceLabel = sourceLabelFor(guide);
+
+  return (
+    <div
+      className="mt-3 overflow-hidden rounded-lg"
+      style={{
+        backgroundColor: `${guide.color}12`,
+        border: `1px solid ${guide.color}40`,
+      }}
+    >
+      <button
+        type="button"
+        onClick={() => setOpen((v) => !v)}
+        className="flex w-full items-center gap-2 px-3 py-2 text-left"
+        aria-expanded={open}
+      >
+        <span
+          className="h-2 w-2 shrink-0 rounded-full"
+          style={{ backgroundColor: guide.color }}
+          aria-hidden
+        />
+        <span className="min-w-0 flex-1 truncate text-[13px]">
+          <span className="font-bold" style={{ color: guide.color }}>
+            {guide.label}
+          </span>
+          <span className="text-[var(--fg)]"> — {guide.instruction}</span>
+        </span>
+        <span className="flex shrink-0 items-center gap-1 text-[11px] font-medium text-[var(--muted)]">
+          Why?
+          <ChevronDown
+            className={`h-3.5 w-3.5 transition-transform ${open ? "rotate-180" : ""}`}
+          />
+        </span>
+      </button>
+      {open ? (
+        <div className="space-y-1.5 border-t border-[var(--border)] px-3 py-2.5">
+          <p className="text-[12px] leading-snug text-[var(--fg)]">
+            {guide.reason}
+            {sourceLabel || guide.confidence ? (
+              <span className="text-[var(--muted)]">
+                {" "}
+                · {[sourceLabel, guide.confidence].filter(Boolean).join(" · ")}
+              </span>
+            ) : null}
+          </p>
+          {guide.who ? (
+            <p className="text-[12px] leading-snug text-[var(--muted)]">
+              <span className="font-semibold text-[var(--fg)]">Who:</span>{" "}
+              {guide.who}
+            </p>
+          ) : null}
+          {guide.harm ? (
+            <p className="text-[12px] leading-snug text-[var(--muted)]">
+              <span className="font-semibold text-[var(--fg)]">
+                If deleted:
+              </span>{" "}
+              {guide.harm}
+            </p>
+          ) : null}
+          {d ? (
+            <p className="pt-0.5 font-mono text-[10px] leading-relaxed text-[var(--nav-muted)]">
+              {d.ruleId} · {d.relationship}
+              {d.staleEngagement ? " (stale)" : ""} · {d.sentTo} sent ·{" "}
+              {d.receivedFrom} recv · {d.actionable ? "actionable" : "not actionable"}
+              {d.inContacts != null
+                ? ` · ${d.inContacts ? "contact" : "not in contacts"}`
+                : ""}
+              {d.meeting ? ` · ${d.meeting}` : ""}
+            </p>
+          ) : null}
+        </div>
       ) : null}
     </div>
   );

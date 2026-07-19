@@ -34,7 +34,11 @@ import { ACTION_META, type TriageAction } from "@/lib/inbox/classify";
 import { CardStack } from "@/components/inbox/CardStack";
 import { ComposePanel } from "@/components/inbox/ComposePanel";
 import { AssistBar } from "@/components/inbox/AssistBar";
-import { LogicExplain, LogicToggle } from "@/components/inbox/LogicExplain";
+import {
+  LogicExplain,
+  LogicToggle,
+  ReaderGuideBar,
+} from "@/components/inbox/LogicExplain";
 import { SettingsPanel } from "@/components/inbox/SettingsPanel";
 import { useMailbox } from "@/lib/inbox/use-mailbox";
 import {
@@ -223,12 +227,7 @@ export function MobileMailApp() {
                 </div>
               </div>
             </div>
-            {g ? (
-              <div className="mt-3 space-y-1">
-                <LogicExplain guide={g} expanded />
-                <p className="text-xs text-[var(--fg)]">{g.instruction}</p>
-              </div>
-            ) : null}
+            {g ? <ReaderGuideBar guide={g} /> : null}
             {reader ? (
               <AssistBar
                 reader={reader}
@@ -296,8 +295,12 @@ export function MobileMailApp() {
               }}
               className="border-b border-[var(--border)] px-5 py-4 text-left"
             >
-              <div className="seer-brand text-2xl">Seer</div>
-              <div className="seer-tagline text-[11px]">Work smarter</div>
+              <div className="flex items-center gap-2.5">
+                {/* eslint-disable-next-line @next/next/no-img-element */}
+                <img src="/seer-mark.png" alt="" width={30} height={30} />
+                <span className="seer-brand text-xl">Seer</span>
+              </div>
+              <div className="seer-tagline mt-0.5 text-[11px]">Work smarter</div>
               <div className="mt-0.5 truncate text-xs text-[var(--muted)]">
                 {accountEmail}
               </div>

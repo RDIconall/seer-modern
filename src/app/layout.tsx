@@ -1,13 +1,20 @@
 import type { Metadata, Viewport } from "next";
-import { Roboto, Roboto_Mono } from "next/font/google";
+import { Roboto_Mono } from "next/font/google";
+import localFont from "next/font/local";
 import { PwaRegister } from "@/components/PwaRegister";
 import "./globals.css";
 
-/* Prior Seer (getseer.com) shipped Roboto — keep brand fidelity */
-const seerSans = Roboto({
+/* Proxima Nova — the brand typeface from the Seer brand guidelines (1.3) */
+const seerSans = localFont({
+  src: [
+    { path: "../fonts/ProximaNova-Light.otf", weight: "300", style: "normal" },
+    { path: "../fonts/ProximaNova-Regular.otf", weight: "400", style: "normal" },
+    { path: "../fonts/ProximaNova-Italic.otf", weight: "400", style: "italic" },
+    { path: "../fonts/ProximaNova-Semibold.otf", weight: "600", style: "normal" },
+    { path: "../fonts/ProximaNova-Bold.otf", weight: "700", style: "normal" },
+  ],
   variable: "--font-seer",
-  subsets: ["latin"],
-  weight: ["100", "300", "400", "500", "700"],
+  display: "swap",
 });
 
 const seerMono = Roboto_Mono({
@@ -32,8 +39,8 @@ export const metadata: Metadata = {
 
 export const viewport: Viewport = {
   themeColor: [
-    { media: "(prefers-color-scheme: light)", color: "#3498d9" },
-    { media: "(prefers-color-scheme: dark)", color: "#1e4a66" },
+    { media: "(prefers-color-scheme: light)", color: "#2e7cf6" },
+    { media: "(prefers-color-scheme: dark)", color: "#1e242b" },
   ],
   width: "device-width",
   initialScale: 1,
