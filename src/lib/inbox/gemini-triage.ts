@@ -1,6 +1,7 @@
 import {
   ACTION_META,
   type ClassifyDebug,
+  type ClassifyExtras,
   type ClassifyResult,
   type Confidence,
   type TriageAction,
@@ -30,7 +31,7 @@ import { z } from "zod";
  * Bump when the prompt/actions change so stale cached decisions
  * are ignored and re-classified.
  */
-export const PROMPT_VERSION = 3;
+export const PROMPT_VERSION = 4;
 
 const ACTIONS = [
   "respond",
@@ -94,6 +95,7 @@ const PREFILTER_RULE_IDS = new Set([
   "shopping-domain",
   "product-notify-promo",
   "product-notify-archive",
+  "urgency-bait-delete",
 ]);
 
 function resolveModel(): { model: LanguageModel | string; label: string } {
@@ -184,6 +186,7 @@ Optional predictor fields (omitted when zero/default):
 - past: what the user did with recent mail from this sender (e.g. "trashed 2/3") — lean toward repeating their pattern
 
 Priority when signals conflict: meeting > contact > engaged rel > past behavior > content.
+FAKE URGENCY is the #1 trick: "expires today", "last chance", "action required", "final notice", "reminder:" from bulk/noreply/marketing senders is promo bait — delete_now or glance_promo, NEVER act_today. Urgency is real only from contacts, engaged/known senders, or genuine transactional mail (2FA codes, password resets, security alerts, boarding passes, deliveries, appointments).
 Cold noreply marketing → delete_now or unsubscribe.
 Product/CI (GitHub, Vercel, Figma, etc.) → usually read_and_archive unless promo.
 Be decisive. Prefer a confident archive/delete over needs_review.
@@ -333,6 +336,7 @@ export async function classifyInboxWithAssistant(
     },
     override: TriageAction | null,
     history: MailHistory | null | undefined,
+    classifyExtras?: ClassifyExtras,
   ) => ClassifyResult,
   extras?: TriageExtras,
 ): Promise<Map<string, AssistantClassifyResult>> {
@@ -399,23 +403,37 @@ export async function classifyInboxWithAssistant(
       continue;
     }
 
-    // 4. Native Gmail label: reviewed once earlier, call saved on the message
+    const ctx = contextSignals(extras?.personal, item.fromEmail);
+    const classifyExtras: ClassifyExtras = {
+      inContacts: ctx.inContacts,
+      meeting: meetingLabel(ctx.meeting),
+    };
+
+    // 4. Native Gmail label: reviewed once earlier, call saved on the message.
+    // Exception: an "urgent" label on a bulk sender who isn't a contact is
+    // probably urgency bait that slipped through an older prompt — re-review.
     const labeled = extras?.labels?.lookup(item);
     if (labeled) {
-      results.set(item.id, {
-        action: labeled,
-        confidence: "HIGH",
-        reason: "Reviewed earlier — decision saved as a Gmail label",
-        debug: debugFor(item, history, `label:Seer/${labeled}`),
-        source: "gemini",
-        cached: true,
-      });
-      continue;
+      const suspiciousUrgent =
+        (labeled === "act_today" || labeled === "respond") &&
+        !ctx.inContacts &&
+        !ctx.meeting &&
+        historySignals(history, item.fromEmail).relationship === "bulk";
+      if (!suspiciousUrgent) {
+        results.set(item.id, {
+          action: labeled,
+          confidence: "HIGH",
+          reason: "Reviewed earlier — decision saved as a Gmail label",
+          debug: debugFor(item, history, `label:Seer/${labeled}`),
+          source: "gemini",
+          cached: true,
+        });
+        continue;
+      }
     }
 
     // 5. Rules pre-filter: obvious junk never reaches Gemini — but a
     // contact or someone you're meeting soon is never junk.
-    const ctx = contextSignals(extras?.personal, item.fromEmail);
     if (!ctx.inContacts && !ctx.meeting) {
       const ruled = rulesFallback(
         {
@@ -426,6 +444,7 @@ export async function classifyInboxWithAssistant(
         },
         null,
         history,
+        classifyExtras,
       );
       if (PREFILTER_RULE_IDS.has(ruled.debug.ruleId)) {
         const r: AssistantClassifyResult = {
@@ -465,6 +484,7 @@ export async function classifyInboxWithAssistant(
   //    gets another shot on the next load)
   for (const item of forGemini) {
     if (results.has(item.id)) continue;
+    const ctx = contextSignals(extras?.personal, item.fromEmail);
     const r = rulesFallback(
       {
         fromEmail: item.fromEmail,
@@ -474,6 +494,7 @@ export async function classifyInboxWithAssistant(
       },
       null,
       history,
+      { inContacts: ctx.inContacts, meeting: meetingLabel(ctx.meeting) },
     );
     results.set(item.id, {
       ...r,

@@ -55,6 +55,18 @@ export function LogicExplain({
           </dd>
           <dt className="text-[var(--muted)]">Actionable</dt>
           <dd>{d.actionable ? "yes" : "no"}</dd>
+          {d.inContacts != null ? (
+            <>
+              <dt className="text-[var(--muted)]">Contact</dt>
+              <dd>{d.inContacts ? "yes — protected" : "no"}</dd>
+            </>
+          ) : null}
+          {d.meeting ? (
+            <>
+              <dt className="text-[var(--muted)]">Meeting</dt>
+              <dd>{d.meeting}</dd>
+            </>
+          ) : null}
           <dt className="text-[var(--muted)]">Intel</dt>
           <dd>
             req {d.intel.request} · sched {d.intel.schedule} · notice{" "}

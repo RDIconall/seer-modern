@@ -32,6 +32,16 @@ export type ClassifyDebug = {
     request: number;
     followUp: number;
   };
+  /** Address-book / calendar signals when available */
+  inContacts?: boolean;
+  meeting?: string | null;
+};
+
+/** Contact + calendar context, threaded in from personal-context. */
+export type ClassifyExtras = {
+  inContacts?: boolean;
+  /** Human label of an upcoming meeting with this sender, e.g. "Standup · in 2d" */
+  meeting?: string | null;
 };
 
 export const ACTION_META: Record<
@@ -125,8 +135,20 @@ export type ClassifyResult = {
  * Action-oriented triage in the spirit of classic Seer.
  * Every message gets an action + ruleId so you can audit the path.
  */
-const TIME_SENSITIVE =
-  /\b(2fa|two-factor|verification code|verify your|otp|password reset|security alert|boarding pass|flight|appointment|delivery|shipped|out for delivery|expires today|due today|reminder:|action required|confirm your (email|account))\b/i;
+/**
+ * Genuinely transactional urgency — real even from a noreply robot:
+ * codes, security, travel, deliveries, appointments.
+ */
+const TRANSACTIONAL_URGENT =
+  /\b(2fa|two-factor|verification code|one-time (code|passcode)|otp|password reset|security alert|suspicious sign-?in|boarding pass|check-in (open|now)|flight (confirmation|reminder|change|cancell)|appointment (confirm|remind)|out for delivery|delivered|delivery (today|update)|shipped)\b/i;
+
+/**
+ * Urgency bait — marketing's favorite trick. Only counts as urgent when
+ * the sender is trusted (contact / engaged / known); from bulk or cold
+ * senders it's just a promo wearing a costume.
+ */
+const URGENCY_BAIT =
+  /\b(expires? (today|tonight|soon|at midnight)|ends (today|tonight|soon)|last (chance|day|hours)|final (notice|hours|day|reminder)|act now|action required|due today|hurry|don'?t miss|limited time|selling (out|fast)|only \d+ (left|remaining)|reminder:|confirm your (email|account))\b/i;
 
 const PRODUCT_NOTIFY_DOMAINS =
   /(github\.com|noreply\.github\.com|users\.noreply\.github\.com|gitlab\.com|bitbucket\.org|vercel\.com|netlify\.com|cursor\.com|cursor\.sh|slack\.com|discord\.com|notion\.so|figma\.com|linear\.app|atlassian\.net|jira\.|asana\.com|trello\.com|dropbox\.com|box\.com|zoom\.us|calendly\.com|linkedin\.com|twitter\.com|x\.com|facebookmail\.com|instagram\.com|spotify\.com|apple\.com|accounts\.google\.com|microsoft\.com|office365\.com|google\.com|amazonses\.com|sendgrid\.net|mailchimp\.com|intercom-mail\.com|stripe\.com)/i;
@@ -179,6 +201,7 @@ type Ctx = {
   signals: HistorySignals;
   actionable: boolean;
   intel: ReturnType<typeof intelBreakdown>;
+  extras?: ClassifyExtras;
 };
 
 function hit(
@@ -201,6 +224,8 @@ function hit(
       staleEngagement: ctx.signals.staleEngagement,
       actionable: ctx.actionable,
       intel: ctx.intel,
+      inContacts: ctx.extras?.inContacts,
+      meeting: ctx.extras?.meeting ?? null,
     },
   };
 }
@@ -209,6 +234,7 @@ export function classifyMessage(
   input: ClassifyInput,
   senderOverride?: TriageAction | null,
   history?: MailHistory | null,
+  extras?: ClassifyExtras,
 ): ClassifyResult {
   const email = input.fromEmail.toLowerCase().trim();
   const dom = domain(email);
@@ -221,7 +247,48 @@ export function classifyMessage(
     intelContainsAny(`${input.subject}\n${input.snippet}`) ||
     intel.request > 0 ||
     intel.schedule > 0;
-  const ctx: Ctx = { signals, actionable, intel };
+  const ctx: Ctx = { signals, actionable, intel, extras };
+
+  const result = classifyCore(input, senderOverride, ctx, {
+    email,
+    dom,
+    local,
+    blob,
+    fromBlob,
+  });
+
+  // Contact protection: someone in your address book is never
+  // auto-deleted or unsubscribed, whatever their mail looks like.
+  if (
+    extras?.inContacts &&
+    (result.action === "delete_now" || result.action === "unsubscribe")
+  ) {
+    return hit(
+      "read_and_archive",
+      "MED",
+      "In your contacts — protected from auto-delete",
+      "contact-protect",
+      ctx,
+    );
+  }
+
+  return result;
+}
+
+function classifyCore(
+  input: ClassifyInput,
+  senderOverride: TriageAction | null | undefined,
+  ctx: Ctx,
+  parts: {
+    email: string;
+    dom: string;
+    local: string;
+    blob: string;
+    fromBlob: string;
+  },
+): ClassifyResult {
+  const { email, dom, local, blob, fromBlob } = parts;
+  const { signals, actionable, extras } = ctx;
 
   if (senderOverride) {
     return hit(
@@ -233,14 +300,72 @@ export function classifyMessage(
     );
   }
 
-  if (TIME_SENSITIVE.test(blob) || TIME_SENSITIVE.test(input.subject)) {
+  // Calendar beats everything: you're about to meet this person
+  if (extras?.meeting) {
+    return hit(
+      actionable ? "act_today" : "respond",
+      "HIGH",
+      `Upcoming meeting with them (${extras.meeting})`,
+      "meeting-upcoming",
+      ctx,
+    );
+  }
+
+  // A contact with an ask is a person waiting on you
+  if (extras?.inContacts && actionable) {
+    return hit(
+      "respond",
+      "HIGH",
+      "In your contacts with an actionable ask",
+      "contact-actionable-respond",
+      ctx,
+    );
+  }
+
+  // Real transactional urgency — genuine even from noreply robots
+  if (
+    TRANSACTIONAL_URGENT.test(blob) ||
+    TRANSACTIONAL_URGENT.test(input.subject)
+  ) {
     return hit(
       "act_today",
       "MED",
-      "Time-sensitive keywords",
-      "time-sensitive-keywords",
+      "Transactional time-sensitive (code / security / travel / delivery)",
+      "transactional-urgent",
       ctx,
     );
+  }
+
+  // Urgency bait: only trusted senders get credit for "expires today"
+  if (URGENCY_BAIT.test(blob) || URGENCY_BAIT.test(input.subject)) {
+    const trusted =
+      extras?.inContacts ||
+      signals.relationship === "engaged" ||
+      signals.relationship === "known";
+    if (trusted) {
+      return hit(
+        "act_today",
+        "MED",
+        "Deadline language from a sender you know",
+        "trusted-urgency",
+        ctx,
+      );
+    }
+    // Untrusted urgency = marketing costume. Bulk/noreply shape → bin it.
+    if (
+      signals.relationship === "bulk" ||
+      NOREPLY.test(local) ||
+      isMarketingShape(local, dom, blob)
+    ) {
+      return hit(
+        "delete_now",
+        "MED",
+        "Fake urgency from a bulk sender — classic promo bait",
+        "urgency-bait-delete",
+        ctx,
+      );
+    }
+    // Cold but not obviously bulk: fall through to the normal rules below
   }
 
   // Known product / finance / shopping before bulk-noreply relationship,
