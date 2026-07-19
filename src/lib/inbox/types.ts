@@ -91,6 +91,10 @@ export function formatMailTime(iso: string) {
   const yesterday = new Date(now);
   yesterday.setDate(now.getDate() - 1);
   if (d.toDateString() === yesterday.toDateString()) return "Yesterday";
+  const daysAgo = (now.getTime() - d.getTime()) / (1000 * 60 * 60 * 24);
+  if (daysAgo < 7) {
+    return d.toLocaleDateString([], { weekday: "long" });
+  }
   return d.toLocaleDateString([], { month: "short", day: "numeric" });
 }
 

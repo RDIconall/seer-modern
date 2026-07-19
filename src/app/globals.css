@@ -68,11 +68,11 @@ body {
   height: auto;
 }
 
-/* Mail row */
+/* Outlook-style mobile mail row */
 .mail-row {
   display: flex;
-  gap: 12px;
-  padding: 12px 16px;
+  gap: 10px;
+  padding: 10px 14px 10px 10px;
   border-bottom: 1px solid var(--border);
   background: var(--bg);
   position: relative;
@@ -83,10 +83,37 @@ body {
   background: var(--row-hover);
 }
 
-.mail-row.unread .mail-from,
-.mail-row.unread .mail-subject {
+.mail-row.unread .mail-from {
   font-weight: 700;
-  color: var(--unread);
+  color: var(--fg-strong);
+}
+
+.mail-row.unread .mail-subject {
+  font-weight: 600;
+  color: var(--fg-strong);
+}
+
+.mail-unread-dot {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: var(--primary);
+  margin-top: 6px;
+  flex-shrink: 0;
+}
+
+.mail-unread-dot.empty {
+  background: transparent;
+}
+
+.outlook-header {
+  background: var(--primary);
+  color: #fff;
+  padding-top: var(--safe-top);
+}
+
+.outlook-header button {
+  color: #fff;
 }
 
 .bottom-nav {

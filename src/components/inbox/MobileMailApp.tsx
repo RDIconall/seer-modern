@@ -359,24 +359,24 @@ export function MobileMailApp() {
         </div>
       ) : null}
 
-      <header className="sticky top-0 z-10 bg-[var(--bg)] px-2 pb-1 pt-2">
+      <header className="sticky top-0 z-10 outlook-header shadow-sm">
         {searchOpen ? (
           <form
-            className="flex items-center gap-1 rounded-full bg-[var(--card)] px-2 py-1.5"
+            className="flex items-center gap-1 px-2 py-2"
             onSubmit={(e) => {
               e.preventDefault();
               submitSearch();
             }}
           >
-            <IconBtn onClick={closeSearch} label="Close search">
+            <IconBtn onClick={closeSearch} label="Close search" light>
               <ChevronLeft className="h-6 w-6" />
             </IconBtn>
             <input
               ref={searchRef}
               value={search}
               onChange={(e) => setSearch(e.target.value)}
-              placeholder="Search in mail"
-              className="min-w-0 flex-1 bg-transparent text-[15px] outline-none"
+              placeholder="Search"
+              className="min-w-0 flex-1 rounded bg-white/15 px-3 py-2 text-[15px] text-white outline-none placeholder:text-white/70"
             />
             {search ? (
               <IconBtn
@@ -385,51 +385,47 @@ export function MobileMailApp() {
                   setQuery("");
                 }}
                 label="Clear"
+                light
               >
                 <X className="h-5 w-5" />
               </IconBtn>
             ) : null}
           </form>
         ) : (
-          <div className="flex items-center gap-1 rounded-full bg-[var(--card)] px-1 py-1">
-            <IconBtn onClick={() => setDrawer(true)} label="Menu">
+          <div className="flex items-center gap-0.5 px-1 py-1.5">
+            <IconBtn onClick={() => setDrawer(true)} label="Menu" light>
               <Menu className="h-5 w-5" />
             </IconBtn>
-            <button
-              type="button"
-              onClick={() => setSearchOpen(true)}
-              className="min-w-0 flex-1 truncate px-1 text-left text-[15px] text-[var(--muted)]"
-            >
-              Search in {FOLDER_LABEL[tab].toLowerCase()}
-            </button>
-            <IconBtn onClick={load} disabled={loading} label="Refresh">
+            <h1 className="min-w-0 flex-1 truncate px-1 text-[20px] font-semibold tracking-tight text-white">
+              {query
+                ? "Search results"
+                : tab === "cards"
+                  ? "Cards"
+                  : tab === "triage"
+                    ? "Triage"
+                    : FOLDER_LABEL[tab]}
+            </h1>
+            <IconBtn onClick={load} disabled={loading} label="Refresh" light>
               <RefreshCw
                 className={`h-5 w-5 ${loading ? "animate-spin" : ""}`}
               />
             </IconBtn>
-            <button
-              type="button"
-              onClick={() => setSettingsOpen(true)}
-              className="mr-1 flex h-8 w-8 items-center justify-center rounded-full bg-[var(--primary)] text-xs font-semibold text-white"
-              title={`${accountEmail} — Settings`}
-              aria-label="Settings"
+            <IconBtn
+              onClick={() => setSearchOpen(true)}
+              label="Search"
+              light
             >
-              {mailInitial(accountEmail)}
-            </button>
+              <Search className="h-5 w-5" />
+            </IconBtn>
+            <IconBtn
+              onClick={() => setSettingsOpen(true)}
+              label="Settings"
+              light
+            >
+              <Settings className="h-5 w-5" />
+            </IconBtn>
           </div>
         )}
-        {tab !== "cards" ? (
-          <div className="flex items-center justify-between px-3 pt-3 pb-1">
-            <h1 className="text-xl font-normal tracking-tight">
-              {query ? "Search results" : FOLDER_LABEL[tab]}
-            </h1>
-            {tab !== "triage" && mailbox ? (
-              <span className="text-xs text-[var(--muted)]">
-                {mailbox.count}
-              </span>
-            ) : null}
-          </div>
-        ) : null}
       </header>
 
       <main
@@ -571,7 +567,7 @@ export function MobileMailApp() {
           <BottomNavItem
             active={tab === "inbox" || tab === "sent" || tab === "trash"}
             label="Mail"
-            icon={<Inbox className="h-5 w-5" />}
+            icon={<Inbox className="h-6 w-6" />}
             onClick={() => {
               if (tab === "triage" || tab === "cards") setTab("inbox");
             }}
@@ -579,19 +575,19 @@ export function MobileMailApp() {
           <BottomNavItem
             active={tab === "cards"}
             label="Cards"
-            icon={<Layers className="h-5 w-5" />}
+            icon={<Layers className="h-6 w-6" />}
             onClick={() => selectFolder("cards")}
           />
           <BottomNavItem
             active={searchOpen}
             label="Search"
-            icon={<Search className="h-5 w-5" />}
+            icon={<Search className="h-6 w-6" />}
             onClick={() => setSearchOpen(true)}
           />
           <BottomNavItem
             active={tab === "triage"}
             label="Triage"
-            icon={<ListFilter className="h-5 w-5" />}
+            icon={<ListFilter className="h-6 w-6" />}
             onClick={() => selectFolder("triage")}
           />
         </div>
@@ -601,11 +597,10 @@ export function MobileMailApp() {
         <button
           type="button"
           onClick={startCompose}
-          className="fixed bottom-[calc(4.25rem+var(--safe-bottom))] right-4 z-30 flex items-center gap-2 rounded-2xl bg-[var(--card)] px-4 py-3.5 text-sm font-medium text-[var(--primary)] shadow-md ring-1 ring-black/5 dark:ring-white/10"
+          className="fixed bottom-[calc(4.5rem+var(--safe-bottom))] right-4 z-30 flex h-14 w-14 items-center justify-center rounded-full bg-[var(--primary)] text-white shadow-lg"
           aria-label="Compose"
         >
-          <PenSquare className="h-5 w-5" />
-          Compose
+          <PenSquare className="h-6 w-6" />
         </button>
       ) : null}
 
@@ -619,11 +614,13 @@ function IconBtn({
   onClick,
   label,
   disabled,
+  light,
 }: {
   children: ReactNode;
   onClick?: () => void;
   label: string;
   disabled?: boolean;
+  light?: boolean;
 }) {
   return (
     <button
@@ -631,7 +628,11 @@ function IconBtn({
       aria-label={label}
       disabled={disabled}
       onClick={onClick}
-      className="flex h-10 w-10 items-center justify-center rounded-full text-[var(--fg)] disabled:opacity-40 active:bg-black/5 dark:active:bg-white/10"
+      className={`flex h-10 w-10 items-center justify-center rounded-full disabled:opacity-40 ${
+        light
+          ? "text-white active:bg-white/15"
+          : "text-[var(--fg)] active:bg-black/5 dark:active:bg-white/10"
+      }`}
     >
       {children}
     </button>
@@ -653,10 +654,10 @@ function DrawerItem({
     <button
       type="button"
       onClick={onClick}
-      className={`flex w-full items-center gap-4 rounded-r-full px-5 py-3 text-sm ${
+      className={`flex w-full items-center gap-4 px-5 py-3.5 text-sm ${
         active
-          ? "bg-[var(--primary-soft)] font-medium text-[var(--fg-strong)]"
-          : "text-[var(--fg)]"
+          ? "border-l-4 border-[var(--primary)] bg-[var(--primary-soft)] font-semibold text-[var(--fg-strong)]"
+          : "border-l-4 border-transparent text-[var(--fg)]"
       }`}
     >
       {icon}
@@ -680,8 +681,10 @@ function BottomNavItem({
     <button
       type="button"
       onClick={onClick}
-      className={`flex flex-col items-center gap-0.5 py-2 text-[10px] ${
-        active ? "text-[var(--primary)]" : "text-[var(--muted)]"
+      className={`flex flex-col items-center gap-0.5 py-2.5 text-[11px] ${
+        active
+          ? "font-semibold text-[var(--primary)]"
+          : "text-[var(--muted)]"
       }`}
     >
       {icon}
@@ -775,7 +778,6 @@ function SwipeMailRow({
   showGuide: boolean;
 }) {
   const g = item.guide;
-  const accent = g?.color ?? "#7baaf7";
   const startX = useRef<number | null>(null);
   const [offset, setOffset] = useState(0);
 
@@ -796,10 +798,10 @@ function SwipeMailRow({
 
   return (
     <li className="relative overflow-hidden">
-      <div className="absolute inset-y-0 left-0 flex w-24 items-center justify-center bg-[#0b8043] text-white">
+      <div className="absolute inset-y-0 left-0 flex w-24 items-center justify-center bg-[#107c10] text-white">
         <Archive className="h-5 w-5" />
       </div>
-      <div className="absolute inset-y-0 right-0 flex w-24 items-center justify-center bg-[#d93025] text-white">
+      <div className="absolute inset-y-0 right-0 flex w-24 items-center justify-center bg-[#d13438] text-white">
         <Trash2 className="h-5 w-5" />
       </div>
       <article
@@ -817,25 +819,23 @@ function SwipeMailRow({
         }`}
         style={{ transform: `translateX(${offset}px)` }}
       >
-        <div
-          className="flex h-10 w-10 shrink-0 items-center justify-center rounded-full text-sm font-medium text-white"
-          style={{ backgroundColor: accent }}
-        >
-          {mailInitial(item.fromName || item.fromEmail)}
-        </div>
+        <span
+          className={`mail-unread-dot ${item.isUnread ? "" : "empty"}`}
+          aria-hidden
+        />
         <div className="min-w-0 flex-1">
           <div className="flex items-baseline justify-between gap-2">
-            <span className="mail-from truncate text-[14px]">
+            <span className="mail-from truncate text-[15px] text-[var(--fg-strong)]">
               {item.fromName || item.fromEmail}
             </span>
-            <span className="shrink-0 text-[11px] text-[var(--muted)]">
+            <span className="shrink-0 text-[12px] text-[var(--muted)]">
               {formatMailTime(item.receivedAt)}
             </span>
           </div>
-          <div className="mail-subject truncate text-[13px] leading-snug">
+          <div className="mail-subject truncate text-[14px] leading-snug text-[var(--fg)]">
             {item.subject}
           </div>
-          <div className="truncate text-[12px] leading-snug text-[var(--muted)]">
+          <div className="truncate text-[13px] leading-snug text-[var(--muted)]">
             {item.snippet}
           </div>
           {showGuide && g ? (

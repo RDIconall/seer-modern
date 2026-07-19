@@ -97,23 +97,55 @@ export type ClassifyResult = {
   reason: string;
 };
 
+/**
+ * Heuristic triage (not ML). First matching rule wins:
+ * 1. Per-sender override you taught in the UI
+ * 2. Time-sensitive / security keywords → act_today
+ * 3. Known product/CI bots → read_and_archive
+ * 4. Billing anomalies → review_subscription; normal receipts → read_and_archive
+ * 5. Clear promo / marketing → glance_promo or unsubscribe (not hard-delete)
+ * 6. Sales cold-outreach addresses → read_and_delete
+ * 7. Noreply automation → read_and_archive
+ * 8. .edu / .gov / personal providers / request language → respond
+ * 9. Else → needs_review
+ */
 const TIME_SENSITIVE =
-  /\b(2fa|two-factor|verification code|verify your|otp|password reset|boarding pass|flight|appointment|delivery|shipped|out for delivery|expires today|due today|reminder:|action required)\b/i;
+  /\b(2fa|two-factor|verification code|verify your|otp|password reset|security alert|boarding pass|flight|appointment|delivery|shipped|out for delivery|expires today|due today|reminder:|action required|confirm your (email|account))\b/i;
+
+/** Product / CI / social notifications — glance once, then archive */
+const PRODUCT_NOTIFY_DOMAINS =
+  /(github\.com|noreply\.github\.com|users\.noreply\.github\.com|gitlab\.com|bitbucket\.org|vercel\.com|netlify\.com|cursor\.com|cursor\.sh|slack\.com|discord\.com|notion\.so|figma\.com|linear\.app|atlassian\.net|jira\.|asana\.com|trello\.com|dropbox\.com|box\.com|zoom\.us|calendly\.com|linkedin\.com|twitter\.com|x\.com|facebookmail\.com|instagram\.com|spotify\.com|apple\.com|google\.com|accounts\.google\.com|microsoft\.com|office365\.com|amazonses\.com|sendgrid\.net)/i;
 
 const FINANCE_DOMAINS =
-  /(bankofamerica|chase|wellsfargo|plaid|stripe|amex|americanexpress|paypal|venmo|capitalone|citi\.com|schwab)/i;
+  /(bankofamerica|chase\.com|wellsfargo|plaid\.com|stripe\.com|amex|americanexpress|paypal\.com|venmo\.com|citi\.com|schwab|fidelity|coinbase)/i;
+
+/** Shopping / deals brands that are not “open your bank statement” */
+const SHOPPING_DOMAINS =
+  /(capitaloneshopping|retailmenot|honey\.|rakuten|slickdeals|groupon|shopify|email\.amazon\.|marketing\.amazon)/i;
 
 const MARKETING_LOCAL =
-  /^(promo|deals|offers|newsletter|news|marketing|hello@|info@|team@|notifications@)/i;
+  /^(promo|deals|offers|newsletter|news|marketing|hello@|info@|team@|notifications@|noreply@|no-reply@)/i;
 
-const MARKETING_SUBDOMAIN = /^(mail|email|m|e|news|promo)\./i;
+const MARKETING_SUBDOMAIN = /^(mail|email|m|e|news|promo|marketing|go|em)\./i;
 
-const NOREPLY = /^(no-?reply|donotreply|noreply|notifications|alert|updates)@/i;
+const NOREPLY = /^(no-?reply|donotreply|noreply|notifications|alert|updates|mailer-daemon)@/i;
 
-const SALES = /^(reply|sales|bd|business|partnerships)@/i;
+const SALES = /^(sales|bd|business|partnerships|outreach)@/i;
 
 const PERSONAL_PROVIDERS =
   /@(gmail\.com|googlemail\.com|icloud\.com|me\.com|mac\.com|yahoo\.com|hotmail\.com|outlook\.com|live\.com)$/i;
+
+const PROMO_BLOB =
+  /\b(sale|%\s*off|limited time|shop now|free shipping|just for you|exclusive offer|new arrivals|flash deal)\b/i;
+
+const RECEIPT_BLOB =
+  /\b(statement|invoice|receipt|payment|charged|order confirmation|your order|subscription renewed|billing)\b/i;
+
+const ANOMALY_BLOB =
+  /\b(failed|declined|price change|unusual|anomaly|dispute|refund required)\b/i;
+
+const REQUEST_BLOB =
+  /\b(can you|could you|please send|let me know|when are you|are you free|quick question)\b/i;
 
 function domain(email: string): string {
   return email.split("@")[1]?.toLowerCase() ?? "";
@@ -131,6 +163,7 @@ export function classifyMessage(
   const dom = domain(email);
   const local = localPart(email);
   const blob = `${input.subject} ${input.snippet}`.toLowerCase();
+  const fromBlob = `${input.fromName ?? ""} ${email}`.toLowerCase();
 
   if (senderOverride) {
     return {
@@ -148,21 +181,31 @@ export function classifyMessage(
     };
   }
 
-  if (/\bunsubscribe\b/i.test(blob) && MARKETING_SUBDOMAIN.test(dom)) {
+  if (SHOPPING_DOMAINS.test(dom) || SHOPPING_DOMAINS.test(fromBlob)) {
     return {
-      action: "unsubscribe",
+      action: "glance_promo",
       confidence: "MED",
-      reason: "Marketing sender with unsubscribe",
+      reason: "Shopping / deals mail",
     };
   }
 
-  if (
-    FINANCE_DOMAINS.test(dom) ||
-    /\b(statement|invoice|receipt|payment|charged|subscription renewed)\b/i.test(
-      blob,
-    )
-  ) {
-    if (/\b(failed|declined|price change|unusual|anomaly)\b/i.test(blob)) {
+  if (PRODUCT_NOTIFY_DOMAINS.test(dom) || PRODUCT_NOTIFY_DOMAINS.test(fromBlob)) {
+    if (PROMO_BLOB.test(blob)) {
+      return {
+        action: "glance_promo",
+        confidence: "MED",
+        reason: "Product promo",
+      };
+    }
+    return {
+      action: "read_and_archive",
+      confidence: "MED",
+      reason: "Product or CI notification",
+    };
+  }
+
+  if (FINANCE_DOMAINS.test(dom) || RECEIPT_BLOB.test(blob)) {
+    if (ANOMALY_BLOB.test(blob)) {
       return {
         action: "review_subscription",
         confidence: "MED",
@@ -181,13 +224,21 @@ export function classifyMessage(
       return {
         action: "unsubscribe",
         confidence: "MED",
-        reason: "Marketing pattern",
+        reason: "Marketing pattern with unsubscribe",
       };
     }
     return {
-      action: "delete_now",
+      action: "glance_promo",
       confidence: "MED",
       reason: "Marketing subdomain or address",
+    };
+  }
+
+  if (PROMO_BLOB.test(blob) && /\bunsubscribe\b/i.test(blob)) {
+    return {
+      action: "glance_promo",
+      confidence: "MED",
+      reason: "Promotional content",
     };
   }
 
@@ -216,6 +267,13 @@ export function classifyMessage(
   }
 
   if (PERSONAL_PROVIDERS.test(email)) {
+    if (PROMO_BLOB.test(blob) || /\bunsubscribe\b/i.test(blob)) {
+      return {
+        action: "glance_promo",
+        confidence: "LOW",
+        reason: "Personal provider but promotional content",
+      };
+    }
     return {
       action: "respond",
       confidence: "LOW",
@@ -231,7 +289,7 @@ export function classifyMessage(
     };
   }
 
-  if (/\b(sale|%\s*off|limited time|shop now|free shipping)\b/i.test(blob)) {
+  if (PROMO_BLOB.test(blob)) {
     return {
       action: "glance_promo",
       confidence: "MED",
@@ -239,7 +297,7 @@ export function classifyMessage(
     };
   }
 
-  if (/\?/.test(input.snippet) || /\b(can you|could you|please send|let me know)\b/i.test(blob)) {
+  if (/\?/.test(input.snippet) || REQUEST_BLOB.test(blob)) {
     return {
       action: "respond",
       confidence: "MED",
