@@ -4,6 +4,7 @@ import {
   type ClassifyResult,
   type TriageAction,
 } from "@/lib/inbox/classify";
+import { senderStory } from "@/lib/inbox/sender-story";
 
 export type ActionGuide = {
   action: TriageAction;
@@ -17,6 +18,10 @@ export type ActionGuide = {
   detail?: string;
   debug?: ClassifyResult["debug"];
   source?: "gemini" | "rules" | "override" | "learned";
+  /** Who is this sender to you? */
+  who?: string;
+  /** Harm in deleting / when you actually need it */
+  harm?: string;
 };
 
 function instructionFor(
@@ -57,8 +62,14 @@ export function buildActionGuideQuick(
     instruction?: string;
   },
   subject: string,
+  fromName?: string,
 ): ActionGuide {
   const meta = ACTION_META[classification.action];
+  const story = senderStory(
+    classification.action,
+    classification.debug,
+    fromName,
+  );
   return {
     action: classification.action,
     label: meta.label,
@@ -70,6 +81,8 @@ export function buildActionGuideQuick(
       instructionFor(classification.action, subject),
     debug: classification.debug,
     source: classification.source,
+    who: story.who,
+    harm: story.harm,
   };
 }
 
@@ -81,6 +94,7 @@ export async function buildActionGuideDetailed(
   subject: string,
   snippet: string,
   bodyForNlp?: string,
+  fromName?: string,
 ): Promise<ActionGuide> {
   const meta = ACTION_META[classification.action];
   let detail: string | undefined;
@@ -107,6 +121,11 @@ export async function buildActionGuideDetailed(
     }
   }
 
+  const story = senderStory(
+    classification.action,
+    classification.debug,
+    fromName,
+  );
   return {
     action: classification.action,
     label: meta.label,
@@ -119,5 +138,7 @@ export async function buildActionGuideDetailed(
     detail,
     debug: classification.debug,
     source: classification.source,
+    who: story.who,
+    harm: story.harm,
   };
 }

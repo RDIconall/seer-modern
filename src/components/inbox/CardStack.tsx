@@ -281,6 +281,16 @@ function CardFace({
             {g.confidence ? ` · ${g.confidence}` : ""}
           </div>
           <div className="mt-1 text-[13px] text-[var(--fg)]">{g.reason}</div>
+          {g.who ? (
+            <div className="mt-2 text-[12px] leading-snug text-[var(--fg)]">
+              <span className="font-semibold">Who:</span> {g.who}
+            </div>
+          ) : null}
+          {g.harm ? (
+            <div className="mt-1 text-[12px] leading-snug text-[var(--muted)]">
+              <span className="font-semibold">If deleted:</span> {g.harm}
+            </div>
+          ) : null}
           {g.debug ? (
             <div className="mt-2 font-mono text-[10px] text-[var(--muted)]">
               {g.debug.ruleId} · {g.debug.relationship} · sent×

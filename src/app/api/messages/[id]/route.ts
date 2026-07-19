@@ -93,6 +93,7 @@ export async function GET(
       message.subject,
       message.snippet,
       bodyText,
+      message.fromName,
     );
 
     return NextResponse.json({ message, guide, classification });

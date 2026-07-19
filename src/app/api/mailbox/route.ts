@@ -112,7 +112,7 @@ export async function GET(request: Request) {
         if (result.cached) cached += 1;
         annotated.push({
           ...m,
-          guide: buildActionGuideQuick(result, m.subject),
+          guide: buildActionGuideQuick(result, m.subject, m.fromName),
         });
       }
       assistant = { gemini, rules, override, learned, cached };

@@ -12,6 +12,10 @@ export type Guide = {
   debug?: ClassifyDebug;
   /** Who decided: Gemini, rules fallback, taught override, or learned from your actions */
   source?: "gemini" | "rules" | "override" | "learned";
+  /** Who is this sender to you? */
+  who?: string;
+  /** Harm in deleting / when you actually need it */
+  harm?: string;
 };
 
 export type EmailItem = {

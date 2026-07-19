@@ -35,6 +35,16 @@ export function LogicExplain({
       <div className="line-clamp-2 text-[11px] leading-snug text-[var(--muted)]">
         {guide.reason}
       </div>
+      {expanded && guide.who ? (
+        <div className="text-[11px] leading-snug text-[var(--fg)]">
+          <span className="font-semibold">Who:</span> {guide.who}
+        </div>
+      ) : null}
+      {expanded && guide.harm ? (
+        <div className="text-[11px] leading-snug text-[var(--muted)]">
+          <span className="font-semibold">If deleted:</span> {guide.harm}
+        </div>
+      ) : null}
       {expanded && d ? (
         <dl className="mt-1.5 grid grid-cols-[auto_1fr] gap-x-2 gap-y-0.5 rounded-md bg-[var(--card)] px-2 py-1.5 text-[10px] leading-snug text-[var(--fg)]">
           <dt className="text-[var(--muted)]">Decided by</dt>

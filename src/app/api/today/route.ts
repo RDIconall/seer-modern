@@ -103,7 +103,7 @@ export async function GET() {
       else if (result.source === "learned") learnedCount += 1;
       else overrideCount += 1;
       if (result.cached) cachedCount += 1;
-      const guide = buildActionGuideQuick(result, m.subject);
+      const guide = buildActionGuideQuick(result, m.subject, m.fromName);
       classified.push({ ...m, guide });
     }
 
