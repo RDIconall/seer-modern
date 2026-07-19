@@ -25,6 +25,10 @@
 *.pem
 .data/
 
+# Private classifier exports (may contain subjects/snippets)
+fixtures/classifier/*.json
+!fixtures/classifier/.gitkeep
+
 # debug
 npm-debug.log*
 yarn-debug.log*
