@@ -1,6 +1,5 @@
 import type { Confidence, TriageAction } from "@/lib/inbox/classify";
-import { promises as fs } from "fs";
-import path from "path";
+import { accountKey, kvDelete, kvGet, kvSet } from "@/lib/store/kv";
 
 /**
  * Persistent per-message triage decisions so repeat inbox loads
@@ -18,25 +17,17 @@ export type CachedDecision = {
   v: number;
 };
 
-const DATA_DIR =
-  process.env.SEER_DATA_DIR || path.join(process.cwd(), ".data");
 const TTL_MS = 3 * 24 * 60 * 60 * 1000;
 const MAX_ENTRIES = 2000;
 
 type CacheFile = Record<string, CachedDecision>;
 
-function fileFor(accountEmail: string) {
-  const safe = accountEmail.toLowerCase().replace(/[^a-z0-9@._-]/g, "_");
-  return path.join(DATA_DIR, `decisions-${safe}.json`);
+function keyFor(accountEmail: string) {
+  return `decisions:${accountKey(accountEmail)}`;
 }
 
 async function readAll(accountEmail: string): Promise<CacheFile> {
-  try {
-    const raw = await fs.readFile(fileFor(accountEmail), "utf8");
-    return JSON.parse(raw) as CacheFile;
-  } catch {
-    return {};
-  }
+  return (await kvGet<CacheFile>(keyFor(accountEmail))) ?? {};
 }
 
 export async function loadDecisions(
@@ -62,7 +53,6 @@ export async function saveDecisions(
   entries: Map<string, CachedDecision>,
 ): Promise<void> {
   if (entries.size === 0) return;
-  await fs.mkdir(DATA_DIR, { recursive: true });
   const all = await readAll(accountEmail);
   for (const [id, d] of entries) all[id] = d;
 
@@ -75,7 +65,7 @@ export async function saveDecisions(
       .forEach((k) => delete all[k]);
   }
 
-  await fs.writeFile(fileFor(accountEmail), JSON.stringify(all), "utf8");
+  await kvSet(keyFor(accountEmail), all);
 }
 
 /**
@@ -84,5 +74,5 @@ export async function saveDecisions(
  * what Gemini would decide, so everything gets a fresh look.
  */
 export async function clearDecisions(accountEmail: string): Promise<void> {
-  await fs.unlink(fileFor(accountEmail)).catch(() => {});
+  await kvDelete(keyFor(accountEmail));
 }
