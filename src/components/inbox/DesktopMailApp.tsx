@@ -325,7 +325,7 @@ export function DesktopMailApp() {
           {tab === "triage" && (triage?.assistant || triage?.history) ? (
             <p className="bg-[var(--card)] px-4 py-2 text-[11px] text-[var(--muted)]">
               {triage.assistant
-                ? `Gemini ${triage.assistant.gemini} · rules ${triage.assistant.rules} · taught ${triage.assistant.override} · your call ${triage.assistant.needsReview}`
+                ? `Gemini ${triage.assistant.gemini} · rules ${triage.assistant.rules} · taught ${triage.assistant.override}${triage.assistant.cached ? ` · cached ${triage.assistant.cached}` : ""} · your call ${triage.assistant.needsReview}`
                 : triage.history
                   ? `Sent history · ${triage.history.engagedCount} people you email · ${triage.history.contactCount} contacts`
                   : null}

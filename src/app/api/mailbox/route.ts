@@ -41,7 +41,7 @@ export async function GET(request: Request) {
     const shouldClassify = folder === "inbox" || Boolean(q?.trim());
     let annotated: EmailItem[] = items;
     let assistant:
-      | { gemini: number; rules: number; override: number }
+      | { gemini: number; rules: number; override: number; cached: number }
       | undefined;
 
     if (shouldClassify) {
@@ -58,6 +58,7 @@ export async function GET(request: Request) {
       );
 
       const decisions = await classifyInboxWithAssistant(
+        session.email,
         items.map((m) => ({
           id: m.id,
           fromEmail: m.fromEmail,
@@ -74,6 +75,7 @@ export async function GET(request: Request) {
       let gemini = 0;
       let rules = 0;
       let override = 0;
+      let cached = 0;
       for (const m of items) {
         const result = decisions.get(m.id);
         if (!result) {
@@ -83,12 +85,13 @@ export async function GET(request: Request) {
         if (result.source === "gemini") gemini += 1;
         else if (result.source === "rules") rules += 1;
         else override += 1;
+        if (result.cached) cached += 1;
         annotated.push({
           ...m,
           guide: buildActionGuideQuick(result, m.subject),
         });
       }
-      assistant = { gemini, rules, override };
+      assistant = { gemini, rules, override, cached };
     }
 
     return NextResponse.json({

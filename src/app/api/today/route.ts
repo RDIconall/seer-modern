@@ -60,6 +60,7 @@ export async function GET() {
     );
 
     const decisions = await classifyInboxWithAssistant(
+      session.email,
       raw.map((m) => ({
         id: m.id,
         fromEmail: m.fromEmail,
@@ -76,12 +77,14 @@ export async function GET() {
     let geminiCount = 0;
     let rulesCount = 0;
     let overrideCount = 0;
+    let cachedCount = 0;
     for (const m of raw) {
       const result = decisions.get(m.id);
       if (!result) continue;
       if (result.source === "gemini") geminiCount += 1;
       else if (result.source === "rules") rulesCount += 1;
       else overrideCount += 1;
+      if (result.cached) cachedCount += 1;
       const guide = buildActionGuideQuick(result, m.subject);
       classified.push({ ...m, guide });
     }
@@ -133,6 +136,7 @@ export async function GET() {
         gemini: geminiCount,
         rules: rulesCount,
         override: overrideCount,
+        cached: cachedCount,
         needsReview: needsReview.length,
       },
     });

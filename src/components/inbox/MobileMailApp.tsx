@@ -500,7 +500,7 @@ export function MobileMailApp() {
           <div className="border-b border-[var(--border)] bg-[var(--card)] px-4 py-2">
             <p className="text-[12px] text-[var(--muted)]">
               {triage.assistant
-                ? `Gemini decided ${triage.assistant.gemini} · rules ${triage.assistant.rules} · taught ${triage.assistant.override} · your call ${triage.assistant.needsReview}`
+                ? `Gemini decided ${triage.assistant.gemini} · rules ${triage.assistant.rules} · taught ${triage.assistant.override}${triage.assistant.cached ? ` · cached ${triage.assistant.cached}` : ""} · your call ${triage.assistant.needsReview}`
                 : triage.history
                   ? `${triage.history.engagedCount} people you email · ${triage.history.contactCount} contacts`
                   : "Gemini-first triage — you are last resort"}

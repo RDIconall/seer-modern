@@ -51,6 +51,7 @@ export type TodayData = {
     gemini: number;
     rules: number;
     override: number;
+    cached?: number;
     needsReview: number;
   };
 };

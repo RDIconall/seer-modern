@@ -39,6 +39,7 @@ export async function GET() {
     );
 
     const decisions = await classifyInboxWithAssistant(
+      session.email,
       raw.map((m) => ({
         id: m.id,
         fromEmail: m.fromEmail,

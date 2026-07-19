@@ -40,6 +40,7 @@ export async function GET(
       message.htmlBody.replace(/<[^>]+>/g, " ").replace(/\s+/g, " ");
 
     const decisions = await classifyInboxWithAssistant(
+      session.email,
       [
         {
           id: message.id,
