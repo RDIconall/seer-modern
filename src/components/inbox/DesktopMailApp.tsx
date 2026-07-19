@@ -351,7 +351,7 @@ export function DesktopMailApp() {
                     item={item}
                     selected={readerId === item.id}
                     busy={busyId === item.id}
-                    showGuide={false}
+                    showGuide={tab === "inbox" || Boolean(query)}
                     onOpen={() => openReader(item.id)}
                     onArchive={
                       tab === "inbox"
@@ -493,12 +493,21 @@ export function DesktopMailApp() {
                       </div>
                     </div>
                     {reader.guide ? (
-                      <p
-                        className="mt-3 text-sm font-medium"
-                        style={{ color: reader.guide.color }}
-                      >
-                        {reader.guide.instruction}
-                      </p>
+                      <div className="mt-3 space-y-1">
+                        <p
+                          className="text-sm font-semibold"
+                          style={{ color: reader.guide.color }}
+                        >
+                          {reader.guide.label}
+                          {reader.guide.confidence
+                            ? ` · ${reader.guide.confidence}`
+                            : ""}
+                        </p>
+                        <p className="text-sm text-[var(--muted)]">
+                          {reader.guide.reason}
+                        </p>
+                        <p className="text-sm">{reader.guide.instruction}</p>
+                      </div>
                     ) : null}
                   </div>
 
@@ -587,11 +596,17 @@ function DesktopMailRow({
             {item.snippet}
           </div>
           {showGuide && g ? (
-            <div
-              className="mt-0.5 truncate text-[10px] font-medium"
-              style={{ color: g.color ?? accent }}
-            >
-              {g.instruction}
+            <div className="mt-0.5 space-y-0.5">
+              <div
+                className="truncate text-[10px] font-semibold"
+                style={{ color: g.color ?? accent }}
+              >
+                {g.label}
+                {g.confidence ? ` · ${g.confidence}` : ""}
+              </div>
+              <div className="line-clamp-2 text-[10px] leading-snug text-[var(--muted)]">
+                {g.reason}
+              </div>
             </div>
           ) : null}
           {chips}

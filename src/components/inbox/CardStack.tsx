@@ -278,7 +278,9 @@ function CardFace({
             style={{ color: g.color }}
           >
             {g.label}
+            {g.confidence ? ` · ${g.confidence}` : ""}
           </div>
+          <div className="mt-1 text-[13px] text-[var(--fg)]">{g.reason}</div>
           <div className="mt-1 text-sm font-medium" style={{ color: g.color }}>
             {g.instruction}
           </div>

@@ -219,12 +219,17 @@ export function MobileMailApp() {
               </div>
             </div>
             {g ? (
-              <p
-                className="mt-3 text-xs font-medium"
-                style={{ color: g.color }}
-              >
-                {g.instruction}
-              </p>
+              <div className="mt-3 space-y-1">
+                <p
+                  className="text-xs font-semibold"
+                  style={{ color: g.color }}
+                >
+                  {g.label}
+                  {g.confidence ? ` · ${g.confidence}` : ""}
+                </p>
+                <p className="text-xs text-[var(--muted)]">{g.reason}</p>
+                <p className="text-xs text-[var(--fg)]">{g.instruction}</p>
+              </div>
             ) : null}
           </div>
           <div className="px-4 py-4">
@@ -474,7 +479,7 @@ export function MobileMailApp() {
                 <SwipeMailRow
                   key={item.id}
                   item={item}
-                  showGuide={false}
+                  showGuide={tab === "inbox" || Boolean(query)}
                   busy={busyId === item.id}
                   onOpen={() => openReader(item.id)}
                   onArchive={
@@ -848,11 +853,17 @@ function SwipeMailRow({
             {item.snippet}
           </div>
           {showGuide && g ? (
-            <div
-              className="mt-1 truncate text-[11px] font-medium"
-              style={{ color: g.color }}
-            >
-              {g.instruction}
+            <div className="mt-1 space-y-0.5">
+              <div
+                className="truncate text-[11px] font-semibold"
+                style={{ color: g.color }}
+              >
+                {g.label}
+                {g.confidence ? ` · ${g.confidence}` : ""}
+              </div>
+              <div className="line-clamp-2 text-[11px] leading-snug text-[var(--muted)]">
+                {g.reason}
+              </div>
             </div>
           ) : null}
           {chips}
