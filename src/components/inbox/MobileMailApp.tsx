@@ -505,6 +505,11 @@ export function MobileMailApp() {
                   ? `${triage.history.engagedCount} people you email · ${triage.history.contactCount} contacts`
                   : "Gemini-first triage — you are last resort"}
             </p>
+            {triage.assistant?.error ? (
+              <p className="mt-0.5 text-[11px] font-medium text-[#dc2626]">
+                Gemini offline — rules only: {triage.assistant.error.slice(0, 120)}
+              </p>
+            ) : null}
           </div>
         ) : null}
 

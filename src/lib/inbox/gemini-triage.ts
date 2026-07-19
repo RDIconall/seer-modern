@@ -31,7 +31,7 @@ import { z } from "zod";
  * Bump when the prompt/actions change so stale cached decisions
  * are ignored and re-classified.
  */
-export const PROMPT_VERSION = 4;
+export const PROMPT_VERSION = 5;
 
 const ACTIONS = [
   "respond",
@@ -98,7 +98,75 @@ const PREFILTER_RULE_IDS = new Set([
   "urgency-bait-delete",
 ]);
 
-function resolveModel(): { model: LanguageModel | string; label: string } {
+/**
+ * Model discovery: Google retires model ids (gemini-2.5-flash died for
+ * new keys). Ask ListModels which flash models THIS key can use, pick the
+ * newest, and cache the answer so it never happens silently again.
+ */
+let modelMemo: { id: string; ts: number } | null = null;
+const MODEL_MEMO_TTL = 6 * 60 * 60 * 1000;
+
+/** Last Gemini failure (module-level) so routes/UI can surface health. */
+let lastGeminiError: string | null = null;
+let lastGeminiModel: string | null = null;
+
+export function getAssistantStatus(): {
+  model: string | null;
+  error: string | null;
+} {
+  return { model: lastGeminiModel, error: lastGeminiError };
+}
+
+function scoreModelId(id: string): number {
+  // Prefer stable flash models, newest version first
+  const m = id.match(/gemini-(\d+(?:\.\d+)?)/);
+  const version = m ? parseFloat(m[1]) : 0;
+  let score = version * 100;
+  if (/flash/.test(id)) score += 50;
+  if (/latest/.test(id)) score += 10;
+  if (/lite/.test(id)) score -= 20;
+  if (/preview|exp/.test(id)) score -= 30;
+  if (/tts|image|audio|embed|thinking/.test(id)) score -= 1000;
+  return score;
+}
+
+async function discoverModelId(googleKey: string): Promise<string> {
+  const forced = process.env.SEER_GEMINI_MODEL?.trim();
+  if (forced) return forced.replace(/^google\//, "");
+  if (modelMemo && Date.now() - modelMemo.ts < MODEL_MEMO_TTL) {
+    return modelMemo.id;
+  }
+  try {
+    const res = await fetch(
+      `https://generativelanguage.googleapis.com/v1beta/models?pageSize=200&key=${googleKey}`,
+      { cache: "no-store" },
+    );
+    if (res.ok) {
+      const json = (await res.json()) as {
+        models?: { name: string; supportedGenerationMethods?: string[] }[];
+      };
+      const ids = (json.models ?? [])
+        .filter((m) =>
+          (m.supportedGenerationMethods ?? []).includes("generateContent"),
+        )
+        .map((m) => m.name.replace(/^models\//, ""));
+      const best = ids.sort((a, b) => scoreModelId(b) - scoreModelId(a))[0];
+      if (best) {
+        modelMemo = { id: best, ts: Date.now() };
+        return best;
+      }
+    }
+  } catch {
+    /* fall through to alias */
+  }
+  // Alias Google keeps pointed at the current stable flash model
+  return "gemini-flash-latest";
+}
+
+async function resolveModel(): Promise<{
+  model: LanguageModel | string;
+  label: string;
+}> {
   const googleKey =
     process.env.GOOGLE_GENERATIVE_AI_API_KEY || process.env.GEMINI_API_KEY;
 
@@ -107,9 +175,7 @@ function resolveModel(): { model: LanguageModel | string; label: string } {
     if (!process.env.GOOGLE_GENERATIVE_AI_API_KEY) {
       process.env.GOOGLE_GENERATIVE_AI_API_KEY = googleKey;
     }
-    const id = (
-      process.env.SEER_GEMINI_MODEL?.trim() || "gemini-2.5-flash"
-    ).replace(/^google\//, "");
+    const id = await discoverModelId(googleKey);
     return { model: google(id), label: `google:${id}` };
   }
 
@@ -186,6 +252,7 @@ Optional predictor fields (omitted when zero/default):
 - past: what the user did with recent mail from this sender (e.g. "trashed 2/3") — lean toward repeating their pattern
 
 Priority when signals conflict: meeting > contact > engaged rel > past behavior > content.
+USE WORLD KNOWLEDGE of the company behind the email. UPS/FedEx/USPS/DHL = package delivery: a package arriving or delayed is act_today even from a first-time noreply sender. Airlines = travel. Banks/brokerages = money. Pharmacies/clinics = health. Schools/government = obligations. Judge WHO the company is and WHAT the message means for the user's day — no sent-history is NOT a reason to defer on a recognizable transactional sender.
 FAKE URGENCY is the #1 trick: "expires today", "last chance", "action required", "final notice", "reminder:" from bulk/noreply/marketing senders is promo bait — delete_now or glance_promo, NEVER act_today. Urgency is real only from contacts, engaged/known senders, or genuine transactional mail (2FA codes, password resets, security alerts, boarding passes, deliveries, appointments).
 Cold noreply marketing → delete_now or unsubscribe.
 Product/CI (GitHub, Vercel, Figma, etc.) → usually read_and_archive unless promo.
@@ -213,6 +280,12 @@ export type TriageExtras = {
   actionMemory?: ActionMemory | null;
   /** Gmail: read/write decisions as native Seer/<action> labels */
   labels?: SeerLabelStore | null;
+  /**
+   * Set false for single-message paths (reader/prefetch) — those must be
+   * served by cache/label/rules only, never burn API quota one email at
+   * a time. Inbox batch loads are the only place Gemini is called.
+   */
+  geminiEnabled?: boolean;
 };
 
 function compactPayload(
@@ -227,7 +300,7 @@ function compactPayload(
       from: (m.fromName || m.fromEmail).slice(0, 60),
       email: m.fromEmail,
       subject: m.subject.slice(0, 140),
-      snippet: m.snippet.slice(0, 240),
+      snippet: m.snippet.slice(0, 400),
     };
     if (sig.relationship !== "cold") item.rel = sig.relationship;
     if (sig.sentTo > 0) item.sent = sig.sentTo;
@@ -260,14 +333,18 @@ async function geminiBatch(
   if (batch.length === 0) return out;
 
   const payload = compactPayload(batch, history, extras);
-  const { model, label } = resolveModel();
+  const { model, label } = await resolveModel();
   const { output } = await generateText({
     model,
     temperature: 0,
+    maxRetries: 1, // don't burn rate-limited quota on rapid retries
     output: Output.object({ schema: batchSchema }),
     system: SYSTEM_PROMPT,
     prompt: JSON.stringify(payload),
   });
+
+  lastGeminiModel = label;
+  lastGeminiError = null;
 
   if (!output?.items?.length) return out;
 
@@ -461,8 +538,12 @@ export async function classifyInboxWithAssistant(
     forGemini.push(item);
   }
 
-  // 6. Gemini for the gray zone
-  if (forGemini.length > 0 && isGeminiConfigured()) {
+  // 6. Gemini for the gray zone (batch loads only — see geminiEnabled)
+  if (
+    forGemini.length > 0 &&
+    isGeminiConfigured() &&
+    extras?.geminiEnabled !== false
+  ) {
     try {
       for (let i = 0; i < forGemini.length; i += BATCH) {
         const chunk = forGemini.slice(i, i + BATCH);
@@ -473,10 +554,14 @@ export async function classifyInboxWithAssistant(
         }
       }
     } catch (e) {
-      console.error(
-        "[seer] Gemini triage failed, falling back to rules:",
-        e instanceof Error ? e.message : e,
-      );
+      const msg = e instanceof Error ? e.message : String(e);
+      lastGeminiError = msg.slice(0, 300);
+      // A dead model id may be memoized — forget it so the next load
+      // rediscovers instead of failing forever.
+      if (/no longer available|not found|NOT_FOUND/i.test(msg)) {
+        modelMemo = null;
+      }
+      console.error("[seer] Gemini triage failed, falling back to rules:", msg);
     }
   }
 

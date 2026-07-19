@@ -68,7 +68,9 @@ export async function GET(
       history,
       (email) => getSenderOverride(email),
       classifyMessage,
-      { personal, actionMemory, labels },
+      // Single-message path: cache/label/rules only. Gemini runs on batch
+      // inbox loads — never one email at a time (that burns quota fast).
+      { personal, actionMemory, labels, geminiEnabled: false },
     );
 
     const fromAssistant = decisions.get(message.id);

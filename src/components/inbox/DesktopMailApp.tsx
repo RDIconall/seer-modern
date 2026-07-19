@@ -329,6 +329,11 @@ export function DesktopMailApp() {
                 : triage.history
                   ? `Sent history · ${triage.history.engagedCount} people you email · ${triage.history.contactCount} contacts`
                   : null}
+              {triage.assistant?.error ? (
+                <span className="ml-2 font-medium text-[#dc2626]">
+                  Gemini offline — rules only: {triage.assistant.error.slice(0, 120)}
+                </span>
+              ) : null}
             </p>
           ) : null}
         </header>

@@ -58,6 +58,10 @@ export type TodayData = {
     learned?: number;
     cached?: number;
     needsReview: number;
+    /** Model that served this load, e.g. "google:gemini-flash-latest" */
+    model?: string | null;
+    /** Set when the last Gemini call failed — decisions fell back to rules */
+    error?: string | null;
   };
   context?: {
     contacts: number;

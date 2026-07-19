@@ -5,7 +5,10 @@ import {
   classifyMessage,
   type TriageAction,
 } from "@/lib/inbox/classify";
-import { classifyInboxWithAssistant } from "@/lib/inbox/gemini-triage";
+import {
+  classifyInboxWithAssistant,
+  getAssistantStatus,
+} from "@/lib/inbox/gemini-triage";
 import { getOrBuildMailHistory } from "@/lib/inbox/mail-history-store";
 import { getPersonalContext } from "@/lib/inbox/personal-context";
 import { loadActionMemory } from "@/lib/store/action-memory";
@@ -157,6 +160,8 @@ export async function GET() {
         learned: learnedCount,
         cached: cachedCount,
         needsReview: needsReview.length,
+        model: getAssistantStatus().model,
+        error: getAssistantStatus().error,
       },
       context: {
         contacts: personal.contacts.length,

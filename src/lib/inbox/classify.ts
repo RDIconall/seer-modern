@@ -140,7 +140,14 @@ export type ClassifyResult = {
  * codes, security, travel, deliveries, appointments.
  */
 const TRANSACTIONAL_URGENT =
-  /\b(2fa|two-factor|verification code|one-time (code|passcode)|otp|password reset|security alert|suspicious sign-?in|boarding pass|check-in (open|now)|flight (confirmation|reminder|change|cancell)|appointment (confirm|remind)|out for delivery|delivered|delivery (today|update)|shipped)\b/i;
+  /\b(2fa|two-factor|verification code|one-time (code|passcode)|otp|password reset|security alert|suspicious sign-?in|boarding pass|check-in (open|now)|flight (confirmation|reminder|change|cancell)|appointment (confirm|remind)|out for delivery|delivered|delivery (today|tomorrow|update)|scheduled for delivery|arriving (today|tomorrow)|package (is )?(arriving|delayed|scheduled)|shipped)\b/i;
+
+/** Package carriers — world knowledge the rules engine should have. */
+const SHIPPER_DOMAINS =
+  /(^|\.)(ups|fedex|usps|dhl|ontrac|lasership|royalmail|canadapost|purolator|aftership|shippo|narvar)\.(com|net|ca|co\.uk|org)$/i;
+
+const DELIVERY_MOVING =
+  /\b(out for delivery|arriving|scheduled for delivery|delivery (today|tomorrow)|delayed|attempted delivery|ready for pickup|running late)\b/i;
 
 /**
  * Urgency bait — marketing's favorite trick. Only counts as urgent when
@@ -318,6 +325,26 @@ function classifyCore(
       "HIGH",
       "In your contacts with an actionable ask",
       "contact-actionable-respond",
+      ctx,
+    );
+  }
+
+  // Package carriers: a delivery on the move is time-boxed by definition
+  if (SHIPPER_DOMAINS.test(dom)) {
+    if (DELIVERY_MOVING.test(blob) || DELIVERY_MOVING.test(input.subject)) {
+      return hit(
+        "act_today",
+        "HIGH",
+        "Package carrier — delivery in motion",
+        "shipper-delivery-today",
+        ctx,
+      );
+    }
+    return hit(
+      "read_and_archive",
+      "MED",
+      "Package carrier status note",
+      "shipper-notice-archive",
       ctx,
     );
   }
