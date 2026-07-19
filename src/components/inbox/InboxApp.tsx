@@ -4,17 +4,32 @@ import DOMPurify from "isomorphic-dompurify";
 import {
   Archive,
   ChevronLeft,
+  Forward,
   Inbox,
   ListFilter,
-  Mail,
+  PenSquare,
   RefreshCw,
+  Reply,
+  ReplyAll,
+  Search,
+  Send,
   Trash2,
 } from "lucide-react";
-import { useCallback, useEffect, useMemo, useState, type ReactNode } from "react";
+import {
+  useCallback,
+  useEffect,
+  useMemo,
+  useState,
+  type ReactNode,
+} from "react";
 import {
   ACTION_META,
   type TriageAction,
 } from "@/lib/inbox/classify";
+import {
+  ComposePanel,
+  type ComposeDraft,
+} from "@/components/inbox/ComposePanel";
 
 type Guide = {
   action: TriageAction;
@@ -35,7 +50,7 @@ type EmailItem = {
   snippet: string;
   receivedAt: string;
   isUnread: boolean;
-  guide: Guide;
+  guide?: Guide;
 };
 
 type Section = {
@@ -55,7 +70,15 @@ type TodayData = {
   count: number;
 };
 
-type ViewTab = "inbox" | "triage";
+type MailboxData = {
+  accountEmail: string;
+  fetchedAt: string;
+  folder: string;
+  items: EmailItem[];
+  count: number;
+};
+
+type ViewTab = "inbox" | "sent" | "trash" | "triage";
 type MailAction = "archive" | "trash" | "read";
 
 function formatTime(iso: string) {
@@ -91,54 +114,76 @@ function primaryAction(action: TriageAction): MailAction {
   return "archive";
 }
 
-function flattenInbox(data: TodayData): EmailItem[] {
-  if (data.inbox?.length) {
-    return [...data.inbox].sort(
-      (a, b) =>
-        new Date(b.receivedAt).getTime() - new Date(a.receivedAt).getTime(),
-    );
-  }
-  const map = new Map<string, EmailItem>();
-  for (const item of data.needsReview) map.set(item.id, item);
-  for (const section of data.sections) {
-    for (const item of section.items) map.set(item.id, item);
-  }
-  return [...map.values()].sort(
-    (a, b) =>
-      new Date(b.receivedAt).getTime() - new Date(a.receivedAt).getTime(),
-  );
+function ensureRe(subject: string) {
+  return /^re:/i.test(subject) ? subject : `Re: ${subject}`;
+}
+
+function ensureFwd(subject: string) {
+  return /^(fwd|fw):/i.test(subject) ? subject : `Fwd: ${subject}`;
 }
 
 export function InboxApp() {
   const [tab, setTab] = useState<ViewTab>("inbox");
-  const [data, setData] = useState<TodayData | null>(null);
+  const [triage, setTriage] = useState<TodayData | null>(null);
+  const [mailbox, setMailbox] = useState<MailboxData | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
+  const [search, setSearch] = useState("");
+  const [query, setQuery] = useState("");
   const [readerId, setReaderId] = useState<string | null>(null);
   const [reader, setReader] = useState<{
     htmlBody: string;
     textBody: string;
     subject: string;
     fromName: string;
-    guide: Guide;
+    fromEmail: string;
+    toEmail: string;
+    ccEmail: string;
+    threadId: string;
+    messageIdHeader: string;
+    guide?: Guide;
   } | null>(null);
+  const [compose, setCompose] = useState<ComposeDraft | null>(null);
   const [toast, setToast] = useState<string | null>(null);
   const [busyId, setBusyId] = useState<string | null>(null);
+
+  const accountEmail =
+    mailbox?.accountEmail ?? triage?.accountEmail ?? "Your mailbox";
+
+  const loadTriage = useCallback(async () => {
+    const res = await fetch("/api/today", { cache: "no-store" });
+    const json = await res.json();
+    if (!res.ok) throw new Error(json.error ?? "Load failed");
+    setTriage(json);
+  }, []);
+
+  const loadMailbox = useCallback(
+    async (folder: "inbox" | "sent" | "trash", q?: string) => {
+      const params = new URLSearchParams({ folder });
+      if (q?.trim()) params.set("q", q.trim());
+      const res = await fetch(`/api/mailbox?${params}`, { cache: "no-store" });
+      const json = await res.json();
+      if (!res.ok) throw new Error(json.error ?? "Load failed");
+      setMailbox(json);
+    },
+    [],
+  );
 
   const load = useCallback(async () => {
     setLoading(true);
     setError(null);
     try {
-      const res = await fetch("/api/today", { cache: "no-store" });
-      const json = await res.json();
-      if (!res.ok) throw new Error(json.error ?? "Load failed");
-      setData(json);
+      if (tab === "triage") {
+        await loadTriage();
+      } else {
+        await loadMailbox(tab, query);
+      }
     } catch (e) {
       setError(e instanceof Error ? e.message : "Load failed");
     } finally {
       setLoading(false);
     }
-  }, []);
+  }, [loadMailbox, loadTriage, query, tab]);
 
   useEffect(() => {
     load();
@@ -150,13 +195,22 @@ export function InboxApp() {
     return () => clearTimeout(t);
   }, [toast]);
 
-  const inboxItems = useMemo(
-    () => (data ? flattenInbox(data) : []),
-    [data],
-  );
+  const listItems = useMemo(() => {
+    if (tab === "triage") return [];
+    return mailbox?.items ?? [];
+  }, [mailbox, tab]);
 
-  const removeFromState = useCallback((id: string) => {
-    setData((prev) => {
+  const removeFromLists = useCallback((id: string) => {
+    setMailbox((prev) =>
+      prev
+        ? {
+            ...prev,
+            items: prev.items.filter((i) => i.id !== id),
+            count: Math.max(0, prev.count - 1),
+          }
+        : prev,
+    );
+    setTriage((prev) => {
       if (!prev) return prev;
       const filter = (items: EmailItem[]) => items.filter((i) => i.id !== id);
       return {
@@ -179,7 +233,7 @@ export function InboxApp() {
   const runAction = useCallback(
     async (id: string, action: MailAction) => {
       setBusyId(id);
-      removeFromState(id);
+      removeFromLists(id);
       if (readerId === id) closeReader();
       try {
         const res = await fetch("/api/action", {
@@ -205,13 +259,13 @@ export function InboxApp() {
         setBusyId(null);
       }
     },
-    [closeReader, load, readerId, removeFromState],
+    [closeReader, load, readerId, removeFromLists],
   );
 
   const bulkSection = useCallback(
     async (section: Section, action: MailAction) => {
       const ids = section.items.map((i) => i.id);
-      setData((prev) => {
+      setTriage((prev) => {
         if (!prev) return prev;
         const idSet = new Set(ids);
         const filter = (items: EmailItem[]) =>
@@ -224,10 +278,7 @@ export function InboxApp() {
             .map((s) =>
               s.action === section.action
                 ? { ...s, items: [] }
-                : {
-                    ...s,
-                    items: s.items.filter((i) => !idSet.has(i.id)),
-                  },
+                : { ...s, items: s.items.filter((i) => !idSet.has(i.id)) },
             )
             .filter((s) => s.items.length > 0),
           count: Math.max(0, prev.count - ids.length),
@@ -242,13 +293,7 @@ export function InboxApp() {
           }),
         });
         if (!res.ok) throw new Error("Bulk failed");
-        setToast(
-          action === "trash"
-            ? `Deleted ${ids.length}`
-            : action === "archive"
-              ? `Archived ${ids.length}`
-              : `Updated ${ids.length}`,
-        );
+        setToast(`Updated ${ids.length}`);
       } catch {
         setToast("Bulk action partially failed — refreshing");
         load();
@@ -281,6 +326,11 @@ export function InboxApp() {
         textBody: json.message.textBody,
         subject: json.message.subject,
         fromName: json.message.fromName,
+        fromEmail: json.message.fromEmail,
+        toEmail: json.message.toEmail ?? "",
+        ccEmail: json.message.ccEmail ?? "",
+        threadId: json.message.threadId,
+        messageIdHeader: json.message.messageIdHeader ?? "",
         guide: json.guide,
       });
     } catch (e) {
@@ -288,6 +338,57 @@ export function InboxApp() {
       setReaderId(null);
     }
   }, []);
+
+  const startCompose = useCallback(() => {
+    setCompose({
+      mode: "compose",
+      to: "",
+      cc: "",
+      subject: "",
+      body: "",
+    });
+  }, []);
+
+  const startReply = useCallback(
+    (mode: "reply" | "replyAll" | "forward") => {
+      if (!reader || !readerId) return;
+      if (mode === "forward") {
+        setCompose({
+          mode: "forward",
+          to: "",
+          cc: "",
+          subject: ensureFwd(reader.subject),
+          body: "",
+          replyToId: readerId,
+        });
+        return;
+      }
+      setCompose({
+        mode,
+        to: reader.fromEmail,
+        cc: mode === "replyAll" ? reader.ccEmail : "",
+        subject: ensureRe(reader.subject),
+        body: "",
+        replyToId: readerId,
+      });
+    },
+    [reader, readerId],
+  );
+
+  if (compose) {
+    return (
+      <ComposePanel
+        draft={compose}
+        onClose={() => setCompose(null)}
+        onSent={() => {
+          setCompose(null);
+          closeReader();
+          setToast("Sent");
+          if (tab === "sent") load();
+        }}
+      />
+    );
+  }
 
   if (readerId) {
     const g = reader?.guide;
@@ -323,9 +424,6 @@ export function InboxApp() {
               {g.label}
             </div>
             <div className="mt-1 text-[var(--fg)]">{g.instruction}</div>
-            {g.detail ? (
-              <div className="mt-2 text-xs text-[var(--muted)]">{g.detail}</div>
-            ) : null}
           </div>
         ) : null}
         <div className="flex-1 overflow-auto px-3 py-4">
@@ -342,67 +440,120 @@ export function InboxApp() {
             </pre>
           )}
         </div>
-        {reader && g ? (
-          <footer className="flex gap-2 border-t border-[var(--border)] p-3 pb-[max(0.75rem,env(safe-area-inset-bottom))]">
-            <button
-              type="button"
-              disabled={busyId === readerId}
-              onClick={() => runAction(readerId, "archive")}
-              className="flex flex-1 items-center justify-center gap-2 rounded-xl bg-[var(--card)] py-3 text-sm font-medium disabled:opacity-50"
-            >
-              <Archive className="h-4 w-4" /> Archive
-            </button>
-            <button
-              type="button"
-              disabled={busyId === readerId}
-              onClick={() => runAction(readerId, "read")}
-              className="flex flex-1 items-center justify-center gap-2 rounded-xl bg-[#1a73e8] py-3 text-sm font-medium text-white disabled:opacity-50"
-            >
-              <Mail className="h-4 w-4" /> Mark read
-            </button>
-            <button
-              type="button"
-              disabled={busyId === readerId}
-              onClick={() => runAction(readerId, "trash")}
-              className="flex items-center justify-center gap-2 rounded-xl bg-red-600 px-4 py-3 text-sm font-medium text-white disabled:opacity-50"
-              aria-label="Delete"
-            >
-              <Trash2 className="h-4 w-4" /> Delete
-            </button>
+        {reader ? (
+          <footer className="space-y-2 border-t border-[var(--border)] p-3 pb-[max(0.75rem,env(safe-area-inset-bottom))]">
+            <div className="flex gap-2">
+              <button
+                type="button"
+                onClick={() => startReply("reply")}
+                className="flex flex-1 items-center justify-center gap-2 rounded-xl bg-[#1a73e8] py-3 text-sm font-medium text-white"
+              >
+                <Reply className="h-4 w-4" /> Reply
+              </button>
+              <button
+                type="button"
+                onClick={() => startReply("replyAll")}
+                className="flex items-center justify-center rounded-xl bg-[var(--card)] px-3 py-3"
+                aria-label="Reply all"
+              >
+                <ReplyAll className="h-4 w-4" />
+              </button>
+              <button
+                type="button"
+                onClick={() => startReply("forward")}
+                className="flex items-center justify-center rounded-xl bg-[var(--card)] px-3 py-3"
+                aria-label="Forward"
+              >
+                <Forward className="h-4 w-4" />
+              </button>
+            </div>
+            <div className="flex gap-2">
+              <button
+                type="button"
+                disabled={busyId === readerId}
+                onClick={() => runAction(readerId, "archive")}
+                className="flex flex-1 items-center justify-center gap-2 rounded-xl bg-[var(--card)] py-2.5 text-sm font-medium disabled:opacity-50"
+              >
+                <Archive className="h-4 w-4" /> Archive
+              </button>
+              <button
+                type="button"
+                disabled={busyId === readerId}
+                onClick={() => runAction(readerId, "trash")}
+                className="flex flex-1 items-center justify-center gap-2 rounded-xl bg-red-600 py-2.5 text-sm font-medium text-white disabled:opacity-50"
+              >
+                <Trash2 className="h-4 w-4" /> Delete
+              </button>
+            </div>
           </footer>
         ) : null}
-        {toast ? (
-          <div className="fixed bottom-24 left-1/2 z-50 max-w-xs -translate-x-1/2 rounded-lg bg-zinc-900 px-4 py-2 text-xs text-white shadow-lg">
-            {toast}
-          </div>
-        ) : null}
+        {toast ? <Toast message={toast} /> : null}
       </div>
     );
   }
 
   return (
-    <div className="mx-auto flex min-h-screen max-w-lg flex-col bg-[var(--bg)] pb-24 text-[var(--fg)]">
+    <div className="mx-auto flex min-h-screen max-w-lg flex-col bg-[var(--bg)] pb-28 text-[var(--fg)]">
       <header className="sticky top-0 z-10 border-b border-[var(--border)] bg-[var(--bg)] px-4 py-3">
         <div className="flex items-center justify-between">
           <div>
             <h1 className="text-lg font-semibold tracking-tight">Inbox Pilot</h1>
-            <p className="text-xs text-[var(--muted)]">
-              {data?.accountEmail ?? "Your inbox"}
-              {data ? ` · ${data.count} messages` : ""}
-            </p>
+            <p className="text-xs text-[var(--muted)]">{accountEmail}</p>
           </div>
-          <button
-            type="button"
-            onClick={load}
-            disabled={loading}
-            className="rounded-lg p-2 hover:bg-[var(--card)] disabled:opacity-50"
-            aria-label="Refresh"
-          >
-            <RefreshCw className={`h-5 w-5 ${loading ? "animate-spin" : ""}`} />
-          </button>
+          <div className="flex items-center gap-1">
+            <button
+              type="button"
+              onClick={startCompose}
+              className="rounded-lg p-2 hover:bg-[var(--card)]"
+              aria-label="Compose"
+            >
+              <PenSquare className="h-5 w-5" />
+            </button>
+            <button
+              type="button"
+              onClick={load}
+              disabled={loading}
+              className="rounded-lg p-2 hover:bg-[var(--card)] disabled:opacity-50"
+              aria-label="Refresh"
+            >
+              <RefreshCw
+                className={`h-5 w-5 ${loading ? "animate-spin" : ""}`}
+              />
+            </button>
+          </div>
         </div>
+
+        <form
+          className="mt-3 flex items-center gap-2 rounded-xl border border-[var(--border)] bg-[var(--card)] px-3 py-2"
+          onSubmit={(e) => {
+            e.preventDefault();
+            setQuery(search.trim());
+            if (tab === "triage") setTab("inbox");
+          }}
+        >
+          <Search className="h-4 w-4 text-[var(--muted)]" />
+          <input
+            value={search}
+            onChange={(e) => setSearch(e.target.value)}
+            placeholder="Search mail"
+            className="min-w-0 flex-1 bg-transparent text-sm outline-none"
+          />
+          {query ? (
+            <button
+              type="button"
+              className="text-xs text-[var(--muted)]"
+              onClick={() => {
+                setSearch("");
+                setQuery("");
+              }}
+            >
+              Clear
+            </button>
+          ) : null}
+        </form>
+
         <div
-          className="mt-3 grid grid-cols-2 gap-1 rounded-xl bg-[var(--card)] p-1"
+          className="mt-3 grid grid-cols-4 gap-1 rounded-xl bg-[var(--card)] p-1"
           role="tablist"
           aria-label="Mailbox views"
         >
@@ -413,17 +564,24 @@ export function InboxApp() {
             label="Inbox"
           />
           <TabButton
+            active={tab === "sent"}
+            onClick={() => setTab("sent")}
+            icon={<Send className="h-3.5 w-3.5" />}
+            label="Sent"
+          />
+          <TabButton
+            active={tab === "trash"}
+            onClick={() => setTab("trash")}
+            icon={<Trash2 className="h-3.5 w-3.5" />}
+            label="Trash"
+          />
+          <TabButton
             active={tab === "triage"}
             onClick={() => setTab("triage")}
             icon={<ListFilter className="h-3.5 w-3.5" />}
             label="Triage"
           />
         </div>
-        {data?.fetchedAt ? (
-          <p className="mt-2 text-[10px] text-[var(--muted)]">
-            Updated {formatTime(data.fetchedAt)}
-          </p>
-        ) : null}
       </header>
 
       <main className="flex-1 px-3 py-4">
@@ -432,26 +590,33 @@ export function InboxApp() {
             {error}
           </p>
         ) : null}
-        {loading && !data ? (
+        {loading &&
+        ((tab === "triage" && !triage) ||
+          (tab !== "triage" && !mailbox)) ? (
           <p className="py-8 text-center text-sm text-[var(--muted)]">
-            Loading inbox…
+            Loading…
           </p>
         ) : null}
 
-        {tab === "inbox" && data ? (
-          inboxItems.length === 0 ? (
+        {tab !== "triage" && mailbox ? (
+          listItems.length === 0 ? (
             <p className="py-16 text-center text-sm text-[var(--muted)]">
-              Inbox is empty.
+              {query ? "No matches." : `${tab[0]!.toUpperCase()}${tab.slice(1)} is empty.`}
             </p>
           ) : (
             <ul className="space-y-2">
-              {inboxItems.map((item) => (
+              {listItems.map((item) => (
                 <EmailRow
                   key={item.id}
                   item={item}
+                  showGuide={false}
                   busy={busyId === item.id}
                   onOpen={() => openReader(item.id)}
-                  onArchive={() => runAction(item.id, "archive")}
+                  onArchive={
+                    tab === "inbox"
+                      ? () => runAction(item.id, "archive")
+                      : undefined
+                  }
                   onDelete={() => runAction(item.id, "trash")}
                 />
               ))}
@@ -459,22 +624,23 @@ export function InboxApp() {
           )
         ) : null}
 
-        {tab === "triage" && data && data.count === 0 ? (
+        {tab === "triage" && triage && triage.count === 0 ? (
           <p className="py-16 text-center text-sm text-[var(--muted)]">
             Nothing to review. Inbox is clear.
           </p>
         ) : null}
 
-        {tab === "triage" && data && data.needsReview.length > 0 ? (
+        {tab === "triage" && triage && triage.needsReview.length > 0 ? (
           <section className="mb-6">
             <h2 className="mb-2 text-xs font-medium uppercase tracking-wide text-[var(--muted)]">
-              Needs classification ({data.needsReview.length})
+              Needs classification ({triage.needsReview.length})
             </h2>
             <ul className="space-y-2">
-              {data.needsReview.map((item) => (
+              {triage.needsReview.map((item) => (
                 <EmailRow
                   key={item.id}
                   item={item}
+                  showGuide
                   busy={busyId === item.id}
                   onOpen={() => openReader(item.id)}
                   onArchive={() => runAction(item.id, "archive")}
@@ -504,7 +670,7 @@ export function InboxApp() {
         ) : null}
 
         {tab === "triage"
-          ? data?.sections.map((section) => (
+          ? triage?.sections.map((section) => (
               <section key={section.action} className="mb-6">
                 <div className="mb-2 flex items-center justify-between gap-2">
                   <h2
@@ -532,6 +698,7 @@ export function InboxApp() {
                     <EmailRow
                       key={item.id}
                       item={item}
+                      showGuide
                       busy={busyId === item.id}
                       onOpen={() => openReader(item.id)}
                       onArchive={() => runAction(item.id, "archive")}
@@ -544,11 +711,24 @@ export function InboxApp() {
           : null}
       </main>
 
-      {toast ? (
-        <div className="fixed bottom-24 left-1/2 z-50 max-w-xs -translate-x-1/2 rounded-lg bg-zinc-900 px-4 py-2 text-xs text-white shadow-lg">
-          {toast}
-        </div>
-      ) : null}
+      <button
+        type="button"
+        onClick={startCompose}
+        className="fixed bottom-6 right-6 z-20 flex h-14 w-14 items-center justify-center rounded-full bg-[#1a73e8] text-white shadow-lg"
+        aria-label="Compose message"
+      >
+        <PenSquare className="h-6 w-6" />
+      </button>
+
+      {toast ? <Toast message={toast} /> : null}
+    </div>
+  );
+}
+
+function Toast({ message }: { message: string }) {
+  return (
+    <div className="fixed bottom-24 left-1/2 z-50 max-w-xs -translate-x-1/2 rounded-lg bg-zinc-900 px-4 py-2 text-xs text-white shadow-lg">
+      {message}
     </div>
   );
 }
@@ -570,7 +750,7 @@ function TabButton({
       role="tab"
       aria-selected={active}
       onClick={onClick}
-      className={`flex items-center justify-center gap-1.5 rounded-lg py-2 text-xs font-medium transition-colors ${
+      className={`flex flex-col items-center justify-center gap-0.5 rounded-lg py-2 text-[10px] font-medium transition-colors sm:flex-row sm:gap-1 sm:text-xs ${
         active
           ? "bg-[var(--bg)] text-[var(--fg)] shadow-sm"
           : "text-[var(--muted)]"
@@ -589,15 +769,18 @@ function EmailRow({
   onDelete,
   busy,
   chips,
+  showGuide,
 }: {
   item: EmailItem;
   onOpen: () => void;
-  onArchive: () => void;
+  onArchive?: () => void;
   onDelete: () => void;
   busy?: boolean;
   chips?: ReactNode;
+  showGuide: boolean;
 }) {
   const g = item.guide;
+  const accent = g?.color ?? "#1a73e8";
   return (
     <li>
       <article
@@ -610,11 +793,13 @@ function EmailRow({
         <div className="flex gap-3">
           <div
             className={`flex h-10 w-10 shrink-0 items-center justify-center rounded-full text-sm font-semibold text-white ${
-              item.isUnread ? "ring-2 ring-[#1a73e8] ring-offset-2 ring-offset-[var(--card)]" : ""
+              item.isUnread
+                ? "ring-2 ring-[#1a73e8] ring-offset-2 ring-offset-[var(--card)]"
+                : ""
             }`}
-            style={{ backgroundColor: g.color }}
+            style={{ backgroundColor: accent }}
           >
-            {initial(item.fromName)}
+            {initial(item.fromName || item.fromEmail)}
           </div>
           <div className="min-w-0 flex-1">
             <div className="flex items-baseline justify-between gap-2">
@@ -623,47 +808,49 @@ function EmailRow({
                   item.isUnread ? "font-bold" : "font-semibold"
                 }`}
               >
-                {item.fromName}
+                {item.fromName || item.fromEmail}
               </span>
               <span className="shrink-0 text-[11px] text-[var(--muted)]">
                 {formatTime(item.receivedAt)}
               </span>
             </div>
             <div
-              className={`truncate text-sm ${
-                item.isUnread ? "font-medium" : ""
-              }`}
+              className={`truncate text-sm ${item.isUnread ? "font-medium" : ""}`}
             >
               {item.subject}
             </div>
             <div className="truncate text-[13px] text-[var(--muted)]">
               {item.snippet}
             </div>
-            <div
-              className="mt-2 rounded-lg px-2 py-1.5 text-xs font-medium leading-snug"
-              style={{
-                color: g.color,
-                backgroundColor: `${g.color}14`,
-              }}
-            >
-              {g.instruction}
-            </div>
+            {showGuide && g ? (
+              <div
+                className="mt-2 rounded-lg px-2 py-1.5 text-xs font-medium leading-snug"
+                style={{
+                  color: g.color,
+                  backgroundColor: `${g.color}14`,
+                }}
+              >
+                {g.instruction}
+              </div>
+            ) : null}
             {chips}
           </div>
         </div>
         <div className="mt-3 flex justify-end gap-2">
-          <button
-            type="button"
-            disabled={busy}
-            onClick={(e) => {
-              e.stopPropagation();
-              onArchive();
-            }}
-            className="inline-flex items-center gap-1 rounded-lg border border-[var(--border)] bg-[var(--bg)] px-3 py-1.5 text-xs font-medium disabled:opacity-50"
-          >
-            <Archive className="h-3.5 w-3.5" />
-            Archive
-          </button>
+          {onArchive ? (
+            <button
+              type="button"
+              disabled={busy}
+              onClick={(e) => {
+                e.stopPropagation();
+                onArchive();
+              }}
+              className="inline-flex items-center gap-1 rounded-lg border border-[var(--border)] bg-[var(--bg)] px-3 py-1.5 text-xs font-medium disabled:opacity-50"
+            >
+              <Archive className="h-3.5 w-3.5" />
+              Archive
+            </button>
+          ) : null}
           <button
             type="button"
             disabled={busy}

@@ -54,6 +54,38 @@ paths:
       responses:
         "200":
           description: { inbox[], needsReview[], sections[], count }
+  /api/mailbox:
+    get:
+      summary: Folder list (inbox|sent|trash) or search
+      parameters:
+        - name: folder
+          in: query
+          schema: { type: string, enum: [inbox, sent, trash] }
+        - name: q
+          in: query
+          schema: { type: string }
+      responses:
+        "200":
+          description: { items[], count, folder }
+  /api/send:
+    post:
+      summary: Compose, reply, replyAll, or forward
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                mode: { type: string, enum: [compose, reply, replyAll, forward] }
+                to: { type: string }
+                cc: { type: string }
+                subject: { type: string }
+                body: { type: string }
+                replyToId: { type: string }
+      responses:
+        "200":
+          description: { ok: true }
   /api/action:
     post:
       summary: Archive, trash, or mark-read one message

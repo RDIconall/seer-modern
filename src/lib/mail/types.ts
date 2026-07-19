@@ -1,0 +1,31 @@
+export type MailFolder = "inbox" | "sent" | "trash";
+
+export type MailMessageListItem = {
+  id: string;
+  threadId: string;
+  fromEmail: string;
+  fromName: string;
+  subject: string;
+  snippet: string;
+  receivedAt: string;
+  isUnread: boolean;
+};
+
+export type MailMessageDetail = MailMessageListItem & {
+  textBody: string;
+  htmlBody: string;
+  toEmail: string;
+  ccEmail: string;
+  messageIdHeader: string;
+};
+
+export type SendMailInput = {
+  to: string;
+  cc?: string;
+  subject: string;
+  body: string;
+  /** Reply / forward threading */
+  threadId?: string;
+  inReplyTo?: string;
+  references?: string;
+};

@@ -1,18 +1,16 @@
-export type MailMessageListItem = {
-  id: string;
-  threadId: string;
-  fromEmail: string;
-  fromName: string;
-  subject: string;
-  snippet: string;
-  receivedAt: string;
-  isUnread: boolean;
-};
+import type {
+  MailFolder,
+  MailMessageDetail,
+  MailMessageListItem,
+  SendMailInput,
+} from "@/lib/mail/types";
 
-export type MailMessageDetail = MailMessageListItem & {
-  textBody: string;
-  htmlBody: string;
-};
+export type {
+  MailFolder,
+  MailMessageDetail,
+  MailMessageListItem,
+  SendMailInput,
+} from "@/lib/mail/types";
 
 function parseAddress(raw: string): { name: string; email: string } {
   const m = raw.match(/^(?:"?([^"]*)"?\s)?<?([^>]+@[^>]+)>?$/);
@@ -23,6 +21,14 @@ function parseAddress(raw: string): { name: string; email: string } {
 function decodeBase64Url(data: string): string {
   const padded = data.replace(/-/g, "+").replace(/_/g, "/");
   return Buffer.from(padded, "base64").toString("utf8");
+}
+
+function encodeBase64Url(data: string): string {
+  return Buffer.from(data, "utf8")
+    .toString("base64")
+    .replace(/\+/g, "-")
+    .replace(/\//g, "_")
+    .replace(/=+$/, "");
 }
 
 function extractBodies(payload: GmailPayload): { text: string; html: string } {
@@ -75,20 +81,26 @@ async function gmailFetch(
   return res.json();
 }
 
-export async function listGmailInbox(
-  accessToken: string,
-  maxResults = 40,
-): Promise<MailMessageListItem[]> {
-  const list = (await gmailFetch(
-    accessToken,
-    `/users/me/messages?labelIds=INBOX&maxResults=${maxResults}`,
-  )) as { messages?: { id: string; threadId: string }[] };
+function folderToQuery(folder: MailFolder, q?: string): string {
+  const base =
+    folder === "inbox"
+      ? "in:inbox"
+      : folder === "sent"
+        ? "in:sent"
+        : "in:trash";
+  const extra = q?.trim();
+  return extra ? `${base} ${extra}` : base;
+}
 
+async function hydrateList(
+  accessToken: string,
+  messages: { id: string; threadId: string }[],
+): Promise<MailMessageListItem[]> {
   const items: MailMessageListItem[] = [];
-  for (const m of list.messages ?? []) {
+  for (const m of messages) {
     const msg = (await gmailFetch(
       accessToken,
-      `/users/me/messages/${m.id}?format=metadata&metadataHeaders=From&metadataHeaders=Subject`,
+      `/users/me/messages/${m.id}?format=metadata&metadataHeaders=From&metadataHeaders=Subject&metadataHeaders=To`,
     )) as {
       id: string;
       threadId: string;
@@ -105,7 +117,8 @@ export async function listGmailInbox(
       threadId: msg.threadId,
       fromEmail: email,
       fromName: name,
-      subject: headers.find((h) => h.name === "Subject")?.value ?? "(no subject)",
+      subject:
+        headers.find((h) => h.name === "Subject")?.value ?? "(no subject)",
       snippet: msg.snippet ?? "",
       receivedAt: msg.internalDate
         ? new Date(Number(msg.internalDate)).toISOString()
@@ -114,6 +127,41 @@ export async function listGmailInbox(
     });
   }
   return items;
+}
+
+export async function listGmailInbox(
+  accessToken: string,
+  maxResults = 40,
+): Promise<MailMessageListItem[]> {
+  return listGmailFolder(accessToken, "inbox", maxResults);
+}
+
+export async function listGmailFolder(
+  accessToken: string,
+  folder: MailFolder,
+  maxResults = 40,
+  q?: string,
+): Promise<MailMessageListItem[]> {
+  const query = encodeURIComponent(folderToQuery(folder, q));
+  const list = (await gmailFetch(
+    accessToken,
+    `/users/me/messages?q=${query}&maxResults=${maxResults}`,
+  )) as { messages?: { id: string; threadId: string }[] };
+  return hydrateList(accessToken, list.messages ?? []);
+}
+
+export async function searchGmail(
+  accessToken: string,
+  q: string,
+  maxResults = 40,
+): Promise<MailMessageListItem[]> {
+  const query = encodeURIComponent(q.trim());
+  if (!query) return [];
+  const list = (await gmailFetch(
+    accessToken,
+    `/users/me/messages?q=${query}&maxResults=${maxResults}`,
+  )) as { messages?: { id: string; threadId: string }[] };
+  return hydrateList(accessToken, list.messages ?? []);
 }
 
 export async function getGmailMessage(
@@ -132,7 +180,10 @@ export async function getGmailMessage(
     payload: GmailPayload;
   };
   const headers = msg.payload.headers ?? [];
-  const fromRaw = headers.find((h) => h.name === "From")?.value ?? "";
+  const header = (name: string) =>
+    headers.find((h) => h.name.toLowerCase() === name.toLowerCase())?.value ??
+    "";
+  const fromRaw = header("From");
   const { name, email } = parseAddress(fromRaw);
   const { text, html } = extractBodies(msg.payload);
   return {
@@ -140,7 +191,7 @@ export async function getGmailMessage(
     threadId: msg.threadId,
     fromEmail: email,
     fromName: name,
-    subject: headers.find((h) => h.name === "Subject")?.value ?? "(no subject)",
+    subject: header("Subject") || "(no subject)",
     snippet: msg.snippet ?? "",
     receivedAt: msg.internalDate
       ? new Date(Number(msg.internalDate)).toISOString()
@@ -148,7 +199,39 @@ export async function getGmailMessage(
     isUnread: (msg.labelIds ?? []).includes("UNREAD"),
     textBody: text,
     htmlBody: html,
+    toEmail: header("To"),
+    ccEmail: header("Cc"),
+    messageIdHeader: header("Message-ID") || header("Message-Id"),
   };
+}
+
+function buildMime(input: SendMailInput): string {
+  const lines = [
+    `To: ${input.to}`,
+    ...(input.cc?.trim() ? [`Cc: ${input.cc.trim()}`] : []),
+    `Subject: ${input.subject}`,
+    "MIME-Version: 1.0",
+    'Content-Type: text/plain; charset="UTF-8"',
+    ...(input.inReplyTo ? [`In-Reply-To: ${input.inReplyTo}`] : []),
+    ...(input.references ? [`References: ${input.references}`] : []),
+    "",
+    input.body,
+  ];
+  return lines.join("\r\n");
+}
+
+export async function sendGmailMessage(
+  accessToken: string,
+  input: SendMailInput,
+): Promise<{ id: string; threadId: string }> {
+  const raw = encodeBase64Url(buildMime(input));
+  const body: { raw: string; threadId?: string } = { raw };
+  if (input.threadId) body.threadId = input.threadId;
+  const sent = (await gmailFetch(accessToken, `/users/me/messages/send`, {
+    method: "POST",
+    body: JSON.stringify(body),
+  })) as { id: string; threadId: string };
+  return { id: sent.id, threadId: sent.threadId };
 }
 
 export async function gmailAction(

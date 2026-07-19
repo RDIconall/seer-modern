@@ -39,8 +39,8 @@ export default async function Home() {
         <div className="max-w-sm text-center">
           <h1 className="text-2xl font-semibold">Inbox Pilot</h1>
           <p className="mt-2 text-sm text-[var(--muted)]">
-            Read and triage Gmail here — with clear guidance on what to do with
-            each message.
+            Full mailbox — Inbox, Sent, Trash, compose, reply — plus smart
+            triage guidance for what to do next.
           </p>
           <div className="mt-8 flex flex-col gap-3">
             {google ? (
