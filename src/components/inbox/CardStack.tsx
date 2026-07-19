@@ -155,13 +155,13 @@ export function CardStack({
     current.kind === "email" && busyId === current.item.id;
 
   return (
-    <div className="flex flex-1 flex-col px-4 pb-2 pt-2">
-      <div className="mb-3 flex items-center justify-between rounded-md bg-[var(--primary-soft)] px-3 py-2">
-        <div className="flex items-center gap-2 text-sm font-semibold text-[var(--fg-strong)]">
-          <Layers className="h-4 w-4 text-[var(--primary)]" />
+    <div className="seer-deck-bg flex flex-1 flex-col px-4 pb-2 pt-2">
+      <div className="mb-3 flex items-center justify-between rounded-md bg-white/15 px-3 py-2">
+        <div className="flex items-center gap-2 text-sm font-semibold text-white">
+          <Layers className="h-4 w-4" />
           <span>Cards</span>
         </div>
-        <span className="text-xs font-medium text-[var(--primary)]">
+        <span className="text-xs font-semibold text-white/90">
           {visible.length} left
         </span>
       </div>
@@ -211,7 +211,7 @@ export function CardStack({
             </div>
           ) : null}
           {trashHint ? (
-            <div className="pointer-events-none absolute right-4 top-6 z-30 rounded-lg bg-[#d93025] px-3 py-1 text-xs font-bold uppercase tracking-wide text-white">
+            <div className="pointer-events-none absolute right-4 top-6 z-30 rounded-lg bg-[#d63b2f] px-3 py-1 text-xs font-bold uppercase tracking-wide text-white">
               Delete
             </div>
           ) : null}
@@ -241,7 +241,7 @@ export function CardStack({
           <div className="mx-auto mt-4 flex w-full max-w-md items-center justify-around gap-2 pb-2">
             <CardAction
               label="Delete"
-              color="#d93025"
+              color="#d63b2f"
               disabled={currentBusy}
               onClick={() => commit(current, "trash")}
             >
@@ -270,12 +270,12 @@ export function CardStack({
               <Archive className="h-5 w-5" />
             </CardAction>
           </div>
-          <p className="pb-2 text-center text-[11px] text-[var(--muted)]">
+          <p className="pb-2 text-center text-[11px] text-white/80">
             Swipe right to archive · left to delete
           </p>
         </>
       ) : (
-        <p className="pb-4 pt-4 text-center text-[11px] text-[var(--muted)]">
+        <p className="pb-4 pt-4 text-center text-[11px] text-white/80">
           One tap clears the whole group — or decide one by one
         </p>
       )}
@@ -305,7 +305,7 @@ function BulkCardFace({
   const extra = section.items.length - shown.length;
   return (
     <article
-      className={`flex min-h-[380px] flex-col rounded-2xl border border-[var(--border)] bg-[var(--bg)] p-5 shadow-[0_8px_28px_rgba(0,0,0,0.12)] dark:shadow-[0_8px_28px_rgba(0,0,0,0.45)] ${
+      className={`seer-card-face flex min-h-[380px] flex-col rounded-2xl p-5 ${
         muted ? "pointer-events-none" : ""
       }`}
     >
@@ -396,7 +396,7 @@ function CardFace({
   onSuggested?: () => void;
 }) {
   const g = item.guide;
-  const accent = g?.color ?? "#3498d9";
+  const accent = g?.color ?? "#2e7cf6";
   return (
     <article
       role={onTap ? "button" : undefined}
@@ -409,7 +409,7 @@ function CardFace({
             }
           : undefined
       }
-      className={`flex min-h-[380px] flex-col rounded-2xl border border-[var(--border)] bg-[var(--bg)] p-5 shadow-[0_8px_28px_rgba(0,0,0,0.12)] dark:shadow-[0_8px_28px_rgba(0,0,0,0.45)] ${
+      className={`seer-card-face flex min-h-[380px] flex-col rounded-2xl p-5 ${
         muted ? "pointer-events-none" : ""
       }`}
     >
@@ -445,31 +445,16 @@ function CardFace({
       {g ? (
         <div
           className="mt-4 rounded-xl px-3 py-3"
-          style={{ backgroundColor: `${g.color}18` }}
+          style={{ backgroundColor: `${g.color}16` }}
         >
           <div
-            className="text-xs font-semibold uppercase tracking-wide"
+            className="text-xs font-bold uppercase tracking-wide"
             style={{ color: g.color }}
           >
             {g.label}
-            {g.confidence ? ` · ${g.confidence}` : ""}
           </div>
-          <div className="mt-1 text-[13px] text-[var(--fg)]">{g.reason}</div>
-          {g.who ? (
-            <div className="mt-2 text-[12px] leading-snug text-[var(--fg)]">
-              <span className="font-semibold">Who:</span> {g.who}
-            </div>
-          ) : null}
-          {g.harm ? (
-            <div className="mt-1 text-[12px] leading-snug text-[var(--muted)]">
-              <span className="font-semibold">If deleted:</span> {g.harm}
-            </div>
-          ) : null}
           {g.instruction ? (
-            <div
-              className="mt-1 text-sm font-medium"
-              style={{ color: g.color }}
-            >
+            <div className="mt-1 text-sm font-medium text-[var(--fg-strong)]">
               {g.instruction}
             </div>
           ) : null}
@@ -518,12 +503,12 @@ function CardAction({
       className="flex flex-col items-center gap-1 disabled:opacity-40"
     >
       <span
-        className="flex h-14 w-14 items-center justify-center rounded-full border border-[var(--border)] bg-[var(--bg)] shadow-sm"
+        className="flex h-14 w-14 items-center justify-center rounded-full bg-white shadow-[0_2px_8px_rgba(10,45,40,0.25)]"
         style={{ color }}
       >
         {children}
       </span>
-      <span className="text-[10px] text-[var(--muted)]">{label}</span>
+      <span className="text-[10px] font-medium text-white/85">{label}</span>
     </button>
   );
 }

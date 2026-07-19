@@ -1,39 +1,44 @@
 @import "tailwindcss";
 
-/* Seer brand tokens — from getseer.com (~2013–14): soft blue, amber CTA, light panels */
+/*
+ * Seer brand tokens — brand guidelines 1.4 / 1.6:
+ * Pure  purple #967ad0 · orange #ff8f2d · cyan #6bcfe1 · green #96d322
+ * Dim   #1e242b · #778591 · #99a3ad · #a6bbc2
+ * Blue #2e7cf6 is the action-icon blue from the original iPhone cards.
+ */
 :root {
   --bg: #ffffff;
-  --fg: #555555;
-  --fg-strong: #333333;
-  --card: #edf1f3;
-  --border: #ececec;
-  --muted: #666666;
-  --nav-muted: #aeaeae;
-  --primary: #3498d9;
-  --primary-soft: #b2daeb;
-  --accent: #feb022;
-  --row-hover: #f5f8fa;
-  --unread: #333333;
-  --selection: #b2daeb;
+  --fg: #3c4650;
+  --fg-strong: #1e242b;
+  --card: #eef1f4;
+  --border: #e2e7eb;
+  --muted: #778591;
+  --nav-muted: #99a3ad;
+  --primary: #2e7cf6;
+  --primary-soft: #cfe0fb;
+  --accent: #ff8f2d;
+  --row-hover: #f4f7f9;
+  --unread: #1e242b;
+  --selection: #cfe0fb;
   --safe-top: env(safe-area-inset-top, 0px);
   --safe-bottom: env(safe-area-inset-bottom, 0px);
 }
 
 @media (prefers-color-scheme: dark) {
   :root {
-    --bg: #121417;
-    --fg: #d8dee4;
+    --bg: #1e242b;
+    --fg: #ccd4db;
     --fg-strong: #f0f3f6;
-    --card: #1c2126;
-    --border: #2e353c;
-    --muted: #9aa5b1;
-    --nav-muted: #7a8692;
-    --primary: #5eb3e8;
-    --primary-soft: #1e4a66;
-    --accent: #feb022;
-    --row-hover: #1a1f24;
+    --card: #272f38;
+    --border: #363f49;
+    --muted: #99a3ad;
+    --nav-muted: #778591;
+    --primary: #5e9df8;
+    --primary-soft: #1d3a63;
+    --accent: #ff8f2d;
+    --row-hover: #242b34;
     --unread: #ffffff;
-    --selection: #1e4a66;
+    --selection: #1d3a63;
   }
 }
 
@@ -130,27 +135,81 @@ body {
   will-change: transform;
 }
 
+/* Teal backdrop the original card deck floated on (iOS bgGradient) */
+.seer-deck-bg {
+  background: linear-gradient(180deg, #4cbb95 0%, #16a89d 100%);
+}
+
+/* Glossy card face: layered shadows + top sheen, like the 2014 cards */
+.seer-card-face {
+  position: relative;
+  overflow: hidden;
+  background: linear-gradient(180deg, #ffffff 0%, #fbfcfd 55%, #f4f7f9 100%);
+  border: 1px solid rgba(30, 36, 43, 0.08);
+  box-shadow:
+    inset 0 1px 0 rgba(255, 255, 255, 0.95),
+    0 1px 2px rgba(10, 45, 40, 0.16),
+    0 10px 24px rgba(10, 45, 40, 0.2),
+    0 26px 48px rgba(10, 45, 40, 0.16);
+}
+
+.seer-card-face::before {
+  content: "";
+  position: absolute;
+  inset: 0 0 auto 0;
+  height: 44%;
+  background: linear-gradient(
+    180deg,
+    rgba(255, 255, 255, 0.6),
+    rgba(255, 255, 255, 0)
+  );
+  pointer-events: none;
+}
+
+@media (prefers-color-scheme: dark) {
+  .seer-card-face {
+    background: linear-gradient(180deg, #2c343e 0%, #272f38 55%, #232a33 100%);
+    border-color: rgba(255, 255, 255, 0.08);
+    box-shadow:
+      inset 0 1px 0 rgba(255, 255, 255, 0.08),
+      0 1px 2px rgba(0, 0, 0, 0.4),
+      0 10px 24px rgba(0, 0, 0, 0.4),
+      0 26px 48px rgba(0, 0, 0, 0.35);
+  }
+
+  .seer-card-face::before {
+    background: linear-gradient(
+      180deg,
+      rgba(255, 255, 255, 0.06),
+      rgba(255, 255, 255, 0)
+    );
+  }
+}
+
 /* Soft brand atmosphere (login / empty states) */
 .seer-atmosphere {
   background:
-    radial-gradient(ellipse 80% 50% at 20% 0%, rgba(52, 152, 217, 0.12), transparent 55%),
-    radial-gradient(ellipse 60% 40% at 90% 100%, rgba(254, 176, 34, 0.1), transparent 50%),
-    linear-gradient(180deg, #edf1f3 0%, #ffffff 45%, #f7fafb 100%);
+    radial-gradient(ellipse 80% 50% at 20% 0%, rgba(107, 207, 225, 0.16), transparent 55%),
+    radial-gradient(ellipse 60% 40% at 90% 100%, rgba(255, 143, 45, 0.1), transparent 50%),
+    radial-gradient(ellipse 50% 40% at 80% 10%, rgba(150, 211, 34, 0.08), transparent 50%),
+    linear-gradient(180deg, #eef1f4 0%, #ffffff 45%, #f7fafb 100%);
 }
 
 @media (prefers-color-scheme: dark) {
   .seer-atmosphere {
     background:
-      radial-gradient(ellipse 80% 50% at 20% 0%, rgba(94, 179, 232, 0.15), transparent 55%),
-      radial-gradient(ellipse 60% 40% at 90% 100%, rgba(254, 176, 34, 0.08), transparent 50%),
-      linear-gradient(180deg, #121417 0%, #1c2126 100%);
+      radial-gradient(ellipse 80% 50% at 20% 0%, rgba(107, 207, 225, 0.12), transparent 55%),
+      radial-gradient(ellipse 60% 40% at 90% 100%, rgba(255, 143, 45, 0.08), transparent 50%),
+      linear-gradient(180deg, #1e242b 0%, #272f38 100%);
   }
 }
 
+/* SEER wordmark — bold, letter-spaced slate, per the seer.pdf lockup */
 .seer-brand {
-  font-weight: 300;
-  letter-spacing: -0.02em;
-  color: var(--primary);
+  font-weight: 700;
+  letter-spacing: 0.18em;
+  text-transform: uppercase;
+  color: var(--muted);
 }
 
 .seer-tagline {
