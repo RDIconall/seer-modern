@@ -3,6 +3,7 @@
 import {
   Check,
   ChevronLeft,
+  Download,
   Loader2,
   Mail,
   Plus,
@@ -47,6 +48,7 @@ export function SettingsPanel({
   const [data, setData] = useState<AccountsPayload | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState<string | null>(null);
+  const [exportBusy, setExportBusy] = useState(false);
 
   const load = useCallback(async () => {
     setError(null);
@@ -102,6 +104,29 @@ export function SettingsPanel({
       setError(e instanceof Error ? e.message : "Remove failed");
     } finally {
       setBusy(null);
+    }
+  }
+
+  async function downloadClassifierSamples() {
+    setExportBusy(true);
+    setError(null);
+    try {
+      const res = await fetch("/api/classifier/samples", { cache: "no-store" });
+      const json = await res.json();
+      if (!res.ok) throw new Error(json.error ?? "Export failed");
+      const blob = new Blob([JSON.stringify(json, null, 2)], {
+        type: "application/json",
+      });
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement("a");
+      a.href = url;
+      a.download = `seer-classifier-samples-${new Date().toISOString().slice(0, 10)}.json`;
+      a.click();
+      URL.revokeObjectURL(url);
+    } catch (e) {
+      setError(e instanceof Error ? e.message : "Export failed");
+    } finally {
+      setExportBusy(false);
     }
   }
 
@@ -239,6 +264,30 @@ export function SettingsPanel({
             <p className="mt-2 text-[11px] leading-relaxed text-[var(--muted)]">
               Connecting signs you in with that provider and saves it here so
               you can switch mailboxes.
+            </p>
+          </section>
+
+          <section className="mb-6">
+            <h2 className="mb-2 text-xs font-medium uppercase tracking-wide text-[var(--muted)]">
+              Classifier tuning
+            </h2>
+            <button
+              type="button"
+              disabled={exportBusy || !data?.active}
+              onClick={downloadClassifierSamples}
+              className="flex w-full items-center gap-3 rounded-xl border border-[var(--border)] bg-[var(--bg)] px-4 py-3 text-left text-sm font-medium hover:bg-[var(--card)] disabled:opacity-50"
+            >
+              {exportBusy ? (
+                <Loader2 className="h-4 w-4 animate-spin text-[var(--primary)]" />
+              ) : (
+                <Download className="h-4 w-4 text-[var(--primary)]" />
+              )}
+              Download classifier samples
+            </button>
+            <p className="mt-2 text-[11px] leading-relaxed text-[var(--muted)]">
+              Exports subject + snippet + predicted rule for ~60 inbox messages
+              (no HTML bodies). Share that file so we can tune rules against your
+              real mail without training an ML model on Gmail.
             </p>
           </section>
 

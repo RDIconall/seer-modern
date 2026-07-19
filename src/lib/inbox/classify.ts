@@ -243,9 +243,8 @@ export function classifyMessage(
     );
   }
 
-  const humanHit = classifyByRelationship(ctx, email, blob);
-  if (humanHit) return humanHit;
-
+  // Known product / finance / shopping before bulk-noreply relationship,
+  // so GitHub/Vercel/etc. aren't hard-deleted just because local is noreply.
   if (SHOPPING_DOMAINS.test(dom) || SHOPPING_DOMAINS.test(fromBlob)) {
     return hit(
       "glance_promo",
@@ -293,6 +292,9 @@ export function classifyMessage(
       ctx,
     );
   }
+
+  const humanHit = classifyByRelationship(ctx, email, blob);
+  if (humanHit) return humanHit;
 
   if (isMarketingShape(local, dom, blob) || MARKETING_SUBDOMAIN.test(dom)) {
     if (/\bunsubscribe\b/i.test(blob) && signals.sentTo === 0) {
