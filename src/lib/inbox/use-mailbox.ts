@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import type { TriageAction } from "@/lib/inbox/classify";
 import type {
   MailAction,
@@ -11,7 +11,74 @@ import type {
   ViewTab,
 } from "@/lib/inbox/types";
 import type { ComposeDraft } from "@/components/inbox/ComposePanel";
-import { ensureFwd, ensureRe } from "@/lib/inbox/types";
+import { buildCardDeck, ensureFwd, ensureRe } from "@/lib/inbox/types";
+
+/**
+ * Superhuman-style speed:
+ * - stale-while-revalidate: last known data renders instantly from
+ *   localStorage, the network refresh happens silently in the background
+ * - prefetch: top message bodies are fetched before you tap them
+ * - optimistic actions (already): the UI never waits for the server
+ */
+
+const CACHE_PREFIX = "seer:v1:";
+const CACHE_MAX_AGE_MS = 12 * 60 * 60 * 1000;
+
+type CacheEnvelope<T> = { accountEmail?: string; savedAt: number; data: T };
+
+function readViewCache<T>(key: string, accountEmail?: string): T | null {
+  if (typeof window === "undefined") return null;
+  try {
+    const raw = window.localStorage.getItem(CACHE_PREFIX + key);
+    if (!raw) return null;
+    const parsed = JSON.parse(raw) as CacheEnvelope<T>;
+    if (Date.now() - parsed.savedAt > CACHE_MAX_AGE_MS) return null;
+    // Never show another account's cached mail
+    if (
+      accountEmail &&
+      parsed.accountEmail &&
+      parsed.accountEmail !== accountEmail
+    ) {
+      return null;
+    }
+    return parsed.data;
+  } catch {
+    return null;
+  }
+}
+
+function writeViewCache<T>(key: string, data: T, accountEmail?: string) {
+  if (typeof window === "undefined") return;
+  try {
+    const envelope: CacheEnvelope<T> = {
+      accountEmail,
+      savedAt: Date.now(),
+      data,
+    };
+    window.localStorage.setItem(CACHE_PREFIX + key, JSON.stringify(envelope));
+  } catch {
+    /* storage full — skip */
+  }
+}
+
+const PREFETCH_COUNT = 8;
+const MESSAGE_CACHE_MAX = 30;
+
+type ReaderPayload = {
+  message: Record<string, unknown> & {
+    htmlBody: string;
+    textBody: string;
+    subject: string;
+    fromName: string;
+    fromEmail: string;
+    toEmail?: string;
+    ccEmail?: string;
+    threadId: string;
+    messageIdHeader?: string;
+    receivedAt?: string;
+  };
+  guide?: ReaderMessage["guide"];
+};
 
 export function useMailbox(initialTab: ViewTab = "inbox") {
   const [tab, setTab] = useState<ViewTab>(initialTab);
@@ -60,6 +127,12 @@ export function useMailbox(initialTab: ViewTab = "inbox") {
     "Your mailbox";
   const accountLabel = identity?.label ?? "";
 
+  // Ref so cache reads don't retrigger load() when identity resolves
+  const identityEmailRef = useRef<string | undefined>(undefined);
+  useEffect(() => {
+    identityEmailRef.current = identity?.email;
+  }, [identity?.email]);
+
   const loadTriage = useCallback(async () => {
     const res = await fetch("/api/today", { cache: "no-store" });
     const json = await res.json();
@@ -79,14 +152,55 @@ export function useMailbox(initialTab: ViewTab = "inbox") {
     [],
   );
 
+  // Persist views (including optimistic removals) for instant next paint
+  useEffect(() => {
+    if (!triage) return;
+    writeViewCache("triage", triage, triage.accountEmail);
+  }, [triage]);
+
+  useEffect(() => {
+    if (!mailbox || query.trim()) return;
+    const folder = mailbox.folder;
+    if (folder === "inbox" || folder === "sent" || folder === "trash") {
+      writeViewCache(`mailbox:${folder}`, mailbox, mailbox.accountEmail);
+    }
+  }, [mailbox, query]);
+
   const load = useCallback(async () => {
-    setLoading(true);
     setError(null);
+
+    // Stale-while-revalidate: paint the last known view instantly,
+    // then refresh silently in the background.
+    let hadCache = false;
+    if (!query.trim()) {
+      if (tab === "triage" || tab === "cards") {
+        const cached = readViewCache<TodayData>(
+          "triage",
+          identityEmailRef.current,
+        );
+        if (cached) {
+          setTriage(cached);
+          hadCache = true;
+        }
+      } else {
+        const cached = readViewCache<MailboxData>(
+          `mailbox:${tab}`,
+          identityEmailRef.current,
+        );
+        if (cached) {
+          setMailbox(cached);
+          hadCache = true;
+        }
+      }
+    }
+    setLoading(!hadCache);
+
     try {
       if (tab === "triage" || tab === "cards") await loadTriage();
       else await loadMailbox(tab, query);
     } catch (e) {
-      setError(e instanceof Error ? e.message : "Load failed");
+      // With a cached view on screen, fail silently rather than blanking it
+      if (!hadCache) setError(e instanceof Error ? e.message : "Load failed");
     } finally {
       setLoading(false);
     }
@@ -226,31 +340,103 @@ export function useMailbox(initialTab: ViewTab = "inbox") {
     [load],
   );
 
-  const openReader = useCallback(async (id: string) => {
-    setReaderId(id);
-    setReader(null);
-    try {
-      const res = await fetch(`/api/messages/${id}`);
-      const json = await res.json();
-      if (!res.ok) throw new Error(json.error);
-      setReader({
-        htmlBody: json.message.htmlBody,
-        textBody: json.message.textBody,
-        subject: json.message.subject,
-        fromName: json.message.fromName,
-        fromEmail: json.message.fromEmail,
-        toEmail: json.message.toEmail ?? "",
-        ccEmail: json.message.ccEmail ?? "",
-        threadId: json.message.threadId,
-        messageIdHeader: json.message.messageIdHeader ?? "",
-        receivedAt: json.message.receivedAt,
-        guide: json.guide,
-      });
-    } catch (e) {
-      setToast(e instanceof Error ? e.message : "Could not open message");
-      setReaderId(null);
-    }
-  }, []);
+  // ---- Superhuman-style prefetch: bodies are ready before you tap ----
+
+  const messageCache = useRef(new Map<string, ReaderPayload>());
+  const inflight = useRef(new Set<string>());
+
+  const toReaderMessage = (json: ReaderPayload): ReaderMessage => ({
+    htmlBody: json.message.htmlBody,
+    textBody: json.message.textBody,
+    subject: json.message.subject,
+    fromName: json.message.fromName,
+    fromEmail: json.message.fromEmail,
+    toEmail: json.message.toEmail ?? "",
+    ccEmail: json.message.ccEmail ?? "",
+    threadId: json.message.threadId,
+    messageIdHeader: json.message.messageIdHeader ?? "",
+    receivedAt: json.message.receivedAt,
+    guide: json.guide,
+  });
+
+  const fetchMessage = useCallback(
+    async (id: string): Promise<ReaderPayload | null> => {
+      const cached = messageCache.current.get(id);
+      if (cached) return cached;
+      if (inflight.current.has(id)) return null;
+      inflight.current.add(id);
+      try {
+        const res = await fetch(`/api/messages/${id}`);
+        if (!res.ok) {
+          const j = (await res.json().catch(() => ({}))) as { error?: string };
+          throw new Error(j.error ?? "Could not load message");
+        }
+        const json = (await res.json()) as ReaderPayload;
+        messageCache.current.set(id, json);
+        // Evict oldest beyond cap (Map preserves insertion order)
+        while (messageCache.current.size > MESSAGE_CACHE_MAX) {
+          const oldest = messageCache.current.keys().next().value;
+          if (oldest == null) break;
+          messageCache.current.delete(oldest);
+        }
+        return json;
+      } finally {
+        inflight.current.delete(id);
+      }
+    },
+    [],
+  );
+
+  // Warm the top of the visible list in the background, staggered
+  useEffect(() => {
+    const items =
+      tab === "triage" || tab === "cards"
+        ? buildCardDeck(triage)
+        : (mailbox?.items ?? []);
+    const top = items
+      .slice(0, PREFETCH_COUNT)
+      .filter((i) => !messageCache.current.has(i.id));
+    if (top.length === 0) return;
+    const timers = top.map((item, idx) =>
+      setTimeout(() => {
+        fetchMessage(item.id).catch(() => {});
+      }, 350 + idx * 200),
+    );
+    return () => timers.forEach(clearTimeout);
+  }, [triage, mailbox, tab, fetchMessage]);
+
+  const openReader = useCallback(
+    async (id: string) => {
+      setReaderId(id);
+      const cached = messageCache.current.get(id);
+      if (cached) {
+        // Instant open — body was prefetched
+        setReader(toReaderMessage(cached));
+        return;
+      }
+      setReader(null);
+      try {
+        let json = await fetchMessage(id);
+        if (!json) {
+          // A prefetch is already in flight — wait for it to land
+          for (let i = 0; i < 40 && !json; i++) {
+            await new Promise((r) => setTimeout(r, 150));
+            json = messageCache.current.get(id) ?? null;
+            if (!json && !inflight.current.has(id)) {
+              json = await fetchMessage(id);
+              break;
+            }
+          }
+        }
+        if (!json) throw new Error("Could not load message");
+        setReader(toReaderMessage(json));
+      } catch (e) {
+        setToast(e instanceof Error ? e.message : "Could not open message");
+        setReaderId(null);
+      }
+    },
+    [fetchMessage],
+  );
 
   const startCompose = useCallback(() => {
     setCompose({

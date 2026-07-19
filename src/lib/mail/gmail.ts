@@ -92,44 +92,58 @@ function folderToQuery(folder: MailFolder, q?: string): string {
   return extra ? `${base} ${extra}` : base;
 }
 
+/** Superhuman-style: hydrate metadata in parallel, not one-by-one. */
+const HYDRATE_CONCURRENCY = 10;
+
+async function hydrateOne(
+  accessToken: string,
+  m: { id: string; threadId: string },
+): Promise<MailMessageListItem> {
+  const msg = (await gmailFetch(
+    accessToken,
+    `/users/me/messages/${m.id}?format=metadata&metadataHeaders=From&metadataHeaders=Subject&metadataHeaders=To`,
+  )) as {
+    id: string;
+    threadId: string;
+    snippet?: string;
+    internalDate?: string;
+    labelIds?: string[];
+    payload?: GmailPayload;
+  };
+  const headers = msg.payload?.headers ?? [];
+  const fromRaw = headers.find((h) => h.name === "From")?.value ?? "";
+  const toRaw = headers.find((h) => h.name === "To")?.value ?? "";
+  const { name, email } = parseAddress(fromRaw);
+  const firstTo = toRaw.split(",")[0]?.trim() ?? "";
+  const peer = firstTo ? parseAddress(firstTo).email : undefined;
+  return {
+    id: msg.id,
+    threadId: msg.threadId,
+    fromEmail: email,
+    fromName: name,
+    peerEmail: peer,
+    subject:
+      headers.find((h) => h.name === "Subject")?.value ?? "(no subject)",
+    snippet: msg.snippet ?? "",
+    receivedAt: msg.internalDate
+      ? new Date(Number(msg.internalDate)).toISOString()
+      : new Date().toISOString(),
+    isUnread: (msg.labelIds ?? []).includes("UNREAD"),
+    labelIds: msg.labelIds ?? [],
+  };
+}
+
 async function hydrateList(
   accessToken: string,
   messages: { id: string; threadId: string }[],
 ): Promise<MailMessageListItem[]> {
   const items: MailMessageListItem[] = [];
-  for (const m of messages) {
-    const msg = (await gmailFetch(
-      accessToken,
-      `/users/me/messages/${m.id}?format=metadata&metadataHeaders=From&metadataHeaders=Subject&metadataHeaders=To`,
-    )) as {
-      id: string;
-      threadId: string;
-      snippet?: string;
-      internalDate?: string;
-      labelIds?: string[];
-      payload?: GmailPayload;
-    };
-    const headers = msg.payload?.headers ?? [];
-    const fromRaw = headers.find((h) => h.name === "From")?.value ?? "";
-    const toRaw = headers.find((h) => h.name === "To")?.value ?? "";
-    const { name, email } = parseAddress(fromRaw);
-    const firstTo = toRaw.split(",")[0]?.trim() ?? "";
-    const peer = firstTo ? parseAddress(firstTo).email : undefined;
-    items.push({
-      id: msg.id,
-      threadId: msg.threadId,
-      fromEmail: email,
-      fromName: name,
-      peerEmail: peer,
-      subject:
-        headers.find((h) => h.name === "Subject")?.value ?? "(no subject)",
-      snippet: msg.snippet ?? "",
-      receivedAt: msg.internalDate
-        ? new Date(Number(msg.internalDate)).toISOString()
-        : new Date().toISOString(),
-      isUnread: (msg.labelIds ?? []).includes("UNREAD"),
-      labelIds: msg.labelIds ?? [],
-    });
+  for (let i = 0; i < messages.length; i += HYDRATE_CONCURRENCY) {
+    const chunk = messages.slice(i, i + HYDRATE_CONCURRENCY);
+    const hydrated = await Promise.all(
+      chunk.map((m) => hydrateOne(accessToken, m)),
+    );
+    items.push(...hydrated);
   }
   return items;
 }
