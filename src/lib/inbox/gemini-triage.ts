@@ -90,6 +90,17 @@ const BATCH = Math.max(
 );
 
 /**
+ * Cap Gemini calls per inbox load. With a 200-deep scan a cold cache
+ * could mean 8 calls in seconds — enough to trip free-tier per-minute
+ * limits. Overflow falls back to rules UNCACHED, so the next refresh
+ * picks up where this one stopped and the whole inbox converges.
+ */
+const MAX_BATCHES_PER_LOAD = Math.max(
+  1,
+  Math.min(12, Number(process.env.SEER_GEMINI_MAX_BATCHES ?? "4") || 4),
+);
+
+/**
  * Rules the heuristic engine gets right with near-certainty and where a
  * wrong call is harmless (junk that was getting deleted/unsubscribed
  * anyway). These skip Gemini entirely — zero tokens spent.
@@ -591,7 +602,11 @@ export async function classifyInboxWithAssistant(
     extras?.geminiEnabled !== false
   ) {
     try {
-      for (let i = 0; i < forGemini.length; i += BATCH) {
+      const limit = Math.min(
+        forGemini.length,
+        MAX_BATCHES_PER_LOAD * BATCH,
+      );
+      for (let i = 0; i < limit; i += BATCH) {
         const chunk = forGemini.slice(i, i + BATCH);
         const mapped = await geminiBatch(chunk, history, extras);
         for (const [id, r] of mapped) {

@@ -22,6 +22,12 @@ import { NextResponse } from "next/server";
 
 export const maxDuration = 60;
 
+/** How deep into the inbox each load looks (was 50 — hid most of a full inbox). */
+const SCAN = Math.max(
+  50,
+  Math.min(300, Number(process.env.SEER_INBOX_SCAN ?? "200") || 200),
+);
+
 export type TodayEmail = {
   id: string;
   threadId: string;
@@ -51,8 +57,8 @@ export async function GET() {
 
     const raw =
       session.provider === "google"
-        ? await listGmailInbox(session.accessToken, 50)
-        : await listGraphInbox(session.accessToken, 50);
+        ? await listGmailInbox(session.accessToken, SCAN)
+        : await listGraphInbox(session.accessToken, SCAN);
 
     const [history, personal, actionMemory, labels, profile] =
       await Promise.all([

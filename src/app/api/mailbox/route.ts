@@ -18,6 +18,12 @@ export const maxDuration = 60;
 
 const FOLDERS = new Set<MailFolder>(["inbox", "sent", "trash"]);
 
+/** Inbox scan depth — match /api/today so no mail hides below the fold. */
+const SCAN = Math.max(
+  50,
+  Math.min(300, Number(process.env.SEER_INBOX_SCAN ?? "200") || 200),
+);
+
 export async function GET(request: Request) {
   try {
     const session = await requireMailSession();
@@ -30,16 +36,17 @@ export async function GET(request: Request) {
     const q = searchParams.get("q") ?? undefined;
     const folder = FOLDERS.has(folderParam) ? folderParam : "inbox";
 
+    const depth = folder === "inbox" ? SCAN : 100;
     let items: MailMessageListItem[];
     if (session.provider === "google") {
       items = q?.trim()
-        ? await searchGmail(session.accessToken, q)
-        : await listGmailFolder(session.accessToken, folder, 40, q);
+        ? await searchGmail(session.accessToken, q, 60)
+        : await listGmailFolder(session.accessToken, folder, depth, q);
     } else {
       items =
         q?.trim() && !searchParams.get("folder")
-          ? await searchGraph(session.accessToken, q)
-          : await listGraphFolder(session.accessToken, folder, 40, q);
+          ? await searchGraph(session.accessToken, q, 60)
+          : await listGraphFolder(session.accessToken, folder, depth, q);
     }
 
     const shouldClassify = folder === "inbox" || Boolean(q?.trim());
