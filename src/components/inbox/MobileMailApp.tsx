@@ -38,7 +38,7 @@ import { LogicExplain, LogicToggle } from "@/components/inbox/LogicExplain";
 import { SettingsPanel } from "@/components/inbox/SettingsPanel";
 import { useMailbox } from "@/lib/inbox/use-mailbox";
 import {
-  buildCardDeck,
+  buildDeckCards,
   ensureRe,
   formatMailTime,
   primaryMailAction,
@@ -105,7 +105,7 @@ export function MobileMailApp() {
   const [settingsOpen, setSettingsOpen] = useState(false);
   const [logicMode, setLogicMode] = useState(false);
   const searchRef = useRef<HTMLInputElement>(null);
-  const cardDeck = useMemo(() => buildCardDeck(triage), [triage]);
+  const deckCards = useMemo(() => buildDeckCards(triage), [triage]);
 
   useEffect(() => {
     if (searchOpen) searchRef.current?.focus();
@@ -464,10 +464,11 @@ export function MobileMailApp() {
 
         {tab === "cards" && triage ? (
           <CardStack
-            items={cardDeck}
+            deck={deckCards}
             busyId={busyId}
             onOpen={openReader}
             onAction={runAction}
+            onBulk={bulkSection}
             onReply={replyFromCard}
             onEmptyRefresh={load}
           />

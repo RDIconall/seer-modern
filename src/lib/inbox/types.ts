@@ -100,6 +100,50 @@ export function buildCardDeck(triage: TodayData | null): EmailItem[] {
   return deck;
 }
 
+/** A card in the deck: one email, or a whole-section bulk action. */
+export type DeckCard =
+  | { kind: "email"; key: string; item: EmailItem }
+  | { kind: "bulk"; key: string; section: Section };
+
+/** How many emails a section needs before it earns a one-tap bulk card. */
+const BULK_CARD_MIN = 3;
+
+/**
+ * Card deck with triage superpowers: sections whose call is "trash"
+ * (delete now, read & delete, unsubscribe, promos) get a single
+ * "delete all of these" card in front of their emails. Acting on it
+ * clears the whole section at once; skipping it falls through to the
+ * usual one-by-one cards.
+ */
+export function buildDeckCards(triage: TodayData | null): DeckCard[] {
+  if (!triage) return [];
+  const seen = new Set<string>();
+  const deck: DeckCard[] = [];
+  const pushEmails = (items: EmailItem[]) => {
+    for (const item of items) {
+      if (seen.has(item.id)) continue;
+      seen.add(item.id);
+      deck.push({ kind: "email", key: item.id, item });
+    }
+  };
+  pushEmails(triage.needsReview);
+  for (const section of triage.sections) {
+    if (
+      primaryMailAction(section.action) === "trash" &&
+      section.items.length >= BULK_CARD_MIN
+    ) {
+      deck.push({
+        kind: "bulk",
+        key: `bulk:${section.action}`,
+        section,
+      });
+    }
+    pushEmails(section.items);
+  }
+  if (triage.inbox) pushEmails(triage.inbox);
+  return deck;
+}
+
 export type ReaderMessage = {
   htmlBody: string;
   textBody: string;
