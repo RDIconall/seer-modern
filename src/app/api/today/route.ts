@@ -22,6 +22,16 @@ import { NextResponse } from "next/server";
 
 export const maxDuration = 60;
 
+/**
+ * The whole point is inbox zero — every load scans the ENTIRE inbox.
+ * The ceiling only exists so a 10k-message inbox can't blow the 60s
+ * serverless budget; as the user works it down, scans cover everything.
+ */
+const SCAN = Math.max(
+  100,
+  Math.min(1000, Number(process.env.SEER_INBOX_SCAN ?? "1000") || 1000),
+);
+
 export type TodayEmail = {
   id: string;
   threadId: string;
@@ -51,8 +61,8 @@ export async function GET() {
 
     const raw =
       session.provider === "google"
-        ? await listGmailInbox(session.accessToken, 50)
-        : await listGraphInbox(session.accessToken, 50);
+        ? await listGmailInbox(session.accessToken, SCAN)
+        : await listGraphInbox(session.accessToken, SCAN);
 
     const [history, personal, actionMemory, labels, profile] =
       await Promise.all([

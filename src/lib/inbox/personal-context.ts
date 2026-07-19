@@ -1,10 +1,9 @@
-import { promises as fs } from "fs";
-import path from "path";
+import { accountKey, kvGet, kvSet } from "@/lib/store/kv";
 
 /**
  * Who you know (contacts) and what you're about to do (calendar) are
  * strong predictors of what you'll do with an email. Server-only;
- * cached to disk; degrades to empty if scopes weren't granted yet.
+ * cached via the KV store; degrades to empty if scopes weren't granted.
  */
 
 export type CalendarEventLite = {
@@ -25,30 +24,23 @@ export type ContextSignals = {
   meeting: { subject: string; startsAt: string } | null;
 };
 
-const DATA_DIR =
-  process.env.SEER_DATA_DIR || path.join(process.cwd(), ".data");
 const TTL_FULL_MS = 6 * 60 * 60 * 1000;
 const TTL_EMPTY_MS = 10 * 60 * 1000; // retry soon if scopes were missing
 const LOOKAHEAD_DAYS = 14;
 
 const EMPTY: PersonalContext = { builtAt: "", contacts: [], events: [] };
 
-function fileFor(accountEmail: string) {
-  const safe = accountEmail.toLowerCase().replace(/[^a-z0-9@._-]/g, "_");
-  return path.join(DATA_DIR, `personal-${safe}.json`);
+function keyFor(accountEmail: string) {
+  return `personal:${accountKey(accountEmail)}`;
 }
 
 async function readCache(accountEmail: string): Promise<PersonalContext | null> {
-  try {
-    const raw = await fs.readFile(fileFor(accountEmail), "utf8");
-    const parsed = JSON.parse(raw) as PersonalContext;
-    const age = Date.now() - new Date(parsed.builtAt).getTime();
-    const empty = parsed.contacts.length === 0 && parsed.events.length === 0;
-    if (age > (empty ? TTL_EMPTY_MS : TTL_FULL_MS)) return null;
-    return parsed;
-  } catch {
-    return null;
-  }
+  const parsed = await kvGet<PersonalContext>(keyFor(accountEmail));
+  if (!parsed) return null;
+  const age = Date.now() - new Date(parsed.builtAt).getTime();
+  const empty = parsed.contacts.length === 0 && parsed.events.length === 0;
+  if (age > (empty ? TTL_EMPTY_MS : TTL_FULL_MS)) return null;
+  return parsed;
 }
 
 async function safeJson(res: Response): Promise<Record<string, unknown>> {
@@ -195,12 +187,7 @@ export async function getPersonalContext(session: {
       contacts,
       events,
     };
-    await fs.mkdir(DATA_DIR, { recursive: true });
-    await fs.writeFile(
-      fileFor(session.accountEmail),
-      JSON.stringify(ctx),
-      "utf8",
-    );
+    await kvSet(keyFor(session.accountEmail), ctx);
     return ctx;
   } catch {
     return { ...EMPTY, builtAt: new Date().toISOString() };

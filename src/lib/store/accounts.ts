@@ -1,10 +1,7 @@
-import { promises as fs } from "fs";
-import path from "path";
 import { cookies } from "next/headers";
+import { kvGet, kvSet } from "@/lib/store/kv";
 
-const DATA_DIR =
-  process.env.SEER_DATA_DIR || path.join(process.cwd(), ".data");
-const ACCOUNTS_FILE = "accounts.json";
+const ACCOUNTS_KEY = "accounts";
 export const ACTIVE_ACCOUNT_COOKIE = "seer_active_account";
 
 export type MailProvider = "google" | "microsoft-entra-id";
@@ -28,27 +25,13 @@ function accountId(provider: MailProvider, email: string) {
   return `${provider}:${email.toLowerCase()}`;
 }
 
-async function ensureDir() {
-  await fs.mkdir(DATA_DIR, { recursive: true });
-}
-
 async function readStore(): Promise<StoreShape> {
-  try {
-    const raw = await fs.readFile(path.join(DATA_DIR, ACCOUNTS_FILE), "utf8");
-    const parsed = JSON.parse(raw) as StoreShape;
-    return { accounts: parsed.accounts ?? [] };
-  } catch {
-    return { accounts: [] };
-  }
+  const parsed = await kvGet<StoreShape>(ACCOUNTS_KEY);
+  return { accounts: parsed?.accounts ?? [] };
 }
 
 async function writeStore(store: StoreShape) {
-  await ensureDir();
-  await fs.writeFile(
-    path.join(DATA_DIR, ACCOUNTS_FILE),
-    JSON.stringify(store, null, 2),
-    "utf8",
-  );
+  await kvSet(ACCOUNTS_KEY, store);
 }
 
 export async function listAccounts(): Promise<

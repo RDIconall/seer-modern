@@ -35,7 +35,7 @@ import { z } from "zod";
  * Bump when the prompt/actions change so stale cached decisions
  * are ignored and re-classified.
  */
-export const PROMPT_VERSION = 8;
+export const PROMPT_VERSION = 9;
 
 const ACTIONS = [
   "respond",
@@ -80,9 +80,24 @@ export type AssistantClassifyResult = ClassifyResult & {
   cached?: boolean;
 };
 
+/** Looks like a record worth keeping (used to trust old archive labels). */
+const RECORD_HINT =
+  /(receipt|invoice|statement|confirm(?:ed|ation)|order\s*(?:#|no|number)|reference|booking|itinerary|ticket|policy|tax|W-?2|1099)/i;
+
 const BATCH = Math.max(
   5,
   Math.min(40, Number(process.env.SEER_GEMINI_BATCH_SIZE ?? "25") || 25),
+);
+
+/**
+ * Cap Gemini calls per inbox load. With a 200-deep scan a cold cache
+ * could mean 8 calls in seconds — enough to trip free-tier per-minute
+ * limits. Overflow falls back to rules UNCACHED, so the next refresh
+ * picks up where this one stopped and the whole inbox converges.
+ */
+const MAX_BATCHES_PER_LOAD = Math.max(
+  1,
+  Math.min(12, Number(process.env.SEER_GEMINI_MAX_BATCHES ?? "4") || 4),
 );
 
 /**
@@ -249,8 +264,8 @@ Decide an ACTION for every email. Make the call yourself. Do NOT defer to the us
 Actions:
 - respond: a real person is waiting on an answer / decision
 - act_today: the user must personally DO something today or lose something — sign, pay, pick up, board, reschedule, enter a code. Time-sensitive is NOT enough: a package "arriving tomorrow" arrives without the user; that is NOT act_today.
-- read_and_archive: useful notification/receipt/FYI — skim then archive
-- read_and_delete: low-value human or semi-personal noise — skim once then delete
+- read_and_archive: a RECORD the user would realistically SEARCH FOR later — receipt, invoice, statement, confirmation/reference number, ticket, itinerary, tax/legal — or a real FYI from a person they engage with. Archive is for retrieval, not politeness.
+- read_and_delete: everything merely informational — skim once then delete. If they would never search for it later, it is NOT read_and_archive.
 - delete_now: safe to trash without opening (cold promo, bulk noreply junk)
 - unsubscribe: mailing list they clearly don't engage with
 - review_subscription: billing anomaly / price change / failed charge
@@ -267,6 +282,7 @@ Optional predictor fields (omitted when zero/default):
 Priority when signals conflict: meeting > contact > engaged rel > past behavior > content.
 USE WORLD KNOWLEDGE of the company behind the email. Airlines = travel. Banks/brokerages = money. Pharmacies/clinics = health. Schools/government = obligations. Judge WHO the company is and WHAT the message means for the user's day — no sent-history is NOT a reason to defer on a recognizable transactional sender.
 THE RAZOR — apply to every email: does the user personally have to DO anything? PASSIVE "it happened" mail needs nothing: package shipped/arriving/delivered, order confirmed, ride completed, build passed, PR merged, someone starred/liked/followed, weekly digest, statement ready → delete_now or read_and_delete. The event happens whether they read it or not. NEEDS-THEM mail is the exception: failed delivery/signature/pickup/customs, build FAILED, review requested, mentioned/assigned, security alert, payment failed/fraud/overdue, RSVP/invitation → act_today or respond. Records with future lookup value (receipts, invoices, confirmations with reference numbers) → read_and_archive, never delete.
+DELETE BEATS ARCHIVE: when torn between read_and_archive and read_and_delete, pick delete — the user keeps records, not reading material. Newsletters, product updates, community digests, "your weekly summary", social/forum notifications: read_and_delete even from recognizable brands.
 FAKE URGENCY is the #1 trick: "expires today", "last chance", "action required", "final notice", "reminder:" from bulk/noreply/marketing senders is promo bait — delete_now or glance_promo, NEVER act_today. Urgency is real only from contacts, engaged/known senders, or genuine transactional mail (2FA codes, password resets, security alerts, boarding passes, deliveries, appointments).
 Cold noreply marketing → delete_now or unsubscribe.
 Product/CI (GitHub, Vercel, Figma, etc.) → usually read_and_archive unless promo.
@@ -529,7 +545,15 @@ export async function classifyInboxWithAssistant(
         !ctx.inContacts &&
         !ctx.meeting &&
         rel !== "engaged";
-      if (!suspiciousUrgent) {
+      // "Archive" from a robot that isn't a record (no receipt/reference
+      // in sight) predates the delete-beats-archive philosophy — re-review.
+      const suspiciousArchive =
+        labeled === "read_and_archive" &&
+        !ctx.inContacts &&
+        !ctx.meeting &&
+        rel !== "engaged" &&
+        !RECORD_HINT.test(`${item.subject} ${item.snippet}`);
+      if (!suspiciousUrgent && !suspiciousArchive) {
         results.set(item.id, {
           action: labeled,
           confidence: "HIGH",
@@ -578,7 +602,11 @@ export async function classifyInboxWithAssistant(
     extras?.geminiEnabled !== false
   ) {
     try {
-      for (let i = 0; i < forGemini.length; i += BATCH) {
+      const limit = Math.min(
+        forGemini.length,
+        MAX_BATCHES_PER_LOAD * BATCH,
+      );
+      for (let i = 0; i < limit; i += BATCH) {
         const chunk = forGemini.slice(i, i + BATCH);
         const mapped = await geminiBatch(chunk, history, extras);
         for (const [id, r] of mapped) {

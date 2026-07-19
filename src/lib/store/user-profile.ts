@@ -1,5 +1,4 @@
-import { promises as fs } from "fs";
-import path from "path";
+import { accountKey, kvDelete, kvGet, kvSet } from "@/lib/store/kv";
 
 /**
  * The user's "about me" memory — a plain-text profile (role, family,
@@ -19,9 +18,6 @@ export type UserProfile = {
   sourceUrl?: string;
 };
 
-const DATA_DIR =
-  process.env.SEER_DATA_DIR || path.join(process.cwd(), ".data");
-
 /**
  * Hard cap for what we PERSIST. Prompt injection trims further —
  * see profilePromptBlock.
@@ -31,21 +27,15 @@ export const PROFILE_MAX_CHARS = 8000;
 /** What actually rides along on every triage call (token budget). */
 const PROMPT_BLOCK_CHARS = 1600;
 
-function fileFor(accountEmail: string) {
-  const safe = accountEmail.toLowerCase().replace(/[^a-z0-9@._-]/g, "_");
-  return path.join(DATA_DIR, `profile-${safe}.json`);
+function keyFor(accountEmail: string) {
+  return `profile:${accountKey(accountEmail)}`;
 }
 
 export async function loadUserProfile(
   accountEmail: string,
 ): Promise<UserProfile | null> {
-  try {
-    const raw = await fs.readFile(fileFor(accountEmail), "utf8");
-    const parsed = JSON.parse(raw) as UserProfile;
-    if (parsed.text?.trim()) return parsed;
-  } catch {
-    /* fall through to env */
-  }
+  const parsed = await kvGet<UserProfile>(keyFor(accountEmail));
+  if (parsed?.text?.trim()) return parsed;
 
   // Durable fallback: on serverless, .data lives in /tmp and evaporates
   // between instances. SEER_USER_PROFILE (Vercel env var) survives.
@@ -73,13 +63,12 @@ export async function saveUserProfile(
     text: profile.text.slice(0, PROFILE_MAX_CHARS).trim(),
     updatedAt: new Date().toISOString(),
   };
-  await fs.mkdir(DATA_DIR, { recursive: true });
-  await fs.writeFile(fileFor(accountEmail), JSON.stringify(saved), "utf8");
+  await kvSet(keyFor(accountEmail), saved);
   return saved;
 }
 
 export async function clearUserProfile(accountEmail: string): Promise<void> {
-  await fs.unlink(fileFor(accountEmail)).catch(() => {});
+  await kvDelete(keyFor(accountEmail));
 }
 
 /**

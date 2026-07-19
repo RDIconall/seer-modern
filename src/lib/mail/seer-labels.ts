@@ -1,6 +1,5 @@
 import type { TriageAction } from "@/lib/inbox/classify";
-import { promises as fs } from "fs";
-import path from "path";
+import { accountKey, kvGet, kvSet } from "@/lib/store/kv";
 
 /**
  * Native Gmail labels as the durable decision store: Gemini reviews a
@@ -32,16 +31,13 @@ export type SeerLabelStore = {
   ) => Promise<void>;
 };
 
-const DATA_DIR =
-  process.env.SEER_DATA_DIR || path.join(process.cwd(), ".data");
 const MAP_TTL_MS = 6 * 60 * 60 * 1000;
 
 type LabelMap = Partial<Record<TriageAction, string>>;
 type MapCacheFile = { builtAt: string; map: LabelMap };
 
-function mapFile(accountEmail: string) {
-  const safe = accountEmail.toLowerCase().replace(/[^a-z0-9@._-]/g, "_");
-  return path.join(DATA_DIR, `gmail-labels-${safe}.json`);
+function mapKey(accountEmail: string) {
+  return `gmail-labels:${accountKey(accountEmail)}`;
 }
 
 async function gmail(
@@ -85,14 +81,12 @@ async function loadLabelMap(
   accessToken: string,
   accountEmail: string,
 ): Promise<LabelMap> {
-  try {
-    const raw = await fs.readFile(mapFile(accountEmail), "utf8");
-    const parsed = JSON.parse(raw) as MapCacheFile;
-    if (Date.now() - new Date(parsed.builtAt).getTime() < MAP_TTL_MS) {
-      return parsed.map;
-    }
-  } catch {
-    /* rebuild below */
+  const parsed = await kvGet<MapCacheFile>(mapKey(accountEmail));
+  if (
+    parsed &&
+    Date.now() - new Date(parsed.builtAt).getTime() < MAP_TTL_MS
+  ) {
+    return parsed.map;
   }
   const map = await fetchLabelMap(accessToken);
   await saveLabelMap(accountEmail, map).catch(() => {});
@@ -100,9 +94,8 @@ async function loadLabelMap(
 }
 
 async function saveLabelMap(accountEmail: string, map: LabelMap) {
-  await fs.mkdir(DATA_DIR, { recursive: true });
   const payload: MapCacheFile = { builtAt: new Date().toISOString(), map };
-  await fs.writeFile(mapFile(accountEmail), JSON.stringify(payload), "utf8");
+  await kvSet(mapKey(accountEmail), payload);
 }
 
 async function ensureLabel(

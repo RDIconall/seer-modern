@@ -7,9 +7,9 @@ import {
   MailOpen,
   Reply,
   Trash2,
+  Zap,
 } from "lucide-react";
 import {
-  useEffect,
   useMemo,
   useRef,
   useState,
@@ -18,15 +18,19 @@ import {
 import {
   formatMailTime,
   mailInitial,
+  primaryMailAction,
+  type DeckCard,
   type EmailItem,
   type MailAction,
+  type Section,
 } from "@/lib/inbox/types";
 
 type Props = {
-  items: EmailItem[];
+  deck: DeckCard[];
   busyId: string | null;
   onOpen: (id: string) => void;
   onAction: (id: string, action: MailAction, fromEmail?: string) => void;
+  onBulk: (section: Section, action: MailAction) => void;
   onReply: (id: string) => void;
   onEmptyRefresh?: () => void;
 };
@@ -34,38 +38,66 @@ type Props = {
 /**
  * Legacy Seer-style card deck: one email per card, swipe to decide.
  * Swipe right → archive · swipe left → trash · tap → open.
+ *
+ * Cards advance by dismissing ids (not an index): when an action
+ * optimistically removes the email from the triage list, the deck
+ * shrinks by exactly that card — nothing gets skipped, nothing lags.
+ * Whole-section "delete all of these" cards ride in the same deck.
  */
 export function CardStack({
-  items,
+  deck,
   busyId,
   onOpen,
   onAction,
+  onBulk,
   onReply,
   onEmptyRefresh,
 }: Props) {
-  const [index, setIndex] = useState(0);
+  // Locally skipped cards (e.g. "decide one by one" on a bulk card).
+  // Acted-on cards leave the deck via the parent's optimistic update.
+  const [skipped, setSkipped] = useState<ReadonlySet<string>>(new Set());
   const [dragX, setDragX] = useState(0);
   const [dragging, setDragging] = useState(false);
   const startX = useRef<number | null>(null);
 
-  useEffect(() => {
-    setIndex((i) => Math.min(i, Math.max(0, items.length - 1)));
-  }, [items.length]);
+  const visible = useMemo(
+    () => deck.filter((c) => !skipped.has(c.key)),
+    [deck, skipped],
+  );
+  const current = visible[0];
+  const behind = visible.slice(1, 3);
 
-  const remaining = items.slice(index);
-  const current = remaining[0];
-  const behind = remaining.slice(1, 3);
-
-  const progress = useMemo(() => {
-    if (items.length === 0) return "0 left";
-    return `${items.length - index} left`;
-  }, [index, items.length]);
-
-  const commit = (action: MailAction) => {
-    if (!current || busyId === current.id) return;
-    onAction(current.id, action, current.fromEmail);
+  const skip = (key: string) => {
+    setSkipped((prev) => new Set(prev).add(key));
     setDragX(0);
-    setIndex((i) => i + 1);
+  };
+
+  const commit = (card: DeckCard, action: MailAction) => {
+    setDragX(0);
+    if (card.kind === "email") {
+      if (busyId === card.item.id) return;
+      // The optimistic removal in onAction pulls this card out of the
+      // deck; also mark skipped so the UI advances even if it lingers.
+      onAction(card.item.id, action, card.item.fromEmail);
+    } else {
+      onBulk(card.section, action);
+    }
+    setSkipped((prev) => new Set(prev).add(card.key));
+  };
+
+  /** One tap on what Seer recommends for this exact email. */
+  const doSuggested = (item: EmailItem, card: DeckCard) => {
+    const g = item.guide;
+    if (!g) return;
+    if (g.action === "respond") {
+      onReply(item.id);
+      return;
+    }
+    if (g.action === "act_today" || g.action === "needs_review") {
+      onOpen(item.id);
+      return;
+    }
+    commit(card, primaryMailAction(g.action));
   };
 
   const onTouchStart = (e: TouchEvent) => {
@@ -78,9 +110,19 @@ export function CardStack({
   };
   const onTouchEnd = () => {
     setDragging(false);
-    if (dragX > 110) commit("archive");
-    else if (dragX < -110) commit("trash");
-    else setDragX(0);
+    if (current?.kind === "email") {
+      if (dragX > 110) {
+        commit(current, "archive");
+        startX.current = null;
+        return;
+      }
+      if (dragX < -110) {
+        commit(current, "trash");
+        startX.current = null;
+        return;
+      }
+    }
+    setDragX(0);
     startX.current = null;
   };
 
@@ -107,8 +149,10 @@ export function CardStack({
   }
 
   const rotate = dragX / 28;
-  const archiveHint = dragX > 40;
-  const trashHint = dragX < -40;
+  const archiveHint = current.kind === "email" && dragX > 40;
+  const trashHint = current.kind === "email" && dragX < -40;
+  const currentBusy =
+    current.kind === "email" && busyId === current.item.id;
 
   return (
     <div className="seer-deck-bg flex flex-1 flex-col px-4 pb-2 pt-2">
@@ -117,18 +161,23 @@ export function CardStack({
           <Layers className="h-4 w-4" />
           <span>Cards</span>
         </div>
-        <span className="text-xs font-semibold text-white/90">{progress}</span>
+        <span className="text-xs font-semibold text-white/90">
+          {visible.length} left
+        </span>
       </div>
 
-      <div className="relative mx-auto w-full max-w-md flex-1" style={{ minHeight: 420 }}>
+      <div
+        className="relative mx-auto w-full max-w-md flex-1"
+        style={{ minHeight: 420 }}
+      >
         {behind
           .slice()
           .reverse()
-          .map((item, i, arr) => {
+          .map((card, i, arr) => {
             const depth = arr.length - i;
             return (
               <div
-                key={item.id}
+                key={card.key}
                 className="seer-card absolute inset-x-0 top-0"
                 style={{
                   transform: `translateY(${depth * 10}px) scale(${1 - depth * 0.04})`,
@@ -137,7 +186,11 @@ export function CardStack({
                 }}
                 aria-hidden
               >
-                <CardFace item={item} muted />
+                {card.kind === "email" ? (
+                  <CardFace item={card.item} muted />
+                ) : (
+                  <BulkCardFace section={card.section} muted />
+                )}
               </div>
             );
           })}
@@ -146,7 +199,7 @@ export function CardStack({
           className="seer-card absolute inset-x-0 top-0 z-20 touch-pan-y"
           style={{
             transform: `translateX(${dragX}px) rotate(${rotate}deg)`,
-            transition: dragging ? "none" : "transform 0.2s ease-out",
+            transition: dragging ? "none" : "transform 0.15s ease-out",
           }}
           onTouchStart={onTouchStart}
           onTouchMove={onTouchMove}
@@ -162,65 +215,188 @@ export function CardStack({
               Delete
             </div>
           ) : null}
-          <CardFace
-            item={current}
-            onTap={() => {
-              if (Math.abs(dragX) < 8) onOpen(current.id);
-            }}
-          />
+          {current.kind === "email" ? (
+            <CardFace
+              item={current.item}
+              busy={currentBusy}
+              onTap={() => {
+                if (Math.abs(dragX) < 8) onOpen(current.item.id);
+              }}
+              onSuggested={() => doSuggested(current.item, current)}
+            />
+          ) : (
+            <BulkCardFace
+              section={current.section}
+              onConfirm={() =>
+                commit(current, primaryMailAction(current.section.action))
+              }
+              onSkip={() => skip(current.key)}
+            />
+          )}
         </div>
       </div>
 
-      <div className="mx-auto mt-4 flex w-full max-w-md items-center justify-around gap-2 pb-2">
-        <CardAction
-          label="Delete"
-          color="#d63b2f"
-          disabled={busyId === current.id}
-          onClick={() => commit("trash")}
-        >
-          <Trash2 className="h-5 w-5" />
-        </CardAction>
-        <CardAction
-          label="Open"
-          color="var(--muted)"
-          onClick={() => onOpen(current.id)}
-        >
-          <MailOpen className="h-5 w-5" />
-        </CardAction>
-        <CardAction
-          label="Reply"
-          color="var(--primary)"
-          onClick={() => onReply(current.id)}
-        >
-          <Reply className="h-5 w-5" />
-        </CardAction>
-        <CardAction
-          label="Archive"
-          color="#0b8043"
-          disabled={busyId === current.id}
-          onClick={() => commit("archive")}
-        >
-          <Archive className="h-5 w-5" />
-        </CardAction>
-      </div>
-      <p className="pb-2 text-center text-[11px] text-white/80">
-        Swipe right to archive · left to delete
-      </p>
+      {current.kind === "email" ? (
+        <>
+          <div className="mx-auto mt-4 flex w-full max-w-md items-center justify-around gap-2 pb-2">
+            <CardAction
+              label="Delete"
+              color="#d63b2f"
+              disabled={currentBusy}
+              onClick={() => commit(current, "trash")}
+            >
+              <Trash2 className="h-5 w-5" />
+            </CardAction>
+            <CardAction
+              label="Open"
+              color="var(--muted)"
+              onClick={() => onOpen(current.item.id)}
+            >
+              <MailOpen className="h-5 w-5" />
+            </CardAction>
+            <CardAction
+              label="Reply"
+              color="var(--primary)"
+              onClick={() => onReply(current.item.id)}
+            >
+              <Reply className="h-5 w-5" />
+            </CardAction>
+            <CardAction
+              label="Archive"
+              color="#0b8043"
+              disabled={currentBusy}
+              onClick={() => commit(current, "archive")}
+            >
+              <Archive className="h-5 w-5" />
+            </CardAction>
+          </div>
+          <p className="pb-2 text-center text-[11px] text-white/80">
+            Swipe right to archive · left to delete
+          </p>
+        </>
+      ) : (
+        <p className="pb-4 pt-4 text-center text-[11px] text-white/80">
+          One tap clears the whole group — or decide one by one
+        </p>
+      )}
     </div>
   );
 }
 
+const BULK_VERB: Record<MailAction, string> = {
+  trash: "Delete",
+  archive: "Archive",
+  read: "Mark read",
+};
+
+function BulkCardFace({
+  section,
+  muted,
+  onConfirm,
+  onSkip,
+}: {
+  section: Section;
+  muted?: boolean;
+  onConfirm?: () => void;
+  onSkip?: () => void;
+}) {
+  const verb = BULK_VERB[primaryMailAction(section.action)];
+  const shown = section.items.slice(0, 7);
+  const extra = section.items.length - shown.length;
+  return (
+    <article
+      className={`seer-card-face flex min-h-[380px] flex-col rounded-2xl p-5 ${
+        muted ? "pointer-events-none" : ""
+      }`}
+    >
+      <div className="flex items-center gap-3">
+        <div
+          className="flex h-12 w-12 shrink-0 items-center justify-center rounded-full text-white"
+          style={{ backgroundColor: section.color }}
+        >
+          <Zap className="h-6 w-6" />
+        </div>
+        <div className="min-w-0 flex-1">
+          <h3 className="text-[17px] font-semibold leading-snug">
+            {verb} all of these?
+          </h3>
+          <p
+            className="text-xs font-semibold uppercase tracking-wide"
+            style={{ color: section.color }}
+          >
+            {section.label} · {section.items.length}
+          </p>
+        </div>
+      </div>
+
+      <ul className="mt-4 flex-1 space-y-2 overflow-hidden">
+        {shown.map((item) => (
+          <li key={item.id} className="flex items-baseline gap-2 text-[13px]">
+            <span className="max-w-[38%] shrink-0 truncate font-medium">
+              {item.fromName || item.fromEmail}
+            </span>
+            <span className="truncate text-[var(--muted)]">
+              {item.subject}
+            </span>
+          </li>
+        ))}
+        {extra > 0 ? (
+          <li className="text-[12px] font-medium text-[var(--muted)]">
+            …and {extra} more
+          </li>
+        ) : null}
+      </ul>
+
+      {onConfirm ? (
+        <div className="mt-4 space-y-2">
+          <button
+            type="button"
+            onClick={onConfirm}
+            className="w-full rounded-xl py-3 text-[15px] font-semibold text-white"
+            style={{ backgroundColor: section.color }}
+          >
+            {verb} all {section.items.length}
+          </button>
+          <button
+            type="button"
+            onClick={onSkip}
+            className="w-full rounded-xl border border-[var(--border)] py-2.5 text-sm font-medium text-[var(--muted)]"
+          >
+            Decide one by one
+          </button>
+        </div>
+      ) : null}
+    </article>
+  );
+}
+
+const SUGGEST_VERB: Partial<Record<string, string>> = {
+  respond: "Reply now",
+  act_today: "Open it",
+  needs_review: "Open it",
+  delete_now: "Delete it",
+  read_and_delete: "Delete it",
+  unsubscribe: "Delete it",
+  glance_promo: "Delete it",
+  read_and_archive: "Archive it",
+  review_subscription: "Archive it",
+};
+
 function CardFace({
   item,
   muted,
+  busy,
   onTap,
+  onSuggested,
 }: {
   item: EmailItem;
   muted?: boolean;
+  busy?: boolean;
   onTap?: () => void;
+  onSuggested?: () => void;
 }) {
   const g = item.guide;
-  const accent = g?.color ?? "#3498d9";
+  const accent = g?.color ?? "#2e7cf6";
   return (
     <article
       role={onTap ? "button" : undefined}
@@ -262,7 +438,7 @@ function CardFace({
       <h2 className="mt-4 text-[18px] font-medium leading-snug">
         {item.subject}
       </h2>
-      <p className="mt-2 line-clamp-6 flex-1 text-[14px] leading-relaxed text-[var(--muted)]">
+      <p className="mt-2 line-clamp-5 flex-1 text-[14px] leading-relaxed text-[var(--muted)]">
         {item.snippet || "No preview"}
       </p>
 
@@ -277,9 +453,25 @@ function CardFace({
           >
             {g.label}
           </div>
-          <div className="mt-1 text-sm font-medium text-[var(--fg-strong)]">
-            {g.instruction}
-          </div>
+          {g.instruction ? (
+            <div className="mt-1 text-sm font-medium text-[var(--fg-strong)]">
+              {g.instruction}
+            </div>
+          ) : null}
+          {onSuggested && SUGGEST_VERB[g.action] ? (
+            <button
+              type="button"
+              disabled={busy}
+              onClick={(e) => {
+                e.stopPropagation();
+                onSuggested();
+              }}
+              className="mt-3 w-full rounded-lg py-2.5 text-sm font-semibold text-white disabled:opacity-50"
+              style={{ backgroundColor: g.color }}
+            >
+              ✓ {SUGGEST_VERB[g.action]} — as suggested
+            </button>
+          ) : null}
         </div>
       ) : (
         <div className="mt-4 rounded-xl bg-[var(--card)] px-3 py-3 text-sm text-[var(--muted)]">

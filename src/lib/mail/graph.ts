@@ -81,20 +81,35 @@ export async function listGraphFolder(
   if (q?.trim()) {
     return searchGraph(accessToken, q, maxResults, folder);
   }
-  const url = new URL(`https://graph.microsoft.com/v1.0${folderPath(folder)}`);
-  url.searchParams.set("$top", String(maxResults));
-  url.searchParams.set("$orderby", "receivedDateTime desc");
-  url.searchParams.set(
+  const first = new URL(
+    `https://graph.microsoft.com/v1.0${folderPath(folder)}`,
+  );
+  first.searchParams.set("$top", String(Math.min(500, maxResults)));
+  first.searchParams.set("$orderby", "receivedDateTime desc");
+  first.searchParams.set(
     "$select",
     "id,conversationId,subject,bodyPreview,receivedDateTime,sentDateTime,isRead,from,toRecipients",
   );
-  const res = await fetch(url.toString(), {
-    headers: { Authorization: `Bearer ${accessToken}` },
-    cache: "no-store",
-  });
-  if (!res.ok) throw new Error(`Graph folder ${folder}: ${res.status}`);
-  const data = (await res.json()) as { value?: GraphMessage[] };
-  return (data.value ?? []).map(mapListItem);
+
+  // Follow @odata.nextLink until the whole folder (up to maxResults) is
+  // in — inbox zero needs the full picture, not the first page.
+  const out: MailMessageListItem[] = [];
+  let next: string | undefined = first.toString();
+  while (next && out.length < maxResults) {
+    const res = await fetch(next, {
+      headers: { Authorization: `Bearer ${accessToken}` },
+      cache: "no-store",
+    });
+    if (!res.ok) throw new Error(`Graph folder ${folder}: ${res.status}`);
+    const data = (await res.json()) as {
+      value?: GraphMessage[];
+      "@odata.nextLink"?: string;
+    };
+    out.push(...(data.value ?? []).map(mapListItem));
+    next = data["@odata.nextLink"];
+    if (!data.value?.length) break;
+  }
+  return out.slice(0, maxResults);
 }
 
 export async function searchGraph(

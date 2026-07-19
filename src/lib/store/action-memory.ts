@@ -1,6 +1,5 @@
 import type { TriageAction } from "@/lib/inbox/classify";
-import { promises as fs } from "fs";
-import path from "path";
+import { accountKey, kvGet, kvSet } from "@/lib/store/kv";
 
 /**
  * Implicit teaching: every archive/trash the user performs is recorded
@@ -24,25 +23,17 @@ export type LearnedPrior = {
   total: number;
 };
 
-const DATA_DIR =
-  process.env.SEER_DATA_DIR || path.join(process.cwd(), ".data");
 const MIN_ACTIONS = 3;
 const MIN_CONSISTENCY = 0.75;
 
-function fileFor(accountEmail: string) {
-  const safe = accountEmail.toLowerCase().replace(/[^a-z0-9@._-]/g, "_");
-  return path.join(DATA_DIR, `action-memory-${safe}.json`);
+function keyFor(accountEmail: string) {
+  return `action-memory:${accountKey(accountEmail)}`;
 }
 
 export async function loadActionMemory(
   accountEmail: string,
 ): Promise<ActionMemory> {
-  try {
-    const raw = await fs.readFile(fileFor(accountEmail), "utf8");
-    return JSON.parse(raw) as ActionMemory;
-  } catch {
-    return {};
-  }
+  return (await kvGet<ActionMemory>(keyFor(accountEmail))) ?? {};
 }
 
 export async function recordSenderAction(
@@ -52,13 +43,12 @@ export async function recordSenderAction(
 ): Promise<void> {
   const key = fromEmail.toLowerCase().trim();
   if (!key.includes("@")) return;
-  await fs.mkdir(DATA_DIR, { recursive: true });
   const all = await loadActionMemory(accountEmail);
   const stat = all[key] ?? { archive: 0, trash: 0, lastAt: "" };
   stat[action] += 1;
   stat.lastAt = new Date().toISOString();
   all[key] = stat;
-  await fs.writeFile(fileFor(accountEmail), JSON.stringify(all), "utf8");
+  await kvSet(keyFor(accountEmail), all);
 }
 
 /**

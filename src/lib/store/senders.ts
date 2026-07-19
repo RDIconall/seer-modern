@@ -1,35 +1,16 @@
-import { promises as fs } from "fs";
-import path from "path";
 import type { TriageAction } from "@/lib/inbox/classify";
+import { kvGet, kvSet } from "@/lib/store/kv";
 
-const DATA_DIR =
-  process.env.SEER_DATA_DIR ||
-  path.join(process.cwd(), ".data");
-
-const OVERRIDES_FILE = "sender-overrides.json";
+const OVERRIDES_KEY = "sender-overrides";
 
 type OverrideMap = Record<string, TriageAction>;
 
-async function ensureDir() {
-  await fs.mkdir(DATA_DIR, { recursive: true });
-}
-
 async function readOverrides(): Promise<OverrideMap> {
-  try {
-    const raw = await fs.readFile(path.join(DATA_DIR, OVERRIDES_FILE), "utf8");
-    return JSON.parse(raw) as OverrideMap;
-  } catch {
-    return {};
-  }
+  return (await kvGet<OverrideMap>(OVERRIDES_KEY)) ?? {};
 }
 
 async function writeOverrides(map: OverrideMap) {
-  await ensureDir();
-  await fs.writeFile(
-    path.join(DATA_DIR, OVERRIDES_FILE),
-    JSON.stringify(map, null, 2),
-    "utf8",
-  );
+  await kvSet(OVERRIDES_KEY, map);
 }
 
 export async function getSenderOverride(

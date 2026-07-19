@@ -31,7 +31,7 @@ import { SettingsPanel } from "@/components/inbox/SettingsPanel";
 import { ACTION_META, type TriageAction } from "@/lib/inbox/classify";
 import { useMailbox } from "@/lib/inbox/use-mailbox";
 import {
-  buildCardDeck,
+  buildDeckCards,
   ensureRe,
   formatMailTime,
   mailInitial,
@@ -103,7 +103,7 @@ export function DesktopMailApp() {
   const searchParams = useSearchParams();
   const [settingsOpen, setSettingsOpen] = useState(false);
   const [logicMode, setLogicMode] = useState(false);
-  const cardDeck = useMemo(() => buildCardDeck(triage), [triage]);
+  const deckCards = useMemo(() => buildDeckCards(triage), [triage]);
 
   useEffect(() => {
     if (searchParams.get("settings") === "1") setSettingsOpen(true);
@@ -252,10 +252,11 @@ export function DesktopMailApp() {
           ) : (
             <div className="mx-auto flex w-full max-w-xl flex-1 flex-col py-6">
               <CardStack
-                items={cardDeck}
+                deck={deckCards}
                 busyId={busyId}
                 onOpen={openReader}
                 onAction={runAction}
+                onBulk={bulkSection}
                 onReply={replyFromCard}
                 onEmptyRefresh={load}
               />
