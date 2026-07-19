@@ -240,13 +240,13 @@ export function SettingsPanel({
 
         <div className="flex-1 overflow-auto px-4 py-4">
           {error ? (
-            <p className="mb-3 rounded-lg bg-red-500/10 px-3 py-2 text-sm text-red-600 dark:text-red-300">
+            <p className="mb-3 rounded-lg bg-[#d63b2f]/10 px-3 py-2 text-sm text-[#d63b2f]">
               {error}
             </p>
           ) : null}
 
           {data?.sessionError ? (
-            <p className="mb-3 rounded-lg bg-amber-500/10 px-3 py-2 text-sm text-amber-700 dark:text-amber-300">
+            <p className="mb-3 rounded-lg bg-[#ff8f2d]/10 px-3 py-2 text-sm text-[#c96a10]">
               Session issue: reconnect an account below.
             </p>
           ) : null}
@@ -363,7 +363,7 @@ export function SettingsPanel({
                   type="button"
                   disabled={profileBusy !== null}
                   onClick={() => saveProfile({ clear: true })}
-                  className="rounded-xl border border-[var(--border)] px-4 py-2.5 text-sm font-medium text-red-600 disabled:opacity-50"
+                  className="rounded-xl border border-[var(--border)] px-4 py-2.5 text-sm font-medium text-[#d63b2f] disabled:opacity-50"
                 >
                   {profileBusy === "clear" ? (
                     <Loader2 className="h-4 w-4 animate-spin" />
@@ -470,7 +470,7 @@ export function SettingsPanel({
                       type="button"
                       disabled={busy === account.id}
                       onClick={() => removeAccount(account.id)}
-                      className="rounded-full p-2 text-[var(--muted)] hover:bg-[var(--card)] hover:text-red-500"
+                      className="rounded-full p-2 text-[var(--muted)] hover:bg-[var(--card)] hover:text-[#d63b2f]"
                       aria-label="Remove account"
                     >
                       <Trash2 className="h-4 w-4" />
@@ -484,7 +484,7 @@ export function SettingsPanel({
           <form action={signOutAction}>
             <button
               type="submit"
-              className="w-full rounded-xl border border-[var(--border)] py-3 text-sm font-medium text-red-600"
+              className="w-full rounded-xl border border-[var(--border)] py-3 text-sm font-medium text-[#d63b2f]"
             >
               Sign out
             </button>

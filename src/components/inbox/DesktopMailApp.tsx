@@ -15,6 +15,7 @@ import {
   Send,
   Settings,
   Trash2,
+  X,
 } from "lucide-react";
 import { useEffect, useMemo, useState, type ReactNode } from "react";
 import { useSearchParams } from "next/navigation";
@@ -239,41 +240,52 @@ export function DesktopMailApp() {
       </aside>
 
       {tab === "cards" ? (
-        <section className="flex min-w-0 flex-1 flex-col overflow-hidden bg-[var(--card)]/40">
-          {error ? (
-            <p className="mx-6 mt-4 rounded-md bg-red-500/10 px-3 py-2 text-sm text-red-600">
-              {error}
-            </p>
-          ) : null}
-          {loading && !triage ? (
-            <p className="py-20 text-center text-sm text-[var(--muted)]">
-              Loading cards…
-            </p>
-          ) : (
-            <div className="mx-auto flex w-full max-w-xl flex-1 flex-col py-6">
-              <CardStack
-                deck={deckCards}
-                busyId={busyId}
-                onOpen={openReader}
-                onAction={runAction}
-                onBulk={bulkSection}
-                onReply={replyFromCard}
-                onEmptyRefresh={load}
-              />
-            </div>
-          )}
+        <section className="flex min-w-0 flex-1 overflow-hidden">
+          {/* Full-bleed teal deck — the preview docks beside it instead of floating over it */}
+          <div className="seer-deck-bg flex min-w-0 flex-1 flex-col overflow-hidden">
+            {error ? (
+              <p className="mx-6 mt-4 rounded-md bg-white/90 px-3 py-2 text-sm font-medium text-[#d63b2f]">
+                {error}
+              </p>
+            ) : null}
+            {loading && !triage ? (
+              <p className="py-20 text-center text-sm text-white/90">
+                Loading cards…
+              </p>
+            ) : (
+              <div className="mx-auto flex w-full max-w-xl flex-1 flex-col overflow-y-auto py-6">
+                <CardStack
+                  deck={deckCards}
+                  busyId={busyId}
+                  onOpen={openReader}
+                  onAction={runAction}
+                  onBulk={bulkSection}
+                  onReply={replyFromCard}
+                  onEmptyRefresh={load}
+                />
+              </div>
+            )}
+          </div>
           {readerId && reader ? (
-            <div className="fixed inset-y-0 right-0 z-30 flex w-full max-w-xl flex-col border-l border-[var(--border)] bg-[var(--bg)] shadow-xl">
-              <div className="flex items-center justify-between border-b border-[var(--border)] px-4 py-3">
-                <h2 className="truncate text-sm font-medium">{reader.subject}</h2>
+            <aside className="flex w-[30rem] max-w-[46%] shrink-0 flex-col border-l border-[var(--border)] bg-[var(--bg)]">
+              <div className="flex items-start justify-between gap-3 border-b border-[var(--border)] px-4 py-3">
+                <h2 className="min-w-0 flex-1 text-[15px] font-semibold leading-snug text-[var(--fg-strong)]">
+                  {reader.subject}
+                </h2>
                 <button
                   type="button"
                   onClick={closeReader}
-                  className="text-sm text-[var(--primary)]"
+                  aria-label="Close preview"
+                  className="rounded-md p-1.5 text-[var(--muted)] hover:bg-[var(--row-hover)] hover:text-[var(--fg-strong)]"
                 >
-                  Close
+                  <X className="h-4 w-4" />
                 </button>
               </div>
+              {reader.guide ? (
+                <div className="px-4 pb-1">
+                  <ReaderGuideBar guide={reader.guide} />
+                </div>
+              ) : null}
               <div className="flex-1 overflow-auto px-5 py-4">
                 {reader.htmlBody ? (
                   <div
@@ -288,10 +300,10 @@ export function DesktopMailApp() {
                   </pre>
                 )}
               </div>
-            </div>
+            </aside>
           ) : null}
           {toast ? (
-            <div className="fixed bottom-6 left-1/2 z-50 -translate-x-1/2 rounded bg-[#323232] px-4 py-2 text-xs text-white">
+            <div className="fixed bottom-6 left-1/2 z-50 -translate-x-1/2 rounded bg-[#1e242b] px-4 py-2 text-xs text-white">
               {toast}
             </div>
           ) : null}
@@ -342,7 +354,7 @@ export function DesktopMailApp() {
                   ? `Sent history · ${triage.history.engagedCount} people you email · ${triage.history.contactCount} contacts`
                   : null}
               {triage.assistant?.error ? (
-                <span className="ml-2 font-medium text-[#dc2626]">
+                <span className="ml-2 font-medium text-[#d63b2f]">
                   Gemini offline — rules only: {triage.assistant.error.slice(0, 120)}
                 </span>
               ) : null}
@@ -352,7 +364,7 @@ export function DesktopMailApp() {
 
         <div className="flex-1 overflow-y-auto">
           {error ? (
-            <p className="mx-3 my-3 rounded-md bg-red-500/10 px-3 py-2 text-sm text-red-600 dark:text-red-300">
+            <p className="mx-3 my-3 rounded-md bg-[#d63b2f]/10 px-3 py-2 text-sm text-[#d63b2f]">
               {error}
             </p>
           ) : null}
@@ -673,9 +685,16 @@ function SectionHeader({
   return (
     <div className="sticky top-0 z-10 flex items-center justify-between border-b border-[var(--border)] bg-[var(--primary-soft)] px-3 py-2">
       <h2
-        className="text-[12px] font-semibold"
+        className="flex items-center gap-1.5 text-[12px] font-semibold"
         style={{ color: color ?? "var(--fg-strong)" }}
       >
+        {color ? (
+          <span
+            className="h-1.5 w-1.5 rounded-full"
+            style={{ backgroundColor: color }}
+            aria-hidden
+          />
+        ) : null}
         {label}
       </h2>
       {actionLabel && onAction ? (
@@ -786,7 +805,7 @@ function EmptyList({ text }: { text: string }) {
 
 function Toast({ message }: { message: string }) {
   return (
-    <div className="fixed bottom-6 left-1/2 z-50 max-w-md -translate-x-1/2 rounded-md bg-[#323232] px-4 py-2.5 text-xs text-white shadow-lg">
+    <div className="fixed bottom-6 left-1/2 z-50 max-w-md -translate-x-1/2 rounded-md bg-[#1e242b] px-4 py-2.5 text-xs text-white shadow-lg">
       {message}
     </div>
   );

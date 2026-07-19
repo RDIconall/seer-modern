@@ -129,9 +129,9 @@ export function CardStack({
   if (!current) {
     return (
       <div className="flex flex-1 flex-col items-center justify-center px-8 py-16 text-center">
-        <CheckCircle2 className="mb-3 h-14 w-14 text-[var(--primary)] opacity-80" />
-        <h2 className="text-xl font-medium">Deck clear</h2>
-        <p className="mt-2 max-w-xs text-sm text-[var(--muted)]">
+        <CheckCircle2 className="mb-3 h-14 w-14 text-white opacity-90" />
+        <h2 className="text-xl font-semibold text-white">Deck clear</h2>
+        <p className="mt-2 max-w-xs text-sm text-white/85">
           You’ve worked through the card stack. Pull to refresh or check Mail
           for anything new.
         </p>
@@ -139,7 +139,7 @@ export function CardStack({
           <button
             type="button"
             onClick={onEmptyRefresh}
-            className="mt-6 rounded-md bg-[var(--accent)] px-5 py-2.5 text-sm font-medium text-[#333]"
+            className="mt-6 rounded-md bg-[var(--accent)] px-5 py-2.5 text-sm font-semibold text-white shadow-sm"
           >
             Refresh cards
           </button>
@@ -154,8 +154,10 @@ export function CardStack({
   const currentBusy =
     current.kind === "email" && busyId === current.item.id;
 
+  // The teal deck backdrop (.seer-deck-bg) is painted by the parent pane
+  // so it can run full-bleed behind headers, previews, and empty states.
   return (
-    <div className="seer-deck-bg flex flex-1 flex-col px-4 pb-2 pt-2">
+    <div className="flex flex-1 flex-col px-4 pb-2 pt-2">
       <div className="mb-3 flex items-center justify-between rounded-md bg-white/15 px-3 py-2">
         <div className="flex items-center gap-2 text-sm font-semibold text-white">
           <Layers className="h-4 w-4" />
@@ -206,7 +208,7 @@ export function CardStack({
           onTouchEnd={onTouchEnd}
         >
           {archiveHint ? (
-            <div className="pointer-events-none absolute left-4 top-6 z-30 rounded-lg bg-[#0b8043] px-3 py-1 text-xs font-bold uppercase tracking-wide text-white">
+            <div className="pointer-events-none absolute left-4 top-6 z-30 rounded-lg bg-[#76ab19] px-3 py-1 text-xs font-bold uppercase tracking-wide text-white">
               Archive
             </div>
           ) : null}
@@ -263,7 +265,7 @@ export function CardStack({
             </CardAction>
             <CardAction
               label="Archive"
-              color="#0b8043"
+              color="#76ab19"
               disabled={currentBusy}
               onClick={() => commit(current, "archive")}
             >
