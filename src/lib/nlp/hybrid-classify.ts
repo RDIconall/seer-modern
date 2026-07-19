@@ -1,3 +1,4 @@
+import { llmChatJson } from "@/lib/llm/client";
 import type { IntelBreakdown } from "./intel";
 import { intelBreakdown, intelContainsAny } from "./intel";
 import { splitSentences } from "./sentences";
@@ -67,48 +68,24 @@ type LlmRow = { index: number; label: NlpLabel; confidence: number };
 async function refineWithLlm(
   sentences: { index: number; text: string }[],
 ): Promise<Map<number, { label: NlpLabel; confidence: number }>> {
-  const apiKey = process.env.OPENAI_API_KEY;
-  const model = process.env.OPENAI_MODEL ?? "gpt-4o-mini";
   const out = new Map<number, { label: NlpLabel; confidence: number }>();
-  if (!apiKey || sentences.length === 0) return out;
+  if (sentences.length === 0) return out;
 
-  const payload = {
-    model,
-    temperature: 0,
-    response_format: { type: "json_object" as const },
-    messages: [
-      {
-        role: "system" as const,
-        content: `You label email sentences for a productivity assistant (Seer revival).
+  const raw = await llmChatJson([
+    {
+      role: "system",
+      content: `You label email sentences for a productivity assistant (Seer revival).
 Categories: action (asks reader to do something substantive), meeting (scheduling / time / meet), pleasantry (formulaic politeness, low obligation), non_actionable.
 Return JSON: {"items":[{"index":number,"label":"action|meeting|pleasantry|non_actionable","confidence":0-1}]}
 Only include the listed indices.`,
-      },
-      {
-        role: "user" as const,
-        content: JSON.stringify(
-          sentences.map((s) => ({ index: s.index, text: s.text })),
-        ),
-      },
-    ],
-  };
-
-  const res = await fetch("https://api.openai.com/v1/chat/completions", {
-    method: "POST",
-    headers: {
-      Authorization: `Bearer ${apiKey}`,
-      "Content-Type": "application/json",
     },
-    body: JSON.stringify(payload),
-  });
-  if (!res.ok) {
-    const err = await res.text();
-    throw new Error(`OpenAI error ${res.status}: ${err.slice(0, 500)}`);
-  }
-  const data = (await res.json()) as {
-    choices?: { message?: { content?: string } }[];
-  };
-  const raw = data.choices?.[0]?.message?.content;
+    {
+      role: "user",
+      content: JSON.stringify(
+        sentences.map((s) => ({ index: s.index, text: s.text })),
+      ),
+    },
+  ]);
   if (!raw) return out;
   const parsed = JSON.parse(raw) as { items?: LlmRow[] };
   const labels: NlpLabel[] = [

@@ -1,5 +1,6 @@
 import { buildActionGuideDetailed } from "@/lib/inbox/action-guide";
 import { classifyMessage } from "@/lib/inbox/classify";
+import { llmClassifyBatch } from "@/lib/inbox/llm-classify";
 import { getGmailMessage } from "@/lib/mail/gmail";
 import { getGraphMessage } from "@/lib/mail/graph";
 import { requireMailSession } from "@/lib/mail/session";
@@ -23,15 +24,17 @@ export async function GET(
         : await getGraphMessage(session.accessToken, id);
 
     const override = await getSenderOverride(message.fromEmail);
-    const classification = classifyMessage(
-      {
-        fromEmail: message.fromEmail,
-        fromName: message.fromName,
-        subject: message.subject,
-        snippet: message.snippet,
-      },
-      override,
-    );
+    const input = {
+      fromEmail: message.fromEmail,
+      fromName: message.fromName,
+      subject: message.subject,
+      snippet: message.snippet,
+    };
+    // Match the Today list: override wins, then LLM triage, then rules.
+    const llmResult = override
+      ? undefined
+      : (await llmClassifyBatch([{ id, ...input }])).get(id);
+    const classification = llmResult ?? classifyMessage(input, override);
 
     const bodyText =
       message.textBody ||

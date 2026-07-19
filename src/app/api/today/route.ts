@@ -5,6 +5,7 @@ import {
   classifyMessage,
   type TriageAction,
 } from "@/lib/inbox/classify";
+import { llmClassifyBatch } from "@/lib/inbox/llm-classify";
 import { listGmailInbox } from "@/lib/mail/gmail";
 import { listGraphInbox } from "@/lib/mail/graph";
 import { requireMailSession } from "@/lib/mail/session";
@@ -43,21 +44,40 @@ export async function GET() {
         ? await listGmailInbox(session.accessToken)
         : await listGraphInbox(session.accessToken);
 
-    const classified: TodayEmail[] = [];
+    // Sender overrides taught by the user always win; everything else goes
+    // to the LLM in one batch, with rule-based classification as fallback.
+    const overrides = new Map<string, Awaited<ReturnType<typeof getSenderOverride>>>();
     for (const m of raw) {
-      const override = await getSenderOverride(m.fromEmail);
-      const result = classifyMessage(
-        {
+      overrides.set(m.id, await getSenderOverride(m.fromEmail));
+    }
+
+    const llmResults = await llmClassifyBatch(
+      raw
+        .filter((m) => !overrides.get(m.id))
+        .map((m) => ({
+          id: m.id,
           fromEmail: m.fromEmail,
           fromName: m.fromName,
           subject: m.subject,
           snippet: m.snippet,
-        },
-        override,
-      );
+        })),
+    );
+
+    const classified: TodayEmail[] = raw.map((m) => {
+      const result =
+        llmResults.get(m.id) ??
+        classifyMessage(
+          {
+            fromEmail: m.fromEmail,
+            fromName: m.fromName,
+            subject: m.subject,
+            snippet: m.snippet,
+          },
+          overrides.get(m.id),
+        );
       const guide = buildActionGuideQuick(result, m.subject);
-      classified.push({ ...m, guide });
-    }
+      return { ...m, guide };
+    });
 
     const needsReview = classified.filter(
       (e) =>
