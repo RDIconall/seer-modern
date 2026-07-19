@@ -19,89 +19,23 @@ import {
   X,
 } from "lucide-react";
 import {
-  useCallback,
   useEffect,
-  useMemo,
   useRef,
   useState,
   type ReactNode,
   type TouchEvent,
 } from "react";
-import { logout } from "@/app/actions";
+import { logoutMobile } from "@/app/actions";
+import { ACTION_META, type TriageAction } from "@/lib/inbox/classify";
+import { ComposePanel } from "@/components/inbox/ComposePanel";
+import { useMailbox } from "@/lib/inbox/use-mailbox";
 import {
-  ACTION_META,
-  type TriageAction,
-} from "@/lib/inbox/classify";
-import {
-  ComposePanel,
-  type ComposeDraft,
-} from "@/components/inbox/ComposePanel";
-
-type Guide = {
-  action: TriageAction;
-  label: string;
-  color: string;
-  confidence: string;
-  reason: string;
-  instruction: string;
-  detail?: string;
-};
-
-type EmailItem = {
-  id: string;
-  threadId: string;
-  fromEmail: string;
-  fromName: string;
-  subject: string;
-  snippet: string;
-  receivedAt: string;
-  isUnread: boolean;
-  guide?: Guide;
-};
-
-type Section = {
-  action: TriageAction;
-  label: string;
-  color: string;
-  bulkLabel: string;
-  items: EmailItem[];
-};
-
-type TodayData = {
-  accountEmail: string;
-  fetchedAt: string;
-  inbox?: EmailItem[];
-  needsReview: EmailItem[];
-  sections: Section[];
-  count: number;
-};
-
-type MailboxData = {
-  accountEmail: string;
-  fetchedAt: string;
-  folder: string;
-  items: EmailItem[];
-  count: number;
-};
-
-type ViewTab = "inbox" | "sent" | "trash" | "triage";
-type MailAction = "archive" | "trash" | "read";
-
-function formatTime(iso: string) {
-  const d = new Date(iso);
-  const now = new Date();
-  if (d.toDateString() === now.toDateString()) {
-    return d.toLocaleTimeString([], { hour: "numeric", minute: "2-digit" });
-  }
-  const yesterday = new Date(now);
-  yesterday.setDate(now.getDate() - 1);
-  if (d.toDateString() === yesterday.toDateString()) return "Yesterday";
-  return d.toLocaleDateString([], { month: "short", day: "numeric" });
-}
-
-function initial(name: string) {
-  return (name.trim()[0] ?? "?").toUpperCase();
-}
+  formatMailTime,
+  mailInitial,
+  primaryMailAction,
+  type EmailItem,
+  type ViewTab,
+} from "@/lib/inbox/types";
 
 const QUICK_ACTIONS: TriageAction[] = [
   "respond",
@@ -118,289 +52,57 @@ const FOLDER_LABEL: Record<ViewTab, string> = {
   triage: "Triage",
 };
 
-function primaryAction(action: TriageAction): MailAction {
-  if (
-    action === "delete_now" ||
-    action === "unsubscribe" ||
-    action === "read_and_delete"
-  ) {
-    return "trash";
-  }
-  if (action === "respond" || action === "act_today") return "read";
-  return "archive";
-}
+export function MobileMailApp() {
+  const {
+    tab,
+    setTab,
+    selectFolder: hookSelectFolder,
+    triage,
+    mailbox,
+    listItems,
+    error,
+    loading,
+    search,
+    setSearch,
+    query,
+    setQuery,
+    submitSearch,
+    readerId,
+    reader,
+    compose,
+    setCompose,
+    toast,
+    setToast,
+    busyId,
+    accountEmail,
+    load,
+    runAction,
+    bulkSection,
+    teachSender,
+    openReader,
+    closeReader,
+    startCompose,
+    startReply,
+  } = useMailbox();
 
-function ensureRe(subject: string) {
-  return /^re:/i.test(subject) ? subject : `Re: ${subject}`;
-}
-
-function ensureFwd(subject: string) {
-  return /^(fwd|fw):/i.test(subject) ? subject : `Fwd: ${subject}`;
-}
-
-export function InboxApp() {
-  const [tab, setTab] = useState<ViewTab>("inbox");
   const [drawer, setDrawer] = useState(false);
   const [searchOpen, setSearchOpen] = useState(false);
-  const [triage, setTriage] = useState<TodayData | null>(null);
-  const [mailbox, setMailbox] = useState<MailboxData | null>(null);
-  const [error, setError] = useState<string | null>(null);
-  const [loading, setLoading] = useState(true);
-  const [search, setSearch] = useState("");
-  const [query, setQuery] = useState("");
-  const [readerId, setReaderId] = useState<string | null>(null);
-  const [reader, setReader] = useState<{
-    htmlBody: string;
-    textBody: string;
-    subject: string;
-    fromName: string;
-    fromEmail: string;
-    toEmail: string;
-    ccEmail: string;
-    threadId: string;
-    messageIdHeader: string;
-    guide?: Guide;
-  } | null>(null);
-  const [compose, setCompose] = useState<ComposeDraft | null>(null);
-  const [toast, setToast] = useState<string | null>(null);
-  const [busyId, setBusyId] = useState<string | null>(null);
   const searchRef = useRef<HTMLInputElement>(null);
-
-  const accountEmail =
-    mailbox?.accountEmail ?? triage?.accountEmail ?? "Your mailbox";
-
-  const loadTriage = useCallback(async () => {
-    const res = await fetch("/api/today", { cache: "no-store" });
-    const json = await res.json();
-    if (!res.ok) throw new Error(json.error ?? "Load failed");
-    setTriage(json);
-  }, []);
-
-  const loadMailbox = useCallback(
-    async (folder: "inbox" | "sent" | "trash", q?: string) => {
-      const params = new URLSearchParams({ folder });
-      if (q?.trim()) params.set("q", q.trim());
-      const res = await fetch(`/api/mailbox?${params}`, { cache: "no-store" });
-      const json = await res.json();
-      if (!res.ok) throw new Error(json.error ?? "Load failed");
-      setMailbox(json);
-    },
-    [],
-  );
-
-  const load = useCallback(async () => {
-    setLoading(true);
-    setError(null);
-    try {
-      if (tab === "triage") await loadTriage();
-      else await loadMailbox(tab, query);
-    } catch (e) {
-      setError(e instanceof Error ? e.message : "Load failed");
-    } finally {
-      setLoading(false);
-    }
-  }, [loadMailbox, loadTriage, query, tab]);
-
-  useEffect(() => {
-    load();
-  }, [load]);
-
-  useEffect(() => {
-    if (!toast) return;
-    const t = setTimeout(() => setToast(null), 3500);
-    return () => clearTimeout(t);
-  }, [toast]);
 
   useEffect(() => {
     if (searchOpen) searchRef.current?.focus();
   }, [searchOpen]);
 
-  const listItems = useMemo(() => {
-    if (tab === "triage") return [];
-    return mailbox?.items ?? [];
-  }, [mailbox, tab]);
-
-  const removeFromLists = useCallback((id: string) => {
-    setMailbox((prev) =>
-      prev
-        ? {
-            ...prev,
-            items: prev.items.filter((i) => i.id !== id),
-            count: Math.max(0, prev.count - 1),
-          }
-        : prev,
-    );
-    setTriage((prev) => {
-      if (!prev) return prev;
-      const filter = (items: EmailItem[]) => items.filter((i) => i.id !== id);
-      return {
-        ...prev,
-        inbox: prev.inbox ? filter(prev.inbox) : prev.inbox,
-        needsReview: filter(prev.needsReview),
-        sections: prev.sections
-          .map((s) => ({ ...s, items: filter(s.items) }))
-          .filter((s) => s.items.length > 0),
-        count: Math.max(0, prev.count - 1),
-      };
-    });
-  }, []);
-
-  const closeReader = useCallback(() => {
-    setReaderId(null);
-    setReader(null);
-  }, []);
-
-  const runAction = useCallback(
-    async (id: string, action: MailAction) => {
-      setBusyId(id);
-      removeFromLists(id);
-      if (readerId === id) closeReader();
-      try {
-        const res = await fetch("/api/action", {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ id, action }),
-        });
-        if (!res.ok) {
-          const j = await res.json();
-          throw new Error(j.error);
-        }
-        setToast(
-          action === "trash"
-            ? "Moved to Trash"
-            : action === "archive"
-              ? "Archived"
-              : "Marked as read",
-        );
-      } catch (e) {
-        setToast(e instanceof Error ? e.message : "Action failed");
-        load();
-      } finally {
-        setBusyId(null);
-      }
-    },
-    [closeReader, load, readerId, removeFromLists],
-  );
-
-  const bulkSection = useCallback(
-    async (section: Section, action: MailAction) => {
-      const ids = section.items.map((i) => i.id);
-      setTriage((prev) => {
-        if (!prev) return prev;
-        const idSet = new Set(ids);
-        const filter = (items: EmailItem[]) =>
-          items.filter((i) => !idSet.has(i.id));
-        return {
-          ...prev,
-          inbox: prev.inbox ? filter(prev.inbox) : prev.inbox,
-          needsReview: filter(prev.needsReview),
-          sections: prev.sections
-            .map((s) =>
-              s.action === section.action
-                ? { ...s, items: [] }
-                : { ...s, items: s.items.filter((i) => !idSet.has(i.id)) },
-            )
-            .filter((s) => s.items.length > 0),
-          count: Math.max(0, prev.count - ids.length),
-        };
-      });
-      try {
-        const res = await fetch("/api/action/bulk", {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({
-            items: ids.map((id) => ({ id, action })),
-          }),
-        });
-        if (!res.ok) throw new Error("Bulk failed");
-        setToast(`Updated ${ids.length}`);
-      } catch {
-        setToast("Bulk action failed — refreshing");
-        load();
-      }
-    },
-    [load],
-  );
-
-  const teachSender = useCallback(
-    async (fromEmail: string, action: TriageAction) => {
-      await fetch("/api/reclassify", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ fromEmail, action }),
-      });
-      load();
-    },
-    [load],
-  );
-
-  const openReader = useCallback(async (id: string) => {
-    setReaderId(id);
-    setReader(null);
-    try {
-      const res = await fetch(`/api/messages/${id}`);
-      const json = await res.json();
-      if (!res.ok) throw new Error(json.error);
-      setReader({
-        htmlBody: json.message.htmlBody,
-        textBody: json.message.textBody,
-        subject: json.message.subject,
-        fromName: json.message.fromName,
-        fromEmail: json.message.fromEmail,
-        toEmail: json.message.toEmail ?? "",
-        ccEmail: json.message.ccEmail ?? "",
-        threadId: json.message.threadId,
-        messageIdHeader: json.message.messageIdHeader ?? "",
-        guide: json.guide,
-      });
-    } catch (e) {
-      setToast(e instanceof Error ? e.message : "Could not open message");
-      setReaderId(null);
-    }
-  }, []);
-
-  const startCompose = useCallback(() => {
-    setCompose({
-      mode: "compose",
-      to: "",
-      cc: "",
-      subject: "",
-      body: "",
-    });
-  }, []);
-
-  const startReply = useCallback(
-    (mode: "reply" | "replyAll" | "forward") => {
-      if (!reader || !readerId) return;
-      if (mode === "forward") {
-        setCompose({
-          mode: "forward",
-          to: "",
-          cc: "",
-          subject: ensureFwd(reader.subject),
-          body: "",
-          replyToId: readerId,
-        });
-        return;
-      }
-      setCompose({
-        mode,
-        to: reader.fromEmail,
-        cc: mode === "replyAll" ? reader.ccEmail : "",
-        subject: ensureRe(reader.subject),
-        body: "",
-        replyToId: readerId,
-      });
-    },
-    [reader, readerId],
-  );
-
   const selectFolder = (next: ViewTab) => {
-    setTab(next);
+    hookSelectFolder(next);
     setDrawer(false);
-    setQuery("");
-    setSearch("");
     setSearchOpen(false);
+  };
+
+  const closeSearch = () => {
+    setSearchOpen(false);
+    setSearch("");
+    setQuery("");
   };
 
   if (compose) {
@@ -457,7 +159,7 @@ export function InboxApp() {
                 className="flex h-10 w-10 shrink-0 items-center justify-center rounded-full text-sm font-semibold text-white"
                 style={{ backgroundColor: g?.color ?? "var(--primary)" }}
               >
-                {initial(reader?.fromName ?? "?")}
+                {mailInitial(reader?.fromName ?? "?")}
               </div>
               <div className="min-w-0 flex-1">
                 <div className="truncate font-semibold">
@@ -519,7 +221,6 @@ export function InboxApp() {
 
   return (
     <div className="app-shell mx-auto flex min-h-[100dvh] max-w-lg flex-col bg-[var(--bg)] text-[var(--fg)]">
-      {/* Folder drawer — Gmail style */}
       {drawer ? (
         <div className="fixed inset-0 z-40">
           <button
@@ -564,7 +265,7 @@ export function InboxApp() {
               />
             </div>
             <form
-              action={logout}
+              action={logoutMobile}
               className="border-t border-[var(--border)] px-2 py-2 bottom-nav"
             >
               <button
@@ -585,19 +286,11 @@ export function InboxApp() {
             className="flex items-center gap-1 rounded-full bg-[var(--card)] px-2 py-1.5"
             onSubmit={(e) => {
               e.preventDefault();
-              setQuery(search.trim());
-              if (tab === "triage") setTab("inbox");
+              submitSearch();
             }}
           >
-            <IconBtn
-              onClick={() => {
-                setSearchOpen(false);
-                setSearch("");
-                setQuery("");
-              }}
-              label="Close search"
-            >
-              <ArrowBackIcon />
+            <IconBtn onClick={closeSearch} label="Close search">
+              <ChevronLeft className="h-6 w-6" />
             </IconBtn>
             <input
               ref={searchRef}
@@ -639,7 +332,7 @@ export function InboxApp() {
               className="mr-1 flex h-8 w-8 items-center justify-center rounded-full bg-[var(--primary)] text-xs font-semibold text-white"
               title={accountEmail}
             >
-              {initial(accountEmail)}
+              {mailInitial(accountEmail)}
             </div>
           </div>
         )}
@@ -648,9 +341,7 @@ export function InboxApp() {
             {query ? "Search results" : FOLDER_LABEL[tab]}
           </h1>
           {tab !== "triage" && mailbox ? (
-            <span className="text-xs text-[var(--muted)]">
-              {mailbox.count}
-            </span>
+            <span className="text-xs text-[var(--muted)]">{mailbox.count}</span>
           ) : null}
         </div>
       </header>
@@ -753,7 +444,7 @@ export function InboxApp() {
                   color={section.color}
                   actionLabel={section.bulkLabel}
                   onAction={() =>
-                    bulkSection(section, primaryAction(section.action))
+                    bulkSection(section, primaryMailAction(section.action))
                   }
                 />
                 <ul>
@@ -774,7 +465,6 @@ export function InboxApp() {
           : null}
       </main>
 
-      {/* Outlook-style bottom nav */}
       <nav className="fixed bottom-0 left-0 right-0 z-20 mx-auto max-w-lg border-t border-[var(--border)] bg-[var(--bg)] bottom-nav">
         <div className="grid grid-cols-3">
           <BottomNavItem
@@ -800,7 +490,6 @@ export function InboxApp() {
         </div>
       </nav>
 
-      {/* Gmail-style compose FAB */}
       <button
         type="button"
         onClick={startCompose}
@@ -814,10 +503,6 @@ export function InboxApp() {
       {toast ? <Toast message={toast} /> : null}
     </div>
   );
-}
-
-function ArrowBackIcon() {
-  return <ChevronLeft className="h-6 w-6" />;
 }
 
 function IconBtn({
@@ -1027,7 +712,7 @@ function SwipeMailRow({
           className="flex h-10 w-10 shrink-0 items-center justify-center rounded-full text-sm font-medium text-white"
           style={{ backgroundColor: accent }}
         >
-          {initial(item.fromName || item.fromEmail)}
+          {mailInitial(item.fromName || item.fromEmail)}
         </div>
         <div className="min-w-0 flex-1">
           <div className="flex items-baseline justify-between gap-2">
@@ -1035,7 +720,7 @@ function SwipeMailRow({
               {item.fromName || item.fromEmail}
             </span>
             <span className="shrink-0 text-[11px] text-[var(--muted)]">
-              {formatTime(item.receivedAt)}
+              {formatMailTime(item.receivedAt)}
             </span>
           </div>
           <div className="mail-subject truncate text-[13px] leading-snug">

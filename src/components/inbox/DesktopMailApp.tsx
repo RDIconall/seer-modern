@@ -1,0 +1,632 @@
+"use client";
+
+import DOMPurify from "isomorphic-dompurify";
+import {
+  Archive,
+  Forward,
+  Inbox,
+  ListFilter,
+  LogOut,
+  PenSquare,
+  Reply,
+  ReplyAll,
+  Search,
+  Send,
+  Trash2,
+} from "lucide-react";
+import { useState, type ReactNode } from "react";
+import { logout } from "@/app/actions";
+import { ComposePanel } from "@/components/inbox/ComposePanel";
+import { ACTION_META, type TriageAction } from "@/lib/inbox/classify";
+import { useMailbox } from "@/lib/inbox/use-mailbox";
+import {
+  formatMailTime,
+  mailInitial,
+  primaryMailAction,
+  type EmailItem,
+  type ViewTab,
+} from "@/lib/inbox/types";
+
+const QUICK_ACTIONS: TriageAction[] = [
+  "respond",
+  "read_and_archive",
+  "delete_now",
+  "unsubscribe",
+  "act_today",
+];
+
+const FOLDER_LABEL: Record<ViewTab, string> = {
+  inbox: "Inbox",
+  sent: "Sent",
+  trash: "Trash",
+  triage: "Triage",
+};
+
+const FOLDERS: { tab: ViewTab; label: string; icon: ReactNode }[] = [
+  { tab: "inbox", label: "Inbox", icon: <Inbox className="h-4 w-4" /> },
+  { tab: "sent", label: "Sent", icon: <Send className="h-4 w-4" /> },
+  { tab: "trash", label: "Trash", icon: <Trash2 className="h-4 w-4" /> },
+  { tab: "triage", label: "Triage", icon: <ListFilter className="h-4 w-4" /> },
+];
+
+export function DesktopMailApp() {
+  const mb = useMailbox();
+  const {
+    tab,
+    selectFolder,
+    triage,
+    mailbox,
+    listItems,
+    error,
+    loading,
+    search,
+    setSearch,
+    query,
+    submitSearch,
+    readerId,
+    reader,
+    compose,
+    setCompose,
+    toast,
+    setToast,
+    busyId,
+    accountEmail,
+    load,
+    runAction,
+    bulkSection,
+    teachSender,
+    openReader,
+    closeReader,
+    startCompose,
+    startReply,
+  } = mb;
+
+  if (compose) {
+    return (
+      <ComposePanel
+        draft={compose}
+        onClose={() => setCompose(null)}
+        onSent={() => {
+          setCompose(null);
+          closeReader();
+          setToast("Message sent");
+          if (tab === "sent") load();
+        }}
+      />
+    );
+  }
+
+  const safeHtml = reader?.htmlBody ? DOMPurify.sanitize(reader.htmlBody) : "";
+  const listTitle = query ? "Search results" : FOLDER_LABEL[tab];
+
+  return (
+    <div className="flex h-[100dvh] min-h-screen overflow-hidden bg-[var(--bg)] text-[var(--fg)]">
+      {/* Left sidebar */}
+      <aside className="flex w-[220px] shrink-0 flex-col border-r border-[var(--border)]">
+        <div className="border-b border-[var(--border)] px-4 py-4">
+          <div className="text-base font-semibold text-[var(--primary)]">
+            Inbox Pilot
+          </div>
+        </div>
+
+        <div className="px-3 py-3">
+          <button
+            type="button"
+            onClick={startCompose}
+            className="flex w-full items-center justify-center gap-2 rounded-md bg-[var(--primary)] px-3 py-2 text-sm font-medium text-white shadow-sm hover:opacity-90"
+          >
+            <PenSquare className="h-4 w-4" />
+            Compose
+          </button>
+        </div>
+
+        <nav className="flex-1 overflow-y-auto px-2 py-1">
+          {FOLDERS.map(({ tab: folderTab, label, icon }) => (
+            <button
+              key={folderTab}
+              type="button"
+              onClick={() => selectFolder(folderTab)}
+              className={`mb-0.5 flex w-full items-center gap-2.5 rounded-md px-3 py-2 text-sm ${
+                tab === folderTab
+                  ? "bg-[#d3e3fd] font-medium text-[#041e49] dark:bg-[#004a77] dark:text-[#c2e7ff]"
+                  : "text-[var(--fg)] hover:bg-[var(--row-hover)]"
+              }`}
+            >
+              {icon}
+              {label}
+            </button>
+          ))}
+        </nav>
+
+        <div className="border-t border-[var(--border)] px-4 py-3">
+          <div className="truncate text-xs text-[var(--muted)]" title={accountEmail}>
+            {accountEmail}
+          </div>
+          <form action={logout} className="mt-2">
+            <button
+              type="submit"
+              className="flex w-full items-center gap-2 rounded-md px-2 py-1.5 text-sm text-[var(--muted)] hover:bg-[var(--row-hover)] hover:text-[var(--fg)]"
+            >
+              <LogOut className="h-4 w-4" />
+              Sign out
+            </button>
+          </form>
+        </div>
+      </aside>
+
+      {/* Middle pane — message list */}
+      <section className="flex w-[360px] shrink-0 flex-col border-r border-[var(--border)]">
+        <header className="shrink-0 border-b border-[var(--border)] px-4 py-3">
+          <div className="flex items-center justify-between">
+            <h1 className="text-lg font-medium">{listTitle}</h1>
+            {tab !== "triage" && mailbox ? (
+              <span className="text-xs text-[var(--muted)]">{mailbox.count}</span>
+            ) : tab === "triage" && triage ? (
+              <span className="text-xs text-[var(--muted)]">{triage.count}</span>
+            ) : null}
+          </div>
+          <form
+            className="mt-2 flex items-center gap-2 rounded-md border border-[var(--border)] bg-[var(--card)] px-2.5 py-1.5"
+            onSubmit={(e) => {
+              e.preventDefault();
+              submitSearch();
+            }}
+          >
+            <Search className="h-4 w-4 shrink-0 text-[var(--muted)]" />
+            <input
+              value={search}
+              onChange={(e) => setSearch(e.target.value)}
+              placeholder="Search mail"
+              className="min-w-0 flex-1 bg-transparent text-sm outline-none placeholder:text-[var(--muted)]"
+            />
+          </form>
+        </header>
+
+        <div className="flex-1 overflow-y-auto">
+          {error ? (
+            <p className="mx-3 my-3 rounded-md bg-red-500/10 px-3 py-2 text-sm text-red-600 dark:text-red-300">
+              {error}
+            </p>
+          ) : null}
+
+          {loading &&
+          ((tab === "triage" && !triage) || (tab !== "triage" && !mailbox)) ? (
+            <p className="py-12 text-center text-sm text-[var(--muted)]">Loading…</p>
+          ) : null}
+
+          {tab !== "triage" && mailbox ? (
+            listItems.length === 0 ? (
+              <EmptyList
+                text={
+                  query
+                    ? "No matches"
+                    : tab === "inbox"
+                      ? "Your inbox is empty"
+                      : `${FOLDER_LABEL[tab]} is empty`
+                }
+              />
+            ) : (
+              <ul>
+                {listItems.map((item) => (
+                  <DesktopMailRow
+                    key={item.id}
+                    item={item}
+                    selected={readerId === item.id}
+                    busy={busyId === item.id}
+                    showGuide={false}
+                    onOpen={() => openReader(item.id)}
+                    onArchive={
+                      tab === "inbox"
+                        ? () => runAction(item.id, "archive")
+                        : undefined
+                    }
+                    onDelete={() => runAction(item.id, "trash")}
+                  />
+                ))}
+              </ul>
+            )
+          ) : null}
+
+          {tab === "triage" && triage && triage.count === 0 ? (
+            <EmptyList text="Nothing to triage" />
+          ) : null}
+
+          {tab === "triage" && triage && triage.needsReview.length > 0 ? (
+            <section>
+              <SectionHeader
+                label={`Needs your call · ${triage.needsReview.length}`}
+              />
+              <ul>
+                {triage.needsReview.map((item) => (
+                  <DesktopMailRow
+                    key={item.id}
+                    item={item}
+                    selected={readerId === item.id}
+                    busy={busyId === item.id}
+                    showGuide
+                    onOpen={() => openReader(item.id)}
+                    onArchive={() => runAction(item.id, "archive")}
+                    onDelete={() => runAction(item.id, "trash")}
+                    chips={
+                      <div className="mt-1 flex flex-wrap gap-1">
+                        {QUICK_ACTIONS.map((a) => (
+                          <button
+                            key={a}
+                            type="button"
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              teachSender(item.fromEmail, a);
+                            }}
+                            className="rounded px-1.5 py-0.5 text-[10px] font-medium text-white"
+                            style={{ backgroundColor: ACTION_META[a].color }}
+                          >
+                            {ACTION_META[a].short}
+                          </button>
+                        ))}
+                      </div>
+                    }
+                  />
+                ))}
+              </ul>
+            </section>
+          ) : null}
+
+          {tab === "triage"
+            ? triage?.sections.map((section) => (
+                <section key={section.action}>
+                  <SectionHeader
+                    label={`${section.label} · ${section.items.length}`}
+                    color={section.color}
+                    actionLabel={section.bulkLabel}
+                    onAction={() =>
+                      bulkSection(section, primaryMailAction(section.action))
+                    }
+                  />
+                  <ul>
+                    {section.items.map((item) => (
+                      <DesktopMailRow
+                        key={item.id}
+                        item={item}
+                        selected={readerId === item.id}
+                        busy={busyId === item.id}
+                        showGuide
+                        onOpen={() => openReader(item.id)}
+                        onArchive={() => runAction(item.id, "archive")}
+                        onDelete={() => runAction(item.id, "trash")}
+                      />
+                    ))}
+                  </ul>
+                </section>
+              ))
+            : null}
+        </div>
+      </section>
+
+      {/* Right pane — reading */}
+      <main className="flex min-w-0 flex-1 flex-col overflow-hidden">
+        {!readerId ? (
+          <div className="flex flex-1 items-center justify-center text-sm text-[var(--muted)]">
+            Select a message
+          </div>
+        ) : (
+          <>
+            <header className="shrink-0 border-b border-[var(--border)] px-6 py-3">
+              <div className="flex items-start justify-between gap-4">
+                <h2 className="min-w-0 text-xl font-medium leading-snug">
+                  {reader?.subject ?? "…"}
+                </h2>
+                <ReaderToolbar
+                  disabled={!reader || busyId === readerId}
+                  onReply={() => startReply("reply")}
+                  onReplyAll={() => startReply("replyAll")}
+                  onForward={() => startReply("forward")}
+                  onArchive={() => readerId && runAction(readerId, "archive")}
+                  onDelete={() => readerId && runAction(readerId, "trash")}
+                />
+              </div>
+            </header>
+
+            <div className="flex-1 overflow-y-auto">
+              {!reader ? (
+                <p className="px-6 py-8 text-sm text-[var(--muted)]">Loading…</p>
+              ) : (
+                <>
+                  <div className="border-b border-[var(--border)] px-6 py-4">
+                    <div className="flex items-start gap-3">
+                      <div
+                        className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full text-sm font-semibold text-white"
+                        style={{
+                          backgroundColor:
+                            reader.guide?.color ?? "var(--primary)",
+                        }}
+                      >
+                        {mailInitial(reader.fromName || reader.fromEmail)}
+                      </div>
+                      <div className="min-w-0 flex-1">
+                        <div className="font-medium">{reader.fromName}</div>
+                        <div className="truncate text-sm text-[var(--muted)]">
+                          {reader.fromEmail}
+                        </div>
+                        {reader.receivedAt ? (
+                          <div className="mt-0.5 text-xs text-[var(--muted)]">
+                            {formatMailTime(reader.receivedAt)}
+                          </div>
+                        ) : null}
+                      </div>
+                    </div>
+                    {reader.guide ? (
+                      <p
+                        className="mt-3 text-sm font-medium"
+                        style={{ color: reader.guide.color }}
+                      >
+                        {reader.guide.instruction}
+                      </p>
+                    ) : null}
+                  </div>
+
+                  <div className="px-6 py-5">
+                    {safeHtml ? (
+                      <div
+                        className="prose prose-sm max-w-none text-[var(--fg)] dark:prose-invert"
+                        dangerouslySetInnerHTML={{ __html: safeHtml }}
+                      />
+                    ) : (
+                      <pre className="whitespace-pre-wrap text-sm leading-relaxed">
+                        {reader.textBody || reader.subject}
+                      </pre>
+                    )}
+                  </div>
+                </>
+              )}
+            </div>
+          </>
+        )}
+      </main>
+
+      {toast ? <Toast message={toast} /> : null}
+    </div>
+  );
+}
+
+function DesktopMailRow({
+  item,
+  selected,
+  busy,
+  showGuide,
+  onOpen,
+  onArchive,
+  onDelete,
+  chips,
+}: {
+  item: EmailItem;
+  selected: boolean;
+  busy?: boolean;
+  showGuide: boolean;
+  onOpen: () => void;
+  onArchive?: () => void;
+  onDelete: () => void;
+  chips?: ReactNode;
+}) {
+  const [hovered, setHovered] = useState(false);
+  const g = item.guide;
+  const accent = g?.color ?? "var(--primary)";
+  const showActions = (selected || hovered) && !busy;
+
+  return (
+    <li
+      className="group relative border-b border-[var(--border)]"
+      onMouseEnter={() => setHovered(true)}
+      onMouseLeave={() => setHovered(false)}
+    >
+      <article
+        role="button"
+        tabIndex={0}
+        onClick={onOpen}
+        onKeyDown={(e) => e.key === "Enter" && onOpen()}
+        className={`flex cursor-pointer gap-2.5 px-3 py-2.5 pr-16 transition-colors ${
+          selected
+            ? "bg-[#c7e0f4] dark:bg-[#004a77]"
+            : "bg-[var(--bg)] hover:bg-[var(--row-hover)]"
+        } ${busy ? "opacity-50" : ""} ${item.isUnread ? "font-medium" : ""}`}
+      >
+        <div
+          className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full text-xs font-semibold text-white"
+          style={{ backgroundColor: accent }}
+        >
+          {mailInitial(item.fromName || item.fromEmail)}
+        </div>
+        <div className="min-w-0 flex-1">
+          <div className="flex items-baseline justify-between gap-2">
+            <span
+              className={`truncate text-[13px] ${
+                item.isUnread ? "font-semibold text-[var(--unread)]" : ""
+              }`}
+            >
+              {item.fromName || item.fromEmail}
+            </span>
+            <span className="shrink-0 text-[11px] text-[var(--muted)]">
+              {formatMailTime(item.receivedAt)}
+            </span>
+          </div>
+          <div
+            className={`truncate text-[12px] leading-snug ${
+              item.isUnread ? "font-semibold text-[var(--unread)]" : ""
+            }`}
+          >
+            {item.subject}
+          </div>
+          <div className="truncate text-[11px] leading-snug text-[var(--muted)]">
+            {item.snippet}
+          </div>
+          {showGuide && g ? (
+            <div
+              className="mt-0.5 truncate text-[10px] font-medium"
+              style={{ color: g.color }}
+            >
+              {g.instruction}
+            </div>
+          ) : null}
+          {chips}
+        </div>
+      </article>
+
+      {showActions ? (
+        <div className="absolute right-2 top-1/2 flex -translate-y-1/2 items-center gap-0.5">
+          {onArchive ? (
+            <IconButton
+              label="Archive"
+              onClick={(e) => {
+                e.stopPropagation();
+                onArchive();
+              }}
+            >
+              <Archive className="h-3.5 w-3.5" />
+            </IconButton>
+          ) : null}
+          <IconButton
+            label="Delete"
+            onClick={(e) => {
+              e.stopPropagation();
+              onDelete();
+            }}
+          >
+            <Trash2 className="h-3.5 w-3.5" />
+          </IconButton>
+        </div>
+      ) : null}
+    </li>
+  );
+}
+
+function SectionHeader({
+  label,
+  color,
+  actionLabel,
+  onAction,
+}: {
+  label: string;
+  color?: string;
+  actionLabel?: string;
+  onAction?: () => void;
+}) {
+  return (
+    <div className="sticky top-0 z-10 flex items-center justify-between border-b border-[var(--border)] bg-[var(--card)] px-3 py-1.5">
+      <h2
+        className="text-[10px] font-semibold uppercase tracking-wide"
+        style={{ color: color ?? "var(--muted)" }}
+      >
+        {label}
+      </h2>
+      {actionLabel && onAction ? (
+        <button
+          type="button"
+          onClick={onAction}
+          className="text-[10px] font-medium text-[var(--primary)] hover:underline"
+        >
+          {actionLabel}
+        </button>
+      ) : null}
+    </div>
+  );
+}
+
+function ReaderToolbar({
+  disabled,
+  onReply,
+  onReplyAll,
+  onForward,
+  onArchive,
+  onDelete,
+}: {
+  disabled?: boolean;
+  onReply: () => void;
+  onReplyAll: () => void;
+  onForward: () => void;
+  onArchive: () => void;
+  onDelete: () => void;
+}) {
+  return (
+    <div className="flex shrink-0 items-center gap-0.5">
+      <ToolbarButton disabled={disabled} label="Reply" onClick={onReply}>
+        <Reply className="h-4 w-4" />
+        <span>Reply</span>
+      </ToolbarButton>
+      <ToolbarButton disabled={disabled} label="Reply all" onClick={onReplyAll}>
+        <ReplyAll className="h-4 w-4" />
+        <span>Reply all</span>
+      </ToolbarButton>
+      <ToolbarButton disabled={disabled} label="Forward" onClick={onForward}>
+        <Forward className="h-4 w-4" />
+        <span>Forward</span>
+      </ToolbarButton>
+      <div className="mx-1 h-5 w-px bg-[var(--border)]" />
+      <ToolbarButton disabled={disabled} label="Archive" onClick={onArchive}>
+        <Archive className="h-4 w-4" />
+        <span>Archive</span>
+      </ToolbarButton>
+      <ToolbarButton disabled={disabled} label="Delete" onClick={onDelete}>
+        <Trash2 className="h-4 w-4" />
+        <span>Delete</span>
+      </ToolbarButton>
+    </div>
+  );
+}
+
+function ToolbarButton({
+  children,
+  label,
+  onClick,
+  disabled,
+}: {
+  children: ReactNode;
+  label: string;
+  onClick: () => void;
+  disabled?: boolean;
+}) {
+  return (
+    <button
+      type="button"
+      aria-label={label}
+      disabled={disabled}
+      onClick={onClick}
+      className="flex items-center gap-1.5 rounded-md px-2 py-1.5 text-xs text-[var(--fg)] hover:bg-[var(--row-hover)] disabled:opacity-40"
+    >
+      {children}
+    </button>
+  );
+}
+
+function IconButton({
+  children,
+  label,
+  onClick,
+}: {
+  children: ReactNode;
+  label: string;
+  onClick: (e: React.MouseEvent) => void;
+}) {
+  return (
+    <button
+      type="button"
+      aria-label={label}
+      onClick={onClick}
+      className="flex h-7 w-7 items-center justify-center rounded-md text-[var(--muted)] hover:bg-[var(--card)] hover:text-[var(--fg)]"
+    >
+      {children}
+    </button>
+  );
+}
+
+function EmptyList({ text }: { text: string }) {
+  return (
+    <p className="py-16 text-center text-sm text-[var(--muted)]">{text}</p>
+  );
+}
+
+function Toast({ message }: { message: string }) {
+  return (
+    <div className="fixed bottom-6 left-1/2 z-50 max-w-md -translate-x-1/2 rounded-md bg-[#323232] px-4 py-2.5 text-xs text-white shadow-lg">
+      {message}
+    </div>
+  );
+}

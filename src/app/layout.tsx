@@ -15,17 +15,8 @@ const geistMono = Geist_Mono({
 
 export const metadata: Metadata = {
   title: "Inbox Pilot",
-  description: "Mobile mail — Gmail & Outlook with smart triage",
+  description: "Desktop mail client with smart triage — mobile PWA at /m",
   applicationName: "Inbox Pilot",
-  appleWebApp: {
-    capable: true,
-    statusBarStyle: "default",
-    title: "Inbox Pilot",
-  },
-  formatDetection: {
-    telephone: false,
-  },
-  manifest: "/manifest.webmanifest",
   icons: {
     icon: [
       { url: "/icons/icon-192.png", sizes: "192x192", type: "image/png" },
@@ -42,9 +33,6 @@ export const viewport: Viewport = {
   ],
   width: "device-width",
   initialScale: 1,
-  maximumScale: 1,
-  userScalable: false,
-  viewportFit: "cover",
 };
 
 export default function RootLayout({
