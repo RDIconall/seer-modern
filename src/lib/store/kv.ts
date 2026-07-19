@@ -21,9 +21,15 @@ let redis: Redis | null | undefined;
 
 function getRedis(): Redis | null {
   if (redis !== undefined) return redis;
+  // Vercel's Upstash KV integration injects KV_REST_API_*; a manually
+  // created Upstash database injects UPSTASH_REDIS_REST_*. Accept both.
+  const url =
+    process.env.UPSTASH_REDIS_REST_URL || process.env.KV_REST_API_URL;
+  const token =
+    process.env.UPSTASH_REDIS_REST_TOKEN || process.env.KV_REST_API_TOKEN;
   redis =
-    process.env.UPSTASH_REDIS_REST_URL && process.env.UPSTASH_REDIS_REST_TOKEN
-      ? Redis.fromEnv({ automaticDeserialization: false })
+    url && token
+      ? new Redis({ url, token, automaticDeserialization: false })
       : null;
   return redis;
 }
