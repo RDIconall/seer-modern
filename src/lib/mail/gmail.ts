@@ -162,11 +162,26 @@ export async function listGmailFolder(
   q?: string,
 ): Promise<MailMessageListItem[]> {
   const query = encodeURIComponent(folderToQuery(folder, q));
-  const list = (await gmailFetch(
-    accessToken,
-    `/users/me/messages?q=${query}&maxResults=${maxResults}`,
-  )) as { messages?: { id: string; threadId: string }[] };
-  return hydrateList(accessToken, list.messages ?? []);
+  // Paginate until the WHOLE folder is in (up to maxResults) — the app's
+  // job is inbox zero, so it must see everything, not the first page.
+  const ids: { id: string; threadId: string }[] = [];
+  let pageToken: string | undefined;
+  while (ids.length < maxResults) {
+    const page = Math.min(500, maxResults - ids.length);
+    const list = (await gmailFetch(
+      accessToken,
+      `/users/me/messages?q=${query}&maxResults=${page}${
+        pageToken ? `&pageToken=${encodeURIComponent(pageToken)}` : ""
+      }`,
+    )) as {
+      messages?: { id: string; threadId: string }[];
+      nextPageToken?: string;
+    };
+    ids.push(...(list.messages ?? []));
+    pageToken = list.nextPageToken;
+    if (!pageToken || !list.messages?.length) break;
+  }
+  return hydrateList(accessToken, ids.slice(0, maxResults));
 }
 
 export async function searchGmail(

@@ -22,10 +22,14 @@ import { NextResponse } from "next/server";
 
 export const maxDuration = 60;
 
-/** How deep into the inbox each load looks (was 50 — hid most of a full inbox). */
+/**
+ * The whole point is inbox zero — every load scans the ENTIRE inbox.
+ * The ceiling only exists so a 10k-message inbox can't blow the 60s
+ * serverless budget; as the user works it down, scans cover everything.
+ */
 const SCAN = Math.max(
-  50,
-  Math.min(300, Number(process.env.SEER_INBOX_SCAN ?? "200") || 200),
+  100,
+  Math.min(1000, Number(process.env.SEER_INBOX_SCAN ?? "1000") || 1000),
 );
 
 export type TodayEmail = {

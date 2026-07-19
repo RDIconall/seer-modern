@@ -18,10 +18,10 @@ export const maxDuration = 60;
 
 const FOLDERS = new Set<MailFolder>(["inbox", "sent", "trash"]);
 
-/** Inbox scan depth — match /api/today so no mail hides below the fold. */
+/** Whole-inbox scan, matching /api/today — inbox zero needs it all. */
 const SCAN = Math.max(
-  50,
-  Math.min(300, Number(process.env.SEER_INBOX_SCAN ?? "200") || 200),
+  100,
+  Math.min(1000, Number(process.env.SEER_INBOX_SCAN ?? "1000") || 1000),
 );
 
 export async function GET(request: Request) {
