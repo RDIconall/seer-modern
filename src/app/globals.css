@@ -1,35 +1,47 @@
 @import "tailwindcss";
 
+/*
+ * Seer brand palette (brand guidelines 1.4 / 1.6)
+ * Pure:  purple #967ad0 · orange #ff8f2d · cyan #6bcfe1 · green #96d322
+ * Dim:   #1e242b · #778591 · #99a3ad · #a6bbc2
+ */
 :root {
-  --bg: #ffffff;
-  --fg: #171717;
-  --card: #f7f8fa;
-  --border: #e5e7eb;
-  --muted: #6b7280;
-  --primary: #1a73e8;
+  --bg: #f2f4f6;
+  --fg: #1e242b;
+  --card: #ffffff;
+  --border: #dfe5e9;
+  --muted: #778591;
+  --faint: #99a3ad;
+  --primary: #2e7cf6; /* action-icon blue from the original card UI */
+  --seer-orange: #ff8f2d;
+  --seer-cyan: #6bcfe1;
+  --seer-green: #96d322;
+  --seer-purple: #967ad0;
+  --card-shadow: 0 1px 2px rgba(30, 36, 43, 0.06), 0 4px 12px rgba(30, 36, 43, 0.06);
 }
 
 @media (prefers-color-scheme: dark) {
   :root {
-    --bg: #0a0a0a;
-    --fg: #ededed;
-    --card: #161616;
-    --border: #262626;
-    --muted: #9ca3af;
+    --bg: #1e242b;
+    --fg: #eef1f3;
+    --card: #272f38;
+    --border: #363f49;
+    --muted: #99a3ad;
+    --faint: #778591;
+    --card-shadow: 0 1px 2px rgba(0, 0, 0, 0.3), 0 4px 12px rgba(0, 0, 0, 0.25);
   }
 }
 
 @theme inline {
   --color-background: var(--bg);
   --color-foreground: var(--fg);
-  --font-sans: var(--font-geist-sans);
-  --font-mono: var(--font-geist-mono);
+  --font-sans: var(--font-proxima-nova);
 }
 
 body {
   background: var(--bg);
   color: var(--fg);
-  font-family: var(--font-geist-sans), system-ui, sans-serif;
+  font-family: var(--font-proxima-nova), "Proxima Nova", system-ui, sans-serif;
 }
 
 .prose img {

@@ -15,17 +15,27 @@ export default async function Home() {
     return (
       <div className="flex min-h-screen flex-col items-center justify-center bg-[var(--bg)] px-6 text-[var(--fg)]">
         <div className="max-w-sm text-center">
-          <h1 className="text-2xl font-semibold">Inbox Pilot</h1>
+          {/* eslint-disable-next-line @next/next/no-img-element */}
+          <img
+            src="/seer-mark.png"
+            alt="Seer"
+            width={72}
+            height={72}
+            className="mx-auto"
+          />
+          <h1 className="mt-4 text-2xl font-bold uppercase tracking-[0.22em] text-[var(--muted)]">
+            Seer
+          </h1>
           <p className="mt-2 text-sm text-[var(--muted)]">
-            Read and triage Gmail here — with clear guidance on what to do with
-            each message.
+            Seer reads your inbox and tells you what to do — reply, defer,
+            ignore, or unsubscribe.
           </p>
           <div className="mt-8 flex flex-col gap-3">
             {google ? (
               <form action={loginGoogle}>
                 <button
                   type="submit"
-                  className="w-full rounded-xl bg-[#1a73e8] py-3 text-sm font-medium text-white"
+                  className="w-full rounded-xl bg-[var(--primary)] py-3 text-sm font-semibold text-white"
                 >
                   Connect Gmail
                 </button>

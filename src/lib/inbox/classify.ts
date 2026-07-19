@@ -11,6 +11,12 @@ export type TriageAction =
 
 export type Confidence = "HIGH" | "MED" | "LOW" | "NEW";
 
+/**
+ * Colors come from the Seer brand guidelines (1.4 Color Palette / 1.6 UI
+ * Design): orange #ff8f2d, cyan #6bcfe1, green #96d322, purple #967ad0,
+ * dim grays #778591/#99a3ad, plus the action-icon blue from the original
+ * iPhone card UI. Cyan and green are darkened where white text sits on top.
+ */
 export const ACTION_META: Record<
   TriageAction,
   { label: string; short: string; color: string; bulkLabel: string }
@@ -18,55 +24,55 @@ export const ACTION_META: Record<
   respond: {
     label: "Respond to this",
     short: "Respond",
-    color: "#1a73e8",
+    color: "#2e7cf6",
     bulkLabel: "Mark all read",
   },
   read_and_archive: {
     label: "Read and archive",
     short: "Archive",
-    color: "#6b7280",
+    color: "#778591",
     bulkLabel: "Archive all",
   },
   read_and_delete: {
     label: "Read and delete",
     short: "Read & delete",
-    color: "#f97316",
+    color: "#cf6a4d",
     bulkLabel: "Delete all",
   },
   delete_now: {
     label: "Don't read — delete",
     short: "Delete",
-    color: "#dc2626",
+    color: "#d63b2f",
     bulkLabel: "Delete all",
   },
   act_today: {
     label: "Act today",
     short: "Urgent",
-    color: "#f59e0b",
+    color: "#ff8f2d",
     bulkLabel: "Mark all read",
   },
   unsubscribe: {
     label: "Unsubscribe",
     short: "Unsub",
-    color: "#a855f7",
+    color: "#967ad0",
     bulkLabel: "Unsubscribe all",
   },
   review_subscription: {
     label: "Review subscription",
     short: "Sub",
-    color: "#10b981",
+    color: "#76ab19",
     bulkLabel: "Review each",
   },
   glance_promo: {
     label: "Glance and archive",
     short: "Promo",
-    color: "#ec4899",
+    color: "#2fa8c7",
     bulkLabel: "Archive all",
   },
   needs_review: {
     label: "Needs your call",
     short: "Review",
-    color: "#64748b",
+    color: "#99a3ad",
     bulkLabel: "Classify selected",
   },
 };
