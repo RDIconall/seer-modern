@@ -78,6 +78,7 @@ type ReaderPayload = {
     receivedAt?: string;
   };
   guide?: ReaderMessage["guide"];
+  keyActions?: ReaderMessage["keyActions"];
 };
 
 export function useMailbox(initialTab: ViewTab = "inbox") {
@@ -357,6 +358,7 @@ export function useMailbox(initialTab: ViewTab = "inbox") {
     messageIdHeader: json.message.messageIdHeader ?? "",
     receivedAt: json.message.receivedAt,
     guide: json.guide,
+    keyActions: json.keyActions,
   });
 
   const fetchMessage = useCallback(
@@ -448,6 +450,38 @@ export function useMailbox(initialTab: ViewTab = "inbox") {
     });
   }, []);
 
+  const [drafting, setDrafting] = useState(false);
+
+  /** One-tap AI reply: Gemini reads the email and pre-fills compose. */
+  const draftReply = useCallback(
+    async (intent?: "yes" | "no" | "later") => {
+      if (!readerId || drafting) return;
+      setDrafting(true);
+      try {
+        const res = await fetch("/api/assist/draft", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ id: readerId, intent }),
+        });
+        const json = await res.json();
+        if (!res.ok) throw new Error(json.error ?? "Draft failed");
+        setCompose({
+          mode: "reply",
+          to: json.to,
+          cc: "",
+          subject: json.subject,
+          body: json.body,
+          replyToId: json.replyToId,
+        });
+      } catch (e) {
+        setToast(e instanceof Error ? e.message : "Draft failed");
+      } finally {
+        setDrafting(false);
+      }
+    },
+    [readerId, drafting],
+  );
+
   const startReply = useCallback(
     (mode: "reply" | "replyAll" | "forward") => {
       if (!reader || !readerId) return;
@@ -518,5 +552,7 @@ export function useMailbox(initialTab: ViewTab = "inbox") {
     closeReader,
     startCompose,
     startReply,
+    draftReply,
+    drafting,
   };
 }

@@ -21,6 +21,7 @@ import { useSearchParams } from "next/navigation";
 import { logout } from "@/app/actions";
 import { CardStack } from "@/components/inbox/CardStack";
 import { ComposePanel } from "@/components/inbox/ComposePanel";
+import { AssistBar } from "@/components/inbox/AssistBar";
 import { LogicExplain, LogicToggle } from "@/components/inbox/LogicExplain";
 import { SettingsPanel } from "@/components/inbox/SettingsPanel";
 import { ACTION_META, type TriageAction } from "@/lib/inbox/classify";
@@ -91,6 +92,8 @@ export function DesktopMailApp() {
     closeReader,
     startCompose,
     startReply,
+    draftReply,
+    drafting,
   } = mb;
 
   const searchParams = useSearchParams();
@@ -523,6 +526,11 @@ export function DesktopMailApp() {
                         <p className="text-sm">{reader.guide.instruction}</p>
                       </div>
                     ) : null}
+                    <AssistBar
+                      reader={reader}
+                      drafting={drafting}
+                      onDraft={draftReply}
+                    />
                   </div>
 
                   <div className="px-6 py-5">

@@ -165,6 +165,13 @@ async function discoverModelId(googleKey: string): Promise<string> {
   return "gemini-flash-latest";
 }
 
+export async function resolveAssistantModel(): Promise<{
+  model: LanguageModel | string;
+  label: string;
+}> {
+  return resolveModel();
+}
+
 async function resolveModel(): Promise<{
   model: LanguageModel | string;
   label: string;

@@ -110,6 +110,8 @@ export type ReaderMessage = {
   messageIdHeader: string;
   receivedAt?: string;
   guide?: Guide;
+  /** The one-tap actions pulled out of the body (track / RSVP / pay …) */
+  keyActions?: { label: string; url: string }[];
 };
 
 export function formatMailTime(iso: string) {

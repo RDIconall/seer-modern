@@ -33,6 +33,7 @@ import { logoutMobile } from "@/app/actions";
 import { ACTION_META, type TriageAction } from "@/lib/inbox/classify";
 import { CardStack } from "@/components/inbox/CardStack";
 import { ComposePanel } from "@/components/inbox/ComposePanel";
+import { AssistBar } from "@/components/inbox/AssistBar";
 import { LogicExplain, LogicToggle } from "@/components/inbox/LogicExplain";
 import { SettingsPanel } from "@/components/inbox/SettingsPanel";
 import { useMailbox } from "@/lib/inbox/use-mailbox";
@@ -94,6 +95,8 @@ export function MobileMailApp() {
     closeReader,
     startCompose,
     startReply,
+    draftReply,
+    drafting,
   } = useMailbox();
 
   const searchParams = useSearchParams();
@@ -225,6 +228,13 @@ export function MobileMailApp() {
                 <LogicExplain guide={g} expanded />
                 <p className="text-xs text-[var(--fg)]">{g.instruction}</p>
               </div>
+            ) : null}
+            {reader ? (
+              <AssistBar
+                reader={reader}
+                drafting={drafting}
+                onDraft={draftReply}
+              />
             ) : null}
           </div>
           <div className="px-4 py-4">

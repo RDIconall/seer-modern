@@ -1,5 +1,6 @@
 import { buildActionGuideDetailed } from "@/lib/inbox/action-guide";
 import { classifyMessage } from "@/lib/inbox/classify";
+import { extractKeyActions } from "@/lib/inbox/key-actions";
 import { classifyInboxWithAssistant } from "@/lib/inbox/gemini-triage";
 import { getOrBuildMailHistory } from "@/lib/inbox/mail-history-store";
 import { getPersonalContext } from "@/lib/inbox/personal-context";
@@ -98,7 +99,9 @@ export async function GET(
       message.fromName,
     );
 
-    return NextResponse.json({ message, guide, classification });
+    const keyActions = extractKeyActions(message.htmlBody, guide.action);
+
+    return NextResponse.json({ message, guide, classification, keyActions });
   } catch (e) {
     const msg = e instanceof Error ? e.message : "Failed to load message";
     return NextResponse.json({ error: msg }, { status: 502 });
