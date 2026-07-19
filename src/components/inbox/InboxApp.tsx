@@ -4,11 +4,13 @@ import DOMPurify from "isomorphic-dompurify";
 import {
   Archive,
   ChevronLeft,
+  Inbox,
+  ListFilter,
   Mail,
   RefreshCw,
   Trash2,
 } from "lucide-react";
-import { useCallback, useEffect, useState, type ReactNode } from "react";
+import { useCallback, useEffect, useMemo, useState, type ReactNode } from "react";
 import {
   ACTION_META,
   type TriageAction,
@@ -47,10 +49,14 @@ type Section = {
 type TodayData = {
   accountEmail: string;
   fetchedAt: string;
+  inbox?: EmailItem[];
   needsReview: EmailItem[];
   sections: Section[];
   count: number;
 };
+
+type ViewTab = "inbox" | "triage";
+type MailAction = "archive" | "trash" | "read";
 
 function formatTime(iso: string) {
   const d = new Date(iso);
@@ -73,7 +79,38 @@ const QUICK_ACTIONS: TriageAction[] = [
   "act_today",
 ];
 
+function primaryAction(action: TriageAction): MailAction {
+  if (
+    action === "delete_now" ||
+    action === "unsubscribe" ||
+    action === "read_and_delete"
+  ) {
+    return "trash";
+  }
+  if (action === "respond" || action === "act_today") return "read";
+  return "archive";
+}
+
+function flattenInbox(data: TodayData): EmailItem[] {
+  if (data.inbox?.length) {
+    return [...data.inbox].sort(
+      (a, b) =>
+        new Date(b.receivedAt).getTime() - new Date(a.receivedAt).getTime(),
+    );
+  }
+  const map = new Map<string, EmailItem>();
+  for (const item of data.needsReview) map.set(item.id, item);
+  for (const section of data.sections) {
+    for (const item of section.items) map.set(item.id, item);
+  }
+  return [...map.values()].sort(
+    (a, b) =>
+      new Date(b.receivedAt).getTime() - new Date(a.receivedAt).getTime(),
+  );
+}
+
 export function InboxApp() {
+  const [tab, setTab] = useState<ViewTab>("inbox");
   const [data, setData] = useState<TodayData | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
@@ -86,6 +123,7 @@ export function InboxApp() {
     guide: Guide;
   } | null>(null);
   const [toast, setToast] = useState<string | null>(null);
+  const [busyId, setBusyId] = useState<string | null>(null);
 
   const load = useCallback(async () => {
     setLoading(true);
@@ -106,25 +144,43 @@ export function InboxApp() {
     load();
   }, [load]);
 
+  useEffect(() => {
+    if (!toast) return;
+    const t = setTimeout(() => setToast(null), 4000);
+    return () => clearTimeout(t);
+  }, [toast]);
+
+  const inboxItems = useMemo(
+    () => (data ? flattenInbox(data) : []),
+    [data],
+  );
+
   const removeFromState = useCallback((id: string) => {
     setData((prev) => {
       if (!prev) return prev;
-      const filter = (items: EmailItem[]) =>
-        items.filter((i) => i.id !== id);
+      const filter = (items: EmailItem[]) => items.filter((i) => i.id !== id);
       return {
         ...prev,
+        inbox: prev.inbox ? filter(prev.inbox) : prev.inbox,
         needsReview: filter(prev.needsReview),
         sections: prev.sections
           .map((s) => ({ ...s, items: filter(s.items) }))
           .filter((s) => s.items.length > 0),
-        count: prev.count - 1,
+        count: Math.max(0, prev.count - 1),
       };
     });
   }, []);
 
+  const closeReader = useCallback(() => {
+    setReaderId(null);
+    setReader(null);
+  }, []);
+
   const runAction = useCallback(
-    async (id: string, action: "archive" | "trash" | "read") => {
+    async (id: string, action: MailAction) => {
+      setBusyId(id);
       removeFromState(id);
+      if (readerId === id) closeReader();
       try {
         const res = await fetch("/api/action", {
           method: "POST",
@@ -135,22 +191,35 @@ export function InboxApp() {
           const j = await res.json();
           throw new Error(j.error);
         }
+        setToast(
+          action === "trash"
+            ? "Moved to trash"
+            : action === "archive"
+              ? "Archived"
+              : "Marked read",
+        );
       } catch (e) {
         setToast(e instanceof Error ? e.message : "Action failed");
         load();
+      } finally {
+        setBusyId(null);
       }
     },
-    [load, removeFromState],
+    [closeReader, load, readerId, removeFromState],
   );
 
   const bulkSection = useCallback(
-    async (section: Section, action: "archive" | "trash" | "read") => {
+    async (section: Section, action: MailAction) => {
       const ids = section.items.map((i) => i.id);
       setData((prev) => {
         if (!prev) return prev;
         const idSet = new Set(ids);
+        const filter = (items: EmailItem[]) =>
+          items.filter((i) => !idSet.has(i.id));
         return {
           ...prev,
+          inbox: prev.inbox ? filter(prev.inbox) : prev.inbox,
+          needsReview: filter(prev.needsReview),
           sections: prev.sections
             .map((s) =>
               s.action === section.action
@@ -161,16 +230,25 @@ export function InboxApp() {
                   },
             )
             .filter((s) => s.items.length > 0),
+          count: Math.max(0, prev.count - ids.length),
         };
       });
       try {
-        await fetch("/api/action/bulk", {
+        const res = await fetch("/api/action/bulk", {
           method: "POST",
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify({
             items: ids.map((id) => ({ id, action })),
           }),
         });
+        if (!res.ok) throw new Error("Bulk failed");
+        setToast(
+          action === "trash"
+            ? `Deleted ${ids.length}`
+            : action === "archive"
+              ? `Archived ${ids.length}`
+              : `Updated ${ids.length}`,
+        );
       } catch {
         setToast("Bulk action partially failed — refreshing");
         load();
@@ -211,12 +289,6 @@ export function InboxApp() {
     }
   }, []);
 
-  const primaryAction = (action: TriageAction): "archive" | "trash" | "read" => {
-    if (action === "delete_now" || action === "unsubscribe") return "trash";
-    if (action === "respond" || action === "act_today") return "read";
-    return "archive";
-  };
-
   if (readerId) {
     const g = reader?.guide;
     const safeHtml = reader?.htmlBody
@@ -227,10 +299,7 @@ export function InboxApp() {
         <header className="flex items-center gap-2 border-b border-[var(--border)] px-3 py-3">
           <button
             type="button"
-            onClick={() => {
-              setReaderId(null);
-              setReader(null);
-            }}
+            onClick={closeReader}
             className="rounded-lg p-2 hover:bg-[var(--card)]"
             aria-label="Back"
           >
@@ -277,39 +346,49 @@ export function InboxApp() {
           <footer className="flex gap-2 border-t border-[var(--border)] p-3 pb-[max(0.75rem,env(safe-area-inset-bottom))]">
             <button
               type="button"
+              disabled={busyId === readerId}
               onClick={() => runAction(readerId, "archive")}
-              className="flex flex-1 items-center justify-center gap-2 rounded-xl bg-[var(--card)] py-3 text-sm font-medium"
+              className="flex flex-1 items-center justify-center gap-2 rounded-xl bg-[var(--card)] py-3 text-sm font-medium disabled:opacity-50"
             >
               <Archive className="h-4 w-4" /> Archive
             </button>
             <button
               type="button"
+              disabled={busyId === readerId}
               onClick={() => runAction(readerId, "read")}
-              className="flex flex-1 items-center justify-center gap-2 rounded-xl bg-[#1a73e8] py-3 text-sm font-medium text-white"
+              className="flex flex-1 items-center justify-center gap-2 rounded-xl bg-[#1a73e8] py-3 text-sm font-medium text-white disabled:opacity-50"
             >
               <Mail className="h-4 w-4" /> Mark read
             </button>
             <button
               type="button"
+              disabled={busyId === readerId}
               onClick={() => runAction(readerId, "trash")}
-              className="flex items-center justify-center rounded-xl bg-red-600/15 px-4 py-3 text-red-500"
+              className="flex items-center justify-center gap-2 rounded-xl bg-red-600 px-4 py-3 text-sm font-medium text-white disabled:opacity-50"
+              aria-label="Delete"
             >
-              <Trash2 className="h-4 w-4" />
+              <Trash2 className="h-4 w-4" /> Delete
             </button>
           </footer>
+        ) : null}
+        {toast ? (
+          <div className="fixed bottom-24 left-1/2 z-50 max-w-xs -translate-x-1/2 rounded-lg bg-zinc-900 px-4 py-2 text-xs text-white shadow-lg">
+            {toast}
+          </div>
         ) : null}
       </div>
     );
   }
 
   return (
-    <div className="mx-auto min-h-screen max-w-lg bg-[var(--bg)] pb-24 text-[var(--fg)]">
+    <div className="mx-auto flex min-h-screen max-w-lg flex-col bg-[var(--bg)] pb-24 text-[var(--fg)]">
       <header className="sticky top-0 z-10 border-b border-[var(--border)] bg-[var(--bg)] px-4 py-3">
         <div className="flex items-center justify-between">
           <div>
             <h1 className="text-lg font-semibold tracking-tight">Inbox Pilot</h1>
             <p className="text-xs text-[var(--muted)]">
               {data?.accountEmail ?? "Your inbox"}
+              {data ? ` · ${data.count} messages` : ""}
             </p>
           </div>
           <button
@@ -322,14 +401,32 @@ export function InboxApp() {
             <RefreshCw className={`h-5 w-5 ${loading ? "animate-spin" : ""}`} />
           </button>
         </div>
+        <div
+          className="mt-3 grid grid-cols-2 gap-1 rounded-xl bg-[var(--card)] p-1"
+          role="tablist"
+          aria-label="Mailbox views"
+        >
+          <TabButton
+            active={tab === "inbox"}
+            onClick={() => setTab("inbox")}
+            icon={<Inbox className="h-3.5 w-3.5" />}
+            label="Inbox"
+          />
+          <TabButton
+            active={tab === "triage"}
+            onClick={() => setTab("triage")}
+            icon={<ListFilter className="h-3.5 w-3.5" />}
+            label="Triage"
+          />
+        </div>
         {data?.fetchedAt ? (
-          <p className="mt-1 text-[10px] text-[var(--muted)]">
+          <p className="mt-2 text-[10px] text-[var(--muted)]">
             Updated {formatTime(data.fetchedAt)}
           </p>
         ) : null}
       </header>
 
-      <main className="px-3 py-4">
+      <main className="flex-1 px-3 py-4">
         {error ? (
           <p className="rounded-lg border border-red-500/30 bg-red-500/10 px-3 py-2 text-sm text-red-300">
             {error}
@@ -340,13 +437,35 @@ export function InboxApp() {
             Loading inbox…
           </p>
         ) : null}
-        {data && data.count === 0 ? (
+
+        {tab === "inbox" && data ? (
+          inboxItems.length === 0 ? (
+            <p className="py-16 text-center text-sm text-[var(--muted)]">
+              Inbox is empty.
+            </p>
+          ) : (
+            <ul className="space-y-2">
+              {inboxItems.map((item) => (
+                <EmailRow
+                  key={item.id}
+                  item={item}
+                  busy={busyId === item.id}
+                  onOpen={() => openReader(item.id)}
+                  onArchive={() => runAction(item.id, "archive")}
+                  onDelete={() => runAction(item.id, "trash")}
+                />
+              ))}
+            </ul>
+          )
+        ) : null}
+
+        {tab === "triage" && data && data.count === 0 ? (
           <p className="py-16 text-center text-sm text-[var(--muted)]">
             Nothing to review. Inbox is clear.
           </p>
         ) : null}
 
-        {data && data.needsReview.length > 0 ? (
+        {tab === "triage" && data && data.needsReview.length > 0 ? (
           <section className="mb-6">
             <h2 className="mb-2 text-xs font-medium uppercase tracking-wide text-[var(--muted)]">
               Needs classification ({data.needsReview.length})
@@ -356,10 +475,10 @@ export function InboxApp() {
                 <EmailRow
                   key={item.id}
                   item={item}
+                  busy={busyId === item.id}
                   onOpen={() => openReader(item.id)}
-                  onPrimary={() =>
-                    runAction(item.id, primaryAction(item.guide.action))
-                  }
+                  onArchive={() => runAction(item.id, "archive")}
+                  onDelete={() => runAction(item.id, "trash")}
                   chips={
                     <div className="mt-2 flex flex-wrap gap-1">
                       {QUICK_ACTIONS.map((a) => (
@@ -384,47 +503,49 @@ export function InboxApp() {
           </section>
         ) : null}
 
-        {data?.sections.map((section) => (
-          <section key={section.action} className="mb-6">
-            <div className="mb-2 flex items-center justify-between gap-2">
-              <h2
-                className="flex items-center gap-2 text-xs font-medium uppercase tracking-wide"
-                style={{ color: section.color }}
-              >
-                <span
-                  className="h-2 w-2 rounded-full"
-                  style={{ backgroundColor: section.color }}
-                />
-                {section.label} ({section.items.length})
-              </h2>
-              <button
-                type="button"
-                onClick={() =>
-                  bulkSection(section, primaryAction(section.action))
-                }
-                className="text-[10px] font-medium text-[var(--muted)] underline"
-              >
-                {section.bulkLabel}
-              </button>
-            </div>
-            <ul className="space-y-2">
-              {section.items.map((item) => (
-                <EmailRow
-                  key={item.id}
-                  item={item}
-                  onOpen={() => openReader(item.id)}
-                  onPrimary={() =>
-                    runAction(item.id, primaryAction(item.guide.action))
-                  }
-                />
-              ))}
-            </ul>
-          </section>
-        ))}
+        {tab === "triage"
+          ? data?.sections.map((section) => (
+              <section key={section.action} className="mb-6">
+                <div className="mb-2 flex items-center justify-between gap-2">
+                  <h2
+                    className="flex items-center gap-2 text-xs font-medium uppercase tracking-wide"
+                    style={{ color: section.color }}
+                  >
+                    <span
+                      className="h-2 w-2 rounded-full"
+                      style={{ backgroundColor: section.color }}
+                    />
+                    {section.label} ({section.items.length})
+                  </h2>
+                  <button
+                    type="button"
+                    onClick={() =>
+                      bulkSection(section, primaryAction(section.action))
+                    }
+                    className="text-[10px] font-medium text-[var(--muted)] underline"
+                  >
+                    {section.bulkLabel}
+                  </button>
+                </div>
+                <ul className="space-y-2">
+                  {section.items.map((item) => (
+                    <EmailRow
+                      key={item.id}
+                      item={item}
+                      busy={busyId === item.id}
+                      onOpen={() => openReader(item.id)}
+                      onArchive={() => runAction(item.id, "archive")}
+                      onDelete={() => runAction(item.id, "trash")}
+                    />
+                  ))}
+                </ul>
+              </section>
+            ))
+          : null}
       </main>
 
       {toast ? (
-        <div className="fixed bottom-24 left-1/2 z-50 max-w-xs -translate-x-1/2 rounded-lg bg-red-900 px-4 py-2 text-xs text-white shadow-lg">
+        <div className="fixed bottom-24 left-1/2 z-50 max-w-xs -translate-x-1/2 rounded-lg bg-zinc-900 px-4 py-2 text-xs text-white shadow-lg">
           {toast}
         </div>
       ) : null}
@@ -432,15 +553,48 @@ export function InboxApp() {
   );
 }
 
+function TabButton({
+  active,
+  onClick,
+  icon,
+  label,
+}: {
+  active: boolean;
+  onClick: () => void;
+  icon: ReactNode;
+  label: string;
+}) {
+  return (
+    <button
+      type="button"
+      role="tab"
+      aria-selected={active}
+      onClick={onClick}
+      className={`flex items-center justify-center gap-1.5 rounded-lg py-2 text-xs font-medium transition-colors ${
+        active
+          ? "bg-[var(--bg)] text-[var(--fg)] shadow-sm"
+          : "text-[var(--muted)]"
+      }`}
+    >
+      {icon}
+      {label}
+    </button>
+  );
+}
+
 function EmailRow({
   item,
   onOpen,
-  onPrimary,
+  onArchive,
+  onDelete,
+  busy,
   chips,
 }: {
   item: EmailItem;
   onOpen: () => void;
-  onPrimary: () => void;
+  onArchive: () => void;
+  onDelete: () => void;
+  busy?: boolean;
   chips?: ReactNode;
 }) {
   const g = item.guide;
@@ -455,21 +609,33 @@ function EmailRow({
       >
         <div className="flex gap-3">
           <div
-            className="flex h-10 w-10 shrink-0 items-center justify-center rounded-full text-sm font-semibold text-white"
+            className={`flex h-10 w-10 shrink-0 items-center justify-center rounded-full text-sm font-semibold text-white ${
+              item.isUnread ? "ring-2 ring-[#1a73e8] ring-offset-2 ring-offset-[var(--card)]" : ""
+            }`}
             style={{ backgroundColor: g.color }}
           >
             {initial(item.fromName)}
           </div>
           <div className="min-w-0 flex-1">
             <div className="flex items-baseline justify-between gap-2">
-              <span className="truncate text-[15px] font-semibold">
+              <span
+                className={`truncate text-[15px] ${
+                  item.isUnread ? "font-bold" : "font-semibold"
+                }`}
+              >
                 {item.fromName}
               </span>
               <span className="shrink-0 text-[11px] text-[var(--muted)]">
                 {formatTime(item.receivedAt)}
               </span>
             </div>
-            <div className="truncate text-sm">{item.subject}</div>
+            <div
+              className={`truncate text-sm ${
+                item.isUnread ? "font-medium" : ""
+              }`}
+            >
+              {item.subject}
+            </div>
             <div className="truncate text-[13px] text-[var(--muted)]">
               {item.snippet}
             </div>
@@ -482,25 +648,33 @@ function EmailRow({
             >
               {g.instruction}
             </div>
-            {g.confidence === "MED" ? (
-              <span className="mt-1 inline-block text-[10px] text-[var(--muted)]">
-                rule
-              </span>
-            ) : null}
             {chips}
           </div>
         </div>
-        <div className="mt-2 flex justify-end gap-2">
+        <div className="mt-3 flex justify-end gap-2">
           <button
             type="button"
+            disabled={busy}
             onClick={(e) => {
               e.stopPropagation();
-              onPrimary();
+              onArchive();
             }}
-            className="rounded-lg px-3 py-1 text-xs font-medium text-white"
-            style={{ backgroundColor: g.color }}
+            className="inline-flex items-center gap-1 rounded-lg border border-[var(--border)] bg-[var(--bg)] px-3 py-1.5 text-xs font-medium disabled:opacity-50"
           >
-            Done
+            <Archive className="h-3.5 w-3.5" />
+            Archive
+          </button>
+          <button
+            type="button"
+            disabled={busy}
+            onClick={(e) => {
+              e.stopPropagation();
+              onDelete();
+            }}
+            className="inline-flex items-center gap-1 rounded-lg bg-red-600 px-3 py-1.5 text-xs font-medium text-white disabled:opacity-50"
+          >
+            <Trash2 className="h-3.5 w-3.5" />
+            Delete
           </button>
         </div>
       </article>

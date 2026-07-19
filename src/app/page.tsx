@@ -11,6 +11,28 @@ const microsoft =
 export default async function Home() {
   const session = await auth();
 
+  if (session?.user && session.error) {
+    return (
+      <div className="flex min-h-screen flex-col items-center justify-center bg-[var(--bg)] px-6 text-[var(--fg)]">
+        <div className="max-w-sm text-center">
+          <h1 className="text-2xl font-semibold">Inbox Pilot</h1>
+          <p className="mt-2 text-sm text-[var(--muted)]">
+            Your mail session expired. Sign in again to keep reading and
+            deleting messages.
+          </p>
+          <form action={logout} className="mt-8">
+            <button
+              type="submit"
+              className="w-full rounded-xl bg-[#1a73e8] py-3 text-sm font-medium text-white"
+            >
+              Sign out and reconnect
+            </button>
+          </form>
+        </div>
+      </div>
+    );
+  }
+
   if (!session?.user) {
     return (
       <div className="flex min-h-screen flex-col items-center justify-center bg-[var(--bg)] px-6 text-[var(--fg)]">

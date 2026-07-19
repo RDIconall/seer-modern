@@ -48,6 +48,57 @@ paths:
       responses:
         "200":
           description: { provider, items[] }
+  /api/today:
+    get:
+      summary: Classified inbox + triage sections
+      responses:
+        "200":
+          description: { inbox[], needsReview[], sections[], count }
+  /api/action:
+    post:
+      summary: Archive, trash, or mark-read one message
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                id: { type: string }
+                action: { type: string, enum: [archive, trash, read] }
+      responses:
+        "200":
+          description: { ok: true }
+  /api/delete:
+    post:
+      summary: Trash message(s) (legacy parity)
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                id: { type: string }
+                ids: { type: array, items: { type: string } }
+      responses:
+        "200":
+          description: { ok: true, deleted }
+  /api/archive:
+    post:
+      summary: Archive message(s) (legacy parity)
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                id: { type: string }
+                ids: { type: array, items: { type: string } }
+      responses:
+        "200":
+          description: { ok: true, archived }
   /api/nlp/classify:
     post:
       summary: Hybrid NLP classify email body

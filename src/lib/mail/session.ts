@@ -5,6 +5,9 @@ export async function requireMailSession() {
   if (!session?.accessToken || !session.provider) {
     return null;
   }
+  if (session.error) {
+    throw new Error("Session expired — sign out and connect again");
+  }
   const allowed = process.env.ALLOWED_EMAIL?.trim().toLowerCase();
   const email = session.user?.email?.toLowerCase();
   if (allowed && email && email !== allowed) {

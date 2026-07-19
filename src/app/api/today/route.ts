@@ -89,10 +89,16 @@ export async function GET() {
       items: byAction.get(action) ?? [],
     }));
 
+    const inbox = [...classified].sort(
+      (a, b) =>
+        new Date(b.receivedAt).getTime() - new Date(a.receivedAt).getTime(),
+    );
+
     return NextResponse.json({
       accountEmail: session.email,
       provider: session.provider,
       fetchedAt: new Date().toISOString(),
+      inbox,
       needsReview,
       sections,
       count: classified.length,

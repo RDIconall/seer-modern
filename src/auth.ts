@@ -2,6 +2,10 @@
 import NextAuth from "next-auth";
 import Google from "next-auth/providers/google";
 import MicrosoftEntraID from "next-auth/providers/microsoft-entra-id";
+import {
+  accessTokenNeedsRefresh,
+  refreshAccessToken,
+} from "@/lib/mail/refresh-token";
 
 const googleConfigured =
   Boolean(process.env.AUTH_GOOGLE_ID) &&
@@ -51,13 +55,23 @@ export const { handlers, auth, signIn, signOut } = NextAuth({
     async jwt({ token, account }) {
       if (account) {
         token.accessToken = account.access_token;
+        token.refreshToken = account.refresh_token;
+        token.expiresAt = account.expires_at;
         token.provider = account.provider;
+        token.error = undefined;
+        return token;
       }
+
+      if (accessTokenNeedsRefresh(token)) {
+        return refreshAccessToken(token);
+      }
+
       return token;
     },
     async session({ session, token }) {
       session.accessToken = token.accessToken as string | undefined;
       session.provider = token.provider as string | undefined;
+      session.error = token.error as string | undefined;
       return session;
     },
   },
