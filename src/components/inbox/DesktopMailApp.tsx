@@ -21,6 +21,7 @@ import { useSearchParams } from "next/navigation";
 import { logout } from "@/app/actions";
 import { CardStack } from "@/components/inbox/CardStack";
 import { ComposePanel } from "@/components/inbox/ComposePanel";
+import { LogicExplain, LogicToggle } from "@/components/inbox/LogicExplain";
 import { SettingsPanel } from "@/components/inbox/SettingsPanel";
 import { ACTION_META, type TriageAction } from "@/lib/inbox/classify";
 import { useMailbox } from "@/lib/inbox/use-mailbox";
@@ -94,6 +95,7 @@ export function DesktopMailApp() {
 
   const searchParams = useSearchParams();
   const [settingsOpen, setSettingsOpen] = useState(false);
+  const [logicMode, setLogicMode] = useState(false);
   const cardDeck = useMemo(() => buildCardDeck(triage), [triage]);
 
   useEffect(() => {
@@ -289,13 +291,21 @@ export function DesktopMailApp() {
       <>
       <section className="flex w-[360px] shrink-0 flex-col border-r border-[var(--border)]">
         <header className="shrink-0 border-b border-[var(--border)]">
-          <div className="flex items-center justify-between bg-[var(--primary)] px-4 py-3 text-white">
+          <div className="flex items-center justify-between gap-2 bg-[var(--primary)] px-4 py-3 text-white">
             <h1 className="text-lg font-semibold">{listTitle}</h1>
-            {tab !== "triage" && mailbox ? (
-              <span className="text-xs text-white/80">{mailbox.count}</span>
-            ) : tab === "triage" && triage ? (
-              <span className="text-xs text-white/80">{triage.count}</span>
-            ) : null}
+            <div className="flex items-center gap-2">
+              {(tab === "inbox" || tab === "triage" || Boolean(query)) && (
+                <LogicToggle
+                  on={logicMode}
+                  onToggle={() => setLogicMode((v) => !v)}
+                />
+              )}
+              {tab !== "triage" && mailbox ? (
+                <span className="text-xs text-white/80">{mailbox.count}</span>
+              ) : tab === "triage" && triage ? (
+                <span className="text-xs text-white/80">{triage.count}</span>
+              ) : null}
+            </div>
           </div>
           <form
             className="flex items-center gap-2 border-b border-[var(--border)] bg-[var(--bg)] px-3 py-2"
@@ -352,6 +362,7 @@ export function DesktopMailApp() {
                     selected={readerId === item.id}
                     busy={busyId === item.id}
                     showGuide={tab === "inbox" || Boolean(query)}
+                    logicMode={logicMode}
                     onOpen={() => openReader(item.id)}
                     onArchive={
                       tab === "inbox"
@@ -382,6 +393,7 @@ export function DesktopMailApp() {
                     selected={readerId === item.id}
                     busy={busyId === item.id}
                     showGuide
+                    logicMode={logicMode}
                     onOpen={() => openReader(item.id)}
                     onArchive={() => runAction(item.id, "archive")}
                     onDelete={() => runAction(item.id, "trash")}
@@ -428,6 +440,7 @@ export function DesktopMailApp() {
                         selected={readerId === item.id}
                         busy={busyId === item.id}
                         showGuide
+                        logicMode={logicMode}
                         onOpen={() => openReader(item.id)}
                         onArchive={() => runAction(item.id, "archive")}
                         onDelete={() => runAction(item.id, "trash")}
@@ -494,18 +507,7 @@ export function DesktopMailApp() {
                     </div>
                     {reader.guide ? (
                       <div className="mt-3 space-y-1">
-                        <p
-                          className="text-sm font-semibold"
-                          style={{ color: reader.guide.color }}
-                        >
-                          {reader.guide.label}
-                          {reader.guide.confidence
-                            ? ` · ${reader.guide.confidence}`
-                            : ""}
-                        </p>
-                        <p className="text-sm text-[var(--muted)]">
-                          {reader.guide.reason}
-                        </p>
+                        <LogicExplain guide={reader.guide} expanded />
                         <p className="text-sm">{reader.guide.instruction}</p>
                       </div>
                     ) : null}
@@ -542,6 +544,7 @@ function DesktopMailRow({
   selected,
   busy,
   showGuide,
+  logicMode,
   onOpen,
   onArchive,
   onDelete,
@@ -551,6 +554,7 @@ function DesktopMailRow({
   selected: boolean;
   busy?: boolean;
   showGuide: boolean;
+  logicMode?: boolean;
   onOpen: () => void;
   onArchive?: () => void;
   onDelete: () => void;
@@ -558,7 +562,6 @@ function DesktopMailRow({
 }) {
   const [hovered, setHovered] = useState(false);
   const g = item.guide;
-  const accent = g?.color ?? "var(--primary)";
   const showActions = (selected || hovered) && !busy;
 
   return (
@@ -596,18 +599,7 @@ function DesktopMailRow({
             {item.snippet}
           </div>
           {showGuide && g ? (
-            <div className="mt-0.5 space-y-0.5">
-              <div
-                className="truncate text-[10px] font-semibold"
-                style={{ color: g.color ?? accent }}
-              >
-                {g.label}
-                {g.confidence ? ` · ${g.confidence}` : ""}
-              </div>
-              <div className="line-clamp-2 text-[10px] leading-snug text-[var(--muted)]">
-                {g.reason}
-              </div>
-            </div>
+            <LogicExplain guide={g} expanded={logicMode} />
           ) : null}
           {chips}
         </div>

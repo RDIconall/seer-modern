@@ -18,6 +18,22 @@ export type TriageAction =
 
 export type Confidence = "HIGH" | "MED" | "LOW" | "NEW";
 
+export type ClassifyDebug = {
+  ruleId: string;
+  relationship: HistorySignals["relationship"];
+  sentTo: number;
+  receivedFrom: number;
+  daysSinceLastSent: number | null;
+  staleEngagement: boolean;
+  actionable: boolean;
+  intel: {
+    notices: number;
+    schedule: number;
+    request: number;
+    followUp: number;
+  };
+};
+
 export const ACTION_META: Record<
   TriageAction,
   { label: string; short: string; color: string; bulkLabel: string }
@@ -102,21 +118,18 @@ export type ClassifyResult = {
   action: TriageAction;
   confidence: Confidence;
   reason: string;
+  debug: ClassifyDebug;
 };
 
 /**
- * Action-oriented triage in the spirit of classic Seer:
- * 1) Who do you email? (sent history)
- * 2) Is there an actionable phrase? (Intel.scala keywords)
- * 3) For everyone else — what action fits? (read/archive/delete/promo)
- *
- * First matching rule wins.
+ * Action-oriented triage in the spirit of classic Seer.
+ * Every message gets an action + ruleId so you can audit the path.
  */
 const TIME_SENSITIVE =
   /\b(2fa|two-factor|verification code|verify your|otp|password reset|security alert|boarding pass|flight|appointment|delivery|shipped|out for delivery|expires today|due today|reminder:|action required|confirm your (email|account))\b/i;
 
 const PRODUCT_NOTIFY_DOMAINS =
-  /(github\.com|noreply\.github\.com|users\.noreply\.github\.com|gitlab\.com|bitbucket\.org|vercel\.com|netlify\.com|cursor\.com|cursor\.sh|slack\.com|discord\.com|notion\.so|figma\.com|linear\.app|atlassian\.net|jira\.|asana\.com|trello\.com|dropbox\.com|box\.com|zoom\.us|calendly\.com|linkedin\.com|twitter\.com|x\.com|facebookmail\.com|instagram\.com|spotify\.com|apple\.com|accounts\.google\.com|microsoft\.com|office365\.com)/i;
+  /(github\.com|noreply\.github\.com|users\.noreply\.github\.com|gitlab\.com|bitbucket\.org|vercel\.com|netlify\.com|cursor\.com|cursor\.sh|slack\.com|discord\.com|notion\.so|figma\.com|linear\.app|atlassian\.net|jira\.|asana\.com|trello\.com|dropbox\.com|box\.com|zoom\.us|calendly\.com|linkedin\.com|twitter\.com|x\.com|facebookmail\.com|instagram\.com|spotify\.com|apple\.com|accounts\.google\.com|microsoft\.com|office365\.com|google\.com|amazonses\.com|sendgrid\.net|mailchimp\.com|intercom-mail\.com|stripe\.com)/i;
 
 const FINANCE_DOMAINS =
   /(bankofamerica|chase\.com|wellsfargo|plaid\.com|stripe\.com|amex|americanexpress|paypal\.com|venmo\.com|citi\.com|schwab|fidelity|coinbase)/i;
@@ -162,6 +175,36 @@ function isMarketingShape(local: string, dom: string, blob: string): boolean {
   );
 }
 
+type Ctx = {
+  signals: HistorySignals;
+  actionable: boolean;
+  intel: ReturnType<typeof intelBreakdown>;
+};
+
+function hit(
+  action: TriageAction,
+  confidence: Confidence,
+  reason: string,
+  ruleId: string,
+  ctx: Ctx,
+): ClassifyResult {
+  return {
+    action,
+    confidence,
+    reason,
+    debug: {
+      ruleId,
+      relationship: ctx.signals.relationship,
+      sentTo: ctx.signals.sentTo,
+      receivedFrom: ctx.signals.receivedFrom,
+      daysSinceLastSent: ctx.signals.daysSinceLastSent,
+      staleEngagement: ctx.signals.staleEngagement,
+      actionable: ctx.actionable,
+      intel: ctx.intel,
+    },
+  };
+}
+
 export function classifyMessage(
   input: ClassifyInput,
   senderOverride?: TriageAction | null,
@@ -178,253 +221,295 @@ export function classifyMessage(
     intelContainsAny(`${input.subject}\n${input.snippet}`) ||
     intel.request > 0 ||
     intel.schedule > 0;
+  const ctx: Ctx = { signals, actionable, intel };
 
   if (senderOverride) {
-    return {
-      action: senderOverride,
-      confidence: "HIGH",
-      reason: "You taught this sender",
-    };
+    return hit(
+      senderOverride,
+      "HIGH",
+      "You taught this sender",
+      "override-taught-sender",
+      ctx,
+    );
   }
 
   if (TIME_SENSITIVE.test(blob) || TIME_SENSITIVE.test(input.subject)) {
-    return {
-      action: "act_today",
-      confidence: "MED",
-      reason: "Time-sensitive keywords",
-    };
+    return hit(
+      "act_today",
+      "MED",
+      "Time-sensitive keywords",
+      "time-sensitive-keywords",
+      ctx,
+    );
   }
 
-  // --- Seer core: humans you engage with + actionable language ---
-  const humanHit = classifyByRelationship(
-    signals,
-    actionable,
-    intel,
-    email,
-    blob,
-  );
+  const humanHit = classifyByRelationship(ctx, email, blob);
   if (humanHit) return humanHit;
 
-  // --- Non-human / low-relationship action orientation ---
   if (SHOPPING_DOMAINS.test(dom) || SHOPPING_DOMAINS.test(fromBlob)) {
-    return {
-      action: "glance_promo",
-      confidence: "MED",
-      reason: "Shopping / deals mail",
-    };
+    return hit(
+      "glance_promo",
+      "MED",
+      "Shopping / deals mail",
+      "shopping-domain",
+      ctx,
+    );
   }
 
   if (PRODUCT_NOTIFY_DOMAINS.test(dom) || PRODUCT_NOTIFY_DOMAINS.test(fromBlob)) {
     if (PROMO_BLOB.test(blob)) {
-      return {
-        action: "glance_promo",
-        confidence: "MED",
-        reason: "Product promo",
-      };
+      return hit(
+        "glance_promo",
+        "MED",
+        "Product promo",
+        "product-notify-promo",
+        ctx,
+      );
     }
-    return {
-      action: "read_and_archive",
-      confidence: "MED",
-      reason: "Product or CI notification",
-    };
+    return hit(
+      "read_and_archive",
+      "MED",
+      "Product or CI notification",
+      "product-notify-archive",
+      ctx,
+    );
   }
 
   if (FINANCE_DOMAINS.test(dom) || RECEIPT_BLOB.test(blob)) {
     if (ANOMALY_BLOB.test(blob)) {
-      return {
-        action: "review_subscription",
-        confidence: "MED",
-        reason: "Billing anomaly keywords",
-      };
+      return hit(
+        "review_subscription",
+        "MED",
+        "Billing anomaly keywords",
+        "finance-anomaly",
+        ctx,
+      );
     }
-    return {
-      action: "read_and_archive",
-      confidence: "MED",
-      reason: "Finance or receipt mail",
-    };
+    return hit(
+      "read_and_archive",
+      "MED",
+      "Finance or receipt mail",
+      "finance-receipt",
+      ctx,
+    );
   }
 
   if (isMarketingShape(local, dom, blob) || MARKETING_SUBDOMAIN.test(dom)) {
     if (/\bunsubscribe\b/i.test(blob) && signals.sentTo === 0) {
-      return {
-        action: "unsubscribe",
-        confidence: "MED",
-        reason: "Marketing you never engage — unsubscribe",
-      };
+      return hit(
+        "unsubscribe",
+        "MED",
+        "Marketing you never engage — unsubscribe",
+        "marketing-unsubscribe",
+        ctx,
+      );
     }
     if (signals.relationship === "cold" || signals.relationship === "bulk") {
-      return {
-        action: "delete_now",
-        confidence: "MED",
-        reason: "Cold marketing — don't read, delete",
-      };
+      return hit(
+        "delete_now",
+        "MED",
+        "Cold marketing — don't read, delete",
+        "marketing-cold-delete",
+        ctx,
+      );
     }
-    return {
-      action: "glance_promo",
-      confidence: "MED",
-      reason: "Marketing pattern",
-    };
+    return hit(
+      "glance_promo",
+      "MED",
+      "Marketing pattern",
+      "marketing-glance",
+      ctx,
+    );
   }
 
   if (SALES.test(local) && signals.sentTo === 0) {
-    return {
-      action: "read_and_delete",
-      confidence: "MED",
-      reason: "Cold sales outreach",
-    };
+    return hit(
+      "read_and_delete",
+      "MED",
+      "Cold sales outreach",
+      "sales-cold",
+      ctx,
+    );
   }
 
   if (NOREPLY.test(local)) {
     if (signals.sentTo === 0) {
-      return {
-        action: "delete_now",
-        confidence: "MED",
-        reason: "Automated sender you never write — delete",
-      };
+      return hit(
+        "delete_now",
+        "MED",
+        "Automated sender you never write — delete",
+        "noreply-cold-delete",
+        ctx,
+      );
     }
-    return {
-      action: "read_and_archive",
-      confidence: "MED",
-      reason: "Automated noreply from a known sender",
-    };
+    return hit(
+      "read_and_archive",
+      "MED",
+      "Automated noreply from a known sender",
+      "noreply-known-archive",
+      ctx,
+    );
   }
 
   if (dom.endsWith(".edu") || dom.endsWith(".gov")) {
-    return {
-      action: actionable ? "respond" : "read_and_archive",
-      confidence: "MED",
-      reason: "Educational or government domain",
-    };
+    return hit(
+      actionable ? "respond" : "read_and_archive",
+      "MED",
+      "Educational or government domain",
+      actionable ? "edu-gov-respond" : "edu-gov-archive",
+      ctx,
+    );
   }
 
   if (PERSONAL_PROVIDERS.test(email)) {
     if (PROMO_BLOB.test(blob) || /\bunsubscribe\b/i.test(blob)) {
-      return {
-        action: "glance_promo",
-        confidence: "LOW",
-        reason: "Personal provider but promotional content",
-      };
+      return hit(
+        "glance_promo",
+        "MED",
+        "Personal provider but promotional content",
+        "personal-promo",
+        ctx,
+      );
     }
     if (actionable) {
-      return {
-        action: "respond",
-        confidence: "LOW",
-        reason: "Personal provider + actionable language",
-      };
+      return hit(
+        "respond",
+        "MED",
+        "Personal provider + actionable language",
+        "personal-actionable",
+        ctx,
+      );
     }
-    return {
-      action: "needs_review",
-      confidence: "LOW",
-      reason: "Personal provider — no strong history yet",
-    };
-  }
-
-  if (signals.relationship === "cold" && !actionable) {
-    return {
-      action: "read_and_delete",
-      confidence: "LOW",
-      reason: "No sent history — skim once then delete",
-    };
+    return hit(
+      "read_and_delete",
+      "MED",
+      "Personal provider, no ask detected — skim then delete",
+      "personal-default-skim",
+      ctx,
+    );
   }
 
   if (PROMO_BLOB.test(blob)) {
-    return {
-      action: "glance_promo",
-      confidence: "MED",
-      reason: "Promotional content",
-    };
+    return hit(
+      "glance_promo",
+      "MED",
+      "Promotional content",
+      "promo-blob",
+      ctx,
+    );
   }
 
-  return {
-    action: "needs_review",
-    confidence: "LOW",
-    reason: "No strong rule matched",
-  };
+  if (actionable) {
+    return hit(
+      "needs_review",
+      "LOW",
+      "Looks actionable but no sent history with this sender",
+      "cold-actionable-review",
+      ctx,
+    );
+  }
+
+  // Default: still categorized (not "uncategorized")
+  return hit(
+    "read_and_delete",
+    "MED",
+    "No strong signal — default skim once then delete",
+    "default-skim-delete",
+    ctx,
+  );
 }
 
 function classifyByRelationship(
-  signals: HistorySignals,
-  actionable: boolean,
-  intel: ReturnType<typeof intelBreakdown>,
+  ctx: Ctx,
   email: string,
   blob: string,
 ): ClassifyResult | null {
+  const { signals, actionable, intel } = ctx;
   const { relationship, sentTo, staleEngagement } = signals;
 
   if (relationship === "engaged") {
     if (staleEngagement && actionable) {
-      return {
-        action: "needs_review",
-        confidence: "MED",
-        reason: "You used to email them (>30d) — confirm before treating as reply",
-      };
+      return hit(
+        "needs_review",
+        "MED",
+        "You used to email them (>30d) — confirm before treating as reply",
+        "engaged-stale-review",
+        ctx,
+      );
     }
     if (intel.schedule > 0 || /\b(today|tomorrow|asap|eod)\b/i.test(blob)) {
-      return {
-        action: "act_today",
-        confidence: "HIGH",
-        reason: `Schedule/urgency from someone you email (sent×${sentTo})`,
-      };
+      return hit(
+        "act_today",
+        "HIGH",
+        `Schedule/urgency from someone you email (sent×${sentTo})`,
+        "engaged-schedule-today",
+        ctx,
+      );
     }
     if (actionable) {
-      return {
-        action: "respond",
-        confidence: "HIGH",
-        reason: `Actionable ask from someone you email (sent×${sentTo})`,
-      };
+      return hit(
+        "respond",
+        "HIGH",
+        `Actionable ask from someone you email (sent×${sentTo})`,
+        "engaged-actionable-respond",
+        ctx,
+      );
     }
-    // FYI from a real contact
-    return {
-      action: "read_and_archive",
-      confidence: "MED",
-      reason: `FYI from someone you email (sent×${sentTo})`,
-    };
+    return hit(
+      "read_and_archive",
+      "MED",
+      `FYI from someone you email (sent×${sentTo})`,
+      "engaged-fyi-archive",
+      ctx,
+    );
   }
 
   if (relationship === "known") {
     if (actionable) {
-      return {
-        action: "respond",
-        confidence: "MED",
-        reason: "Repeat sender with actionable language — you haven't written them",
-      };
+      return hit(
+        "respond",
+        "MED",
+        "Repeat sender with actionable language — you haven't written them",
+        "known-actionable-respond",
+        ctx,
+      );
     }
-    return {
-      action: "read_and_delete",
-      confidence: "MED",
-      reason: "Frequent inbound, no outbound — read once then delete",
-    };
+    return hit(
+      "read_and_delete",
+      "MED",
+      "Frequent inbound, no outbound — read once then delete",
+      "known-skim-delete",
+      ctx,
+    );
   }
 
   if (relationship === "bulk") {
     if (/\bunsubscribe\b/i.test(blob)) {
-      return {
-        action: "unsubscribe",
-        confidence: "MED",
-        reason: "Bulk sender with unsubscribe",
-      };
+      return hit(
+        "unsubscribe",
+        "MED",
+        "Bulk sender with unsubscribe",
+        "bulk-unsubscribe",
+        ctx,
+      );
     }
-    if (isMarketingShape(localPart(email), domain(email), blob) || PROMO_BLOB.test(blob)) {
-      return {
-        action: "delete_now",
-        confidence: "MED",
-        reason: "Bulk/automated — don't read, delete",
-      };
-    }
-    return {
-      action: "delete_now",
-      confidence: "MED",
-      reason: "Bulk/noreply pattern — don't read, delete",
-    };
+    return hit(
+      "delete_now",
+      "MED",
+      "Bulk/noreply pattern — don't read, delete",
+      "bulk-delete",
+      ctx,
+    );
   }
 
-  // cold: only intervene early when clearly actionable from a person-shaped address
   if (relationship === "cold" && actionable && PERSONAL_PROVIDERS.test(email)) {
-    return {
-      action: "needs_review",
-      confidence: "LOW",
-      reason: "Possible person asking something — no sent history yet",
-    };
+    return hit(
+      "needs_review",
+      "LOW",
+      "Possible person asking something — no sent history yet",
+      "cold-personal-actionable",
+      ctx,
+    );
   }
 
   return null;

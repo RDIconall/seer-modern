@@ -281,6 +281,12 @@ function CardFace({
             {g.confidence ? ` · ${g.confidence}` : ""}
           </div>
           <div className="mt-1 text-[13px] text-[var(--fg)]">{g.reason}</div>
+          {g.debug ? (
+            <div className="mt-2 font-mono text-[10px] text-[var(--muted)]">
+              {g.debug.ruleId} · {g.debug.relationship} · sent×
+              {g.debug.sentTo}
+            </div>
+          ) : null}
           <div className="mt-1 text-sm font-medium" style={{ color: g.color }}>
             {g.instruction}
           </div>

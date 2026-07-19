@@ -1,4 +1,4 @@
-import type { TriageAction } from "@/lib/inbox/classify";
+import type { ClassifyDebug, TriageAction } from "@/lib/inbox/classify";
 
 export type Guide = {
   action: TriageAction;
@@ -8,6 +8,8 @@ export type Guide = {
   reason: string;
   instruction: string;
   detail?: string;
+  /** Audit trail — which rule + history signals fired */
+  debug?: ClassifyDebug;
 };
 
 export type EmailItem = {

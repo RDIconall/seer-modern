@@ -15,6 +15,7 @@ export type ActionGuide = {
   instruction: string;
   /** Seer NLP detail when available */
   detail?: string;
+  debug?: ClassifyResult["debug"];
 };
 
 function instructionFor(
@@ -61,6 +62,7 @@ export function buildActionGuideQuick(
     confidence: classification.confidence,
     reason: classification.reason,
     instruction: instructionFor(classification.action, subject),
+    debug: classification.debug,
   };
 }
 
@@ -103,5 +105,6 @@ export async function buildActionGuideDetailed(
     reason: classification.reason,
     instruction: instructionFor(classification.action, subject, detail),
     detail,
+    debug: classification.debug,
   };
 }

@@ -33,6 +33,7 @@ import { logoutMobile } from "@/app/actions";
 import { ACTION_META, type TriageAction } from "@/lib/inbox/classify";
 import { CardStack } from "@/components/inbox/CardStack";
 import { ComposePanel } from "@/components/inbox/ComposePanel";
+import { LogicExplain, LogicToggle } from "@/components/inbox/LogicExplain";
 import { SettingsPanel } from "@/components/inbox/SettingsPanel";
 import { useMailbox } from "@/lib/inbox/use-mailbox";
 import {
@@ -99,6 +100,7 @@ export function MobileMailApp() {
   const [drawer, setDrawer] = useState(false);
   const [searchOpen, setSearchOpen] = useState(false);
   const [settingsOpen, setSettingsOpen] = useState(false);
+  const [logicMode, setLogicMode] = useState(false);
   const searchRef = useRef<HTMLInputElement>(null);
   const cardDeck = useMemo(() => buildCardDeck(triage), [triage]);
 
@@ -220,14 +222,7 @@ export function MobileMailApp() {
             </div>
             {g ? (
               <div className="mt-3 space-y-1">
-                <p
-                  className="text-xs font-semibold"
-                  style={{ color: g.color }}
-                >
-                  {g.label}
-                  {g.confidence ? ` · ${g.confidence}` : ""}
-                </p>
-                <p className="text-xs text-[var(--muted)]">{g.reason}</p>
+                <LogicExplain guide={g} expanded />
                 <p className="text-xs text-[var(--fg)]">{g.instruction}</p>
               </div>
             ) : null}
@@ -409,6 +404,12 @@ export function MobileMailApp() {
                     ? "Triage"
                     : FOLDER_LABEL[tab]}
             </h1>
+            {(tab === "inbox" || tab === "triage" || Boolean(query)) && (
+              <LogicToggle
+                on={logicMode}
+                onToggle={() => setLogicMode((v) => !v)}
+              />
+            )}
             <IconBtn onClick={load} disabled={loading} label="Refresh" light>
               <RefreshCw
                 className={`h-5 w-5 ${loading ? "animate-spin" : ""}`}
@@ -480,6 +481,7 @@ export function MobileMailApp() {
                   key={item.id}
                   item={item}
                   showGuide={tab === "inbox" || Boolean(query)}
+                  logicMode={logicMode}
                   busy={busyId === item.id}
                   onOpen={() => openReader(item.id)}
                   onArchive={
@@ -519,6 +521,7 @@ export function MobileMailApp() {
                   key={item.id}
                   item={item}
                   showGuide
+                  logicMode={logicMode}
                   busy={busyId === item.id}
                   onOpen={() => openReader(item.id)}
                   onArchive={() => runAction(item.id, "archive")}
@@ -564,6 +567,7 @@ export function MobileMailApp() {
                       key={item.id}
                       item={item}
                       showGuide
+                      logicMode={logicMode}
                       busy={busyId === item.id}
                       onOpen={() => openReader(item.id)}
                       onArchive={() => runAction(item.id, "archive")}
@@ -782,6 +786,7 @@ function SwipeMailRow({
   busy,
   chips,
   showGuide,
+  logicMode,
 }: {
   item: EmailItem;
   onOpen: () => void;
@@ -790,6 +795,7 @@ function SwipeMailRow({
   busy?: boolean;
   chips?: ReactNode;
   showGuide: boolean;
+  logicMode?: boolean;
 }) {
   const g = item.guide;
   const startX = useRef<number | null>(null);
@@ -853,18 +859,7 @@ function SwipeMailRow({
             {item.snippet}
           </div>
           {showGuide && g ? (
-            <div className="mt-1 space-y-0.5">
-              <div
-                className="truncate text-[11px] font-semibold"
-                style={{ color: g.color }}
-              >
-                {g.label}
-                {g.confidence ? ` · ${g.confidence}` : ""}
-              </div>
-              <div className="line-clamp-2 text-[11px] leading-snug text-[var(--muted)]">
-                {g.reason}
-              </div>
-            </div>
+            <LogicExplain guide={g} expanded={logicMode} />
           ) : null}
           {chips}
         </div>

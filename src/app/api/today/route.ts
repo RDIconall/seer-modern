@@ -73,17 +73,13 @@ export async function GET() {
       classified.push({ ...m, guide });
     }
 
+    // Only true "needs_review" actions go in the review bucket.
+    // LOW confidence still keeps its action so mail isn't left uncategorized.
     const needsReview = classified.filter(
-      (e) =>
-        e.guide.confidence === "LOW" ||
-        e.guide.confidence === "NEW" ||
-        e.guide.action === "needs_review",
+      (e) => e.guide.action === "needs_review",
     );
     const processed = classified.filter(
-      (e) =>
-        e.guide.confidence !== "LOW" &&
-        e.guide.confidence !== "NEW" &&
-        e.guide.action !== "needs_review",
+      (e) => e.guide.action !== "needs_review",
     );
 
     const byAction = new Map<TriageAction, TodayEmail[]>();
