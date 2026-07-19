@@ -42,10 +42,26 @@ export async function loadUserProfile(
   try {
     const raw = await fs.readFile(fileFor(accountEmail), "utf8");
     const parsed = JSON.parse(raw) as UserProfile;
-    return parsed.text?.trim() ? parsed : null;
+    if (parsed.text?.trim()) return parsed;
   } catch {
-    return null;
+    /* fall through to env */
   }
+
+  // Durable fallback: on serverless, .data lives in /tmp and evaporates
+  // between instances. SEER_USER_PROFILE (Vercel env var) survives.
+  // Set SEER_USER_PROFILE_UPDATED_AT (ISO date) when changing it to give
+  // the inbox one fresh Gemini pass with the new context.
+  const envText = process.env.SEER_USER_PROFILE?.trim();
+  if (envText) {
+    return {
+      text: envText.slice(0, PROFILE_MAX_CHARS),
+      updatedAt:
+        process.env.SEER_USER_PROFILE_UPDATED_AT?.trim() ||
+        "2000-01-01T00:00:00.000Z",
+      source: "paste",
+    };
+  }
+  return null;
 }
 
 export async function saveUserProfile(

@@ -18,6 +18,26 @@ const microsoftConfigured =
 
 export const { handlers, auth, signIn, signOut } = NextAuth({
   trustHost: true,
+  debug: process.env.AUTH_DEBUG === "1",
+  logger: {
+    error(error) {
+      // Default Auth.js behavior hides the cause behind a generic
+      // "Server error" page — log the real one for Vercel logs.
+      console.error(
+        "[auth] error:",
+        error?.message,
+        (error as { cause?: { err?: Error } })?.cause?.err?.message ?? "",
+      );
+    },
+    warn(code) {
+      console.warn("[auth] warn:", code);
+    },
+    debug(message, metadata) {
+      if (process.env.AUTH_DEBUG === "1") {
+        console.log("[auth] debug:", message, metadata ?? "");
+      }
+    },
+  },
   providers: [
     ...(googleConfigured
       ? [

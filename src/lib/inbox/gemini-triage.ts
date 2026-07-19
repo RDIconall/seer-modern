@@ -35,7 +35,7 @@ import { z } from "zod";
  * Bump when the prompt/actions change so stale cached decisions
  * are ignored and re-classified.
  */
-export const PROMPT_VERSION = 7;
+export const PROMPT_VERSION = 8;
 
 const ACTIONS = [
   "respond",
