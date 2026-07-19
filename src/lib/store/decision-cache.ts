@@ -77,3 +77,12 @@ export async function saveDecisions(
 
   await fs.writeFile(fileFor(accountEmail), JSON.stringify(all), "utf8");
 }
+
+/**
+ * Drop every cached decision for an account. Used when the user's
+ * profile ("about me" memory) changes — new self-knowledge can change
+ * what Gemini would decide, so everything gets a fresh look.
+ */
+export async function clearDecisions(accountEmail: string): Promise<void> {
+  await fs.unlink(fileFor(accountEmail)).catch(() => {});
+}

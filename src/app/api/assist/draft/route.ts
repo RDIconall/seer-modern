@@ -5,6 +5,10 @@ import {
 import { getGmailMessage } from "@/lib/mail/gmail";
 import { getGraphMessage } from "@/lib/mail/graph";
 import { requireMailSession } from "@/lib/mail/session";
+import {
+  loadUserProfile,
+  profilePromptBlock,
+} from "@/lib/store/user-profile";
 import { generateText, Output } from "ai";
 import { NextResponse } from "next/server";
 import { z } from "zod";
@@ -60,6 +64,9 @@ export async function POST(request: Request) {
     const firstName = (session.name || session.email).split(/[\s@]/)[0];
     const hint = intent ? INTENT_HINTS[intent] : undefined;
 
+    const profile = await loadUserProfile(session.email);
+    const profileBlock = profilePromptBlock(profile);
+
     const { model } = await resolveAssistantModel();
     const { output } = await generateText({
       model,
@@ -72,7 +79,7 @@ Rules:
 - Sound like a busy, warm human: short sentences, no corporate filler, no "I hope this email finds you well".
 - Answer what was actually asked. If information is missing, make the smallest reasonable assumption and move on — do not ask the user questions.
 - 1-4 sentences unless the email genuinely requires more.
-- Sign off with just "${firstName}".`,
+- Sign off with just "${firstName}".${profileBlock ? `\n\n${profileBlock}\nUse this to answer accurately as them (their role, family, commitments) and to match their voice — never contradict it.` : ""}`,
       prompt: JSON.stringify({
         from: `${message.fromName} <${message.fromEmail}>`,
         subject: message.subject,

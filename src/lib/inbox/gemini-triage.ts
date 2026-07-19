@@ -23,6 +23,10 @@ import {
   saveDecisions,
   type CachedDecision,
 } from "@/lib/store/decision-cache";
+import {
+  profilePromptBlock,
+  type UserProfile,
+} from "@/lib/store/user-profile";
 import { google } from "@ai-sdk/google";
 import { generateText, Output, type LanguageModel } from "ai";
 import { z } from "zod";
@@ -288,6 +292,12 @@ type CompactItem = {
 export type TriageExtras = {
   personal?: PersonalContext | null;
   actionMemory?: ActionMemory | null;
+  /**
+   * The user's "about me" memory — appended to the system prompt so
+   * Gemini triages as THIS person. Stable between edits, so Gemini's
+   * implicit prompt caching still reuses the shared static prefix.
+   */
+  profile?: UserProfile | null;
   /** Gmail: read/write decisions as native Seer/<action> labels */
   labels?: SeerLabelStore | null;
   /**
@@ -344,12 +354,18 @@ async function geminiBatch(
 
   const payload = compactPayload(batch, history, extras);
   const { model, label } = await resolveModel();
+  // Static prompt first (implicit-cache prefix), then the user's own
+  // "about me" memory — identical bytes call to call until they edit it.
+  const profileBlock = profilePromptBlock(extras?.profile);
+  const system = profileBlock
+    ? `${SYSTEM_PROMPT}\n\n${profileBlock}`
+    : SYSTEM_PROMPT;
   const { output } = await generateText({
     model,
     temperature: 0,
     maxRetries: 1, // don't burn rate-limited quota on rapid retries
     output: Output.object({ schema: batchSchema }),
-    system: SYSTEM_PROMPT,
+    system,
     prompt: JSON.stringify(payload),
   });
 
@@ -499,7 +515,13 @@ export async function classifyInboxWithAssistant(
     // 4. Native Gmail label: reviewed once earlier, call saved on the message.
     // Exception: an "urgent" label on a non-person sender (bulk/known robot,
     // not a contact, no meeting) may be an older prompt's mistake — re-review.
-    const labeled = extras?.labels?.lookup(item);
+    // Also skipped briefly after the user edits their "about me" memory so
+    // new self-knowledge gets applied to already-labeled mail once.
+    const profileFresh =
+      extras?.profile &&
+      Date.now() - new Date(extras.profile.updatedAt).getTime() <
+        30 * 60 * 1000;
+    const labeled = profileFresh ? null : extras?.labels?.lookup(item);
     if (labeled) {
       const rel = historySignals(history, item.fromEmail).relationship;
       const suspiciousUrgent =

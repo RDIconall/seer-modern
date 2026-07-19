@@ -1,9 +1,11 @@
 "use client";
 
 import {
+  BookUser,
   Check,
   ChevronLeft,
   Download,
+  Link2,
   Loader2,
   Mail,
   Plus,
@@ -36,6 +38,15 @@ type AccountsPayload = {
   sessionError: string | null;
 };
 
+type ProfilePayload = {
+  profile: {
+    text: string;
+    updatedAt: string;
+    source: "paste" | "google-doc";
+    sourceUrl?: string;
+  } | null;
+};
+
 export function SettingsPanel({
   mobile,
   onClose,
@@ -50,6 +61,13 @@ export function SettingsPanel({
   const [busy, setBusy] = useState<string | null>(null);
   const [exportBusy, setExportBusy] = useState(false);
 
+  const [profileText, setProfileText] = useState("");
+  const [profileMeta, setProfileMeta] =
+    useState<ProfilePayload["profile"]>(null);
+  const [docUrl, setDocUrl] = useState("");
+  const [profileBusy, setProfileBusy] = useState<string | null>(null);
+  const [profileNote, setProfileNote] = useState<string | null>(null);
+
   const load = useCallback(async () => {
     setError(null);
     try {
@@ -62,9 +80,55 @@ export function SettingsPanel({
     }
   }, []);
 
+  const loadProfile = useCallback(async () => {
+    try {
+      const res = await fetch("/api/profile", { cache: "no-store" });
+      const json = (await res.json()) as ProfilePayload;
+      if (res.ok) {
+        setProfileMeta(json.profile);
+        setProfileText(json.profile?.text ?? "");
+        if (json.profile?.sourceUrl) setDocUrl(json.profile.sourceUrl);
+      }
+    } catch {
+      /* profile is optional — settings still work */
+    }
+  }, []);
+
   useEffect(() => {
     load();
-  }, [load]);
+    loadProfile();
+  }, [load, loadProfile]);
+
+  async function saveProfile(payload: {
+    text?: string;
+    docUrl?: string;
+    clear?: boolean;
+  }) {
+    setProfileBusy(payload.clear ? "clear" : payload.docUrl ? "doc" : "text");
+    setProfileNote(null);
+    setError(null);
+    try {
+      const res = await fetch("/api/profile", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(payload),
+      });
+      const json = await res.json();
+      if (!res.ok) throw new Error(json.error ?? "Save failed");
+      setProfileMeta(json.profile);
+      setProfileText(json.profile?.text ?? "");
+      setProfileNote(
+        json.profile
+          ? "Saved. Every email gets a fresh look with this in mind on the next refresh."
+          : "Cleared.",
+      );
+      onAccountsChanged?.();
+    } catch (e) {
+      setError(e instanceof Error ? e.message : "Profile save failed");
+    } finally {
+      setProfileBusy(null);
+    }
+  }
 
   async function switchAccount(id: string) {
     setBusy(id);
@@ -264,6 +328,92 @@ export function SettingsPanel({
             <p className="mt-2 text-[11px] leading-relaxed text-[var(--muted)]">
               Connecting signs you in with that provider and saves it here so
               you can switch mailboxes.
+            </p>
+          </section>
+
+          <section className="mb-6">
+            <h2 className="mb-2 flex items-center gap-1.5 text-xs font-medium uppercase tracking-wide text-[var(--muted)]">
+              <BookUser className="h-3.5 w-3.5" />
+              About you — AI memory
+            </h2>
+            <textarea
+              value={profileText}
+              onChange={(e) => setProfileText(e.target.value)}
+              rows={6}
+              maxLength={8000}
+              placeholder={
+                "Who you are, in your own words: role, companies, family, current priorities, VIP people, what counts as urgent for you…"
+              }
+              className="w-full resize-y rounded-xl border border-[var(--border)] bg-[var(--bg)] px-3 py-2.5 text-sm leading-relaxed outline-none focus:border-[var(--primary)]"
+            />
+            <div className="mt-2 flex gap-2">
+              <button
+                type="button"
+                disabled={profileBusy !== null || !profileText.trim()}
+                onClick={() => saveProfile({ text: profileText })}
+                className="flex flex-1 items-center justify-center gap-2 rounded-xl bg-[var(--primary)] px-4 py-2.5 text-sm font-medium text-white disabled:opacity-50"
+              >
+                {profileBusy === "text" ? (
+                  <Loader2 className="h-4 w-4 animate-spin" />
+                ) : null}
+                Save memory
+              </button>
+              {profileMeta ? (
+                <button
+                  type="button"
+                  disabled={profileBusy !== null}
+                  onClick={() => saveProfile({ clear: true })}
+                  className="rounded-xl border border-[var(--border)] px-4 py-2.5 text-sm font-medium text-red-600 disabled:opacity-50"
+                >
+                  {profileBusy === "clear" ? (
+                    <Loader2 className="h-4 w-4 animate-spin" />
+                  ) : (
+                    "Clear"
+                  )}
+                </button>
+              ) : null}
+            </div>
+
+            <div className="mt-3 flex gap-2">
+              <input
+                type="url"
+                value={docUrl}
+                onChange={(e) => setDocUrl(e.target.value)}
+                placeholder="…or paste a Google Doc link about you"
+                className="min-w-0 flex-1 rounded-xl border border-[var(--border)] bg-[var(--bg)] px-3 py-2.5 text-sm outline-none focus:border-[var(--primary)]"
+              />
+              <button
+                type="button"
+                disabled={profileBusy !== null || !docUrl.trim()}
+                onClick={() => saveProfile({ docUrl })}
+                className="flex items-center gap-2 rounded-xl border border-[var(--border)] px-4 py-2.5 text-sm font-medium disabled:opacity-50"
+              >
+                {profileBusy === "doc" ? (
+                  <Loader2 className="h-4 w-4 animate-spin" />
+                ) : (
+                  <Link2 className="h-4 w-4 text-[var(--primary)]" />
+                )}
+                Import
+              </button>
+            </div>
+
+            {profileNote ? (
+              <p className="mt-2 text-[11px] font-medium text-[var(--primary)]">
+                {profileNote}
+              </p>
+            ) : null}
+            <p className="mt-2 text-[11px] leading-relaxed text-[var(--muted)]">
+              {profileMeta
+                ? `Saved ${new Date(profileMeta.updatedAt).toLocaleDateString()}${
+                    profileMeta.source === "google-doc"
+                      ? " · imported from Google Docs (re-import after editing the doc)"
+                      : ""
+                  }. `
+                : ""}
+              This rides along on every Gemini triage call and reply draft so
+              decisions are made as <em>you</em> — who matters, what&apos;s
+              urgent, how you sound. Stored privately on the server; saving
+              re-reviews your inbox once with the new context.
             </p>
           </section>
 

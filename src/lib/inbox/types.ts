@@ -66,6 +66,8 @@ export type TodayData = {
   context?: {
     contacts: number;
     events: number;
+    /** True when an "about you" memory is loaded into every Gemini call */
+    profile?: boolean;
   };
 };
 

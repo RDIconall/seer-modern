@@ -12,6 +12,7 @@ import {
 import { getOrBuildMailHistory } from "@/lib/inbox/mail-history-store";
 import { getPersonalContext } from "@/lib/inbox/personal-context";
 import { loadActionMemory } from "@/lib/store/action-memory";
+import { loadUserProfile } from "@/lib/store/user-profile";
 import { listGmailFolder, listGmailInbox } from "@/lib/mail/gmail";
 import { listGraphFolder, listGraphInbox } from "@/lib/mail/graph";
 import { makeGmailLabelStore } from "@/lib/mail/seer-labels";
@@ -53,28 +54,30 @@ export async function GET() {
         ? await listGmailInbox(session.accessToken, 50)
         : await listGraphInbox(session.accessToken, 50);
 
-    const [history, personal, actionMemory, labels] = await Promise.all([
-      getOrBuildMailHistory(
-        session.email,
-        session.accessToken,
-        {
-          listFolder: (token, folder, max) =>
-            session.provider === "google"
-              ? listGmailFolder(token, folder, max)
-              : listGraphFolder(token, folder, max),
-        },
-        raw,
-      ),
-      getPersonalContext({
-        accountEmail: session.email,
-        accessToken: session.accessToken,
-        provider: session.provider,
-      }),
-      loadActionMemory(session.email),
-      session.provider === "google"
-        ? makeGmailLabelStore(session.accessToken, session.email)
-        : Promise.resolve(null),
-    ]);
+    const [history, personal, actionMemory, labels, profile] =
+      await Promise.all([
+        getOrBuildMailHistory(
+          session.email,
+          session.accessToken,
+          {
+            listFolder: (token, folder, max) =>
+              session.provider === "google"
+                ? listGmailFolder(token, folder, max)
+                : listGraphFolder(token, folder, max),
+          },
+          raw,
+        ),
+        getPersonalContext({
+          accountEmail: session.email,
+          accessToken: session.accessToken,
+          provider: session.provider,
+        }),
+        loadActionMemory(session.email),
+        session.provider === "google"
+          ? makeGmailLabelStore(session.accessToken, session.email)
+          : Promise.resolve(null),
+        loadUserProfile(session.email),
+      ]);
 
     const decisions = await classifyInboxWithAssistant(
       session.email,
@@ -89,7 +92,7 @@ export async function GET() {
       history,
       (email) => getSenderOverride(email),
       classifyMessage,
-      { personal, actionMemory, labels },
+      { personal, actionMemory, labels, profile },
     );
 
     const classified: TodayEmail[] = [];
@@ -166,6 +169,7 @@ export async function GET() {
       context: {
         contacts: personal.contacts.length,
         events: personal.events.length,
+        profile: Boolean(profile),
       },
     });
   } catch (e) {

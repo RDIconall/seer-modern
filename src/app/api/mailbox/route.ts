@@ -4,6 +4,7 @@ import { classifyInboxWithAssistant } from "@/lib/inbox/gemini-triage";
 import { getOrBuildMailHistory } from "@/lib/inbox/mail-history-store";
 import { getPersonalContext } from "@/lib/inbox/personal-context";
 import { loadActionMemory } from "@/lib/store/action-memory";
+import { loadUserProfile } from "@/lib/store/user-profile";
 import type { EmailItem } from "@/lib/inbox/types";
 import { listGmailFolder, searchGmail } from "@/lib/mail/gmail";
 import { listGraphFolder, searchGraph } from "@/lib/mail/graph";
@@ -54,28 +55,30 @@ export async function GET(request: Request) {
       | undefined;
 
     if (shouldClassify) {
-      const [history, personal, actionMemory, labels] = await Promise.all([
-        getOrBuildMailHistory(
-          session.email,
-          session.accessToken,
-          {
-            listFolder: (token, f, max) =>
-              session.provider === "google"
-                ? listGmailFolder(token, f, max)
-                : listGraphFolder(token, f, max),
-          },
-          folder === "inbox" && !q?.trim() ? items : undefined,
-        ),
-        getPersonalContext({
-          accountEmail: session.email,
-          accessToken: session.accessToken,
-          provider: session.provider,
-        }),
-        loadActionMemory(session.email),
-        session.provider === "google"
-          ? makeGmailLabelStore(session.accessToken, session.email)
-          : Promise.resolve(null),
-      ]);
+      const [history, personal, actionMemory, labels, profile] =
+        await Promise.all([
+          getOrBuildMailHistory(
+            session.email,
+            session.accessToken,
+            {
+              listFolder: (token, f, max) =>
+                session.provider === "google"
+                  ? listGmailFolder(token, f, max)
+                  : listGraphFolder(token, f, max),
+            },
+            folder === "inbox" && !q?.trim() ? items : undefined,
+          ),
+          getPersonalContext({
+            accountEmail: session.email,
+            accessToken: session.accessToken,
+            provider: session.provider,
+          }),
+          loadActionMemory(session.email),
+          session.provider === "google"
+            ? makeGmailLabelStore(session.accessToken, session.email)
+            : Promise.resolve(null),
+          loadUserProfile(session.email),
+        ]);
 
       const decisions = await classifyInboxWithAssistant(
         session.email,
@@ -90,7 +93,7 @@ export async function GET(request: Request) {
         history,
         (email) => getSenderOverride(email),
         classifyMessage,
-        { personal, actionMemory, labels },
+        { personal, actionMemory, labels, profile },
       );
 
       annotated = [];
