@@ -139,15 +139,21 @@ export type ClassifyResult = {
  * Genuinely transactional urgency — real even from a noreply robot:
  * codes, security, travel, deliveries, appointments.
  */
+/**
+ * Urgent only when the user must DO something: codes, security, travel,
+ * appointments. Passive status updates ("delivered", "arriving") are NOT
+ * actions — packages arrive whether you read the email or not.
+ */
 const TRANSACTIONAL_URGENT =
-  /\b(2fa|two-factor|verification code|one-time (code|passcode)|otp|password reset|security alert|suspicious sign-?in|boarding pass|check-in (open|now)|flight (confirmation|reminder|change|cancell)|appointment (confirm|remind)|out for delivery|delivered|delivery (today|tomorrow|update)|scheduled for delivery|arriving (today|tomorrow)|package (is )?(arriving|delayed|scheduled)|shipped)\b/i;
+  /\b(2fa|two-factor|verification code|one-time (code|passcode)|otp|password reset|security alert|suspicious sign-?in|boarding pass|check-in (open|now)|flight (confirmation|reminder|change|cancell)|appointment (confirm|remind))\b/i;
 
 /** Package carriers — world knowledge the rules engine should have. */
 const SHIPPER_DOMAINS =
   /(^|\.)(ups|fedex|usps|dhl|ontrac|lasership|royalmail|canadapost|purolator|aftership|shippo|narvar)\.(com|net|ca|co\.uk|org)$/i;
 
-const DELIVERY_MOVING =
-  /\b(out for delivery|arriving|scheduled for delivery|delivery (today|tomorrow)|delayed|attempted delivery|ready for pickup|running late)\b/i;
+/** Carrier mail that actually needs the user to act. */
+const DELIVERY_NEEDS_YOU =
+  /\b(attempted delivery|delivery (failed|attempt|exception)|signature required|ready for pick ?up|pick ?up (required|by)|customs|duty (owed|payment)|held at|address (issue|problem|confirm)|reschedule|action (needed|required) to receive)\b/i;
 
 /**
  * Urgency bait — marketing's favorite trick. Only counts as urgent when
@@ -329,22 +335,26 @@ function classifyCore(
     );
   }
 
-  // Package carriers: a delivery on the move is time-boxed by definition
+  // Package carriers: status updates need nothing from you — the package
+  // arrives either way. Only act when the delivery needs YOU.
   if (SHIPPER_DOMAINS.test(dom)) {
-    if (DELIVERY_MOVING.test(blob) || DELIVERY_MOVING.test(input.subject)) {
+    if (
+      DELIVERY_NEEDS_YOU.test(blob) ||
+      DELIVERY_NEEDS_YOU.test(input.subject)
+    ) {
       return hit(
         "act_today",
         "HIGH",
-        "Package carrier — delivery in motion",
-        "shipper-delivery-today",
+        "Carrier needs something from you (signature / pickup / failed delivery)",
+        "shipper-needs-you",
         ctx,
       );
     }
     return hit(
-      "read_and_archive",
-      "MED",
-      "Package carrier status note",
-      "shipper-notice-archive",
+      "delete_now",
+      "HIGH",
+      "Package status update — it arrives whether you read this or not",
+      "shipper-status-delete",
       ctx,
     );
   }

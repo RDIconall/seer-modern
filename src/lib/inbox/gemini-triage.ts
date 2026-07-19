@@ -31,7 +31,7 @@ import { z } from "zod";
  * Bump when the prompt/actions change so stale cached decisions
  * are ignored and re-classified.
  */
-export const PROMPT_VERSION = 5;
+export const PROMPT_VERSION = 6;
 
 const ACTIONS = [
   "respond",
@@ -96,6 +96,7 @@ const PREFILTER_RULE_IDS = new Set([
   "product-notify-promo",
   "product-notify-archive",
   "urgency-bait-delete",
+  "shipper-status-delete",
 ]);
 
 /**
@@ -235,7 +236,7 @@ Decide an ACTION for every email. Make the call yourself. Do NOT defer to the us
 
 Actions:
 - respond: a real person is waiting on an answer / decision
-- act_today: deadline, security, travel, appointment, money risk today
+- act_today: the user must personally DO something today or lose something — sign, pay, pick up, board, reschedule, enter a code. Time-sensitive is NOT enough: a package "arriving tomorrow" arrives without the user; that is NOT act_today.
 - read_and_archive: useful notification/receipt/FYI — skim then archive
 - read_and_delete: low-value human or semi-personal noise — skim once then delete
 - delete_now: safe to trash without opening (cold promo, bulk noreply junk)
@@ -252,7 +253,8 @@ Optional predictor fields (omitted when zero/default):
 - past: what the user did with recent mail from this sender (e.g. "trashed 2/3") — lean toward repeating their pattern
 
 Priority when signals conflict: meeting > contact > engaged rel > past behavior > content.
-USE WORLD KNOWLEDGE of the company behind the email. UPS/FedEx/USPS/DHL = package delivery: a package arriving or delayed is act_today even from a first-time noreply sender. Airlines = travel. Banks/brokerages = money. Pharmacies/clinics = health. Schools/government = obligations. Judge WHO the company is and WHAT the message means for the user's day — no sent-history is NOT a reason to defer on a recognizable transactional sender.
+USE WORLD KNOWLEDGE of the company behind the email. Airlines = travel. Banks/brokerages = money. Pharmacies/clinics = health. Schools/government = obligations. Judge WHO the company is and WHAT the message means for the user's day — no sent-history is NOT a reason to defer on a recognizable transactional sender.
+PASSIVE STATUS UPDATES need nothing from the user: package shipped/arriving/delivered, order confirmed, ride completed, statement ready → delete_now or read_and_delete. The event happens whether they read it or not. Exception: the sender needs THEM (failed delivery, signature required, pickup, customs, payment problem) → act_today.
 FAKE URGENCY is the #1 trick: "expires today", "last chance", "action required", "final notice", "reminder:" from bulk/noreply/marketing senders is promo bait — delete_now or glance_promo, NEVER act_today. Urgency is real only from contacts, engaged/known senders, or genuine transactional mail (2FA codes, password resets, security alerts, boarding passes, deliveries, appointments).
 Cold noreply marketing → delete_now or unsubscribe.
 Product/CI (GitHub, Vercel, Figma, etc.) → usually read_and_archive unless promo.
@@ -487,15 +489,16 @@ export async function classifyInboxWithAssistant(
     };
 
     // 4. Native Gmail label: reviewed once earlier, call saved on the message.
-    // Exception: an "urgent" label on a bulk sender who isn't a contact is
-    // probably urgency bait that slipped through an older prompt — re-review.
+    // Exception: an "urgent" label on a non-person sender (bulk/known robot,
+    // not a contact, no meeting) may be an older prompt's mistake — re-review.
     const labeled = extras?.labels?.lookup(item);
     if (labeled) {
+      const rel = historySignals(history, item.fromEmail).relationship;
       const suspiciousUrgent =
         (labeled === "act_today" || labeled === "respond") &&
         !ctx.inContacts &&
         !ctx.meeting &&
-        historySignals(history, item.fromEmail).relationship === "bulk";
+        rel !== "engaged";
       if (!suspiciousUrgent) {
         results.set(item.id, {
           action: labeled,

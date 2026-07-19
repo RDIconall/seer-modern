@@ -14,6 +14,9 @@ export type SenderStory = {
 };
 
 function domainHint(ruleId: string): string | null {
+  if (/shipper/.test(ruleId)) {
+    return "a package carrier's status robot";
+  }
   if (/product-notify/.test(ruleId)) {
     return "a product/service notification account";
   }
