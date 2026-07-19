@@ -148,7 +148,9 @@ export function primaryMailAction(action: TriageAction): MailAction {
   if (
     action === "delete_now" ||
     action === "unsubscribe" ||
-    action === "read_and_delete"
+    action === "read_and_delete" ||
+    // Deals mail has zero lookup value — glancing done, it's trash
+    action === "glance_promo"
   ) {
     return "trash";
   }

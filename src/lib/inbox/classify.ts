@@ -91,10 +91,10 @@ export const ACTION_META: Record<
     bulkLabel: "Review each",
   },
   glance_promo: {
-    label: "Glance and archive",
+    label: "Glance and delete",
     short: "Promo",
     color: "#ec4899",
-    bulkLabel: "Archive all",
+    bulkLabel: "Delete all",
   },
   needs_review: {
     label: "Needs your call",
@@ -549,11 +549,13 @@ function classifyCore(
         ctx,
       );
     }
+    // Even a "known" robot's mail has no lookup value unless it's a
+    // record (receipts hit finance/product rules earlier) — don't file it.
     return hit(
-      "read_and_archive",
+      "read_and_delete",
       "MED",
-      "Automated noreply from a known sender",
-      "noreply-known-archive",
+      "Automated noreply — nothing worth keeping",
+      "noreply-known-delete",
       ctx,
     );
   }
