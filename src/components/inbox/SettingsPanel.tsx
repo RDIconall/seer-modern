@@ -84,7 +84,7 @@ export function SettingsPanel({
   }
 
   async function removeAccount(id: string) {
-    if (!confirm("Remove this account from Inbox Pilot on this device?")) {
+    if (!confirm("Remove this account from Seer on this device?")) {
       return;
     }
     setBusy(id);

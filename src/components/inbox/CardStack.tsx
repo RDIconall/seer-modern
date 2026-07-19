@@ -97,7 +97,7 @@ export function CardStack({
           <button
             type="button"
             onClick={onEmptyRefresh}
-            className="mt-6 rounded-full bg-[var(--primary)] px-5 py-2.5 text-sm font-medium text-white"
+            className="mt-6 rounded-md bg-[var(--accent)] px-5 py-2.5 text-sm font-medium text-[#333]"
           >
             Refresh cards
           </button>
@@ -222,7 +222,7 @@ function CardFace({
   onTap?: () => void;
 }) {
   const g = item.guide;
-  const accent = g?.color ?? "#1a73e8";
+  const accent = g?.color ?? "#3498d9";
   return (
     <article
       role={onTap ? "button" : undefined}

@@ -287,9 +287,8 @@ export function MobileMailApp() {
               }}
               className="border-b border-[var(--border)] px-5 py-4 text-left"
             >
-              <div className="text-lg font-medium text-[var(--primary)]">
-                Inbox Pilot
-              </div>
+              <div className="seer-brand text-2xl">Seer</div>
+              <div className="seer-tagline text-[11px]">Work smarter</div>
               <div className="mt-0.5 truncate text-xs text-[var(--muted)]">
                 {accountEmail}
               </div>
@@ -656,7 +655,7 @@ function DrawerItem({
       onClick={onClick}
       className={`flex w-full items-center gap-4 rounded-r-full px-5 py-3 text-sm ${
         active
-          ? "bg-[#d3e3fd] font-medium text-[#041e49] dark:bg-[#004a77] dark:text-[#c2e7ff]"
+          ? "bg-[var(--primary-soft)] font-medium text-[var(--fg-strong)]"
           : "text-[var(--fg)]"
       }`}
     >

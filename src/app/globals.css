@@ -1,36 +1,47 @@
 @import "tailwindcss";
 
+/* Seer brand tokens — from getseer.com (~2013–14): soft blue, amber CTA, light panels */
 :root {
   --bg: #ffffff;
-  --fg: #202124;
-  --card: #f1f3f4;
-  --border: #e8eaed;
-  --muted: #5f6368;
-  --primary: #1a73e8;
-  --row-hover: #f6f8fc;
-  --unread: #202124;
+  --fg: #555555;
+  --fg-strong: #333333;
+  --card: #edf1f3;
+  --border: #ececec;
+  --muted: #666666;
+  --nav-muted: #aeaeae;
+  --primary: #3498d9;
+  --primary-soft: #b2daeb;
+  --accent: #feb022;
+  --row-hover: #f5f8fa;
+  --unread: #333333;
+  --selection: #b2daeb;
   --safe-top: env(safe-area-inset-top, 0px);
   --safe-bottom: env(safe-area-inset-bottom, 0px);
 }
 
 @media (prefers-color-scheme: dark) {
   :root {
-    --bg: #000000;
-    --fg: #e8eaed;
-    --card: #202124;
-    --border: #3c4043;
-    --muted: #9aa0a6;
-    --primary: #8ab4f8;
-    --row-hover: #1a1a1a;
+    --bg: #121417;
+    --fg: #d8dee4;
+    --fg-strong: #f0f3f6;
+    --card: #1c2126;
+    --border: #2e353c;
+    --muted: #9aa5b1;
+    --nav-muted: #7a8692;
+    --primary: #5eb3e8;
+    --primary-soft: #1e4a66;
+    --accent: #feb022;
+    --row-hover: #1a1f24;
     --unread: #ffffff;
+    --selection: #1e4a66;
   }
 }
 
 @theme inline {
   --color-background: var(--bg);
   --color-foreground: var(--fg);
-  --font-sans: var(--font-geist-sans);
-  --font-mono: var(--font-geist-mono);
+  --font-sans: var(--font-seer);
+  --font-mono: var(--font-seer-mono);
 }
 
 html,
@@ -42,9 +53,14 @@ body {
 body {
   background: var(--bg);
   color: var(--fg);
-  font-family: var(--font-geist-sans), system-ui, sans-serif;
+  font-family: var(--font-seer), "Roboto", sans-serif;
+  font-weight: 400;
   -webkit-tap-highlight-color: transparent;
   -webkit-touch-callout: none;
+}
+
+::selection {
+  background: var(--primary-soft);
 }
 
 .prose img {
@@ -52,7 +68,7 @@ body {
   height: auto;
 }
 
-/* Gmail-style mail row */
+/* Mail row */
 .mail-row {
   display: flex;
   gap: 12px;
@@ -85,4 +101,32 @@ body {
 /* Legacy Seer card deck */
 .seer-card {
   will-change: transform;
+}
+
+/* Soft brand atmosphere (login / empty states) */
+.seer-atmosphere {
+  background:
+    radial-gradient(ellipse 80% 50% at 20% 0%, rgba(52, 152, 217, 0.12), transparent 55%),
+    radial-gradient(ellipse 60% 40% at 90% 100%, rgba(254, 176, 34, 0.1), transparent 50%),
+    linear-gradient(180deg, #edf1f3 0%, #ffffff 45%, #f7fafb 100%);
+}
+
+@media (prefers-color-scheme: dark) {
+  .seer-atmosphere {
+    background:
+      radial-gradient(ellipse 80% 50% at 20% 0%, rgba(94, 179, 232, 0.15), transparent 55%),
+      radial-gradient(ellipse 60% 40% at 90% 100%, rgba(254, 176, 34, 0.08), transparent 50%),
+      linear-gradient(180deg, #121417 0%, #1c2126 100%);
+  }
+}
+
+.seer-brand {
+  font-weight: 300;
+  letter-spacing: -0.02em;
+  color: var(--primary);
+}
+
+.seer-tagline {
+  font-weight: 300;
+  color: var(--muted);
 }

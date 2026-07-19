@@ -1,13 +1,13 @@
 {
-  "name": "Inbox Pilot",
-  "short_name": "Inbox",
-  "description": "Mobile mail client with smart triage",
+  "name": "Seer",
+  "short_name": "Seer",
+  "description": "Work smarter — fly through email with your copilot",
   "start_url": "/m",
   "scope": "/m",
   "display": "standalone",
   "orientation": "portrait-primary",
-  "background_color": "#ffffff",
-  "theme_color": "#1a73e8",
+  "background_color": "#edf1f3",
+  "theme_color": "#3498d9",
   "lang": "en",
   "categories": ["productivity", "utilities"],
   "icons": [
@@ -24,7 +24,7 @@
       "purpose": "any"
     },
     {
-      "src": "/icons/icon-512.png",
+      "src": "/icons/icon-512-maskable.png",
       "sizes": "512x512",
       "type": "image/png",
       "purpose": "maskable"

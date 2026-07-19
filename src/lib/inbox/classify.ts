@@ -18,7 +18,7 @@ export const ACTION_META: Record<
   respond: {
     label: "Respond to this",
     short: "Respond",
-    color: "#1a73e8",
+    color: "#3498d9",
     bulkLabel: "Mark all read",
   },
   read_and_archive: {
@@ -42,7 +42,7 @@ export const ACTION_META: Record<
   act_today: {
     label: "Act today",
     short: "Urgent",
-    color: "#f59e0b",
+    color: "#feb022",
     bulkLabel: "Mark all read",
   },
   unsubscribe: {

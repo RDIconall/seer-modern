@@ -1,5 +1,5 @@
-/* Inbox Pilot — mobile shell at /m */
-const CACHE = "inbox-pilot-mobile-v2";
+/* Seer — mobile shell at /m */
+const CACHE = "seer-mobile-v1";
 const PRECACHE = [
   "/m",
   "/manifest.webmanifest",

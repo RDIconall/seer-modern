@@ -151,9 +151,8 @@ export function DesktopMailApp() {
       {/* Left sidebar */}
       <aside className="flex w-[220px] shrink-0 flex-col border-r border-[var(--border)]">
         <div className="border-b border-[var(--border)] px-4 py-4">
-          <div className="text-base font-semibold text-[var(--primary)]">
-            Inbox Pilot
-          </div>
+          <div className="seer-brand text-xl">Seer</div>
+          <div className="seer-tagline text-[11px]">Work smarter</div>
         </div>
 
         <div className="px-3 py-3">
@@ -175,7 +174,7 @@ export function DesktopMailApp() {
               onClick={() => selectFolder(folderTab)}
               className={`mb-0.5 flex w-full items-center gap-2.5 rounded-md px-3 py-2 text-sm ${
                 tab === folderTab
-                  ? "bg-[#d3e3fd] font-medium text-[#041e49] dark:bg-[#004a77] dark:text-[#c2e7ff]"
+                  ? "bg-[var(--primary-soft)] font-medium text-[var(--fg-strong)]"
                   : "text-[var(--fg)] hover:bg-[var(--row-hover)]"
               }`}
             >
@@ -560,7 +559,7 @@ function DesktopMailRow({
         onKeyDown={(e) => e.key === "Enter" && onOpen()}
         className={`flex cursor-pointer gap-2.5 px-3 py-2.5 pr-16 transition-colors ${
           selected
-            ? "bg-[#c7e0f4] dark:bg-[#004a77]"
+            ? "bg-[var(--primary-soft)]"
             : "bg-[var(--bg)] hover:bg-[var(--row-hover)]"
         } ${busy ? "opacity-50" : ""} ${item.isUnread ? "font-medium" : ""}`}
       >
