@@ -26,7 +26,7 @@ type Props = {
   items: EmailItem[];
   busyId: string | null;
   onOpen: (id: string) => void;
-  onAction: (id: string, action: MailAction) => void;
+  onAction: (id: string, action: MailAction, fromEmail?: string) => void;
   onReply: (id: string) => void;
   onEmptyRefresh?: () => void;
 };
@@ -63,7 +63,7 @@ export function CardStack({
 
   const commit = (action: MailAction) => {
     if (!current || busyId === current.id) return;
-    onAction(current.id, action);
+    onAction(current.id, action, current.fromEmail);
     setDragX(0);
     setIndex((i) => i + 1);
   };

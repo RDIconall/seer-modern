@@ -16,9 +16,11 @@ export function LogicExplain({
       ? "Gemini"
       : guide.source === "override"
         ? "Taught"
-        : guide.source === "rules"
-          ? "Rules"
-          : null;
+        : guide.source === "learned"
+          ? "Learned from you"
+          : guide.source === "rules"
+            ? "Rules"
+            : null;
 
   return (
     <div className="mt-1 space-y-1">

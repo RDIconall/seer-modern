@@ -10,8 +10,8 @@ export type Guide = {
   detail?: string;
   /** Audit trail — which rule + history signals fired */
   debug?: ClassifyDebug;
-  /** Who decided: Gemini (preferred), rules fallback, or taught override */
-  source?: "gemini" | "rules" | "override";
+  /** Who decided: Gemini, rules fallback, taught override, or learned from your actions */
+  source?: "gemini" | "rules" | "override" | "learned";
 };
 
 export type EmailItem = {
@@ -51,8 +51,13 @@ export type TodayData = {
     gemini: number;
     rules: number;
     override: number;
+    learned?: number;
     cached?: number;
     needsReview: number;
+  };
+  context?: {
+    contacts: number;
+    events: number;
   };
 };
 

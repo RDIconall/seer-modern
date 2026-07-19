@@ -76,7 +76,7 @@ async function refreshMicrosoft(
         grant_type: "refresh_token",
         refresh_token: token.refreshToken!,
         scope:
-          "openid profile email offline_access User.Read Mail.ReadWrite Mail.Send",
+          "openid profile email offline_access User.Read Mail.ReadWrite Mail.Send Contacts.Read Calendars.Read",
       }),
     },
   );

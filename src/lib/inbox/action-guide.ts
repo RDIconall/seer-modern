@@ -16,7 +16,7 @@ export type ActionGuide = {
   /** Seer NLP detail when available */
   detail?: string;
   debug?: ClassifyResult["debug"];
-  source?: "gemini" | "rules" | "override";
+  source?: "gemini" | "rules" | "override" | "learned";
 };
 
 function instructionFor(
@@ -53,7 +53,7 @@ function instructionFor(
 
 export function buildActionGuideQuick(
   classification: ClassifyResult & {
-    source?: "gemini" | "rules" | "override";
+    source?: "gemini" | "rules" | "override" | "learned";
     instruction?: string;
   },
   subject: string,
@@ -75,7 +75,7 @@ export function buildActionGuideQuick(
 
 export async function buildActionGuideDetailed(
   classification: ClassifyResult & {
-    source?: "gemini" | "rules" | "override";
+    source?: "gemini" | "rules" | "override" | "learned";
     instruction?: string;
   },
   subject: string,

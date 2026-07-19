@@ -2,6 +2,8 @@ import { buildActionGuideDetailed } from "@/lib/inbox/action-guide";
 import { classifyMessage } from "@/lib/inbox/classify";
 import { classifyInboxWithAssistant } from "@/lib/inbox/gemini-triage";
 import { getOrBuildMailHistory } from "@/lib/inbox/mail-history-store";
+import { getPersonalContext } from "@/lib/inbox/personal-context";
+import { loadActionMemory } from "@/lib/store/action-memory";
 import { getGmailMessage, listGmailFolder } from "@/lib/mail/gmail";
 import { getGraphMessage, listGraphFolder } from "@/lib/mail/graph";
 import { requireMailSession } from "@/lib/mail/session";
@@ -24,16 +26,24 @@ export async function GET(
         ? await getGmailMessage(session.accessToken, id)
         : await getGraphMessage(session.accessToken, id);
 
-    const history = await getOrBuildMailHistory(
-      session.email,
-      session.accessToken,
-      {
-        listFolder: (token, folder, max) =>
-          session.provider === "google"
-            ? listGmailFolder(token, folder, max)
-            : listGraphFolder(token, folder, max),
-      },
-    );
+    const [history, personal, actionMemory] = await Promise.all([
+      getOrBuildMailHistory(
+        session.email,
+        session.accessToken,
+        {
+          listFolder: (token, folder, max) =>
+            session.provider === "google"
+              ? listGmailFolder(token, folder, max)
+              : listGraphFolder(token, folder, max),
+        },
+      ),
+      getPersonalContext({
+        accountEmail: session.email,
+        accessToken: session.accessToken,
+        provider: session.provider,
+      }),
+      loadActionMemory(session.email),
+    ]);
 
     const bodyText =
       message.textBody ||
@@ -53,6 +63,7 @@ export async function GET(
       history,
       (email) => getSenderOverride(email),
       classifyMessage,
+      { personal, actionMemory },
     );
 
     const fromAssistant = decisions.get(message.id);

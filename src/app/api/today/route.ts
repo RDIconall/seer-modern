@@ -7,6 +7,8 @@ import {
 } from "@/lib/inbox/classify";
 import { classifyInboxWithAssistant } from "@/lib/inbox/gemini-triage";
 import { getOrBuildMailHistory } from "@/lib/inbox/mail-history-store";
+import { getPersonalContext } from "@/lib/inbox/personal-context";
+import { loadActionMemory } from "@/lib/store/action-memory";
 import { listGmailFolder, listGmailInbox } from "@/lib/mail/gmail";
 import { listGraphFolder, listGraphInbox } from "@/lib/mail/graph";
 import { requireMailSession } from "@/lib/mail/session";
@@ -47,17 +49,25 @@ export async function GET() {
         ? await listGmailInbox(session.accessToken, 50)
         : await listGraphInbox(session.accessToken, 50);
 
-    const history = await getOrBuildMailHistory(
-      session.email,
-      session.accessToken,
-      {
-        listFolder: (token, folder, max) =>
-          session.provider === "google"
-            ? listGmailFolder(token, folder, max)
-            : listGraphFolder(token, folder, max),
-      },
-      raw,
-    );
+    const [history, personal, actionMemory] = await Promise.all([
+      getOrBuildMailHistory(
+        session.email,
+        session.accessToken,
+        {
+          listFolder: (token, folder, max) =>
+            session.provider === "google"
+              ? listGmailFolder(token, folder, max)
+              : listGraphFolder(token, folder, max),
+        },
+        raw,
+      ),
+      getPersonalContext({
+        accountEmail: session.email,
+        accessToken: session.accessToken,
+        provider: session.provider,
+      }),
+      loadActionMemory(session.email),
+    ]);
 
     const decisions = await classifyInboxWithAssistant(
       session.email,
@@ -71,18 +81,21 @@ export async function GET() {
       history,
       (email) => getSenderOverride(email),
       classifyMessage,
+      { personal, actionMemory },
     );
 
     const classified: TodayEmail[] = [];
     let geminiCount = 0;
     let rulesCount = 0;
     let overrideCount = 0;
+    let learnedCount = 0;
     let cachedCount = 0;
     for (const m of raw) {
       const result = decisions.get(m.id);
       if (!result) continue;
       if (result.source === "gemini") geminiCount += 1;
       else if (result.source === "rules") rulesCount += 1;
+      else if (result.source === "learned") learnedCount += 1;
       else overrideCount += 1;
       if (result.cached) cachedCount += 1;
       const guide = buildActionGuideQuick(result, m.subject);
@@ -136,8 +149,13 @@ export async function GET() {
         gemini: geminiCount,
         rules: rulesCount,
         override: overrideCount,
+        learned: learnedCount,
         cached: cachedCount,
         needsReview: needsReview.length,
+      },
+      context: {
+        contacts: personal.contacts.length,
+        events: personal.events.length,
       },
     });
   } catch (e) {

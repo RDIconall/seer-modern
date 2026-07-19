@@ -2,6 +2,8 @@ import { buildActionGuideQuick } from "@/lib/inbox/action-guide";
 import { classifyMessage } from "@/lib/inbox/classify";
 import { classifyInboxWithAssistant } from "@/lib/inbox/gemini-triage";
 import { getOrBuildMailHistory } from "@/lib/inbox/mail-history-store";
+import { getPersonalContext } from "@/lib/inbox/personal-context";
+import { loadActionMemory } from "@/lib/store/action-memory";
 import type { IphoneTask } from "@/lib/api-parity/iphone-task-types";
 import { LEGACY_SESSION_COOKIE } from "@/lib/future-ios";
 import { listGmailFolder, listGmailInbox } from "@/lib/mail/gmail";
@@ -26,17 +28,25 @@ export async function GET() {
         ? await listGmailInbox(session.accessToken, 30)
         : await listGraphInbox(session.accessToken, 30);
 
-    const history = await getOrBuildMailHistory(
-      session.email,
-      session.accessToken,
-      {
-        listFolder: (token, folder, max) =>
-          session.provider === "google"
-            ? listGmailFolder(token, folder, max)
-            : listGraphFolder(token, folder, max),
-      },
-      raw,
-    );
+    const [history, personal, actionMemory] = await Promise.all([
+      getOrBuildMailHistory(
+        session.email,
+        session.accessToken,
+        {
+          listFolder: (token, folder, max) =>
+            session.provider === "google"
+              ? listGmailFolder(token, folder, max)
+              : listGraphFolder(token, folder, max),
+        },
+        raw,
+      ),
+      getPersonalContext({
+        accountEmail: session.email,
+        accessToken: session.accessToken,
+        provider: session.provider,
+      }),
+      loadActionMemory(session.email),
+    ]);
 
     const decisions = await classifyInboxWithAssistant(
       session.email,
@@ -50,6 +60,7 @@ export async function GET() {
       history,
       (email) => getSenderOverride(email),
       classifyMessage,
+      { personal, actionMemory },
     );
 
     const tasks: IphoneTask[] = [];

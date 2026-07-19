@@ -30,7 +30,7 @@ export const { handlers, auth, signIn, signOut } = NextAuth({
                 access_type: "offline",
                 response_type: "code",
                 scope:
-                  "openid email profile https://www.googleapis.com/auth/gmail.modify https://www.googleapis.com/auth/gmail.send",
+                  "openid email profile https://www.googleapis.com/auth/gmail.modify https://www.googleapis.com/auth/gmail.send https://www.googleapis.com/auth/contacts.readonly https://www.googleapis.com/auth/contacts.other.readonly https://www.googleapis.com/auth/calendar.events.readonly",
               },
             },
           }),
@@ -45,7 +45,7 @@ export const { handlers, auth, signIn, signOut } = NextAuth({
             authorization: {
               params: {
                 scope:
-                  "openid profile email offline_access User.Read Mail.ReadWrite Mail.Send",
+                  "openid profile email offline_access User.Read Mail.ReadWrite Mail.Send Contacts.Read Calendars.Read",
               },
             },
           }),

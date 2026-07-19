@@ -6,7 +6,16 @@ import {
   type TriageAction,
 } from "@/lib/inbox/classify";
 import { historySignals, type MailHistory } from "@/lib/inbox/mail-history";
+import {
+  contextSignals,
+  meetingLabel,
+  type PersonalContext,
+} from "@/lib/inbox/personal-context";
 import { intelBreakdown, intelContainsAny } from "@/lib/nlp/intel";
+import {
+  learnedPrior,
+  type ActionMemory,
+} from "@/lib/store/action-memory";
 import {
   loadDecisions,
   saveDecisions,
@@ -20,7 +29,7 @@ import { z } from "zod";
  * Bump when the prompt/actions change so stale cached decisions
  * are ignored and re-classified.
  */
-export const PROMPT_VERSION = 2;
+export const PROMPT_VERSION = 3;
 
 const ACTIONS = [
   "respond",
@@ -54,8 +63,10 @@ export type GeminiTriageItem = {
   snippet: string;
 };
 
+export type DecisionSource = "gemini" | "rules" | "override" | "learned";
+
 export type AssistantClassifyResult = ClassifyResult & {
-  source: "gemini" | "rules" | "override";
+  source: DecisionSource;
   instruction?: string;
   /** True when served from the persistent decision cache (no API call). */
   cached?: boolean;
@@ -147,6 +158,8 @@ function debugFor(
  */
 const SYSTEM_PROMPT = `You are Seer, an elite email copilot. The user's TIME is more valuable than tokens.
 
+Philosophy: the user's own behavior predicts their next action. Who they email, who is in their contacts, who they are about to meet, and what they did with past mail from a sender all outrank the email's content.
+
 Decide an ACTION for every email. Make the call yourself. Do NOT defer to the user unless something is truly ambiguous AND high-stakes.
 
 Actions:
@@ -161,9 +174,13 @@ Actions:
 - needs_review: LAST RESORT (<5% of mail). Only if a wrong auto-action could hurt a real relationship or money and you truly cannot tell.
 
 Input is a JSON array. Item fields: id, from (display name), email, subject, snippet.
-Optional relationship fields (omitted when zero/default): rel (engaged = user emails them, known = frequent inbound only, bulk = automated), sent (emails user sent them), recv (received from them), stale (true = engagement went quiet >30d).
+Optional predictor fields (omitted when zero/default):
+- rel: engaged (user emails them) | known (frequent inbound only) | bulk (automated); sent/recv = message counts; stale = engagement quiet >30d
+- contact: true = in the user's address book — a real relationship, never delete_now
+- meeting: an upcoming calendar event with this sender (e.g. "Standup · in 2d") — strong signal to respond/act_today
+- past: what the user did with recent mail from this sender (e.g. "trashed 2/3") — lean toward repeating their pattern
 
-Use relationship signals: engaged → prefer respond/act_today/archive over delete.
+Priority when signals conflict: meeting > contact > engaged rel > past behavior > content.
 Cold noreply marketing → delete_now or unsubscribe.
 Product/CI (GitHub, Vercel, Figma, etc.) → usually read_and_archive unless promo.
 Be decisive. Prefer a confident archive/delete over needs_review.
@@ -180,11 +197,20 @@ type CompactItem = {
   sent?: number;
   recv?: number;
   stale?: boolean;
+  contact?: boolean;
+  meeting?: string;
+  past?: string;
+};
+
+export type TriageExtras = {
+  personal?: PersonalContext | null;
+  actionMemory?: ActionMemory | null;
 };
 
 function compactPayload(
   batch: GeminiTriageItem[],
   history: MailHistory | null | undefined,
+  extras?: TriageExtras,
 ): CompactItem[] {
   return batch.map((m) => {
     const sig = historySignals(history, m.fromEmail);
@@ -199,6 +225,20 @@ function compactPayload(
     if (sig.sentTo > 0) item.sent = sig.sentTo;
     if (sig.receivedFrom > 0) item.recv = sig.receivedFrom;
     if (sig.staleEngagement) item.stale = true;
+
+    const ctx = contextSignals(extras?.personal, m.fromEmail);
+    if (ctx.inContacts) item.contact = true;
+    const meet = meetingLabel(ctx.meeting);
+    if (meet) item.meeting = meet;
+
+    const stat = extras?.actionMemory?.[m.fromEmail.toLowerCase().trim()];
+    if (stat && stat.archive + stat.trash > 0) {
+      const total = stat.archive + stat.trash;
+      item.past =
+        stat.trash >= stat.archive
+          ? `trashed ${stat.trash}/${total}`
+          : `archived ${stat.archive}/${total}`;
+    }
     return item;
   });
 }
@@ -206,11 +246,12 @@ function compactPayload(
 async function geminiBatch(
   batch: GeminiTriageItem[],
   history: MailHistory | null | undefined,
+  extras?: TriageExtras,
 ): Promise<Map<string, AssistantClassifyResult>> {
   const out = new Map<string, AssistantClassifyResult>();
   if (batch.length === 0) return out;
 
-  const payload = compactPayload(batch, history);
+  const payload = compactPayload(batch, history, extras);
   const { model, label } = resolveModel();
   const { output } = await generateText({
     model,
@@ -258,14 +299,17 @@ function toCached(r: AssistantClassifyResult): CachedDecision {
 }
 
 /**
- * Gemini-first triage for an inbox list, cost-optimized:
- * 1. Taught overrides win (free).
- * 2. Persistent decision cache — already-classified mail costs zero tokens.
- * 3. Rules pre-filter — obvious junk (bulk/cold marketing/noreply) is
- *    decided locally without an API call.
- * 4. Gemini decides everything else, in large batches with a static
- *    system prompt (implicit prompt caching) and trimmed payloads.
- * 5. Rules fallback if Gemini is unavailable or misses an id.
+ * Behavior-first triage for an inbox list. Precedence:
+ * 1. Taught overrides — the user explicitly told us (free).
+ * 2. Learned priors — the user's own repeated archive/trash actions on
+ *    a sender ARE the classifier (free, and self-correcting).
+ * 3. Persistent decision cache — already-classified mail costs zero tokens.
+ * 4. Rules pre-filter — obvious junk decided locally without an API call
+ *    (never for contacts or people you're about to meet).
+ * 5. Gemini decides the gray zone, fed relationship + contacts + calendar
+ *    + past-action predictors, in large batches with a static system
+ *    prompt (implicit prompt caching) and trimmed payloads.
+ * 6. Rules fallback if Gemini is unavailable or misses an id.
  */
 export async function classifyInboxWithAssistant(
   accountEmail: string,
@@ -282,11 +326,12 @@ export async function classifyInboxWithAssistant(
     override: TriageAction | null,
     history: MailHistory | null | undefined,
   ) => ClassifyResult,
+  extras?: TriageExtras,
 ): Promise<Map<string, AssistantClassifyResult>> {
   const results = new Map<string, AssistantClassifyResult>();
   const candidates: GeminiTriageItem[] = [];
 
-  // 1. Taught overrides
+  // 1. Taught overrides + 2. learned priors from the user's own actions
   for (const item of items) {
     const override = await getOverride(item.fromEmail);
     if (override) {
@@ -300,10 +345,28 @@ export async function classifyInboxWithAssistant(
       });
       continue;
     }
+
+    const learned = learnedPrior(extras?.actionMemory, item.fromEmail);
+    if (learned) {
+      const verb = learned.dominant === "trash" ? "deleted" : "archived";
+      results.set(item.id, {
+        action: learned.action,
+        confidence: "HIGH",
+        reason: `You ${verb} ${learned.count} of the last ${learned.total} from this sender`,
+        debug: debugFor(item, history, `learned-${learned.dominant}`),
+        source: "learned",
+        instruction:
+          learned.dominant === "trash"
+            ? "Seer learned you always trash this sender — safe to delete."
+            : "Seer learned you always archive this sender — skim then archive.",
+      });
+      continue;
+    }
+
     candidates.push(item);
   }
 
-  // 2. Persistent decision cache
+  // 3. Persistent decision cache
   const cachedHits = await loadDecisions(
     accountEmail,
     candidates.map((c) => c.id),
@@ -328,37 +391,41 @@ export async function classifyInboxWithAssistant(
       continue;
     }
 
-    // 3. Rules pre-filter: obvious junk never reaches Gemini
-    const ruled = rulesFallback(
-      {
-        fromEmail: item.fromEmail,
-        fromName: item.fromName,
-        subject: item.subject,
-        snippet: item.snippet,
-      },
-      null,
-      history,
-    );
-    if (PREFILTER_RULE_IDS.has(ruled.debug.ruleId)) {
-      const r: AssistantClassifyResult = {
-        ...ruled,
-        source: "rules",
-        debug: { ...ruled.debug, ruleId: `rules:${ruled.debug.ruleId}` },
-      };
-      results.set(item.id, r);
-      toSave.set(item.id, toCached(r));
-      continue;
+    // 4. Rules pre-filter: obvious junk never reaches Gemini — but a
+    // contact or someone you're meeting soon is never junk.
+    const ctx = contextSignals(extras?.personal, item.fromEmail);
+    if (!ctx.inContacts && !ctx.meeting) {
+      const ruled = rulesFallback(
+        {
+          fromEmail: item.fromEmail,
+          fromName: item.fromName,
+          subject: item.subject,
+          snippet: item.snippet,
+        },
+        null,
+        history,
+      );
+      if (PREFILTER_RULE_IDS.has(ruled.debug.ruleId)) {
+        const r: AssistantClassifyResult = {
+          ...ruled,
+          source: "rules",
+          debug: { ...ruled.debug, ruleId: `rules:${ruled.debug.ruleId}` },
+        };
+        results.set(item.id, r);
+        toSave.set(item.id, toCached(r));
+        continue;
+      }
     }
 
     forGemini.push(item);
   }
 
-  // 4. Gemini for the gray zone
+  // 5. Gemini for the gray zone
   if (forGemini.length > 0 && isGeminiConfigured()) {
     try {
       for (let i = 0; i < forGemini.length; i += BATCH) {
         const chunk = forGemini.slice(i, i + BATCH);
-        const mapped = await geminiBatch(chunk, history);
+        const mapped = await geminiBatch(chunk, history, extras);
         for (const [id, r] of mapped) {
           results.set(id, r);
           toSave.set(id, toCached(r));
@@ -372,7 +439,7 @@ export async function classifyInboxWithAssistant(
     }
   }
 
-  // 5. Rules fallback for anything Gemini missed (not cached, so Gemini
+  // 6. Rules fallback for anything Gemini missed (not cached, so Gemini
   //    gets another shot on the next load)
   for (const item of forGemini) {
     if (results.has(item.id)) continue;

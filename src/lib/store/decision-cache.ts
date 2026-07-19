@@ -12,7 +12,7 @@ export type CachedDecision = {
   confidence: Confidence;
   reason: string;
   instruction?: string;
-  source: "gemini" | "rules" | "override";
+  source: "gemini" | "rules" | "override" | "learned";
   ruleId: string;
   ts: number;
   v: number;

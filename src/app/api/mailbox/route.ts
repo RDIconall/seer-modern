@@ -2,6 +2,8 @@ import { buildActionGuideQuick } from "@/lib/inbox/action-guide";
 import { classifyMessage } from "@/lib/inbox/classify";
 import { classifyInboxWithAssistant } from "@/lib/inbox/gemini-triage";
 import { getOrBuildMailHistory } from "@/lib/inbox/mail-history-store";
+import { getPersonalContext } from "@/lib/inbox/personal-context";
+import { loadActionMemory } from "@/lib/store/action-memory";
 import type { EmailItem } from "@/lib/inbox/types";
 import { listGmailFolder, searchGmail } from "@/lib/mail/gmail";
 import { listGraphFolder, searchGraph } from "@/lib/mail/graph";
@@ -41,21 +43,35 @@ export async function GET(request: Request) {
     const shouldClassify = folder === "inbox" || Boolean(q?.trim());
     let annotated: EmailItem[] = items;
     let assistant:
-      | { gemini: number; rules: number; override: number; cached: number }
+      | {
+          gemini: number;
+          rules: number;
+          override: number;
+          learned: number;
+          cached: number;
+        }
       | undefined;
 
     if (shouldClassify) {
-      const history = await getOrBuildMailHistory(
-        session.email,
-        session.accessToken,
-        {
-          listFolder: (token, f, max) =>
-            session.provider === "google"
-              ? listGmailFolder(token, f, max)
-              : listGraphFolder(token, f, max),
-        },
-        folder === "inbox" && !q?.trim() ? items : undefined,
-      );
+      const [history, personal, actionMemory] = await Promise.all([
+        getOrBuildMailHistory(
+          session.email,
+          session.accessToken,
+          {
+            listFolder: (token, f, max) =>
+              session.provider === "google"
+                ? listGmailFolder(token, f, max)
+                : listGraphFolder(token, f, max),
+          },
+          folder === "inbox" && !q?.trim() ? items : undefined,
+        ),
+        getPersonalContext({
+          accountEmail: session.email,
+          accessToken: session.accessToken,
+          provider: session.provider,
+        }),
+        loadActionMemory(session.email),
+      ]);
 
       const decisions = await classifyInboxWithAssistant(
         session.email,
@@ -69,12 +85,14 @@ export async function GET(request: Request) {
         history,
         (email) => getSenderOverride(email),
         classifyMessage,
+        { personal, actionMemory },
       );
 
       annotated = [];
       let gemini = 0;
       let rules = 0;
       let override = 0;
+      let learned = 0;
       let cached = 0;
       for (const m of items) {
         const result = decisions.get(m.id);
@@ -84,6 +102,7 @@ export async function GET(request: Request) {
         }
         if (result.source === "gemini") gemini += 1;
         else if (result.source === "rules") rules += 1;
+        else if (result.source === "learned") learned += 1;
         else override += 1;
         if (result.cached) cached += 1;
         annotated.push({
@@ -91,7 +110,7 @@ export async function GET(request: Request) {
           guide: buildActionGuideQuick(result, m.subject),
         });
       }
-      assistant = { gemini, rules, override, cached };
+      assistant = { gemini, rules, override, learned, cached };
     }
 
     return NextResponse.json({

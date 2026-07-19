@@ -139,7 +139,7 @@ export function useMailbox(initialTab: ViewTab = "inbox") {
   }, []);
 
   const runAction = useCallback(
-    async (id: string, action: MailAction) => {
+    async (id: string, action: MailAction, fromEmail?: string) => {
       setBusyId(id);
       removeFromLists(id);
       if (readerId === id) closeReader();
@@ -147,7 +147,7 @@ export function useMailbox(initialTab: ViewTab = "inbox") {
         const res = await fetch("/api/action", {
           method: "POST",
           headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ id, action }),
+          body: JSON.stringify({ id, action, fromEmail }),
         });
         if (!res.ok) {
           const j = await res.json();
@@ -197,7 +197,11 @@ export function useMailbox(initialTab: ViewTab = "inbox") {
           method: "POST",
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify({
-            items: ids.map((id) => ({ id, action })),
+            items: section.items.map((i) => ({
+              id: i.id,
+              action,
+              fromEmail: i.fromEmail,
+            })),
           }),
         });
         if (!res.ok) throw new Error("Bulk failed");

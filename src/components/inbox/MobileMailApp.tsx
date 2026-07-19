@@ -188,7 +188,7 @@ export function MobileMailApp() {
           </div>
           <IconBtn
             disabled={busyId === readerId}
-            onClick={() => runAction(readerId, "archive")}
+            onClick={() => runAction(readerId, "archive", reader?.fromEmail)}
             label="Archive"
             light
           >
@@ -196,7 +196,7 @@ export function MobileMailApp() {
           </IconBtn>
           <IconBtn
             disabled={busyId === readerId}
-            onClick={() => runAction(readerId, "trash")}
+            onClick={() => runAction(readerId, "trash", reader?.fromEmail)}
             label="Delete"
             light
           >
@@ -486,10 +486,10 @@ export function MobileMailApp() {
                   onOpen={() => openReader(item.id)}
                   onArchive={
                     tab === "inbox"
-                      ? () => runAction(item.id, "archive")
+                      ? () => runAction(item.id, "archive", item.fromEmail)
                       : undefined
                   }
-                  onDelete={() => runAction(item.id, "trash")}
+                  onDelete={() => runAction(item.id, "trash", item.fromEmail)}
                 />
               ))}
             </ul>
@@ -500,7 +500,7 @@ export function MobileMailApp() {
           <div className="border-b border-[var(--border)] bg-[var(--card)] px-4 py-2">
             <p className="text-[12px] text-[var(--muted)]">
               {triage.assistant
-                ? `Gemini decided ${triage.assistant.gemini} · rules ${triage.assistant.rules} · taught ${triage.assistant.override}${triage.assistant.cached ? ` · cached ${triage.assistant.cached}` : ""} · your call ${triage.assistant.needsReview}`
+                ? `Gemini ${triage.assistant.gemini} · rules ${triage.assistant.rules}${triage.assistant.learned ? ` · learned ${triage.assistant.learned}` : ""} · taught ${triage.assistant.override}${triage.assistant.cached ? ` · cached ${triage.assistant.cached}` : ""} · your call ${triage.assistant.needsReview}`
                 : triage.history
                   ? `${triage.history.engagedCount} people you email · ${triage.history.contactCount} contacts`
                   : "Gemini-first triage — you are last resort"}
@@ -526,8 +526,8 @@ export function MobileMailApp() {
                   logicMode={logicMode}
                   busy={busyId === item.id}
                   onOpen={() => openReader(item.id)}
-                  onArchive={() => runAction(item.id, "archive")}
-                  onDelete={() => runAction(item.id, "trash")}
+                  onArchive={() => runAction(item.id, "archive", item.fromEmail)}
+                  onDelete={() => runAction(item.id, "trash", item.fromEmail)}
                   chips={
                     <div className="mt-1.5 flex flex-wrap gap-1">
                       {QUICK_ACTIONS.map((a) => (
@@ -572,8 +572,8 @@ export function MobileMailApp() {
                       logicMode={logicMode}
                       busy={busyId === item.id}
                       onOpen={() => openReader(item.id)}
-                      onArchive={() => runAction(item.id, "archive")}
-                      onDelete={() => runAction(item.id, "trash")}
+                      onArchive={() => runAction(item.id, "archive", item.fromEmail)}
+                      onDelete={() => runAction(item.id, "trash", item.fromEmail)}
                     />
                   ))}
                 </ul>
