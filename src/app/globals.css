@@ -2,20 +2,27 @@
 
 :root {
   --bg: #ffffff;
-  --fg: #171717;
-  --card: #f7f8fa;
-  --border: #e5e7eb;
-  --muted: #6b7280;
+  --fg: #202124;
+  --card: #f1f3f4;
+  --border: #e8eaed;
+  --muted: #5f6368;
   --primary: #1a73e8;
+  --row-hover: #f6f8fc;
+  --unread: #202124;
+  --safe-top: env(safe-area-inset-top, 0px);
+  --safe-bottom: env(safe-area-inset-bottom, 0px);
 }
 
 @media (prefers-color-scheme: dark) {
   :root {
-    --bg: #0a0a0a;
-    --fg: #ededed;
-    --card: #161616;
-    --border: #262626;
-    --muted: #9ca3af;
+    --bg: #000000;
+    --fg: #e8eaed;
+    --card: #202124;
+    --border: #3c4043;
+    --muted: #9aa0a6;
+    --primary: #8ab4f8;
+    --row-hover: #1a1a1a;
+    --unread: #ffffff;
   }
 }
 
@@ -26,13 +33,51 @@
   --font-mono: var(--font-geist-mono);
 }
 
+html,
+body {
+  height: 100%;
+  overscroll-behavior: none;
+}
+
 body {
   background: var(--bg);
   color: var(--fg);
   font-family: var(--font-geist-sans), system-ui, sans-serif;
+  -webkit-tap-highlight-color: transparent;
+  -webkit-touch-callout: none;
 }
 
 .prose img {
   max-width: 100%;
   height: auto;
+}
+
+/* Gmail-style mail row */
+.mail-row {
+  display: flex;
+  gap: 12px;
+  padding: 12px 16px;
+  border-bottom: 1px solid var(--border);
+  background: var(--bg);
+  position: relative;
+  touch-action: pan-y;
+}
+
+.mail-row:active {
+  background: var(--row-hover);
+}
+
+.mail-row.unread .mail-from,
+.mail-row.unread .mail-subject {
+  font-weight: 700;
+  color: var(--unread);
+}
+
+.bottom-nav {
+  padding-bottom: max(0.35rem, var(--safe-bottom));
+}
+
+.app-shell {
+  padding-top: var(--safe-top);
+  min-height: 100dvh;
 }
