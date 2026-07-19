@@ -4,6 +4,7 @@ import { classifyInboxWithAssistant } from "@/lib/inbox/gemini-triage";
 import { getOrBuildMailHistory } from "@/lib/inbox/mail-history-store";
 import { getPersonalContext } from "@/lib/inbox/personal-context";
 import { loadActionMemory } from "@/lib/store/action-memory";
+import { loadRepliedThreads } from "@/lib/store/replied-threads";
 import { loadUserProfile } from "@/lib/store/user-profile";
 import type { IphoneTask } from "@/lib/api-parity/iphone-task-types";
 import { LEGACY_SESSION_COOKIE } from "@/lib/future-ios";
@@ -30,7 +31,7 @@ export async function GET() {
         ? await listGmailInbox(session.accessToken, 30)
         : await listGraphInbox(session.accessToken, 30);
 
-    const [history, personal, actionMemory, labels, profile] =
+    const [history, personal, actionMemory, labels, profile, replied] =
       await Promise.all([
         getOrBuildMailHistory(
           session.email,
@@ -53,6 +54,7 @@ export async function GET() {
           ? makeGmailLabelStore(session.accessToken, session.email)
           : Promise.resolve(null),
         loadUserProfile(session.email),
+        loadRepliedThreads(session.email),
       ]);
 
     const decisions = await classifyInboxWithAssistant(
@@ -64,11 +66,13 @@ export async function GET() {
         subject: m.subject,
         snippet: m.snippet,
         labelIds: m.labelIds,
+        threadId: m.threadId,
+        receivedAt: m.receivedAt,
       })),
       history,
       (email) => getSenderOverride(email),
       classifyMessage,
-      { personal, actionMemory, labels, profile },
+      { personal, actionMemory, labels, profile, replied },
     );
 
     const tasks: IphoneTask[] = [];

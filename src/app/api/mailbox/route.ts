@@ -4,6 +4,7 @@ import { classifyInboxWithAssistant } from "@/lib/inbox/gemini-triage";
 import { getOrBuildMailHistory } from "@/lib/inbox/mail-history-store";
 import { getPersonalContext } from "@/lib/inbox/personal-context";
 import { loadActionMemory } from "@/lib/store/action-memory";
+import { loadRepliedThreads } from "@/lib/store/replied-threads";
 import { loadUserProfile } from "@/lib/store/user-profile";
 import type { EmailItem } from "@/lib/inbox/types";
 import { listGmailFolder, searchGmail } from "@/lib/mail/gmail";
@@ -62,7 +63,7 @@ export async function GET(request: Request) {
       | undefined;
 
     if (shouldClassify) {
-      const [history, personal, actionMemory, labels, profile] =
+      const [history, personal, actionMemory, labels, profile, replied] =
         await Promise.all([
           getOrBuildMailHistory(
             session.email,
@@ -85,6 +86,7 @@ export async function GET(request: Request) {
             ? makeGmailLabelStore(session.accessToken, session.email)
             : Promise.resolve(null),
           loadUserProfile(session.email),
+          loadRepliedThreads(session.email),
         ]);
 
       const decisions = await classifyInboxWithAssistant(
@@ -96,11 +98,13 @@ export async function GET(request: Request) {
           subject: m.subject,
           snippet: m.snippet,
           labelIds: m.labelIds,
+          threadId: m.threadId,
+          receivedAt: m.receivedAt,
         })),
         history,
         (email) => getSenderOverride(email),
         classifyMessage,
-        { personal, actionMemory, labels, profile },
+        { personal, actionMemory, labels, profile, replied },
       );
 
       annotated = [];

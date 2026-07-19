@@ -452,9 +452,9 @@ export function useMailbox(initialTab: ViewTab = "inbox") {
 
   const [drafting, setDrafting] = useState(false);
 
-  /** One-tap AI reply: Gemini reads the email and pre-fills compose. */
+  /** One-tap AI reply (or EA handoff): Gemini pre-fills compose. */
   const draftReply = useCallback(
-    async (intent?: "yes" | "no" | "later") => {
+    async (intent?: "yes" | "no" | "later" | "delegate") => {
       if (!readerId || drafting) return;
       setDrafting(true);
       try {
@@ -466,7 +466,7 @@ export function useMailbox(initialTab: ViewTab = "inbox") {
         const json = await res.json();
         if (!res.ok) throw new Error(json.error ?? "Draft failed");
         setCompose({
-          mode: "reply",
+          mode: json.mode === "forward" ? "forward" : "reply",
           to: json.to,
           cc: "",
           subject: json.subject,

@@ -35,7 +35,7 @@ import { z } from "zod";
  * Bump when the prompt/actions change so stale cached decisions
  * are ignored and re-classified.
  */
-export const PROMPT_VERSION = 9;
+export const PROMPT_VERSION = 10;
 
 const ACTIONS = [
   "respond",
@@ -69,6 +69,9 @@ export type GeminiTriageItem = {
   snippet: string;
   /** Gmail label ids — may carry a saved Seer decision */
   labelIds?: string[];
+  /** Thread + arrival time — used to spot "you already replied" */
+  threadId?: string;
+  receivedAt?: string;
 };
 
 export type DecisionSource = "gemini" | "rules" | "override" | "learned";
@@ -287,6 +290,7 @@ FAKE URGENCY is the #1 trick: "expires today", "last chance", "action required",
 Cold noreply marketing → delete_now or unsubscribe.
 Product/CI (GitHub, Vercel, Figma, etc.) → usually read_and_archive unless promo.
 Be decisive. Prefer a confident archive/delete over needs_review.
+DELEGATION: if the user's profile mentions an assistant/EA and the task does not need the user personally — calling a company/bank/vendor, scheduling, chasing a status, purchases/returns, form-filling, research, screening — keep the action (respond/act_today) but START the instruction with "Delegate: " followed by the exact ask, e.g. "Delegate: have your EA call Bank of America about the disputed charge, then reply to Rebecca." The user's time goes only where only THEY can act (decisions, relationships, money authority).
 
 Return one item per input id. reason = short why. instruction = what the user should do in one sentence.`;
 
@@ -322,6 +326,8 @@ export type TriageExtras = {
    * a time. Inbox batch loads are the only place Gemini is called.
    */
   geminiEnabled?: boolean;
+  /** Threads replied to from inside Seer (threadId → ISO time). */
+  replied?: Record<string, string> | null;
 };
 
 function compactPayload(
@@ -462,8 +468,33 @@ export async function classifyInboxWithAssistant(
   const results = new Map<string, AssistantClassifyResult>();
   const candidates: GeminiTriageItem[] = [];
 
+  // 0. Already replied — the strongest "handled" signal there is. If the
+  // user's last reply on this thread is NEWER than this message, the ball
+  // is in the other court; a follow-up that arrived after their reply
+  // still triages normally.
+  const repliedAt = (threadId?: string): string | null => {
+    if (!threadId) return null;
+    const fromSent = history?.repliedThreads?.[threadId];
+    const fromApp = extras?.replied?.[threadId];
+    if (fromSent && fromApp) return fromSent > fromApp ? fromSent : fromApp;
+    return fromSent ?? fromApp ?? null;
+  };
+
   // 1. Taught overrides + 2. learned priors from the user's own actions
   for (const item of items) {
+    const answered = repliedAt(item.threadId);
+    if (answered && item.receivedAt && answered > item.receivedAt) {
+      results.set(item.id, {
+        action: "read_and_archive",
+        confidence: "HIGH",
+        reason: "You already replied to this thread",
+        debug: debugFor(item, history, "already-replied"),
+        source: "rules",
+        instruction: "Handled — you replied. Archive it.",
+      });
+      continue;
+    }
+
     const override = await getOverride(item.fromEmail);
     if (override) {
       results.set(item.id, {

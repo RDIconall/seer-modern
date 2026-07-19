@@ -1,10 +1,12 @@
-import { getGmailMessage, sendGmailMessage } from "@/lib/mail/gmail";
+import { getGmailMessage, gmailAction, sendGmailMessage } from "@/lib/mail/gmail";
 import {
   getGraphMessage,
+  graphAction,
   replyGraphMessage,
   sendGraphMessage,
 } from "@/lib/mail/graph";
 import { requireMailSession } from "@/lib/mail/session";
+import { recordRepliedThread } from "@/lib/store/replied-threads";
 import { NextResponse } from "next/server";
 
 type Mode = "compose" | "reply" | "replyAll" | "forward";
@@ -109,7 +111,15 @@ export async function POST(request: Request) {
         inReplyTo: original.messageIdHeader || undefined,
         references: original.messageIdHeader || undefined,
       });
-      return NextResponse.json({ ok: true, ...sent });
+      // Replied = handled: remember the thread (cards flip to "done"
+      // instantly) and archive the original — inbox stays small.
+      await recordRepliedThread(session.email, original.threadId).catch(
+        () => {},
+      );
+      await gmailAction(session.accessToken, body.replyToId, "archive").catch(
+        () => {},
+      );
+      return NextResponse.json({ ok: true, ...sent, archived: true });
     }
 
     // Microsoft Graph
@@ -120,13 +130,23 @@ export async function POST(request: Request) {
           { status: 400 },
         );
       }
+      const original = await getGraphMessage(
+        session.accessToken,
+        body.replyToId,
+      );
       await replyGraphMessage(
         session.accessToken,
         body.replyToId,
         text,
         mode === "replyAll",
       );
-      return NextResponse.json({ ok: true });
+      await recordRepliedThread(session.email, original.threadId).catch(
+        () => {},
+      );
+      await graphAction(session.accessToken, body.replyToId, "archive").catch(
+        () => {},
+      );
+      return NextResponse.json({ ok: true, archived: true });
     }
 
     if (mode === "forward") {

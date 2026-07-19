@@ -1,11 +1,12 @@
 "use client";
 
 import type { ReaderMessage } from "@/lib/inbox/types";
-import { ExternalLink, Sparkles } from "lucide-react";
+import { ExternalLink, Sparkles, UserCheck } from "lucide-react";
 
 /**
  * The "make it easy" strip in the reader: one-tap links pulled from the
- * body (track / RSVP / pay) and one-tap AI reply drafts.
+ * body (track / RSVP / pay), one-tap AI reply drafts, and a one-tap
+ * handoff to the user's EA.
  */
 export function AssistBar({
   reader,
@@ -14,7 +15,7 @@ export function AssistBar({
 }: {
   reader: ReaderMessage;
   drafting: boolean;
-  onDraft: (intent?: "yes" | "no" | "later") => void;
+  onDraft: (intent?: "yes" | "no" | "later" | "delegate") => void;
 }) {
   const action = reader.guide?.action;
   const wantsReply =
@@ -67,6 +68,15 @@ export function AssistBar({
               {intent === "yes" ? "Say yes" : intent === "no" ? "Decline" : "Buy time"}
             </button>
           ))}
+          <button
+            type="button"
+            disabled={drafting}
+            onClick={() => onDraft("delegate")}
+            className="inline-flex items-center gap-1 rounded-full bg-[var(--card)] px-3 py-1.5 text-[12px] font-medium text-[var(--fg)] disabled:opacity-50"
+          >
+            <UserCheck className="h-3.5 w-3.5" />
+            Delegate to EA
+          </button>
         </div>
       ) : null}
     </div>

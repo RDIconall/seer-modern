@@ -5,6 +5,7 @@ import { classifyInboxWithAssistant } from "@/lib/inbox/gemini-triage";
 import { getOrBuildMailHistory } from "@/lib/inbox/mail-history-store";
 import { getPersonalContext } from "@/lib/inbox/personal-context";
 import { loadActionMemory } from "@/lib/store/action-memory";
+import { loadRepliedThreads } from "@/lib/store/replied-threads";
 import { getGmailMessage, listGmailFolder } from "@/lib/mail/gmail";
 import { getGraphMessage, listGraphFolder } from "@/lib/mail/graph";
 import { makeGmailLabelStore } from "@/lib/mail/seer-labels";
@@ -28,27 +29,29 @@ export async function GET(
         ? await getGmailMessage(session.accessToken, id)
         : await getGraphMessage(session.accessToken, id);
 
-    const [history, personal, actionMemory, labels] = await Promise.all([
-      getOrBuildMailHistory(
-        session.email,
-        session.accessToken,
-        {
-          listFolder: (token, folder, max) =>
-            session.provider === "google"
-              ? listGmailFolder(token, folder, max)
-              : listGraphFolder(token, folder, max),
-        },
-      ),
-      getPersonalContext({
-        accountEmail: session.email,
-        accessToken: session.accessToken,
-        provider: session.provider,
-      }),
-      loadActionMemory(session.email),
-      session.provider === "google"
-        ? makeGmailLabelStore(session.accessToken, session.email)
-        : Promise.resolve(null),
-    ]);
+    const [history, personal, actionMemory, labels, replied] =
+      await Promise.all([
+        getOrBuildMailHistory(
+          session.email,
+          session.accessToken,
+          {
+            listFolder: (token, folder, max) =>
+              session.provider === "google"
+                ? listGmailFolder(token, folder, max)
+                : listGraphFolder(token, folder, max),
+          },
+        ),
+        getPersonalContext({
+          accountEmail: session.email,
+          accessToken: session.accessToken,
+          provider: session.provider,
+        }),
+        loadActionMemory(session.email),
+        session.provider === "google"
+          ? makeGmailLabelStore(session.accessToken, session.email)
+          : Promise.resolve(null),
+        loadRepliedThreads(session.email),
+      ]);
 
     const bodyText =
       message.textBody ||
@@ -64,6 +67,8 @@ export async function GET(
           subject: message.subject,
           snippet: (message.snippet || bodyText).slice(0, 600),
           labelIds: message.labelIds,
+          threadId: message.threadId,
+          receivedAt: message.receivedAt,
         },
       ],
       history,
@@ -71,7 +76,7 @@ export async function GET(
       classifyMessage,
       // Single-message path: cache/label/rules only. Gemini runs on batch
       // inbox loads — never one email at a time (that burns quota fast).
-      { personal, actionMemory, labels, geminiEnabled: false },
+      { personal, actionMemory, labels, geminiEnabled: false, replied },
     );
 
     const fromAssistant = decisions.get(message.id);
