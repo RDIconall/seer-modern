@@ -24,6 +24,8 @@ const INTENT_HINTS: Record<string, string> = {
   no: "The user wants to decline politely but clearly, without over-apologizing.",
   later:
     "The user can't deal with this now. Buy time gracefully: acknowledge, give a realistic follow-up window, no fake excuses.",
+  delegate:
+    "This is NOT a reply to the sender. Write a short forwarding note to the user's executive assistant handing off this task. Say exactly what to do (call the company/bank, chase the status, schedule, handle the return…), what outcome to report back, and any deadline. Include the key facts from the email so the EA doesn't have to ask. Address the EA directly.",
 };
 
 /**
@@ -92,6 +94,19 @@ Rules:
       return NextResponse.json({ error: "Draft failed" }, { status: 502 });
     }
 
+    // Delegation goes to the EA as a forward, not back to the sender
+    if (intent === "delegate") {
+      return NextResponse.json({
+        body: output.body.trim(),
+        to: process.env.SEER_EA_EMAIL?.trim() ?? "",
+        subject: /^(fwd|fw):/i.test(message.subject)
+          ? message.subject
+          : `Fwd: ${message.subject}`,
+        replyToId: id,
+        mode: "forward",
+      });
+    }
+
     return NextResponse.json({
       body: output.body.trim(),
       to: message.fromEmail,
@@ -99,6 +114,7 @@ Rules:
         ? message.subject
         : `Re: ${message.subject}`,
       replyToId: id,
+      mode: "reply",
     });
   } catch (e) {
     const msg = e instanceof Error ? e.message : "Draft failed";

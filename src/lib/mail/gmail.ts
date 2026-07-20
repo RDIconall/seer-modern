@@ -31,14 +31,23 @@ function encodeBase64Url(data: string): string {
     .replace(/=+$/, "");
 }
 
-function extractBodies(payload: GmailPayload): { text: string; html: string } {
+function extractBodies(payload: GmailPayload): {
+  text: string;
+  html: string;
+  icalUid?: string;
+} {
   let text = "";
   let html = "";
+  let icalUid: string | undefined;
   function walk(part: GmailPayload) {
     if (part.mimeType === "text/plain" && part.body?.data) {
       text += decodeBase64Url(part.body.data);
     } else if (part.mimeType === "text/html" && part.body?.data) {
       html += decodeBase64Url(part.body.data);
+    } else if (part.mimeType === "text/calendar" && part.body?.data) {
+      // The invite's own .ics names the exact event — no guessing
+      const m = decodeBase64Url(part.body.data).match(/^UID:(.+)$/m);
+      if (m) icalUid = m[1].trim();
     }
     part.parts?.forEach(walk);
   }
@@ -49,7 +58,7 @@ function extractBodies(payload: GmailPayload): { text: string; html: string } {
       html = decodeBase64Url(payload.body.data);
   }
   walk(payload);
-  return { text, html };
+  return { text, html, icalUid };
 }
 
 type GmailPayload = {
@@ -227,8 +236,9 @@ export async function getGmailMessage(
     "";
   const fromRaw = header("From");
   const { name, email } = parseAddress(fromRaw);
-  const { text, html } = extractBodies(msg.payload);
+  const { text, html, icalUid } = extractBodies(msg.payload);
   return {
+    icalUid,
     id: msg.id,
     threadId: msg.threadId,
     fromEmail: email,

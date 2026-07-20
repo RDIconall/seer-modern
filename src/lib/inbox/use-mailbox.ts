@@ -79,6 +79,7 @@ type ReaderPayload = {
   };
   guide?: ReaderMessage["guide"];
   keyActions?: ReaderMessage["keyActions"];
+  calendarEvent?: ReaderMessage["calendarEvent"];
 };
 
 export function useMailbox(initialTab: ViewTab = "inbox") {
@@ -354,6 +355,29 @@ export function useMailbox(initialTab: ViewTab = "inbox") {
         };
       });
       try {
+        // The unsubscribe section actually unsubscribes (one-click /
+        // mailto), then trashes and teaches the sender — not just trash.
+        if (section.action === "unsubscribe") {
+          const res = await fetch("/api/unsubscribe", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({
+              items: section.items.map((i) => ({
+                id: i.id,
+                fromEmail: i.fromEmail,
+              })),
+            }),
+          });
+          const json = await res.json();
+          if (!res.ok) throw new Error(json.error ?? "Unsubscribe failed");
+          setToast(
+            json.unsubscribed > 0
+              ? `Unsubscribed from ${json.unsubscribed} of ${ids.length} · all trashed & muted`
+              : `Trashed ${ids.length} · senders muted`,
+          );
+          return;
+        }
+
         const res = await fetch("/api/action/bulk", {
           method: "POST",
           headers: { "Content-Type": "application/json" },
@@ -373,6 +397,36 @@ export function useMailbox(initialTab: ViewTab = "inbox") {
       }
     },
     [load],
+  );
+
+  /** Unsubscribe a single message for real, then trash + mute sender. */
+  const unsubscribe = useCallback(
+    async (id: string, fromEmail?: string) => {
+      removeFromLists(id);
+      if (readerId === id) closeReader();
+      try {
+        const res = await fetch("/api/unsubscribe", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ id, fromEmail }),
+        });
+        const json = await res.json();
+        if (!res.ok) throw new Error(json.error ?? "Unsubscribe failed");
+        if (json.links?.length) {
+          // No machine-readable path — one tap on the list's own page
+          window.open(json.links[0].url, "_blank", "noopener");
+          setToast("Opened the unsubscribe page — email trashed & sender muted");
+        } else if (json.unsubscribed > 0) {
+          setToast("Unsubscribed — email trashed & sender muted");
+        } else {
+          setToast("No unsubscribe link — trashed & sender muted instead");
+        }
+      } catch (e) {
+        setToast(e instanceof Error ? e.message : "Unsubscribe failed");
+        load();
+      }
+    },
+    [closeReader, load, readerId, removeFromLists],
   );
 
   const teachSender = useCallback(
@@ -405,6 +459,7 @@ export function useMailbox(initialTab: ViewTab = "inbox") {
     receivedAt: json.message.receivedAt,
     guide: json.guide,
     keyActions: json.keyActions,
+    calendarEvent: json.calendarEvent,
   });
 
   const fetchMessage = useCallback(
@@ -498,9 +553,9 @@ export function useMailbox(initialTab: ViewTab = "inbox") {
 
   const [drafting, setDrafting] = useState(false);
 
-  /** One-tap AI reply: Gemini reads the email and pre-fills compose. */
+  /** One-tap AI reply (or EA handoff): Gemini pre-fills compose. */
   const draftReply = useCallback(
-    async (intent?: "yes" | "no" | "later") => {
+    async (intent?: "yes" | "no" | "later" | "delegate") => {
       if (!readerId || drafting) return;
       setDrafting(true);
       try {
@@ -512,7 +567,7 @@ export function useMailbox(initialTab: ViewTab = "inbox") {
         const json = await res.json();
         if (!res.ok) throw new Error(json.error ?? "Draft failed");
         setCompose({
-          mode: "reply",
+          mode: json.mode === "forward" ? "forward" : "reply",
           to: json.to,
           cc: "",
           subject: json.subject,
@@ -526,6 +581,45 @@ export function useMailbox(initialTab: ViewTab = "inbox") {
       }
     },
     [readerId, drafting],
+  );
+
+  const [rsvping, setRsvping] = useState(false);
+
+  /** One-tap calendar RSVP — answers the event and archives the invite. */
+  const rsvp = useCallback(
+    async (response: "accepted" | "declined" | "tentative") => {
+      const ev = reader?.calendarEvent;
+      if (!ev || !readerId || rsvping) return;
+      setRsvping(true);
+      try {
+        const res = await fetch("/api/calendar/rsvp", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            eventId: ev.id,
+            response,
+            messageId: readerId,
+          }),
+        });
+        const json = await res.json();
+        if (!res.ok) throw new Error(json.error ?? "RSVP failed");
+        messageCache.current.delete(readerId);
+        removeFromLists(readerId);
+        closeReader();
+        setToast(
+          response === "accepted"
+            ? "Accepted — invite archived"
+            : response === "declined"
+              ? "Declined — invite archived"
+              : "Maybe — invite archived",
+        );
+      } catch (e) {
+        setToast(e instanceof Error ? e.message : "RSVP failed");
+      } finally {
+        setRsvping(false);
+      }
+    },
+    [reader, readerId, rsvping, removeFromLists, closeReader],
   );
 
   const startReply = useCallback(
@@ -595,6 +689,7 @@ export function useMailbox(initialTab: ViewTab = "inbox") {
     snooze,
     delegate,
     bulkSection,
+    unsubscribe,
     teachSender,
     openReader,
     closeReader,
@@ -602,5 +697,7 @@ export function useMailbox(initialTab: ViewTab = "inbox") {
     startReply,
     draftReply,
     drafting,
+    rsvp,
+    rsvping,
   };
 }

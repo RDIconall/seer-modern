@@ -12,6 +12,7 @@ import {
 import { getOrBuildMailHistory } from "@/lib/inbox/mail-history-store";
 import { getPersonalContext } from "@/lib/inbox/personal-context";
 import { loadActionMemory } from "@/lib/store/action-memory";
+import { loadRepliedThreads } from "@/lib/store/replied-threads";
 import { loadUserProfile } from "@/lib/store/user-profile";
 import { listGmailFolder, listGmailInbox } from "@/lib/mail/gmail";
 import { listGraphFolder, listGraphInbox } from "@/lib/mail/graph";
@@ -64,7 +65,7 @@ export async function GET() {
         ? await listGmailInbox(session.accessToken, SCAN)
         : await listGraphInbox(session.accessToken, SCAN);
 
-    const [history, personal, actionMemory, labels, profile] =
+    const [history, personal, actionMemory, labels, profile, replied] =
       await Promise.all([
         getOrBuildMailHistory(
           session.email,
@@ -87,6 +88,7 @@ export async function GET() {
           ? makeGmailLabelStore(session.accessToken, session.email)
           : Promise.resolve(null),
         loadUserProfile(session.email),
+        loadRepliedThreads(session.email),
       ]);
 
     const decisions = await classifyInboxWithAssistant(
@@ -98,11 +100,13 @@ export async function GET() {
         subject: m.subject,
         snippet: m.snippet,
         labelIds: m.labelIds,
+        threadId: m.threadId,
+        receivedAt: m.receivedAt,
       })),
       history,
       (email) => getSenderOverride(email),
       classifyMessage,
-      { personal, actionMemory, labels, profile },
+      { personal, actionMemory, labels, profile, replied },
     );
 
     const classified: TodayEmail[] = [];
@@ -119,7 +123,12 @@ export async function GET() {
       else if (result.source === "learned") learnedCount += 1;
       else overrideCount += 1;
       if (result.cached) cachedCount += 1;
-      const guide = buildActionGuideQuick(result, m.subject, m.fromName);
+      const guide = buildActionGuideQuick(
+        result,
+        m.subject,
+        m.fromName,
+        m.snippet,
+      );
       classified.push({ ...m, guide });
     }
 

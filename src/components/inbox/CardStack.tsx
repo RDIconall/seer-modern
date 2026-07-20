@@ -575,7 +575,15 @@ function CardFace({
           >
             {g.label}
           </div>
-          {g.instruction ? (
+          {g.ask ? (
+            <div
+              className="mt-1.5 border-l-2 pl-2 text-sm font-medium leading-snug text-[var(--fg-strong)]"
+              style={{ borderColor: g.color }}
+            >
+              “{g.ask}”
+            </div>
+          ) : null}
+          {g.instruction && !g.ask ? (
             <div className="mt-1 text-sm font-medium text-[var(--fg-strong)]">
               {g.instruction}
             </div>

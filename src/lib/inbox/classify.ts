@@ -458,11 +458,12 @@ function classifyCore(
         ctx,
       );
     }
-    // Passive "it happened" noise: builds passed, stars, digests, likes
+    // Passive "it happened" noise: builds passed, stars, digests, likes.
+    // The subject line says it all — no skim value, straight to trash.
     return hit(
-      "read_and_delete",
+      "delete_now",
       "MED",
-      "Passive product notification — it happened whether you read it or not",
+      "Passive product notification — the subject says it all",
       "product-passive-delete",
       ctx,
     );

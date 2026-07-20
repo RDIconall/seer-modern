@@ -7,6 +7,8 @@
 export type KeyAction = { label: string; url: string };
 
 const INTENT_PATTERNS: { re: RegExp; label: string; score: number }[] = [
+  { re: /complete (this|the) form|fill (out|in)|docs\.google\.com\/forms|forms\.gle|typeform\.com|jotform\.com|surveymonkey\.com|forms\.office\.com|airtable\.com\/shr/i, label: "Fill out form", score: 11 },
+  { re: /calendly\.com|cal\.com\/|book (a )?(time|slot|meeting)|schedule (a )?(call|meeting|time)/i, label: "Book time", score: 10 },
   { re: /track(ing)?( (your|my))? (package|order|shipment)|track\b/i, label: "Track package", score: 10 },
   { re: /rsvp|accept invitation|join (the )?meeting/i, label: "RSVP", score: 10 },
   { re: /pay (now|bill|invoice)|make (a )?payment/i, label: "Pay", score: 10 },

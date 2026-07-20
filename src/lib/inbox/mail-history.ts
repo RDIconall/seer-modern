@@ -25,6 +25,8 @@ export type MailHistory = {
   contacts: Record<string, ContactStat>;
   engagedCount: number;
   contactCount: number;
+  /** Threads the user has replied to (threadId → last sent time). */
+  repliedThreads?: Record<string, string>;
 };
 
 export type HistorySignals = {
@@ -73,7 +75,12 @@ export function buildMailHistory(
     return contacts[key];
   };
 
+  const repliedThreads: Record<string, string> = {};
   for (const m of sent) {
+    if (m.threadId) {
+      const prev = repliedThreads[m.threadId];
+      if (!prev || m.receivedAt > prev) repliedThreads[m.threadId] = m.receivedAt;
+    }
     const peer = m.peerEmail || m.fromEmail;
     const c = touch(peer);
     if (!c) continue;
@@ -99,6 +106,7 @@ export function buildMailHistory(
     contacts,
     engagedCount,
     contactCount: Object.keys(contacts).length,
+    repliedThreads,
   };
 }
 
