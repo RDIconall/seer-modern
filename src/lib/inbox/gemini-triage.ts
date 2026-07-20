@@ -463,7 +463,43 @@ export type TriageExtras = {
   geminiEnabled?: boolean;
   /** Threads replied to from inside Seer (threadId → ISO time). */
   replied?: Record<string, string> | null;
+  /**
+   * Deep read: fetch the FULL body text for a message about to be sent
+   * to Gemini. Each email is read once (decision cached + labeled), so
+   * the whole inbox costs pennies — snippets are only the fallback.
+   */
+  fetchBody?: (id: string) => Promise<string | null>;
 };
+
+/** How much of a full body rides to Gemini (~600 tokens). */
+const DEEP_BODY_CHARS = 2500;
+/** Max time spent fetching bodies per load — degrade to snippets after. */
+const BODY_FETCH_BUDGET_MS = 10_000;
+const BODY_FETCH_CONCURRENCY = 8;
+
+async function deepenChunk(
+  chunk: GeminiTriageItem[],
+  fetchBody: (id: string) => Promise<string | null>,
+  deadline: number,
+): Promise<GeminiTriageItem[]> {
+  const out = [...chunk];
+  for (let i = 0; i < out.length; i += BODY_FETCH_CONCURRENCY) {
+    if (Date.now() > deadline) break;
+    const wave = out.slice(i, i + BODY_FETCH_CONCURRENCY);
+    const bodies = await Promise.allSettled(
+      wave.map((m) => fetchBody(m.id)),
+    );
+    bodies.forEach((r, j) => {
+      if (r.status === "fulfilled" && r.value && r.value.length > 50) {
+        out[i + j] = {
+          ...out[i + j],
+          snippet: r.value.slice(0, DEEP_BODY_CHARS),
+        };
+      }
+    });
+  }
+  return out;
+}
 
 function compactPayload(
   batch: GeminiTriageItem[],
@@ -479,11 +515,13 @@ function compactPayload(
       subject: m.subject.slice(0, 140),
       // Strip html-to-text residue (image alts, bare <url> refs) that
       // wastes tokens and poisons Gemini's instructions
+      // Deep-read bodies arrive pre-sliced at DEEP_BODY_CHARS; plain
+      // list snippets are ~200 chars — this cap protects tokens either way
       snippet: m.snippet
         .replace(/\[image:[^\]]*\]/gi, " ")
         .replace(/<https?:\/\/[^>\s]+>/g, " ")
         .replace(/\s+/g, " ")
-        .slice(0, 500),
+        .slice(0, DEEP_BODY_CHARS),
     };
     const age = ageInDays(m.receivedAt);
     if (age >= 2) item.age = age;
@@ -893,13 +931,19 @@ export async function classifyInboxWithAssistant(
       lastGeminiError = `${cooldown.reason} (~${mins}m). Decisions fall back to rules meanwhile.`;
     } else {
       const geminiStarted = Date.now();
+      const bodyDeadline = geminiStarted + BODY_FETCH_BUDGET_MS;
       const limit = Math.min(forGemini.length, MAX_BATCHES_PER_LOAD * BATCH);
       for (let i = 0; i < limit; i += BATCH) {
         if (Date.now() - geminiStarted > GEMINI_TIME_BUDGET_MS) {
           lastGeminiError = `Time budget hit — ${limit - i} emails deferred to the next refresh`;
           break;
         }
-        const chunk = forGemini.slice(i, i + BATCH);
+        let chunk = forGemini.slice(i, i + BATCH);
+        // Read the WHOLE email, not the preview — once per message,
+        // then the verdict is cached and labeled forever.
+        if (extras?.fetchBody) {
+          chunk = await deepenChunk(chunk, extras.fetchBody, bodyDeadline);
+        }
         try {
           const mapped = await geminiBatch(
             chunk,

@@ -8,8 +8,16 @@ import { loadRepliedThreads } from "@/lib/store/replied-threads";
 import { loadUserProfile } from "@/lib/store/user-profile";
 import type { IphoneTask } from "@/lib/api-parity/iphone-task-types";
 import { LEGACY_SESSION_COOKIE } from "@/lib/future-ios";
-import { listGmailFolder, listGmailInbox } from "@/lib/mail/gmail";
-import { listGraphFolder, listGraphInbox } from "@/lib/mail/graph";
+import {
+  getGmailMessage,
+  listGmailFolder,
+  listGmailInbox,
+} from "@/lib/mail/gmail";
+import {
+  getGraphMessage,
+  listGraphFolder,
+  listGraphInbox,
+} from "@/lib/mail/graph";
 import { makeGmailLabelStore } from "@/lib/mail/seer-labels";
 import { requireMailSession } from "@/lib/mail/session";
 import { getSenderOverride } from "@/lib/store/senders";
@@ -72,7 +80,23 @@ export async function GET() {
       history,
       (email) => getSenderOverride(email),
       classifyMessage,
-      { personal, actionMemory, labels, profile, replied },
+      {
+        personal,
+        actionMemory,
+        labels,
+        profile,
+        replied,
+        fetchBody: async (id) => {
+          const msg =
+            session.provider === "google"
+              ? await getGmailMessage(session.accessToken, id)
+              : await getGraphMessage(session.accessToken, id);
+          return (
+            msg.textBody ||
+            msg.htmlBody.replace(/<[^>]+>/g, " ").replace(/\s+/g, " ")
+          );
+        },
+      },
     );
 
     const tasks: IphoneTask[] = [];

@@ -7,8 +7,16 @@ import { loadActionMemory } from "@/lib/store/action-memory";
 import { loadRepliedThreads } from "@/lib/store/replied-threads";
 import { loadUserProfile } from "@/lib/store/user-profile";
 import type { EmailItem } from "@/lib/inbox/types";
-import { listGmailFolder, searchGmail } from "@/lib/mail/gmail";
-import { listGraphFolder, searchGraph } from "@/lib/mail/graph";
+import {
+  getGmailMessage,
+  listGmailFolder,
+  searchGmail,
+} from "@/lib/mail/gmail";
+import {
+  getGraphMessage,
+  listGraphFolder,
+  searchGraph,
+} from "@/lib/mail/graph";
 import { makeGmailLabelStore } from "@/lib/mail/seer-labels";
 import { requireMailSession } from "@/lib/mail/session";
 import type { MailFolder, MailMessageListItem } from "@/lib/mail/types";
@@ -104,7 +112,23 @@ export async function GET(request: Request) {
         history,
         (email) => getSenderOverride(email),
         classifyMessage,
-        { personal, actionMemory, labels, profile, replied },
+        {
+          personal,
+          actionMemory,
+          labels,
+          profile,
+          replied,
+          fetchBody: async (id) => {
+            const msg =
+              session.provider === "google"
+                ? await getGmailMessage(session.accessToken, id)
+                : await getGraphMessage(session.accessToken, id);
+            return (
+              msg.textBody ||
+              msg.htmlBody.replace(/<[^>]+>/g, " ").replace(/\s+/g, " ")
+            );
+          },
+        },
       );
 
       annotated = [];
