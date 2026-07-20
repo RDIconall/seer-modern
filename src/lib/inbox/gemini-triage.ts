@@ -145,6 +145,26 @@ let lastGeminiModel: string | null = null;
 const COOLDOWN_KEY = "gemini-cooldown";
 type Cooldown = { until: number; reason: string };
 
+/**
+ * Second quota pool: the Vercel AI Gateway ships monthly included
+ * credits per team. When the direct Google key is rate-limited, batches
+ * fail over to the gateway instead of degrading to rules.
+ */
+function gatewayAvailable(): boolean {
+  return Boolean(
+    process.env.AI_GATEWAY_API_KEY ||
+      process.env.VERCEL_OIDC_TOKEN ||
+      process.env.VERCEL,
+  );
+}
+
+function gatewayModel(): { model: string; label: string } {
+  // Free-tier gateway restricts the newest models; 2.5-flash is open.
+  const id =
+    process.env.SEER_GATEWAY_MODEL?.trim() || "google/gemini-2.5-flash";
+  return { model: id, label: `gateway:${id}` };
+}
+
 function cooldownFromError(msg: string): Cooldown | null {
   if (!/quota|rate limit|429|RESOURCE_EXHAUSTED/i.test(msg)) return null;
   // Daily cap → sleep until the next Pacific midnight (Google's reset)
@@ -224,6 +244,11 @@ export async function resolveAssistantModel(): Promise<{
   model: LanguageModel | string;
   label: string;
 }> {
+  // Reply drafts respect the same quota cooldown → gateway failover
+  const cooldown = await kvGet<Cooldown>(COOLDOWN_KEY).catch(() => null);
+  if (cooldown && cooldown.until > Date.now() && gatewayAvailable()) {
+    return gatewayModel();
+  }
   return resolveModel();
 }
 
@@ -403,12 +428,13 @@ async function geminiBatch(
   batch: GeminiTriageItem[],
   history: MailHistory | null | undefined,
   extras?: TriageExtras,
+  via?: { model: LanguageModel | string; label: string },
 ): Promise<Map<string, AssistantClassifyResult>> {
   const out = new Map<string, AssistantClassifyResult>();
   if (batch.length === 0) return out;
 
   const payload = compactPayload(batch, history, extras);
-  const { model, label } = await resolveModel();
+  const { model, label } = via ?? (await resolveModel());
   // Static prompt first (implicit-cache prefix), then the user's own
   // "about me" memory — identical bytes call to call until they edit it.
   const profileBlock = profilePromptBlock(extras?.profile);
@@ -665,44 +691,59 @@ export async function classifyInboxWithAssistant(
     isGeminiConfigured() &&
     extras?.geminiEnabled !== false
   ) {
+    // Direct Google key first; if it's in quota cooldown, fail over to
+    // the Vercel AI Gateway (separate monthly credit pool) before ever
+    // degrading to rules.
     const cooldown = await kvGet<Cooldown>(COOLDOWN_KEY).catch(() => null);
-    if (cooldown && cooldown.until > Date.now()) {
+    let useGateway = Boolean(
+      cooldown && cooldown.until > Date.now() && gatewayAvailable(),
+    );
+    if (cooldown && cooldown.until > Date.now() && !useGateway) {
       const mins = Math.ceil((cooldown.until - Date.now()) / 60000);
       lastGeminiError = `${cooldown.reason} (~${mins}m). Decisions fall back to rules meanwhile.`;
     } else {
-      try {
-        const limit = Math.min(
-          forGemini.length,
-          MAX_BATCHES_PER_LOAD * BATCH,
-        );
-        for (let i = 0; i < limit; i += BATCH) {
-          const chunk = forGemini.slice(i, i + BATCH);
-          const mapped = await geminiBatch(chunk, history, extras);
+      const limit = Math.min(forGemini.length, MAX_BATCHES_PER_LOAD * BATCH);
+      for (let i = 0; i < limit; i += BATCH) {
+        const chunk = forGemini.slice(i, i + BATCH);
+        try {
+          const mapped = await geminiBatch(
+            chunk,
+            history,
+            extras,
+            useGateway ? gatewayModel() : undefined,
+          );
           for (const [id, r] of mapped) {
             results.set(id, r);
             toSave.set(id, toCached(r));
           }
+        } catch (e) {
+          const msg = e instanceof Error ? e.message : String(e);
+          lastGeminiError = msg.slice(0, 300);
+          // A dead model id may be memoized — forget it so the next load
+          // rediscovers instead of failing forever.
+          if (/no longer available|not found|NOT_FOUND/i.test(msg)) {
+            modelMemo = null;
+          }
+          console.error(
+            "[seer] Gemini triage failed:",
+            useGateway ? "(gateway)" : "(direct)",
+            msg,
+          );
+          const cd = cooldownFromError(msg);
+          if (cd && !useGateway) {
+            // Direct key is out — remember it, then retry THIS chunk
+            // through the gateway credit pool.
+            await kvSet(COOLDOWN_KEY, cd).catch(() => {});
+            if (gatewayAvailable()) {
+              useGateway = true;
+              i -= BATCH;
+              continue;
+            }
+            const mins = Math.ceil((cd.until - Date.now()) / 60000);
+            lastGeminiError = `${cd.reason} (~${mins}m). Decisions fall back to rules meanwhile.`;
+          }
+          break;
         }
-      } catch (e) {
-        const msg = e instanceof Error ? e.message : String(e);
-        lastGeminiError = msg.slice(0, 300);
-        // A dead model id may be memoized — forget it so the next load
-        // rediscovers instead of failing forever.
-        if (/no longer available|not found|NOT_FOUND/i.test(msg)) {
-          modelMemo = null;
-        }
-        // Quota exhausted → stop calling until the window resets, so
-        // already-classified mail keeps working and no requests burn.
-        const cd = cooldownFromError(msg);
-        if (cd) {
-          await kvSet(COOLDOWN_KEY, cd).catch(() => {});
-          const mins = Math.ceil((cd.until - Date.now()) / 60000);
-          lastGeminiError = `${cd.reason} (~${mins}m). Decisions fall back to rules meanwhile.`;
-        }
-        console.error(
-          "[seer] Gemini triage failed, falling back to rules:",
-          msg,
-        );
       }
     }
   }
