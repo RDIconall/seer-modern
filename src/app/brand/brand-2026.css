@@ -23,10 +23,8 @@
   --s-clear: #14a090;
   --s-lime: #6fa012;
 
-  --font-ui: var(--font-seer-ui), "Untitled Sans", "Source Sans 3", var(--font-seer),
-    sans-serif;
-  --font-display: var(--font-seer-display), "Söhne", "Soehne", "Untitled Sans",
-    "Source Sans 3", var(--font-seer), sans-serif;
+  --font-ui: var(--font-seer-ui), "National 2", var(--font-seer), sans-serif;
+  --font-display: var(--font-seer-display), "Tiempos Headline", Georgia, serif;
 
   background: var(--s-paper);
   color: var(--s-ink-soft);

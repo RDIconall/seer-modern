@@ -3,7 +3,7 @@
 /*
  * Seer studio tokens — Fewer decisions. / Seeing what matters.
  * Ink · Paper · Field · Brand · Signal · Action · Mute
- * Dual eye mark. Klim type (Source Sans 3 stand-in until files land).
+ * Dual eye mark. Klim National 2 + Tiempos Headline + Söhne Mono.
  */
 :root {
   --bg: #ffffff;
@@ -63,7 +63,7 @@ body {
 body {
   background: var(--bg);
   color: var(--fg);
-  font-family: var(--font-seer), "Source Sans 3", "Untitled Sans", sans-serif;
+  font-family: var(--font-seer), "National 2", "Source Sans 3", sans-serif;
   font-weight: 400;
   font-size: 16px;
   line-height: 1.5;
@@ -220,10 +220,11 @@ body {
   }
 }
 
-/* Wordmark — sentence case, Klim/Söhne energy */
+/* Wordmark — Tiempos Headline */
 .seer-brand {
+  font-family: var(--font-seer-display), "Tiempos Headline", Georgia, serif;
   font-weight: 500;
-  letter-spacing: -0.035em;
+  letter-spacing: -0.02em;
   text-transform: none;
   color: var(--fg-strong);
 }

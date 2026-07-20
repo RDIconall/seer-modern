@@ -49,14 +49,19 @@ export const seerStudio = {
   },
   type: {
     ui: {
-      family: "Untitled Sans",
+      family: "National 2",
       foundry: "Klim",
       role: "Lists, bodies, chrome",
     },
     display: {
-      family: "Söhne",
+      family: "Tiempos Headline",
       foundry: "Klim",
       role: "Wordmark, titles",
+    },
+    mono: {
+      family: "Söhne Mono",
+      foundry: "Klim",
+      role: "Code / mono moments",
     },
     reading: {
       size: "17px",
@@ -111,11 +116,11 @@ export const seer2026 = {
   type: {
     ui: {
       ...seerStudio.type.ui,
-      stack: '"Untitled Sans", "Source Sans 3", var(--font-seer), sans-serif',
+      stack: '"National 2", var(--font-seer), sans-serif',
     },
     display: {
       ...seerStudio.type.display,
-      stack: '"Söhne", "Soehne", "Source Sans 3", var(--font-seer), sans-serif',
+      stack: '"Tiempos Headline", var(--font-seer-display), Georgia, serif',
     },
     reading: { ...seerStudio.type.reading, tracking: "0" },
   },

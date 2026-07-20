@@ -1,36 +1,45 @@
 import type { Metadata, Viewport } from "next";
-import { Roboto_Mono, Source_Sans_3 } from "next/font/google";
 import localFont from "next/font/local";
 import { PwaRegister } from "@/components/PwaRegister";
 import "./globals.css";
 
-/**
- * Studio type: Klim Untitled Sans / Söhne when files land in src/fonts/klim/.
- * Source Sans 3 is the reading stand-in; Proxima remains a local fallback.
- */
-const seerUi = Source_Sans_3({
-  subsets: ["latin"],
-  weight: ["400", "500", "600", "700"],
+/* Klim National 2 — UI + reading */
+const seerSans = localFont({
+  src: [
+    { path: "../fonts/klim/National2-Regular.otf", weight: "400", style: "normal" },
+    { path: "../fonts/klim/National2-Medium.otf", weight: "500", style: "normal" },
+    { path: "../fonts/klim/National2-Bold.otf", weight: "700", style: "normal" },
+  ],
   variable: "--font-seer",
   display: "swap",
 });
 
-const seerLegacy = localFont({
+/* Klim Tiempos Headline — wordmark + display */
+const seerDisplay = localFont({
   src: [
-    { path: "../fonts/ProximaNova-Light.otf", weight: "300", style: "normal" },
-    { path: "../fonts/ProximaNova-Regular.otf", weight: "400", style: "normal" },
-    { path: "../fonts/ProximaNova-Italic.otf", weight: "400", style: "italic" },
-    { path: "../fonts/ProximaNova-Semibold.otf", weight: "600", style: "normal" },
-    { path: "../fonts/ProximaNova-Bold.otf", weight: "700", style: "normal" },
+    {
+      path: "../fonts/klim/TiemposHeadline-Regular.otf",
+      weight: "400",
+      style: "normal",
+    },
+    {
+      path: "../fonts/klim/TiemposHeadline-Medium.otf",
+      weight: "500",
+      style: "normal",
+    },
   ],
-  variable: "--font-seer-legacy",
+  variable: "--font-seer-display",
   display: "swap",
 });
 
-const seerMono = Roboto_Mono({
+/* Klim Söhne Mono */
+const seerMono = localFont({
+  src: [
+    { path: "../fonts/klim/SohneMono-Buch.otf", weight: "400", style: "normal" },
+    { path: "../fonts/klim/SohneMono-Kraftig.otf", weight: "500", style: "normal" },
+  ],
   variable: "--font-seer-mono",
-  subsets: ["latin"],
-  weight: ["400", "500"],
+  display: "swap",
 });
 
 export const metadata: Metadata = {
@@ -64,7 +73,7 @@ export default function RootLayout({
   return (
     <html lang="en">
       <body
-        className={`${seerUi.variable} ${seerLegacy.variable} ${seerMono.variable} antialiased`}
+        className={`${seerSans.variable} ${seerDisplay.variable} ${seerMono.variable} antialiased`}
       >
         {children}
         <PwaRegister />
