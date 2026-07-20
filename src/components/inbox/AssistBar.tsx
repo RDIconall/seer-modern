@@ -24,6 +24,7 @@ export function AssistBar({
   rsvping,
   onRsvp,
   onUnsubscribe,
+  onDelegate,
 }: {
   reader: ReaderMessage;
   drafting: boolean;
@@ -31,6 +32,8 @@ export function AssistBar({
   rsvping?: boolean;
   onRsvp?: (response: "accepted" | "declined" | "tentative") => void;
   onUnsubscribe?: () => void;
+  /** Opens the delegate "to who?" sheet. */
+  onDelegate?: () => void;
 }) {
   const action = reader.guide?.action;
   const wantsReply =
@@ -158,15 +161,17 @@ export function AssistBar({
               {intent === "yes" ? "Say yes" : intent === "no" ? "Decline" : "Buy time"}
             </button>
           ))}
-          <button
-            type="button"
-            disabled={drafting}
-            onClick={() => onDraft("delegate")}
-            className="inline-flex items-center gap-1 rounded-full bg-[var(--card)] px-3 py-1.5 text-[12px] font-medium text-[var(--fg)] disabled:opacity-50"
-          >
-            <UserCheck className="h-3.5 w-3.5" />
-            Delegate to EA
-          </button>
+          {onDelegate ? (
+            <button
+              type="button"
+              disabled={drafting}
+              onClick={onDelegate}
+              className="inline-flex items-center gap-1 rounded-full bg-[var(--card)] px-3 py-1.5 text-[12px] font-medium text-[var(--fg)] disabled:opacity-50"
+            >
+              <UserCheck className="h-3.5 w-3.5" />
+              Delegate…
+            </button>
+          ) : null}
         </div>
       ) : null}
 

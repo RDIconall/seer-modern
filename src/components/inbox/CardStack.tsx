@@ -38,8 +38,8 @@ type Props = {
   onReply: (id: string) => void;
   /** Skip for now — card leaves the deck locally, returns next refresh. */
   onSnooze?: (id: string) => void;
-  /** Forward to the EA. Resolves true when it actually went out. */
-  onDelegate?: (id: string) => Promise<boolean>;
+  /** Opens the delegate "to who?" sheet for this email. */
+  onDelegate?: (id: string, subject: string) => void;
   onEmptyRefresh?: () => void;
 };
 
@@ -117,13 +117,11 @@ export function CardStack({
     if (card.kind === "email") onSnooze?.(card.item.id);
   };
 
-  const delegateCard = async (card: DeckCard) => {
+  const delegateCard = (card: DeckCard) => {
     if (card.kind !== "email" || !onDelegate) return;
-    const ok = await onDelegate(card.item.id);
-    if (ok) {
-      setSkipped((prev) => new Set(prev).add(card.key));
-      setDragX(0);
-    }
+    // Opens the "to who?" sheet; the card leaves the deck when the
+    // handoff email actually sends (original gets archived).
+    onDelegate(card.item.id, card.item.subject);
   };
 
   const onTouchStart = (e: TouchEvent) => {

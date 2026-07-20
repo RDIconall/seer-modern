@@ -166,6 +166,13 @@ const PRODUCT_NEEDS_YOU =
 const FINANCE_RISK =
   /\b(payment (failed|declined|overdue|past due)|card (was )?declined|insufficient funds|overdraft|fraud|unusual activity|suspicious (charge|transaction)|dispute|due (today|tomorrow)|final notice|account (suspended|locked|on hold))\b/i;
 
+/** Enrolled autopay: the bill handles itself. */
+const AUTOPAY_BLOB =
+  /\b(auto-?pay|autopay|automatic(ally)? (paid|payment|deducted|withdrawn|drafted)|will be (automatically )?(charged|deducted|drafted|debited)|scheduled payment)\b/i;
+
+const BILL_READY_BLOB =
+  /\b(bill (is )?(now )?(ready|available)|statement (is )?(now )?(ready|available)|view your (bill|statement)|your (monthly |new )?(bill|statement)|bill from)\b/i;
+
 /**
  * Urgency bait — marketing's favorite trick. Only counts as urgent when
  * the sender is trusted (contact / engaged / known); from bulk or cold
@@ -366,6 +373,22 @@ function classifyCore(
       "HIGH",
       "Package status update — it arrives whether you read this or not",
       "shipper-status-delete",
+      ctx,
+    );
+  }
+
+  // Autopay: the bill pays itself. "Your bill is ready" is a record to
+  // file, not a task — unless the payment FAILED / is past due.
+  if (
+    AUTOPAY_BLOB.test(blob) &&
+    BILL_READY_BLOB.test(blob) &&
+    !FINANCE_RISK.test(blob)
+  ) {
+    return hit(
+      "read_and_archive",
+      "HIGH",
+      "On autopay — it pays itself; keep the statement for records",
+      "autopay-record-archive",
       ctx,
     );
   }

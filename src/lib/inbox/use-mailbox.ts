@@ -300,36 +300,58 @@ export function useMailbox(initialTab: ViewTab = "inbox") {
   );
 
   /**
-   * Delegate to EA: forwards to the configured assistant and archives.
-   * Resolves { needsEa: true } when no EA is set so the caller can
-   * open Settings instead of failing silently.
+   * Delegate as a real action: openDelegate(id) pops the "to who?"
+   * sheet; confirmDelegate has the AI write the handoff email
+   * ("wanted to get your help doing …") as a ready-to-send forward.
    */
-  const delegate = useCallback(
-    async (id: string): Promise<{ needsEa?: boolean }> => {
-      setBusyId(id);
+  const [delegateFor, setDelegateFor] = useState<{
+    id: string;
+    subject: string;
+  } | null>(null);
+  const [delegating, setDelegating] = useState(false);
+
+  const openDelegate = useCallback(
+    (id: string, subject?: string) => {
+      setDelegateFor({ id, subject: subject ?? "" });
+    },
+    [],
+  );
+
+  const closeDelegate = useCallback(() => setDelegateFor(null), []);
+
+  const confirmDelegate = useCallback(
+    async (recipient: { to: string; toName?: string; instruction?: string }) => {
+      if (!delegateFor || delegating) return;
+      setDelegating(true);
       try {
-        const res = await fetch("/api/delegate", {
+        const res = await fetch("/api/assist/draft", {
           method: "POST",
           headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ id }),
+          body: JSON.stringify({
+            id: delegateFor.id,
+            intent: "delegate",
+            ...recipient,
+          }),
         });
-        const j = await res.json();
-        if (!res.ok) {
-          if (j.needsEa) return { needsEa: true };
-          throw new Error(j.error ?? "Delegate failed");
-        }
-        removeFromLists(id);
-        if (readerId === id) closeReader();
-        setToast(`Delegated to ${j.ea}`);
-        return {};
+        const json = await res.json();
+        if (!res.ok) throw new Error(json.error ?? "Draft failed");
+        setCompose({
+          mode: "forward",
+          to: json.to || recipient.to,
+          cc: "",
+          subject: json.subject,
+          body: json.body,
+          replyToId: json.replyToId,
+          archiveOriginal: true,
+        });
+        setDelegateFor(null);
       } catch (e) {
         setToast(e instanceof Error ? e.message : "Delegate failed");
-        return {};
       } finally {
-        setBusyId(null);
+        setDelegating(false);
       }
     },
-    [closeReader, readerId, removeFromLists],
+    [delegateFor, delegating],
   );
 
   const bulkSection = useCallback(
@@ -687,7 +709,11 @@ export function useMailbox(initialTab: ViewTab = "inbox") {
     load,
     runAction,
     snooze,
-    delegate,
+    delegateFor,
+    delegating,
+    openDelegate,
+    closeDelegate,
+    confirmDelegate,
     bulkSection,
     unsubscribe,
     teachSender,

@@ -22,6 +22,7 @@ import { useSearchParams } from "next/navigation";
 import { logout } from "@/app/actions";
 import { CardStack } from "@/components/inbox/CardStack";
 import { ComposePanel } from "@/components/inbox/ComposePanel";
+import { DelegateSheet } from "@/components/inbox/DelegateSheet";
 import { AssistBar } from "@/components/inbox/AssistBar";
 import {
   LogicExplain,
@@ -92,7 +93,11 @@ export function DesktopMailApp() {
     refreshIdentity,
     runAction,
     snooze,
-    delegate,
+    delegateFor,
+    delegating,
+    openDelegate,
+    closeDelegate,
+    confirmDelegate,
     bulkSection,
     unsubscribe,
     teachSender,
@@ -115,15 +120,6 @@ export function DesktopMailApp() {
     if (searchParams.get("settings") === "1") setSettingsOpen(true);
   }, [searchParams]);
 
-  const delegateFromCard = async (id: string) => {
-    const r = await delegate(id);
-    if (r.needsEa) {
-      setToast("Add your EA's email in Settings first");
-      setSettingsOpen(true);
-      return false;
-    }
-    return true;
-  };
 
   const replyFromCard = async (id: string) => {
     try {
@@ -144,6 +140,7 @@ export function DesktopMailApp() {
   };
 
   if (compose) {
+    const wasHandoff = compose.archiveOriginal;
     return (
       <ComposePanel
         draft={compose}
@@ -151,8 +148,10 @@ export function DesktopMailApp() {
         onSent={() => {
           setCompose(null);
           closeReader();
-          setToast("Message sent");
-          if (tab === "sent") load();
+          setToast(
+            wasHandoff ? "Handed off — original archived" : "Message sent",
+          );
+          if (tab === "sent" || wasHandoff) load();
         }}
       />
     );
@@ -163,6 +162,14 @@ export function DesktopMailApp() {
 
   return (
     <div className="flex h-[100dvh] min-h-screen overflow-hidden bg-[var(--bg)] text-[var(--fg)]">
+      {delegateFor ? (
+        <DelegateSheet
+          subject={delegateFor.subject}
+          busy={delegating}
+          onConfirm={confirmDelegate}
+          onClose={closeDelegate}
+        />
+      ) : null}
       {settingsOpen ? (
         <SettingsPanel
           onClose={() => setSettingsOpen(false)}
@@ -277,7 +284,7 @@ export function DesktopMailApp() {
                   onBulk={bulkSection}
                   onReply={replyFromCard}
                   onSnooze={snooze}
-                  onDelegate={delegateFromCard}
+                  onDelegate={openDelegate}
                   onEmptyRefresh={load}
                 />
               </div>
@@ -570,6 +577,11 @@ export function DesktopMailApp() {
                       onUnsubscribe={
                         readerId
                           ? () => unsubscribe(readerId, reader?.fromEmail)
+                          : undefined
+                      }
+                      onDelegate={
+                        readerId
+                          ? () => openDelegate(readerId, reader?.subject)
                           : undefined
                       }
                     />

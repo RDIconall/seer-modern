@@ -33,6 +33,7 @@ import { logoutMobile } from "@/app/actions";
 import { ACTION_META, type TriageAction } from "@/lib/inbox/classify";
 import { CardStack } from "@/components/inbox/CardStack";
 import { ComposePanel } from "@/components/inbox/ComposePanel";
+import { DelegateSheet } from "@/components/inbox/DelegateSheet";
 import { AssistBar } from "@/components/inbox/AssistBar";
 import {
   LogicExplain,
@@ -94,7 +95,11 @@ export function MobileMailApp() {
     refreshIdentity,
     runAction,
     snooze,
-    delegate,
+    delegateFor,
+    delegating,
+    openDelegate,
+    closeDelegate,
+    confirmDelegate,
     bulkSection,
     unsubscribe,
     teachSender,
@@ -130,15 +135,6 @@ export function MobileMailApp() {
     setSearchOpen(false);
   };
 
-  const delegateFromCard = async (id: string) => {
-    const r = await delegate(id);
-    if (r.needsEa) {
-      setToast("Add your EA's email in Settings first");
-      setSettingsOpen(true);
-      return false;
-    }
-    return true;
-  };
 
   const replyFromCard = async (id: string) => {
     try {
@@ -178,6 +174,7 @@ export function MobileMailApp() {
   }
 
   if (compose) {
+    const wasHandoff = compose.archiveOriginal;
     return (
       <ComposePanel
         draft={compose}
@@ -185,8 +182,8 @@ export function MobileMailApp() {
         onSent={() => {
           setCompose(null);
           closeReader();
-          setToast("Message sent");
-          if (tab === "sent") load();
+          setToast(wasHandoff ? "Handed off — original archived" : "Message sent");
+          if (tab === "sent" || wasHandoff) load();
         }}
       />
     );
@@ -199,6 +196,14 @@ export function MobileMailApp() {
       : "";
     return (
       <div className="app-shell fixed inset-0 z-50 flex flex-col bg-[var(--bg)]">
+        {delegateFor ? (
+          <DelegateSheet
+            subject={delegateFor.subject}
+            busy={delegating}
+            onConfirm={confirmDelegate}
+            onClose={closeDelegate}
+          />
+        ) : null}
         <header className="outlook-header flex items-center gap-1 px-1 py-1.5 shadow-sm">
           <IconBtn onClick={closeReader} label="Back" light>
             <ChevronLeft className="h-6 w-6" />
@@ -255,6 +260,11 @@ export function MobileMailApp() {
                     ? () => unsubscribe(readerId, reader?.fromEmail)
                     : undefined
                 }
+                onDelegate={
+                  readerId
+                    ? () => openDelegate(readerId, reader?.subject)
+                    : undefined
+                }
               />
             ) : null}
           </div>
@@ -300,6 +310,14 @@ export function MobileMailApp() {
 
   return (
     <div className="app-shell mx-auto flex min-h-[100dvh] max-w-lg flex-col bg-[var(--bg)] text-[var(--fg)]">
+      {delegateFor ? (
+        <DelegateSheet
+          subject={delegateFor.subject}
+          busy={delegating}
+          onConfirm={confirmDelegate}
+          onClose={closeDelegate}
+        />
+      ) : null}
       {drawer ? (
         <div className="fixed inset-0 z-40">
           <button
@@ -496,7 +514,7 @@ export function MobileMailApp() {
             onBulk={bulkSection}
             onReply={replyFromCard}
             onSnooze={snooze}
-            onDelegate={delegateFromCard}
+            onDelegate={openDelegate}
             onEmptyRefresh={load}
           />
         ) : null}

@@ -12,6 +12,8 @@ export type ComposeDraft = {
   subject: string;
   body: string;
   replyToId?: string;
+  /** Delegation handoffs: archive the original once the forward sends */
+  archiveOriginal?: boolean;
 };
 
 export function ComposePanel({
@@ -53,6 +55,7 @@ export function ComposePanel({
           subject,
           body,
           replyToId: draft.replyToId,
+          archiveOriginal: draft.archiveOriginal,
         }),
       });
       const json = await res.json();

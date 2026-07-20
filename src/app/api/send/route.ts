@@ -33,6 +33,8 @@ export async function POST(request: Request) {
       subject?: string;
       body?: string;
       replyToId?: string;
+      /** Delegation: the forward hands it off, the original leaves the inbox */
+      archiveOriginal?: boolean;
     };
 
     const mode: Mode = body.mode ?? "compose";
@@ -77,6 +79,13 @@ export async function POST(request: Request) {
           subject: ensureFwd(body.subject?.trim() || original.subject),
           body: quoted,
         });
+        if (body.archiveOriginal) {
+          await gmailAction(
+            session.accessToken,
+            body.replyToId,
+            "archive",
+          ).catch(() => {});
+        }
         return NextResponse.json({ ok: true, ...sent });
       }
 
@@ -167,6 +176,13 @@ export async function POST(request: Request) {
         subject: ensureFwd(body.subject?.trim() || original.subject),
         body: quoted,
       });
+      if (body.archiveOriginal) {
+        await graphAction(
+          session.accessToken,
+          body.replyToId,
+          "archive",
+        ).catch(() => {});
+      }
       return NextResponse.json({ ok: true });
     }
 
