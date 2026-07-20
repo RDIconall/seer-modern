@@ -24,7 +24,7 @@ const seerDisplay = Source_Sans_3({
 export const metadata: Metadata = {
   title: "Seer 2026 — Brand refresh",
   description:
-    "Reading-first Seer brand refresh: circle logo kept, Klim type, lacquered Pure colors.",
+    "Reading-first Seer brand refresh: circle logo kept, Klim type, uniform gloss colors.",
 };
 
 export default function BrandLayout({

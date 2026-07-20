@@ -2,7 +2,7 @@
 
 /*
  * Seer 2026 brand surface — scoped to .seer-2026
- * Reading-first type + lacquered Pure accents (automotive clear-coat).
+ * Reading-first type + uniform lacquer on Pure accents (even clear-coat).
  */
 
 .seer-2026 {
@@ -112,89 +112,25 @@
 }
 
 /*
- * Lacquer / clear-coat — Bentley auto-paint energy.
- * Set --gloss to the body color. Depth comes from highlight + shadow,
- * so the base hex can stay lighter.
+ * Uniform clear-coat — even lacquer on every chip, no specular stripe.
+ * Solid --gloss underneath so the hue stays readable; soft softbox veil on top.
  */
 .seer-gloss {
   --gloss: var(--s-brand);
   position: relative;
-  isolation: isolate;
-  overflow: hidden;
-  background:
-    linear-gradient(
-      118deg,
-      transparent 0%,
-      transparent 34%,
-      rgba(255, 255, 255, 0.5) 45%,
-      rgba(255, 255, 255, 0.14) 51%,
-      transparent 62%,
-      transparent 100%
-    ),
-    linear-gradient(
-      180deg,
-      rgba(255, 255, 255, 0.42) 0%,
-      rgba(255, 255, 255, 0.1) 26%,
-      rgba(0, 0, 0, 0) 52%,
-      rgba(0, 0, 0, 0.32) 100%
-    ),
-    linear-gradient(
-      165deg,
-      color-mix(in srgb, var(--gloss) 72%, white) 0%,
-      var(--gloss) 44%,
-      color-mix(in srgb, var(--gloss) 68%, black) 100%
-    );
-  box-shadow:
-    inset 0 1px 0 rgba(255, 255, 255, 0.55),
-    inset 0 -1px 0 rgba(0, 0, 0, 0.28),
-    0 12px 28px -14px color-mix(in srgb, var(--gloss) 60%, #000);
-}
-
-/* Soft satin for neutrals — polish without candy chrome */
-.seer-gloss-satin {
-  --gloss: var(--s-paper-deep);
-  position: relative;
-  isolation: isolate;
-  overflow: hidden;
   background:
     linear-gradient(
       180deg,
-      rgba(255, 255, 255, 0.55) 0%,
-      rgba(255, 255, 255, 0) 40%,
-      rgba(0, 0, 0, 0.08) 100%
+      rgba(255, 255, 255, 0.2) 0%,
+      rgba(255, 255, 255, 0.08) 45%,
+      rgba(255, 255, 255, 0.02) 72%,
+      rgba(0, 0, 0, 0.1) 100%
     ),
     var(--gloss);
   box-shadow:
-    inset 0 1px 0 rgba(255, 255, 255, 0.7),
-    inset 0 -1px 0 rgba(0, 0, 0, 0.08),
-    0 8px 20px -14px rgba(10, 14, 18, 0.25);
-}
-
-/* Wet-sheen sweep — the clear-coat catching light */
-.seer-gloss::after,
-.seer-gloss-satin::after {
-  content: "";
-  position: absolute;
-  inset: 0;
-  background: linear-gradient(
-    105deg,
-    transparent 38%,
-    rgba(255, 255, 255, 0.45) 50%,
-    transparent 62%
-  );
-  opacity: 0;
-  transform: translateX(-40%);
-  transition:
-    opacity 420ms ease,
-    transform 700ms cubic-bezier(0.22, 1, 0.36, 1);
-  pointer-events: none;
-  mix-blend-mode: soft-light;
-}
-
-.seer-gloss:hover::after,
-.seer-gloss-satin:hover::after {
-  opacity: 1;
-  transform: translateX(35%);
+    inset 0 1px 0 rgba(255, 255, 255, 0.38),
+    inset 0 -1px 0 rgba(0, 0, 0, 0.14),
+    0 10px 22px -14px color-mix(in srgb, var(--gloss) 50%, #000);
 }
 
 .seer-2026-cta {
@@ -205,64 +141,41 @@
   padding: 0 1.25rem;
   border-radius: 0.5rem;
   border: 0;
-  --gloss: var(--s-brand);
-  position: relative;
-  isolation: isolate;
-  overflow: hidden;
   background:
     linear-gradient(
-      118deg,
-      transparent 0%,
-      transparent 34%,
-      rgba(255, 255, 255, 0.45) 45%,
-      rgba(255, 255, 255, 0.12) 51%,
-      transparent 62%,
-      transparent 100%
-    ),
-    linear-gradient(
       180deg,
-      rgba(255, 255, 255, 0.35) 0%,
-      rgba(255, 255, 255, 0.06) 30%,
-      rgba(0, 0, 0, 0) 55%,
-      rgba(0, 0, 0, 0.28) 100%
+      rgba(255, 255, 255, 0.16) 0%,
+      rgba(255, 255, 255, 0.05) 50%,
+      rgba(0, 0, 0, 0.12) 100%
     ),
-    linear-gradient(
-      165deg,
-      color-mix(in srgb, var(--s-brand) 70%, white) 0%,
-      var(--s-brand) 45%,
-      var(--s-brand-deep) 100%
-    );
+    var(--s-brand);
   box-shadow:
-    inset 0 1px 0 rgba(255, 255, 255, 0.5),
-    inset 0 -1px 0 rgba(0, 0, 0, 0.25),
-    0 10px 24px -12px rgba(10, 122, 112, 0.55);
+    inset 0 1px 0 rgba(255, 255, 255, 0.32),
+    inset 0 -1px 0 rgba(0, 0, 0, 0.18),
+    0 10px 22px -12px rgba(10, 122, 112, 0.45);
   color: #fff;
   font-family: var(--font-ui);
   font-size: 0.9375rem;
   font-weight: 600;
   letter-spacing: -0.01em;
+  text-shadow: 0 1px 0 rgba(0, 0, 0, 0.18);
   transition:
     filter 160ms ease,
     transform 160ms ease,
     box-shadow 160ms ease;
 }
 
-.seer-2026-cta > * {
-  position: relative;
-  z-index: 1;
-}
-
 .seer-2026-cta:hover {
-  filter: brightness(1.04);
+  filter: brightness(1.03);
   box-shadow:
-    inset 0 1px 0 rgba(255, 255, 255, 0.55),
-    inset 0 -1px 0 rgba(0, 0, 0, 0.28),
-    0 14px 30px -12px rgba(10, 122, 112, 0.65);
+    inset 0 1px 0 rgba(255, 255, 255, 0.36),
+    inset 0 -1px 0 rgba(0, 0, 0, 0.2),
+    0 12px 26px -12px rgba(10, 122, 112, 0.55);
 }
 
 .seer-2026-cta:active {
   transform: translateY(1px);
-  filter: brightness(0.97);
+  filter: brightness(0.98);
 }
 
 .seer-2026-cta-ghost {
@@ -276,15 +189,15 @@
   background:
     linear-gradient(
       180deg,
-      rgba(255, 255, 255, 0.95) 0%,
-      rgba(255, 255, 255, 0.7) 100%
+      rgba(255, 255, 255, 0.55) 0%,
+      rgba(255, 255, 255, 0.12) 100%
     ),
     var(--s-paper);
   color: var(--s-ink);
   font-size: 0.9375rem;
   font-weight: 600;
   letter-spacing: -0.01em;
-  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.9);
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.85);
   transition: background 160ms ease, border-color 160ms ease;
 }
 
@@ -297,26 +210,14 @@
   --gloss: var(--s-brand);
   background:
     linear-gradient(
-      105deg,
-      transparent 0%,
-      transparent 40%,
-      rgba(255, 255, 255, 0.28) 49%,
-      rgba(255, 255, 255, 0.06) 54%,
-      transparent 68%
-    ),
-    linear-gradient(
       180deg,
-      rgba(255, 255, 255, 0.28) 0%,
-      rgba(0, 0, 0, 0) 45%,
-      rgba(0, 0, 0, 0.22) 100%
+      rgba(255, 255, 255, 0.16) 0%,
+      rgba(255, 255, 255, 0.04) 50%,
+      rgba(0, 0, 0, 0.14) 100%
     ),
-    linear-gradient(
-      180deg,
-      color-mix(in srgb, var(--gloss) 82%, white) 0%,
-      var(--gloss) 50%,
-      color-mix(in srgb, var(--gloss) 75%, black) 100%
-    );
-  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.35);
+    var(--gloss);
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.28);
+  text-shadow: 0 1px 0 rgba(0, 0, 0, 0.18);
 }
 
 /* Motion: presence, not noise */
@@ -391,11 +292,5 @@
 
   .seer-2026-swatch {
     transition: none;
-  }
-
-  .seer-gloss::after,
-  .seer-gloss-satin::after {
-    transition: none;
-    display: none;
   }
 }

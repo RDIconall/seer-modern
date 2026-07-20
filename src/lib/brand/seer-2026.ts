@@ -1,7 +1,7 @@
 /**
  * Seer 2026 — reading-first brand refresh.
- * Circle logo kept. Pure colors: lighter mid-tones under a lacquer gloss
- * (Bentley clear-coat depth). Type: Klim Untitled Sans + Söhne.
+ * Circle logo kept. Pure colors: lighter mid-tones under a uniform clear-coat
+ * (even lacquer — no specular hotspots). Type: Klim Untitled Sans + Söhne.
  */
 
 export const seer2026 = {
