@@ -25,6 +25,7 @@ import { logout } from "@/app/actions";
 import { CardStack } from "@/components/inbox/CardStack";
 import { ComposePanel } from "@/components/inbox/ComposePanel";
 import { DelegateSheet } from "@/components/inbox/DelegateSheet";
+import { ScheduleSheet } from "@/components/inbox/ScheduleSheet";
 import { AssistBar } from "@/components/inbox/AssistBar";
 import {
   LogicExplain,
@@ -100,6 +101,11 @@ export function DesktopMailApp() {
     openDelegate,
     closeDelegate,
     confirmDelegate,
+    scheduleFor,
+    scheduling,
+    openSchedule,
+    closeSchedule,
+    confirmSchedule,
     bulkSection,
     runBulk,
     unsubscribe,
@@ -217,6 +223,15 @@ export function DesktopMailApp() {
           busy={delegating}
           onConfirm={confirmDelegate}
           onClose={closeDelegate}
+        />
+      ) : null}
+      {scheduleFor ? (
+        <ScheduleSheet
+          subject={scheduleFor.subject}
+          ask={scheduleFor.ask}
+          busy={scheduling}
+          onConfirm={confirmSchedule}
+          onClose={closeSchedule}
         />
       ) : null}
       {settingsOpen ? (
@@ -700,6 +715,17 @@ export function DesktopMailApp() {
                       onDelegate={
                         readerId
                           ? () => openDelegate(readerId, reader?.subject)
+                          : undefined
+                      }
+                      onSchedule={
+                        readerId && reader
+                          ? () =>
+                              openSchedule(
+                                readerId,
+                                reader.subject,
+                                reader.guide?.ask,
+                                reader.fromName,
+                              )
                           : undefined
                       }
                     />

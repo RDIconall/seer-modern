@@ -4,6 +4,7 @@ import type { ReaderMessage } from "@/lib/inbox/types";
 import {
   BellOff,
   Calendar,
+  CalendarClock,
   Check,
   ExternalLink,
   HelpCircle,
@@ -25,6 +26,7 @@ export function AssistBar({
   onRsvp,
   onUnsubscribe,
   onDelegate,
+  onSchedule,
 }: {
   reader: ReaderMessage;
   drafting: boolean;
@@ -34,6 +36,8 @@ export function AssistBar({
   onUnsubscribe?: () => void;
   /** Opens the delegate "to who?" sheet. */
   onDelegate?: () => void;
+  /** Opens the "Schedule it" time-blocking sheet. */
+  onSchedule?: () => void;
 }) {
   const action = reader.guide?.action;
   const wantsReply =
@@ -170,6 +174,16 @@ export function AssistBar({
             >
               <UserCheck className="h-3.5 w-3.5" />
               Delegate…
+            </button>
+          ) : null}
+          {onSchedule ? (
+            <button
+              type="button"
+              onClick={onSchedule}
+              className="inline-flex items-center gap-1 rounded-full bg-[var(--card)] px-3 py-1.5 text-[12px] font-medium text-[var(--fg)]"
+            >
+              <CalendarClock className="h-3.5 w-3.5" />
+              Schedule it
             </button>
           ) : null}
         </div>

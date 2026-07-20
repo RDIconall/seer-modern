@@ -37,6 +37,7 @@ import { ACTION_META, type TriageAction } from "@/lib/inbox/classify";
 import { CardStack } from "@/components/inbox/CardStack";
 import { ComposePanel } from "@/components/inbox/ComposePanel";
 import { DelegateSheet } from "@/components/inbox/DelegateSheet";
+import { ScheduleSheet } from "@/components/inbox/ScheduleSheet";
 import { AssistBar } from "@/components/inbox/AssistBar";
 import {
   LogicExplain,
@@ -103,6 +104,11 @@ export function MobileMailApp() {
     openDelegate,
     closeDelegate,
     confirmDelegate,
+    scheduleFor,
+    scheduling,
+    openSchedule,
+    closeSchedule,
+    confirmSchedule,
     bulkSection,
     runBulk,
     unsubscribe,
@@ -259,6 +265,15 @@ export function MobileMailApp() {
             onClose={closeDelegate}
           />
         ) : null}
+        {scheduleFor ? (
+          <ScheduleSheet
+            subject={scheduleFor.subject}
+            ask={scheduleFor.ask}
+            busy={scheduling}
+            onConfirm={confirmSchedule}
+            onClose={closeSchedule}
+          />
+        ) : null}
         <header className="outlook-header flex items-center gap-1 px-1 py-1.5 shadow-sm">
           <IconBtn onClick={closeReader} label="Back" light>
             <ChevronLeft className="h-6 w-6" />
@@ -334,6 +349,17 @@ export function MobileMailApp() {
                     ? () => openDelegate(readerId, reader?.subject)
                     : undefined
                 }
+                onSchedule={
+                  readerId && reader
+                    ? () =>
+                        openSchedule(
+                          readerId,
+                          reader.subject,
+                          g?.ask,
+                          reader.fromName,
+                        )
+                    : undefined
+                }
               />
             ) : null}
           </div>
@@ -385,6 +411,15 @@ export function MobileMailApp() {
           busy={delegating}
           onConfirm={confirmDelegate}
           onClose={closeDelegate}
+        />
+      ) : null}
+      {scheduleFor ? (
+        <ScheduleSheet
+          subject={scheduleFor.subject}
+          ask={scheduleFor.ask}
+          busy={scheduling}
+          onConfirm={confirmSchedule}
+          onClose={closeSchedule}
         />
       ) : null}
       {drawer ? (

@@ -682,6 +682,65 @@ export function useMailbox(initialTab: ViewTab = "inbox") {
     [fetchMessage],
   );
 
+  // ---- "Schedule it": time-block the email's task on the calendar ----
+  const [scheduleFor, setScheduleFor] = useState<{
+    id: string;
+    subject: string;
+    ask?: string;
+    fromName?: string;
+  } | null>(null);
+  const [scheduling, setScheduling] = useState(false);
+
+  const openSchedule = useCallback(
+    (id: string, subject: string, ask?: string, fromName?: string) => {
+      setScheduleFor({ id, subject, ask, fromName });
+    },
+    [],
+  );
+  const closeSchedule = useCallback(() => setScheduleFor(null), []);
+
+  const confirmSchedule = useCallback(
+    async (payload: {
+      title: string;
+      startsAt: string;
+      durationMins: number;
+    }) => {
+      if (!scheduleFor || scheduling) return;
+      setScheduling(true);
+      try {
+        const res = await fetch("/api/calendar/schedule", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            messageId: scheduleFor.id,
+            ask: scheduleFor.ask,
+            subject: scheduleFor.subject,
+            fromName: scheduleFor.fromName,
+            ...payload,
+          }),
+        });
+        const json = await res.json();
+        if (!res.ok) throw new Error(json.error ?? "Schedule failed");
+        markActed(scheduleFor.id);
+        removeFromLists(scheduleFor.id);
+        if (readerId === scheduleFor.id) closeReader();
+        setScheduleFor(null);
+        setToast(
+          `Time blocked ${new Date(payload.startsAt).toLocaleString([], {
+            weekday: "short",
+            hour: "numeric",
+            minute: "2-digit",
+          })} — email archived`,
+        );
+      } catch (e) {
+        setToast(e instanceof Error ? e.message : "Schedule failed");
+      } finally {
+        setScheduling(false);
+      }
+    },
+    [scheduleFor, scheduling, markActed, removeFromLists, readerId, closeReader],
+  );
+
   // ---- Gmail-style history: #inbox, #triage, #inbox/<id> ----
   // Back/forward navigate the app (close reader, previous tab) instead
   // of leaving it, and a reload restores exactly where you were.
@@ -866,6 +925,11 @@ export function useMailbox(initialTab: ViewTab = "inbox") {
     openDelegate,
     closeDelegate,
     confirmDelegate,
+    scheduleFor,
+    scheduling,
+    openSchedule,
+    closeSchedule,
+    confirmSchedule,
     bulkSection,
     runBulk,
     unsubscribe,
