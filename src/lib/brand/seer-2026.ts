@@ -13,13 +13,13 @@ export const seerStudio = {
   job: "Triage email so they decide less and act on what matters",
   logo: {
     legacy: "/seer-mark.png",
-    recommended: "/seer-mark-dual.svg",
+    recommended: "/seer-mark.png",
     options: [
       {
         id: "dual",
         src: "/seer-mark-dual.svg",
-        title: "Dual — recommended",
-        note: "Cool gray outer, brand teal iris, ink pupil. Three hues. Seeing → center.",
+        title: "Dual — recommended (live)",
+        note: "Cool gray outer, brand teal iris, ink pupil. Now the app mark.",
       },
       {
         id: "brand",

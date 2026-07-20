@@ -181,7 +181,7 @@ export function DesktopMailApp() {
             <img src="/seer-mark.png" alt="" width={26} height={26} />
             <span className="seer-brand text-lg">Seer</span>
           </div>
-          <div className="seer-tagline mt-0.5 text-[11px]">Work smarter</div>
+          <div className="seer-tagline mt-0.5 text-[11px]">Fewer decisions.</div>
         </div>
 
         <div className="px-3 py-3">

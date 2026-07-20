@@ -322,7 +322,7 @@ export function MobileMailApp() {
                 <img src="/seer-mark.png" alt="" width={30} height={30} />
                 <span className="seer-brand text-xl">Seer</span>
               </div>
-              <div className="seer-tagline mt-0.5 text-[11px]">Work smarter</div>
+              <div className="seer-tagline mt-0.5 text-[11px]">Fewer decisions.</div>
               <div className="mt-0.5 truncate text-xs text-[var(--muted)]">
                 {accountEmail}
               </div>

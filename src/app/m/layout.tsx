@@ -2,7 +2,7 @@ import type { Metadata, Viewport } from "next";
 
 export const metadata: Metadata = {
   title: "Seer",
-  description: "Work smarter — mobile email copilot",
+  description: "Fewer decisions — mobile email copilot",
   appleWebApp: {
     capable: true,
     statusBarStyle: "default",

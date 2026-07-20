@@ -1,11 +1,21 @@
 import type { Metadata, Viewport } from "next";
-import { Roboto_Mono } from "next/font/google";
+import { Roboto_Mono, Source_Sans_3 } from "next/font/google";
 import localFont from "next/font/local";
 import { PwaRegister } from "@/components/PwaRegister";
 import "./globals.css";
 
-/* Proxima Nova — the brand typeface from the Seer brand guidelines (1.3) */
-const seerSans = localFont({
+/**
+ * Studio type: Klim Untitled Sans / Söhne when files land in src/fonts/klim/.
+ * Source Sans 3 is the reading stand-in; Proxima remains a local fallback.
+ */
+const seerUi = Source_Sans_3({
+  subsets: ["latin"],
+  weight: ["400", "500", "600", "700"],
+  variable: "--font-seer",
+  display: "swap",
+});
+
+const seerLegacy = localFont({
   src: [
     { path: "../fonts/ProximaNova-Light.otf", weight: "300", style: "normal" },
     { path: "../fonts/ProximaNova-Regular.otf", weight: "400", style: "normal" },
@@ -13,7 +23,7 @@ const seerSans = localFont({
     { path: "../fonts/ProximaNova-Semibold.otf", weight: "600", style: "normal" },
     { path: "../fonts/ProximaNova-Bold.otf", weight: "700", style: "normal" },
   ],
-  variable: "--font-seer",
+  variable: "--font-seer-legacy",
   display: "swap",
 });
 
@@ -25,7 +35,7 @@ const seerMono = Roboto_Mono({
 
 export const metadata: Metadata = {
   title: "Seer",
-  description: "Work smarter — fly through email with your copilot",
+  description: "Fewer decisions — fly through email with your copilot",
   applicationName: "Seer",
   icons: {
     icon: [
@@ -39,8 +49,8 @@ export const metadata: Metadata = {
 
 export const viewport: Viewport = {
   themeColor: [
-    { media: "(prefers-color-scheme: light)", color: "#12a493" },
-    { media: "(prefers-color-scheme: dark)", color: "#1e242b" },
+    { media: "(prefers-color-scheme: light)", color: "#0B7F74" },
+    { media: "(prefers-color-scheme: dark)", color: "#0B0D10" },
   ],
   width: "device-width",
   initialScale: 1,
@@ -54,7 +64,7 @@ export default function RootLayout({
   return (
     <html lang="en">
       <body
-        className={`${seerSans.variable} ${seerMono.variable} antialiased`}
+        className={`${seerUi.variable} ${seerLegacy.variable} ${seerMono.variable} antialiased`}
       >
         {children}
         <PwaRegister />

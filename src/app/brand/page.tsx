@@ -186,14 +186,11 @@ export default function BrandPage() {
             </div>
           ))}
 
-          <div className="seer-mark-card rounded-lg border border-[var(--s-hairline)] bg-white p-5">
+          <div className="seer-mark-card rounded-lg border border-[var(--s-hairline)] bg-white p-5 opacity-70">
             <div className="flex h-36 items-center justify-center rounded-md bg-[var(--s-ink)]">
-              <Image
-                src="/seer-mark.png"
-                alt="Legacy spectrum mark"
-                width={112}
-                height={112}
-              />
+              <p className="px-4 text-center text-xs text-white/70">
+                Legacy spectrum archived — nine hues, heritage only
+              </p>
             </div>
             <p
               className="mt-4 text-[15px] font-medium tracking-[-0.02em] text-[var(--s-ink)]"
@@ -202,8 +199,7 @@ export default function BrandPage() {
               Legacy · spectrum
             </p>
             <p className="mt-1.5 text-sm leading-relaxed text-[var(--s-ink-soft)]">
-              Nine hues. Beautiful history — too many decisions for the product
-              surface. Archive as heritage, not chrome.
+              Replaced in-app by Dual. Original PNG kept out of chrome.
             </p>
           </div>
         </div>

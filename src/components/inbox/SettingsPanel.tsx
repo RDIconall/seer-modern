@@ -307,7 +307,7 @@ export function SettingsPanel({
           ) : null}
 
           {data?.sessionError ? (
-            <div className="mb-3 rounded-lg bg-[#ff8f2d]/10 px-3 py-2 text-sm text-[#c96a10]">
+            <div className="mb-3 rounded-lg bg-[var(--accent)]/10 px-3 py-2 text-sm text-[var(--accent)]">
               Session issue with {data.active?.email ?? "your account"}.
               {data.active ? (
                 <button
