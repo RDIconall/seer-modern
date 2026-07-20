@@ -58,6 +58,36 @@ export function extractAsk(bodyText: string): string | null {
   if (!best) return null;
   const hit = best as { s: string; score: number };
   if (hit.score < 8) return null;
-  // Strip a leading conjunction/filler word for display
-  return hit.s.replace(/^(awesome|great|also|and|so|ok(ay)?)[,\s-]+/i, "").trim();
+  return requestCore(hit.s);
+}
+
+/**
+ * Cut through the pleasantries to the imperative core of the sentence:
+ * "Good morning and thank you for reaching out please provide your
+ * full name…" → "provide your full name…". The ask is the verb clause,
+ * not the greeting wrapped around it.
+ */
+function requestCore(sentence: string): string {
+  let s = sentence.trim();
+
+  // "…can/could/would/will you (please) <do X>" → "<do X>"
+  const canYou = s.match(
+    /\b(?:can|could|would|will|do) you\s+(?:please\s+)?(.{8,})/i,
+  );
+  if (canYou) {
+    s = canYou[1];
+  } else {
+    // "…please/kindly <do X>" → "<do X>"
+    const please = s.match(/\b(?:please|kindly)\s+(.{8,})/i);
+    if (please) s = please[1];
+  }
+
+  // Trailing courtesy that adds nothing
+  s = s
+    .replace(/\s*(as soon as possible|at your earliest convenience|when you (get|have) a (chance|moment|minute)|whenever works|if you can|thanks?( so much| in advance)?)[.!?,]*\s*$/i, "")
+    .replace(/^(awesome|great|also|and|so|ok(ay)?)[,\s-]+/i, "")
+    .replace(/[.!?,\s]+$/, "")
+    .trim();
+
+  return s.length >= 8 ? s : sentence.trim();
 }

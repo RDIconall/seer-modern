@@ -69,11 +69,11 @@ function impliedTask(
   subject: string,
   ask?: string,
 ): string {
-  // Only echo the ask when it's short enough to BE an action phrase —
-  // a truncated sentence is not a task. Long asks display separately.
+  // Echo the ask when it fits as an action phrase — never truncate;
+  // an ellipsised sentence is not a task, long asks display separately.
   if (
     ask &&
-    ask.length <= 48 &&
+    ask.length <= 80 &&
     (action === "respond" || action === "act_today" || action === "needs_review")
   ) {
     return `Do it: ${ask.replace(/[?.!]\s*$/, "")}`;
