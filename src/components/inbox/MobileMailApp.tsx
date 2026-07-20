@@ -302,7 +302,21 @@ export function MobileMailApp() {
                 </div>
               </div>
             </div>
-            {g ? <ReaderGuideBar guide={g} /> : null}
+            {g ? (
+              <ReaderGuideBar
+                guide={g}
+                onTeach={
+                  reader
+                    ? (a) =>
+                        teachSender(
+                          reader.fromEmail,
+                          a,
+                          readerId ?? undefined,
+                        )
+                    : undefined
+                }
+              />
+            ) : null}
             {reader ? (
               <AssistBar
                 reader={reader}
@@ -608,6 +622,7 @@ export function MobileMailApp() {
                     item={item}
                     showGuide={tab === "inbox" || Boolean(query)}
                     logicMode={logicMode}
+                    onTeach={(a) => teachSender(item.fromEmail, a, item.id)}
                     busy={busyId === item.id}
                     selectMode={selectMode}
                     checked={picked.has(item.id)}
@@ -698,6 +713,7 @@ export function MobileMailApp() {
                   item={item}
                   showGuide
                   logicMode={logicMode}
+                    onTeach={(a) => teachSender(item.fromEmail, a, item.id)}
                   busy={busyId === item.id}
                   onOpen={() => openReader(item.id)}
                   onArchive={() => runAction(item.id, "archive", item.fromEmail)}
@@ -746,6 +762,7 @@ export function MobileMailApp() {
                       item={item}
                       showGuide
                       logicMode={logicMode}
+                    onTeach={(a) => teachSender(item.fromEmail, a, item.id)}
                       busy={busyId === item.id}
                       onOpen={() => openReader(item.id)}
                       onArchive={() => runAction(item.id, "archive", item.fromEmail)}
@@ -989,6 +1006,7 @@ function SwipeMailRow({
   selectMode,
   checked,
   onToggleSelect,
+  onTeach,
 }: {
   item: EmailItem;
   onOpen: () => void;
@@ -1001,6 +1019,7 @@ function SwipeMailRow({
   selectMode?: boolean;
   checked?: boolean;
   onToggleSelect?: () => void;
+  onTeach?: (action: TriageAction) => void;
 }) {
   const g = item.guide;
   const startX = useRef<number | null>(null);
@@ -1083,7 +1102,7 @@ function SwipeMailRow({
             {item.snippet}
           </div>
           {showGuide && g ? (
-            <LogicExplain guide={g} expanded={logicMode} />
+            <LogicExplain guide={g} expanded={logicMode} onTeach={onTeach} />
           ) : null}
           {chips}
         </div>

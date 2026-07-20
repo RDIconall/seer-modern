@@ -11,7 +11,12 @@ import type {
   ViewTab,
 } from "@/lib/inbox/types";
 import type { ComposeDraft } from "@/components/inbox/ComposePanel";
-import { buildCardDeck, ensureFwd, ensureRe } from "@/lib/inbox/types";
+import {
+  buildCardDeck,
+  ensureFwd,
+  ensureRe,
+  primaryMailAction,
+} from "@/lib/inbox/types";
 
 /**
  * Superhuman-style speed:
@@ -543,16 +548,38 @@ export function useMailbox(initialTab: ViewTab = "inbox") {
     [closeReader, load, markActed, readerId, removeFromLists],
   );
 
+  /**
+   * Correct / train Seer: saves a taught override (top of the
+   * precedence chain — beats Gemini, labels, everything, forever) and
+   * applies the correction to THIS email right now. Teaching
+   * "unsubscribe" actually unsubscribes.
+   */
   const teachSender = useCallback(
-    async (fromEmail: string, action: TriageAction) => {
+    async (fromEmail: string, action: TriageAction, messageId?: string) => {
       await fetch("/api/reclassify", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ fromEmail, action }),
-      });
+      }).catch(() => {});
+
+      if (messageId && action === "unsubscribe") {
+        await unsubscribe(messageId, fromEmail);
+        return;
+      }
+      if (messageId) {
+        const apply = primaryMailAction(action);
+        if (apply === "trash" || apply === "archive") {
+          await runAction(messageId, apply, fromEmail);
+          setToast(
+            `Taught — "${fromEmail.split("@")[1] ?? fromEmail}" is always ${apply === "trash" ? "deleted" : "archived"} now`,
+          );
+          return;
+        }
+      }
+      setToast(`Taught — that sender is corrected from now on`);
       load();
     },
-    [load],
+    [load, runAction, unsubscribe],
   );
 
   // ---- Superhuman-style prefetch: bodies are ready before you tap ----

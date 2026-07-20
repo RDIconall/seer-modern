@@ -1,8 +1,60 @@
 "use client";
 
-import { ChevronDown } from "lucide-react";
+import { ChevronDown, GraduationCap } from "lucide-react";
 import { useState } from "react";
+import { ACTION_META, type TriageAction } from "@/lib/inbox/classify";
 import type { Guide } from "@/lib/inbox/types";
+
+/** The corrections a human actually makes, in one row of chips. */
+const TEACH_ACTIONS: TriageAction[] = [
+  "respond",
+  "act_today",
+  "read_and_archive",
+  "read_and_delete",
+  "delete_now",
+  "unsubscribe",
+  "glance_promo",
+];
+
+export type TeachHandler = (action: TriageAction) => void;
+
+/**
+ * "Wrong? Teach Seer" — one tap corrects the sender FOREVER (taught
+ * override, top of the precedence chain) and applies the fix to this
+ * email right now (unsubscribe actually unsubscribes).
+ */
+function TeachRow({
+  guide,
+  onTeach,
+}: {
+  guide: Guide;
+  onTeach: TeachHandler;
+}) {
+  return (
+    <div className="mt-1.5">
+      <div className="mb-1 flex items-center gap-1 text-[10px] font-semibold uppercase tracking-wide text-[var(--muted)]">
+        <GraduationCap className="h-3 w-3" />
+        Wrong? Teach Seer — always:
+      </div>
+      <div className="flex flex-wrap gap-1">
+        {TEACH_ACTIONS.filter((a) => a !== guide.action).map((a) => (
+          <button
+            key={a}
+            type="button"
+            onClick={(e) => {
+              e.stopPropagation();
+              onTeach(a);
+            }}
+            className="rounded px-1.5 py-0.5 text-[10px] font-semibold text-white"
+            style={{ backgroundColor: ACTION_META[a].color }}
+          >
+            {ACTION_META[a].short}
+          </button>
+        ))}
+      </div>
+    </div>
+  );
+}
 
 function sourceLabelFor(guide: Guide): string | null {
   return guide.source === "gemini"
@@ -20,9 +72,11 @@ function sourceLabelFor(guide: Guide): string | null {
 export function LogicExplain({
   guide,
   expanded,
+  onTeach,
 }: {
   guide: Guide;
   expanded?: boolean;
+  onTeach?: TeachHandler;
 }) {
   const d = guide.debug;
   const sourceLabel = sourceLabelFor(guide);
@@ -89,6 +143,7 @@ export function LogicExplain({
           </dd>
         </dl>
       ) : null}
+      {expanded && onTeach ? <TeachRow guide={guide} onTeach={onTeach} /> : null}
     </div>
   );
 }
@@ -97,7 +152,13 @@ export function LogicExplain({
  * Reader guide: one calm line — what to do — with the reasoning tucked
  * behind a "Why?" disclosure so the email is visible immediately.
  */
-export function ReaderGuideBar({ guide }: { guide: Guide }) {
+export function ReaderGuideBar({
+  guide,
+  onTeach,
+}: {
+  guide: Guide;
+  onTeach?: TeachHandler;
+}) {
   const [open, setOpen] = useState(false);
   const d = guide.debug;
   const sourceLabel = sourceLabelFor(guide);
@@ -170,6 +231,7 @@ export function ReaderGuideBar({ guide }: { guide: Guide }) {
               {d.meeting ? ` · ${d.meeting}` : ""}
             </p>
           ) : null}
+          {onTeach ? <TeachRow guide={guide} onTeach={onTeach} /> : null}
         </div>
       ) : null}
     </div>

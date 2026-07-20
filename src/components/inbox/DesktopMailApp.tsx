@@ -356,7 +356,12 @@ export function DesktopMailApp() {
               </div>
               {reader.guide ? (
                 <div className="px-4 pb-1">
-                  <ReaderGuideBar guide={reader.guide} />
+                  <ReaderGuideBar
+                    guide={reader.guide}
+                    onTeach={(a) =>
+                      teachSender(reader.fromEmail, a, readerId ?? undefined)
+                    }
+                  />
                 </div>
               ) : null}
               <div className="flex-1 overflow-auto px-5 py-4">
@@ -513,6 +518,7 @@ export function DesktopMailApp() {
                       busy={busyId === item.id}
                       showGuide={tab === "inbox" || Boolean(query)}
                       logicMode={logicMode}
+                    onTeach={(a) => teachSender(item.fromEmail, a, item.id)}
                       checked={picked.has(item.id)}
                       onToggleSelect={() => togglePick(item.id)}
                       onOpen={() => openReader(item.id)}
@@ -549,6 +555,7 @@ export function DesktopMailApp() {
                     busy={busyId === item.id}
                     showGuide
                     logicMode={logicMode}
+                    onTeach={(a) => teachSender(item.fromEmail, a, item.id)}
                     onOpen={() => openReader(item.id)}
                     onArchive={() => runAction(item.id, "archive", item.fromEmail)}
                     onDelete={() => runAction(item.id, "trash", item.fromEmail)}
@@ -598,6 +605,7 @@ export function DesktopMailApp() {
                         busy={busyId === item.id}
                         showGuide
                         logicMode={logicMode}
+                    onTeach={(a) => teachSender(item.fromEmail, a, item.id)}
                         onOpen={() => openReader(item.id)}
                         onArchive={() => runAction(item.id, "archive", item.fromEmail)}
                         onDelete={() => runAction(item.id, "trash", item.fromEmail)}
@@ -667,7 +675,16 @@ export function DesktopMailApp() {
                       </div>
                     </div>
                     {reader.guide ? (
-                      <ReaderGuideBar guide={reader.guide} />
+                      <ReaderGuideBar
+                        guide={reader.guide}
+                        onTeach={(a) =>
+                          teachSender(
+                            reader.fromEmail,
+                            a,
+                            readerId ?? undefined,
+                          )
+                        }
+                      />
                     ) : null}
                     <AssistBar
                       reader={reader}
@@ -726,6 +743,7 @@ function DesktopMailRow({
   chips,
   checked,
   onToggleSelect,
+  onTeach,
 }: {
   item: EmailItem;
   selected: boolean;
@@ -738,6 +756,7 @@ function DesktopMailRow({
   chips?: ReactNode;
   checked?: boolean;
   onToggleSelect?: () => void;
+  onTeach?: (action: TriageAction) => void;
 }) {
   const [hovered, setHovered] = useState(false);
   const g = item.guide;
@@ -798,7 +817,7 @@ function DesktopMailRow({
             {item.snippet}
           </div>
           {showGuide && g ? (
-            <LogicExplain guide={g} expanded={logicMode} />
+            <LogicExplain guide={g} expanded={logicMode} onTeach={onTeach} />
           ) : null}
           {chips}
         </div>
