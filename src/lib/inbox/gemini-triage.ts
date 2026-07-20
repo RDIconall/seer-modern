@@ -23,6 +23,7 @@ import {
   saveDecisions,
   type CachedDecision,
 } from "@/lib/store/decision-cache";
+import { kvGet, kvSet } from "@/lib/store/kv";
 import {
   profilePromptBlock,
   type UserProfile,
@@ -87,9 +88,11 @@ export type AssistantClassifyResult = ClassifyResult & {
 const RECORD_HINT =
   /(receipt|invoice|statement|confirm(?:ed|ation)|order\s*(?:#|no|number)|reference|booking|itinerary|ticket|policy|tax|W-?2|1099)/i;
 
+// Free-tier Gemini caps REQUESTS per day, not emails — bigger batches
+// stretch the same quota over more mail.
 const BATCH = Math.max(
   5,
-  Math.min(40, Number(process.env.SEER_GEMINI_BATCH_SIZE ?? "25") || 25),
+  Math.min(40, Number(process.env.SEER_GEMINI_BATCH_SIZE ?? "40") || 40),
 );
 
 /**
@@ -133,6 +136,36 @@ const MODEL_MEMO_TTL = 6 * 60 * 60 * 1000;
 /** Last Gemini failure (module-level) so routes/UI can surface health. */
 let lastGeminiError: string | null = null;
 let lastGeminiModel: string | null = null;
+
+/**
+ * Quota cooldown, shared across serverless instances via KV: when Google
+ * says "quota exceeded", every retry is a wasted request — stop calling
+ * until the window resets instead of failing on each load.
+ */
+const COOLDOWN_KEY = "gemini-cooldown";
+type Cooldown = { until: number; reason: string };
+
+function cooldownFromError(msg: string): Cooldown | null {
+  if (!/quota|rate limit|429|RESOURCE_EXHAUSTED/i.test(msg)) return null;
+  // Daily cap → sleep until the next Pacific midnight (Google's reset)
+  if (/PerDay|per day|daily/i.test(msg)) {
+    const now = new Date();
+    const reset = new Date(now);
+    reset.setUTCHours(7, 5, 0, 0); // 07:05 UTC ≈ just past midnight PT
+    if (reset <= now) reset.setUTCDate(reset.getUTCDate() + 1);
+    return {
+      until: reset.getTime(),
+      reason: "Daily free-tier quota used — resumes after midnight PT",
+    };
+  }
+  // Per-minute cap → honor Google's suggested retry delay when present
+  const m = msg.match(/retry(?:Delay|\s+in)["\s:]*([\d.]+)\s*s/i);
+  const seconds = m ? Math.ceil(parseFloat(m[1])) + 5 : 10 * 60;
+  return {
+    until: Date.now() + seconds * 1000,
+    reason: "Rate limit hit — cooling down",
+  };
+}
 
 export function getAssistantStatus(): {
   model: string | null;
@@ -385,7 +418,7 @@ async function geminiBatch(
   const { output } = await generateText({
     model,
     temperature: 0,
-    maxRetries: 1, // don't burn rate-limited quota on rapid retries
+    maxRetries: 0, // a retry against an exhausted quota is a wasted request
     output: Output.object({ schema: batchSchema }),
     system,
     prompt: JSON.stringify(payload),
@@ -632,28 +665,45 @@ export async function classifyInboxWithAssistant(
     isGeminiConfigured() &&
     extras?.geminiEnabled !== false
   ) {
-    try {
-      const limit = Math.min(
-        forGemini.length,
-        MAX_BATCHES_PER_LOAD * BATCH,
-      );
-      for (let i = 0; i < limit; i += BATCH) {
-        const chunk = forGemini.slice(i, i + BATCH);
-        const mapped = await geminiBatch(chunk, history, extras);
-        for (const [id, r] of mapped) {
-          results.set(id, r);
-          toSave.set(id, toCached(r));
+    const cooldown = await kvGet<Cooldown>(COOLDOWN_KEY).catch(() => null);
+    if (cooldown && cooldown.until > Date.now()) {
+      const mins = Math.ceil((cooldown.until - Date.now()) / 60000);
+      lastGeminiError = `${cooldown.reason} (~${mins}m). Decisions fall back to rules meanwhile.`;
+    } else {
+      try {
+        const limit = Math.min(
+          forGemini.length,
+          MAX_BATCHES_PER_LOAD * BATCH,
+        );
+        for (let i = 0; i < limit; i += BATCH) {
+          const chunk = forGemini.slice(i, i + BATCH);
+          const mapped = await geminiBatch(chunk, history, extras);
+          for (const [id, r] of mapped) {
+            results.set(id, r);
+            toSave.set(id, toCached(r));
+          }
         }
+      } catch (e) {
+        const msg = e instanceof Error ? e.message : String(e);
+        lastGeminiError = msg.slice(0, 300);
+        // A dead model id may be memoized — forget it so the next load
+        // rediscovers instead of failing forever.
+        if (/no longer available|not found|NOT_FOUND/i.test(msg)) {
+          modelMemo = null;
+        }
+        // Quota exhausted → stop calling until the window resets, so
+        // already-classified mail keeps working and no requests burn.
+        const cd = cooldownFromError(msg);
+        if (cd) {
+          await kvSet(COOLDOWN_KEY, cd).catch(() => {});
+          const mins = Math.ceil((cd.until - Date.now()) / 60000);
+          lastGeminiError = `${cd.reason} (~${mins}m). Decisions fall back to rules meanwhile.`;
+        }
+        console.error(
+          "[seer] Gemini triage failed, falling back to rules:",
+          msg,
+        );
       }
-    } catch (e) {
-      const msg = e instanceof Error ? e.message : String(e);
-      lastGeminiError = msg.slice(0, 300);
-      // A dead model id may be memoized — forget it so the next load
-      // rediscovers instead of failing forever.
-      if (/no longer available|not found|NOT_FOUND/i.test(msg)) {
-        modelMemo = null;
-      }
-      console.error("[seer] Gemini triage failed, falling back to rules:", msg);
     }
   }
 
