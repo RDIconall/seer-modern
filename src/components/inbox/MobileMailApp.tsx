@@ -4,7 +4,6 @@ import { sanitizeEmailHtml } from "@/lib/inbox/sanitize";
 import {
   Archive,
   Check,
-  ChevronDown,
   MailOpen,
   ChevronLeft,
   Forward,
@@ -33,14 +32,14 @@ import {
 } from "react";
 import { useSearchParams } from "next/navigation";
 import { logoutMobile } from "@/app/actions";
-import { ACTION_META, type TriageAction } from "@/lib/inbox/classify";
+import { type TriageAction } from "@/lib/inbox/classify";
 import { CardStack } from "@/components/inbox/CardStack";
 import { ComposePanel } from "@/components/inbox/ComposePanel";
 import { DelegateSheet } from "@/components/inbox/DelegateSheet";
 import { PullToRefresh } from "@/components/inbox/PullToRefresh";
 import { UnsubAgentSheet } from "@/components/inbox/UnsubAgentSheet";
 import { VipSheet } from "@/components/inbox/VipSheet";
-import { WaitingSection } from "@/components/inbox/WaitingSection";
+import { BriefView } from "@/components/inbox/BriefView";
 import { ScheduleSheet } from "@/components/inbox/ScheduleSheet";
 import { AssistBar } from "@/components/inbox/AssistBar";
 import {
@@ -54,20 +53,9 @@ import {
   buildDeckCards,
   ensureRe,
   formatMailTime,
-  groupByCategory,
-  groupBySender,
-  primaryMailAction,
   type EmailItem,
   type ViewTab,
 } from "@/lib/inbox/types";
-
-const QUICK_ACTIONS: TriageAction[] = [
-  "respond",
-  "read_and_archive",
-  "delete_now",
-  "unsubscribe",
-  "act_today",
-];
 
 const FOLDER_LABEL: Record<ViewTab, string> = {
   inbox: "Inbox",
@@ -139,31 +127,6 @@ export function MobileMailApp() {
   const searchRef = useRef<HTMLInputElement>(null);
   const deckCards = useMemo(() => buildDeckCards(triage), [triage]);
 
-  // Collapsible triage sections (persisted)
-  const [collapsed, setCollapsed] = useState<Set<string>>(() => {
-    if (typeof window === "undefined") return new Set();
-    try {
-      return new Set(
-        JSON.parse(window.localStorage.getItem("seer:collapsed") ?? "[]"),
-      );
-    } catch {
-      return new Set();
-    }
-  });
-  const toggleSection = (key: string) => {
-    setCollapsed((prev) => {
-      const next = new Set(prev);
-      if (next.has(key)) next.delete(key);
-      else next.add(key);
-      try {
-        window.localStorage.setItem("seer:collapsed", JSON.stringify([...next]));
-      } catch {
-        /* ignore */
-      }
-      return next;
-    });
-  };
-
   // Density: compact rows fit ~2x more triage on screen (persisted)
   const [dense, setDense] = useState<boolean>(() => {
     if (typeof window === "undefined") return false;
@@ -182,17 +145,6 @@ export function MobileMailApp() {
 
   const [unsubAgentOpen, setUnsubAgentOpen] = useState(false);
   const [vipsOpen, setVipsOpen] = useState(false);
-
-  // Sender groups the user has expanded
-  const [openGroups, setOpenGroups] = useState<Set<string>>(new Set());
-  const toggleGroup = (key: string) => {
-    setOpenGroups((prev) => {
-      const next = new Set(prev);
-      if (next.has(key)) next.delete(key);
-      else next.add(key);
-      return next;
-    });
-  };
 
   // Multi-select in mail lists
   const [selectMode, setSelectMode] = useState(false);
@@ -811,147 +763,26 @@ export function MobileMailApp() {
           </div>
         ) : null}
 
-        {tab === "triage" && triage ? (
-          <WaitingSection nudge={nudge} nudging={nudging} />
-        ) : null}
-
         {tab === "triage" && triage && triage.count === 0 ? (
           <EmptyState text="Nothing to triage" />
         ) : null}
 
-        {tab === "triage" && triage && triage.needsReview.length > 0 ? (
-          <section>
-            <SectionHeader
-              label={`Needs your call · ${triage.needsReview.length}`}
-              collapsed={collapsed.has("needsReview")}
-              onToggle={() => toggleSection("needsReview")}
-            />
-            <ul className={collapsed.has("needsReview") ? "hidden" : ""}>
-              {triage.needsReview.map((item) => (
-                <SwipeMailRow
-                  key={item.id}
-                  item={item}
-                  showGuide
-                  logicMode={logicMode}
-                    onTeach={(a) => teachSender(item.fromEmail, a, item.id)}
-                  busy={busyId === item.id}
-                  onOpen={() => openReader(item.id)}
-                  onArchive={() => runAction(item.id, "archive", item.fromEmail)}
-                  onDelete={() => runAction(item.id, "trash", item.fromEmail)}
-                  chips={
-                    <div className="mt-1.5 flex flex-wrap gap-1">
-                      {QUICK_ACTIONS.map((a) => (
-                        <button
-                          key={a}
-                          type="button"
-                          onClick={(e) => {
-                            e.stopPropagation();
-                            teachSender(item.fromEmail, a);
-                          }}
-                          className="rounded px-1.5 py-0.5 text-[10px] font-medium text-white"
-                          style={{ backgroundColor: ACTION_META[a].color }}
-                        >
-                          {ACTION_META[a].short}
-                        </button>
-                      ))}
-                    </div>
-                  }
-                />
-              ))}
-            </ul>
-          </section>
+        {tab === "triage" && triage && triage.count > 0 ? (
+          <BriefView
+            triage={triage}
+            h={{
+              openReader,
+              runAction,
+              bulkSection,
+              unsubscribe,
+              teachSender,
+              nudge,
+              nudging,
+              logicMode,
+              busyId,
+            }}
+          />
         ) : null}
-
-        {tab === "triage"
-          ? triage?.sections.map((section) => (
-              <section key={section.action}>
-                <SectionHeader
-                  label={`${section.label} · ${section.items.length}`}
-                  color={section.color}
-                  actionLabel={section.bulkLabel}
-                  onAction={() =>
-                    bulkSection(section, primaryMailAction(section.action))
-                  }
-                  collapsed={collapsed.has(section.action)}
-                  onToggle={() => toggleSection(section.action)}
-                />
-                <ul className={collapsed.has(section.action) ? "hidden" : ""}>
-                  {groupByCategory(section.items).flatMap((bucket, _i, all) => [
-                    ...(all.length > 1
-                      ? [
-                          <li
-                            key={`cat:${section.action}:${bucket.category}`}
-                            className="flex items-baseline gap-1.5 bg-[var(--card)] px-4 pb-1 pt-2 text-[11px] font-bold uppercase tracking-wide text-[var(--muted)]"
-                          >
-                            {bucket.category}
-                            <span className="font-medium">
-                              · {bucket.items.length}
-                            </span>
-                          </li>,
-                        ]
-                      : []),
-                    ...groupBySender(bucket.items).flatMap((entry) => {
-                    if (entry.kind === "group") {
-                      const open = openGroups.has(entry.key);
-                      return [
-                        <SenderGroupRow
-                          key={entry.key}
-                          fromName={entry.fromName}
-                          fromEmail={entry.fromEmail}
-                          count={entry.items.length}
-                          latest={entry.items[0]}
-                          color={section.color}
-                          actionLabel={section.bulkLabel}
-                          open={open}
-                          onToggle={() => toggleGroup(entry.key)}
-                          onActAll={() =>
-                            runBulk(
-                              entry.items.map((i) => ({
-                                id: i.id,
-                                fromEmail: i.fromEmail,
-                              })),
-                              primaryMailAction(section.action),
-                            )
-                          }
-                        />,
-                        ...(open ? entry.items : []).map((item) => (
-                          <SwipeMailRow
-                            key={item.id}
-                            item={item}
-                            dense={dense}
-                            indented
-                            showGuide
-                            logicMode={logicMode}
-                            onTeach={(a) => teachSender(item.fromEmail, a, item.id)}
-                            busy={busyId === item.id}
-                            onOpen={() => openReader(item.id)}
-                            onArchive={() => runAction(item.id, "archive", item.fromEmail)}
-                            onDelete={() => runAction(item.id, "trash", item.fromEmail)}
-                          />
-                        )),
-                      ];
-                    }
-                    const item = entry.item;
-                    return [
-                      <SwipeMailRow
-                        key={item.id}
-                        item={item}
-                        dense={dense}
-                        showGuide
-                        logicMode={logicMode}
-                        onTeach={(a) => teachSender(item.fromEmail, a, item.id)}
-                        busy={busyId === item.id}
-                        onOpen={() => openReader(item.id)}
-                        onArchive={() => runAction(item.id, "archive", item.fromEmail)}
-                        onDelete={() => runAction(item.id, "trash", item.fromEmail)}
-                      />,
-                    ];
-                    }),
-                  ])}
-                </ul>
-              </section>
-            ))
-          : null}
       </PullToRefresh>
 
       <nav className="fixed bottom-0 left-0 right-0 z-20 mx-auto max-w-lg border-t border-[var(--border)] bg-[var(--bg)] bottom-nav">
@@ -1106,59 +937,6 @@ function FooterAction({
   );
 }
 
-function SectionHeader({
-  label,
-  color,
-  actionLabel,
-  onAction,
-  collapsed,
-  onToggle,
-}: {
-  label: string;
-  color?: string;
-  actionLabel?: string;
-  onAction?: () => void;
-  collapsed?: boolean;
-  onToggle?: () => void;
-}) {
-  return (
-    <div className="sticky top-0 z-[1] flex items-center justify-between border-b border-[var(--border)] bg-[var(--brand-soft)] px-4 py-2.5">
-      <button
-        type="button"
-        onClick={onToggle}
-        disabled={!onToggle}
-        className="flex min-w-0 flex-1 items-center gap-1.5 text-left text-[13px] font-semibold"
-        style={{ color: color ?? "var(--fg-strong)" }}
-      >
-        {color ? (
-          <span
-            className="h-1.5 w-1.5 rounded-full"
-            style={{ backgroundColor: color }}
-            aria-hidden
-          />
-        ) : null}
-        <span className="truncate">{label}</span>
-        {onToggle ? (
-          <ChevronDown
-            className={`h-4 w-4 shrink-0 opacity-60 transition-transform ${
-              collapsed ? "-rotate-90" : ""
-            }`}
-          />
-        ) : null}
-      </button>
-      {actionLabel && onAction && !collapsed ? (
-        <button
-          type="button"
-          onClick={onAction}
-          className="shrink-0 text-[12px] font-semibold text-[var(--primary)]"
-        >
-          {actionLabel}
-        </button>
-      ) : null}
-    </div>
-  );
-}
-
 function EmptyState({ text }: { text: string }) {
   return (
     <p className="py-20 text-center text-sm text-[var(--muted)]">{text}</p>
@@ -1170,75 +948,6 @@ function Toast({ message }: { message: string }) {
     <div className="fixed bottom-[calc(5.5rem+var(--safe-bottom))] left-1/2 z-50 max-w-[90%] -translate-x-1/2 rounded bg-[#1e242b] px-4 py-2.5 text-xs text-white shadow-lg">
       {message}
     </div>
-  );
-}
-
-/** Same-sender pile: one row, one tap clears the lot. */
-function SenderGroupRow({
-  fromName,
-  fromEmail,
-  count,
-  latest,
-  color,
-  actionLabel,
-  open,
-  onToggle,
-  onActAll,
-}: {
-  fromName: string;
-  fromEmail: string;
-  count: number;
-  latest: EmailItem;
-  color: string;
-  actionLabel: string;
-  open: boolean;
-  onToggle: () => void;
-  onActAll: () => void;
-}) {
-  return (
-    <li className="border-b border-[var(--border)]">
-      <div className="flex items-center gap-2.5 px-4 py-2.5">
-        <button
-          type="button"
-          onClick={onToggle}
-          className="flex min-w-0 flex-1 items-center gap-2.5 text-left"
-        >
-          <span
-            className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full text-[13px] font-bold text-white"
-            style={{ backgroundColor: color }}
-          >
-            {(fromName || fromEmail)[0]?.toUpperCase()}
-          </span>
-          <span className="min-w-0 flex-1">
-            <span className="flex items-baseline gap-1.5">
-              <span className="truncate text-[14px] font-semibold text-[var(--fg-strong)]">
-                {fromName || fromEmail}
-              </span>
-              <span
-                className="shrink-0 rounded-full px-1.5 text-[11px] font-bold text-white"
-                style={{ backgroundColor: color }}
-              >
-                {count}
-              </span>
-            </span>
-            <span className="block truncate text-[12px] text-[var(--muted)]">
-              {latest.subject}
-            </span>
-          </span>
-          <ChevronDown
-            className={`h-4 w-4 shrink-0 text-[var(--muted)] transition-transform ${open ? "rotate-180" : ""}`}
-          />
-        </button>
-        <button
-          type="button"
-          onClick={onActAll}
-          className="shrink-0 rounded-full px-2.5 py-1.5 text-[11px] font-bold text-white"
-          style={{ backgroundColor: color }}
-        >
-          {actionLabel} {count}
-        </button>
-      </div>
-    </li>
   );
 }
 

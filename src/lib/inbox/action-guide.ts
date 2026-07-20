@@ -29,6 +29,8 @@ export type ActionGuide = {
   task?: string;
   /** Life bucket ("Old trip", "Groceries — delivered", "Money & bills") */
   category?: string;
+  /** 0 noise · 1 marginal · 2 relevant · 3 critical */
+  importance?: number;
 };
 
 /** Rules-decided mail gets a coarse but honest life bucket. */
@@ -154,6 +156,7 @@ export function buildActionGuideQuick(
     instruction?: string;
     task?: string;
     category?: string;
+    importance?: number;
   },
   subject: string,
   fromName?: string,
@@ -191,6 +194,7 @@ export function buildActionGuideQuick(
     category:
       classification.category?.trim() ||
       categoryFor(classification.debug?.ruleId, classification.action),
+    importance: classification.importance,
   };
 }
 
@@ -200,6 +204,7 @@ export async function buildActionGuideDetailed(
     instruction?: string;
     task?: string;
     category?: string;
+    importance?: number;
   },
   subject: string,
   snippet: string,
@@ -258,5 +263,6 @@ export async function buildActionGuideDetailed(
     category:
       classification.category?.trim() ||
       categoryFor(classification.debug?.ruleId, classification.action),
+    importance: classification.importance,
   };
 }

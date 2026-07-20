@@ -4,7 +4,6 @@ import { sanitizeEmailHtml } from "@/lib/inbox/sanitize";
 import {
   Archive,
   Check,
-  ChevronDown,
   Forward,
   Inbox,
   Layers,
@@ -28,7 +27,7 @@ import { DelegateSheet } from "@/components/inbox/DelegateSheet";
 import { ScheduleSheet } from "@/components/inbox/ScheduleSheet";
 import { UnsubAgentSheet } from "@/components/inbox/UnsubAgentSheet";
 import { VipSheet } from "@/components/inbox/VipSheet";
-import { WaitingSection } from "@/components/inbox/WaitingSection";
+import { BriefView } from "@/components/inbox/BriefView";
 import { AssistBar } from "@/components/inbox/AssistBar";
 import {
   LogicExplain,
@@ -36,27 +35,16 @@ import {
   ReaderGuideBar,
 } from "@/components/inbox/LogicExplain";
 import { SettingsPanel } from "@/components/inbox/SettingsPanel";
-import { ACTION_META, type TriageAction } from "@/lib/inbox/classify";
+import { type TriageAction } from "@/lib/inbox/classify";
 import { useMailbox } from "@/lib/inbox/use-mailbox";
 import {
   buildDeckCards,
-  groupByCategory,
-  groupBySender,
   ensureRe,
   formatMailTime,
   mailInitial,
-  primaryMailAction,
   type EmailItem,
   type ViewTab,
 } from "@/lib/inbox/types";
-
-const QUICK_ACTIONS: TriageAction[] = [
-  "respond",
-  "read_and_archive",
-  "delete_now",
-  "unsubscribe",
-  "act_today",
-];
 
 const FOLDER_LABEL: Record<ViewTab, string> = {
   inbox: "Inbox",
@@ -131,31 +119,6 @@ export function DesktopMailApp() {
   const [settingsOpen, setSettingsOpen] = useState(false);
   const [logicMode, setLogicMode] = useState(false);
 
-  // Collapsible triage sections (persisted)
-  const [collapsed, setCollapsed] = useState<Set<string>>(() => {
-    if (typeof window === "undefined") return new Set();
-    try {
-      return new Set(
-        JSON.parse(window.localStorage.getItem("seer:collapsed") ?? "[]"),
-      );
-    } catch {
-      return new Set();
-    }
-  });
-  const toggleSection = (key: string) => {
-    setCollapsed((prev) => {
-      const next = new Set(prev);
-      if (next.has(key)) next.delete(key);
-      else next.add(key);
-      try {
-        window.localStorage.setItem("seer:collapsed", JSON.stringify([...next]));
-      } catch {
-        /* ignore */
-      }
-      return next;
-    });
-  };
-
   // Density: compact rows (persisted, shared key with mobile)
   const [dense, setDense] = useState<boolean>(() => {
     if (typeof window === "undefined") return false;
@@ -174,17 +137,6 @@ export function DesktopMailApp() {
 
   const [unsubAgentOpen, setUnsubAgentOpen] = useState(false);
   const [vipsOpen, setVipsOpen] = useState(false);
-
-  // Sender groups the user has expanded
-  const [openGroups, setOpenGroups] = useState<Set<string>>(new Set());
-  const toggleGroup = (key: string) => {
-    setOpenGroups((prev) => {
-      const next = new Set(prev);
-      if (next.has(key)) next.delete(key);
-      else next.add(key);
-      return next;
-    });
-  };
 
   // Multi-select in mail lists
   const [picked, setPicked] = useState<Set<string>>(new Set());
@@ -627,149 +579,26 @@ export function DesktopMailApp() {
             )
           ) : null}
 
-          {tab === "triage" && triage ? (
-            <WaitingSection nudge={nudge} nudging={nudging} />
-          ) : null}
-
           {tab === "triage" && triage && triage.count === 0 ? (
             <EmptyList text="Nothing to triage" />
           ) : null}
 
-          {tab === "triage" && triage && triage.needsReview.length > 0 ? (
-            <section>
-              <SectionHeader
-                label={`Needs your call · ${triage.needsReview.length}`}
-                collapsed={collapsed.has("needsReview")}
-                onToggle={() => toggleSection("needsReview")}
-              />
-              <ul className={collapsed.has("needsReview") ? "hidden" : ""}>
-                {triage.needsReview.map((item) => (
-                  <DesktopMailRow
-                    key={item.id}
-                    item={item}
-                    selected={readerId === item.id}
-                    busy={busyId === item.id}
-                    showGuide
-                    logicMode={logicMode}
-                    onTeach={(a) => teachSender(item.fromEmail, a, item.id)}
-                    onOpen={() => openReader(item.id)}
-                    onArchive={() => runAction(item.id, "archive", item.fromEmail)}
-                    onDelete={() => runAction(item.id, "trash", item.fromEmail)}
-                    chips={
-                      <div className="mt-1 flex flex-wrap gap-1">
-                        {QUICK_ACTIONS.map((a) => (
-                          <button
-                            key={a}
-                            type="button"
-                            onClick={(e) => {
-                              e.stopPropagation();
-                              teachSender(item.fromEmail, a);
-                            }}
-                            className="rounded px-1.5 py-0.5 text-[10px] font-medium text-white"
-                            style={{ backgroundColor: ACTION_META[a].color }}
-                          >
-                            {ACTION_META[a].short}
-                          </button>
-                        ))}
-                      </div>
-                    }
-                  />
-                ))}
-              </ul>
-            </section>
+          {tab === "triage" && triage && triage.count > 0 ? (
+            <BriefView
+              triage={triage}
+              h={{
+                openReader,
+                runAction,
+                bulkSection,
+                unsubscribe,
+                teachSender,
+                nudge,
+                nudging,
+                logicMode,
+                busyId,
+              }}
+            />
           ) : null}
-
-          {tab === "triage"
-            ? triage?.sections.map((section) => (
-                <section key={section.action}>
-                  <SectionHeader
-                    label={`${section.label} · ${section.items.length}`}
-                    color={section.color}
-                    actionLabel={section.bulkLabel}
-                    onAction={() =>
-                      bulkSection(section, primaryMailAction(section.action))
-                    }
-                    collapsed={collapsed.has(section.action)}
-                    onToggle={() => toggleSection(section.action)}
-                  />
-                  <ul className={collapsed.has(section.action) ? "hidden" : ""}>
-                    {groupByCategory(section.items).flatMap((bucket, _i, all) => [
-                      ...(all.length > 1
-                        ? [
-                            <li
-                              key={`cat:${section.action}:${bucket.category}`}
-                              className="flex items-baseline gap-1.5 bg-[var(--card)] px-3 pb-0.5 pt-1.5 text-[10px] font-bold uppercase tracking-wide text-[var(--muted)]"
-                            >
-                              {bucket.category}
-                              <span className="font-medium">
-                                · {bucket.items.length}
-                              </span>
-                            </li>,
-                          ]
-                        : []),
-                      ...groupBySender(bucket.items).flatMap((entry) => {
-                      if (entry.kind === "group") {
-                        const open = openGroups.has(entry.key);
-                        return [
-                          <DesktopGroupRow
-                            key={entry.key}
-                            fromName={entry.fromName}
-                            fromEmail={entry.fromEmail}
-                            count={entry.items.length}
-                            latest={entry.items[0]}
-                            color={section.color}
-                            actionLabel={section.bulkLabel}
-                            open={open}
-                            onToggle={() => toggleGroup(entry.key)}
-                            onActAll={() =>
-                              runBulk(
-                                entry.items.map((i) => ({
-                                  id: i.id,
-                                  fromEmail: i.fromEmail,
-                                })),
-                                primaryMailAction(section.action),
-                              )
-                            }
-                          />,
-                          ...(open ? entry.items : []).map((item) => (
-                            <DesktopMailRow
-                              key={item.id}
-                              item={item}
-                              dense={dense}
-                              selected={readerId === item.id}
-                              busy={busyId === item.id}
-                              showGuide
-                              logicMode={logicMode}
-                              onTeach={(a) => teachSender(item.fromEmail, a, item.id)}
-                              onOpen={() => openReader(item.id)}
-                              onArchive={() => runAction(item.id, "archive", item.fromEmail)}
-                              onDelete={() => runAction(item.id, "trash", item.fromEmail)}
-                            />
-                          )),
-                        ];
-                      }
-                      const item = entry.item;
-                      return [
-                        <DesktopMailRow
-                          key={item.id}
-                          item={item}
-                          dense={dense}
-                          selected={readerId === item.id}
-                          busy={busyId === item.id}
-                          showGuide
-                          logicMode={logicMode}
-                          onTeach={(a) => teachSender(item.fromEmail, a, item.id)}
-                          onOpen={() => openReader(item.id)}
-                          onArchive={() => runAction(item.id, "archive", item.fromEmail)}
-                          onDelete={() => runAction(item.id, "trash", item.fromEmail)}
-                        />,
-                      ];
-                      }),
-                    ])}
-                  </ul>
-                </section>
-              ))
-            : null}
         </div>
       </section>
 
@@ -894,75 +723,6 @@ export function DesktopMailApp() {
 
       {toast ? <Toast message={toast} /> : null}
     </div>
-  );
-}
-
-/** Same-sender pile: one row, one click clears the lot. */
-function DesktopGroupRow({
-  fromName,
-  fromEmail,
-  count,
-  latest,
-  color,
-  actionLabel,
-  open,
-  onToggle,
-  onActAll,
-}: {
-  fromName: string;
-  fromEmail: string;
-  count: number;
-  latest: EmailItem;
-  color: string;
-  actionLabel: string;
-  open: boolean;
-  onToggle: () => void;
-  onActAll: () => void;
-}) {
-  return (
-    <li className="border-b border-[var(--border)]">
-      <div className="flex items-center gap-2 px-3 py-2">
-        <button
-          type="button"
-          onClick={onToggle}
-          className="flex min-w-0 flex-1 items-center gap-2 text-left"
-        >
-          <span
-            className="flex h-6 w-6 shrink-0 items-center justify-center rounded-full text-[11px] font-bold text-white"
-            style={{ backgroundColor: color }}
-          >
-            {(fromName || fromEmail)[0]?.toUpperCase()}
-          </span>
-          <span className="min-w-0 flex-1">
-            <span className="flex items-baseline gap-1.5">
-              <span className="truncate text-[12px] font-semibold text-[var(--fg-strong)]">
-                {fromName || fromEmail}
-              </span>
-              <span
-                className="shrink-0 rounded-full px-1.5 text-[10px] font-bold text-white"
-                style={{ backgroundColor: color }}
-              >
-                {count}
-              </span>
-            </span>
-            <span className="block truncate text-[11px] text-[var(--muted)]">
-              {latest.subject}
-            </span>
-          </span>
-          <ChevronDown
-            className={`h-3.5 w-3.5 shrink-0 text-[var(--muted)] transition-transform ${open ? "rotate-180" : ""}`}
-          />
-        </button>
-        <button
-          type="button"
-          onClick={onActAll}
-          className="shrink-0 rounded-full px-2 py-1 text-[10px] font-bold text-white"
-          style={{ backgroundColor: color }}
-        >
-          {actionLabel} {count}
-        </button>
-      </div>
-    </li>
   );
 }
 
@@ -1109,59 +869,6 @@ function DesktopMailRow({
         </div>
       ) : null}
     </li>
-  );
-}
-
-function SectionHeader({
-  label,
-  color,
-  actionLabel,
-  onAction,
-  collapsed,
-  onToggle,
-}: {
-  label: string;
-  color?: string;
-  actionLabel?: string;
-  onAction?: () => void;
-  collapsed?: boolean;
-  onToggle?: () => void;
-}) {
-  return (
-    <div className="sticky top-0 z-10 flex items-center justify-between border-b border-[var(--border)] bg-[var(--brand-soft)] px-3 py-2">
-      <button
-        type="button"
-        onClick={onToggle}
-        disabled={!onToggle}
-        className="flex min-w-0 flex-1 items-center gap-1.5 text-left text-[12px] font-semibold"
-        style={{ color: color ?? "var(--fg-strong)" }}
-      >
-        {color ? (
-          <span
-            className="h-1.5 w-1.5 rounded-full"
-            style={{ backgroundColor: color }}
-            aria-hidden
-          />
-        ) : null}
-        <span className="truncate">{label}</span>
-        {onToggle ? (
-          <ChevronDown
-            className={`h-3.5 w-3.5 shrink-0 opacity-60 transition-transform ${
-              collapsed ? "-rotate-90" : ""
-            }`}
-          />
-        ) : null}
-      </button>
-      {actionLabel && onAction && !collapsed ? (
-        <button
-          type="button"
-          onClick={onAction}
-          className="shrink-0 text-[11px] font-semibold text-[var(--primary)] hover:underline"
-        >
-          {actionLabel}
-        </button>
-      ) : null}
-    </div>
   );
 }
 

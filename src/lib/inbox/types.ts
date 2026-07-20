@@ -22,6 +22,8 @@ export type Guide = {
   task?: string;
   /** Life bucket ("Old trip", "Groceries — delivered", "Money & bills") */
   category?: string;
+  /** 0 noise · 1 marginal · 2 relevant · 3 critical */
+  importance?: number;
 };
 
 export type EmailItem = {
