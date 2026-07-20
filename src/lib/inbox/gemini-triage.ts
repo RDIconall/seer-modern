@@ -1,5 +1,6 @@
 import {
   ACTION_META,
+  needsYouEscape,
   type ClassifyDebug,
   type ClassifyExtras,
   type ClassifyResult,
@@ -38,7 +39,7 @@ import { z } from "zod";
  * Bump when the prompt/actions change so stale cached decisions
  * are ignored and re-classified.
  */
-export const PROMPT_VERSION = 11;
+export const PROMPT_VERSION = 12;
 
 const ACTIONS = [
   "respond",
@@ -394,6 +395,7 @@ USE WORLD KNOWLEDGE of the company behind the email. Airlines = travel. Banks/br
 THE RAZOR — apply to every email: does the user personally have to DO anything? PASSIVE "it happened" mail needs nothing: package shipped/arriving/delivered, order confirmed, ride completed, build passed, PR merged, someone starred/liked/followed, weekly digest, statement ready → delete_now or read_and_delete. The event happens whether they read it or not. NEEDS-THEM mail is the exception: failed delivery/signature/pickup/customs, build FAILED, review requested, mentioned/assigned, security alert, payment failed/fraud/overdue, RSVP/invitation → act_today or respond. Records with future lookup value (receipts, invoices, confirmations with reference numbers) → read_and_archive, never delete.
 DELETE BEATS ARCHIVE: when torn between read_and_archive and read_and_delete, pick delete — the user keeps records, not reading material. Newsletters, product updates, community digests, "your weekly summary", social/forum notifications: read_and_delete even from recognizable brands.
 AUTOPAY: when the email itself says autopay/automatic payment is on, "your bill is ready" needs NOTHING — the bill pays itself; read_and_archive the statement as a record. A bill is act_today ONLY on failed/declined payment, past due, or a suspicious amount. Handling home bills does not mean acting on bills that handle themselves.
+SENDER HISTORY NEVER MUTES RISK: judge every message's own intent before applying the sender's pattern. Even from a sender the user always deletes, "payment failed", "fraud", "past due", "signature required", "security alert", "account locked" is act_today — the 347th autopay email that says autopay FAILED is the one that matters.
 URGENCY DECAYS: act_today means today — judge it against age. A flight check-in, boarding pass, verification code, delivery window, event reminder, or "expires tonight" that is days old is DEAD: the moment passed, delete_now. Only obligations that persist stay urgent as they age: unpaid bill, unsigned document, unanswered person, overdue anything. When age is high, ask "is this STILL actionable, or is it a fossil of an urgency that expired?"
 FAKE URGENCY is the #1 trick: "expires today", "last chance", "action required", "final notice", "reminder:" from bulk/noreply/marketing senders is promo bait — delete_now or glance_promo, NEVER act_today. Urgency is real only from contacts, engaged/known senders, or genuine transactional mail (2FA codes, password resets, security alerts, boarding passes, deliveries, appointments).
 Cold noreply marketing → delete_now or unsubscribe.
@@ -661,8 +663,22 @@ export async function classifyInboxWithAssistant(
       continue;
     }
 
+    // INTENT pierces sender history: a sender you taught/learned to
+    // dismiss can still send the ONE message that needs you — the 347th
+    // autopay email that says "autopay FAILED". Strict needs-you
+    // signals (payment failed, fraud, signature required, security
+    // alert, 2FA) bypass the mute and demand action.
+    const DISMISSIVE = new Set<TriageAction>([
+      "delete_now",
+      "unsubscribe",
+      "read_and_delete",
+      "glance_promo",
+      "read_and_archive",
+    ]);
+    const escape = needsYouEscape(item.subject, item.snippet);
+
     const override = await getOverride(item.fromEmail);
-    if (override) {
+    if (override && !(DISMISSIVE.has(override) && escape)) {
       results.set(item.id, {
         action: override,
         confidence: "HIGH",
@@ -673,8 +689,34 @@ export async function classifyInboxWithAssistant(
       });
       continue;
     }
+    if (override && escape) {
+      results.set(item.id, {
+        action: "act_today",
+        confidence: "HIGH",
+        reason:
+          "Muted sender, but THIS one needs you — payment/security/delivery language",
+        debug: debugFor(item, history, "muted-sender-needs-you"),
+        source: "rules",
+        instruction:
+          "You normally ignore this sender, but this message says something failed or needs action — open it.",
+      });
+      continue;
+    }
 
     const learned = learnedPrior(extras?.actionMemory, item.fromEmail);
+    if (learned && escape) {
+      results.set(item.id, {
+        action: "act_today",
+        confidence: "HIGH",
+        reason:
+          "You usually dismiss this sender, but THIS one has needs-you language",
+        debug: debugFor(item, history, "muted-sender-needs-you"),
+        source: "rules",
+        instruction:
+          "Break in pattern: something failed or needs action — open it.",
+      });
+      continue;
+    }
     if (learned) {
       const verb = learned.dominant === "trash" ? "deleted" : "archived";
       results.set(item.id, {

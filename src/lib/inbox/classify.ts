@@ -174,6 +174,23 @@ const BILL_READY_BLOB =
   /\b(bill (is )?(now )?(ready|available)|statement (is )?(now )?(ready|available)|view your (bill|statement)|your (monthly |new )?(bill|statement)|bill from)\b/i;
 
 /**
+ * INTENT beats sender history: strictly-worded needs-you signals that
+ * pierce every sender-level shortcut (taught override, learned prior,
+ * autopay). A sender you always delete can still send the ONE message
+ * that matters — "autopay failed", "signature required", "fraud alert".
+ * Deliberately excludes marketing urgency-bait phrasing.
+ */
+export function needsYouEscape(subject: string, snippet: string): boolean {
+  const hay = `${subject}\n${snippet}`;
+  return (
+    FINANCE_RISK.test(hay) ||
+    DELIVERY_NEEDS_YOU.test(hay) ||
+    PRODUCT_NEEDS_YOU.test(hay) ||
+    TRANSACTIONAL_URGENT.test(hay)
+  );
+}
+
+/**
  * Urgency bait — marketing's favorite trick. Only counts as urgent when
  * the sender is trusted (contact / engaged / known); from bulk or cold
  * senders it's just a promo wearing a costume.
@@ -373,6 +390,18 @@ function classifyCore(
       "HIGH",
       "Package status update — it arrives whether you read this or not",
       "shipper-status-delete",
+      ctx,
+    );
+  }
+
+  // Money at risk from ANY sender: failed/declined payment, fraud,
+  // past due, account locked — act, regardless of domain lists.
+  if (FINANCE_RISK.test(blob) || FINANCE_RISK.test(input.subject)) {
+    return hit(
+      "act_today",
+      "HIGH",
+      "Money at risk — failed/declined/past-due/fraud language",
+      "money-risk-act",
       ctx,
     );
   }
