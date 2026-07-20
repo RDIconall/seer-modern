@@ -1,34 +1,62 @@
 /**
- * Seer — studio direction (Collins × Wolff Olins lens).
+ * Seer — studio color + mark direction (Collins × Wolff Olins).
  *
- * Audience: busy professionals with decision overload.
- * Product job: triage email so they decide less, act on what matters.
- * Brand idea: "Fewer decisions."
- *
- * Circle mark kept as the only multicolor object.
- * Product surface is quiet: ink, paper, one "needs you" signal.
- * Type: Klim — Untitled Sans (reading/UI) + Söhne (wordmark/display).
+ * Idea: Fewer decisions. / Seeing what matters.
+ * Palette is ruthlessly small. Circle eye kept, reskinned to ≤3 hues.
  */
 
 export const seerStudio = {
   name: "Seer",
   idea: "Fewer decisions.",
+  metaphor: "Seeing what matters.",
   audience: "Busy professionals with decision overload",
   job: "Triage email so they decide less and act on what matters",
   logo: {
-    mark: "/seer-mark.png",
-    note: "Circle mark is the only multicolor brand object. Everywhere else: restraint.",
+    legacy: "/seer-mark.png",
+    recommended: "/seer-mark-dual.svg",
+    options: [
+      {
+        id: "dual",
+        src: "/seer-mark-dual.svg",
+        title: "Dual — recommended",
+        note: "Cool gray outer, brand teal iris, ink pupil. Three hues. Seeing → center.",
+      },
+      {
+        id: "brand",
+        src: "/seer-mark-brand.svg",
+        title: "Brand",
+        note: "Ownable teal field + ink core. Wolff Olins one-color culture.",
+      },
+      {
+        id: "focus",
+        src: "/seer-mark-focus.svg",
+        title: "Focus",
+        note: "Teal rings + signal pupil. The orange is literally what needs you.",
+      },
+      {
+        id: "mono",
+        src: "/seer-mark-mono.svg",
+        title: "Mono",
+        note: "Ink-only. Collins reduction for print, legal, one-color apps.",
+      },
+      {
+        id: "line",
+        src: "/seer-mark-line.svg",
+        title: "Line",
+        note: "Stroke eye for favicon / watermark. Same geometry.",
+      },
+    ],
   },
   type: {
     ui: {
       family: "Untitled Sans",
       foundry: "Klim",
-      role: "Lists, bodies, chrome — long reading under stress",
+      role: "Lists, bodies, chrome",
     },
     display: {
       family: "Söhne",
       foundry: "Klim",
-      role: "Wordmark, section titles — quiet authority, not theater",
+      role: "Wordmark, titles",
     },
     reading: {
       size: "17px",
@@ -37,53 +65,49 @@ export const seerStudio = {
       weight: 400,
     },
   },
+  /** The colors they would actually ship */
   colors: {
-    /* Quiet field — reading first, no washes fighting type */
     ink: "#0B0D10",
     inkSoft: "#2C333A",
     mute: "#5A6570",
     hairline: "#D4DAE0",
     paper: "#FFFFFF",
-    paperDeep: "#F1F3F5",
-    /* Brand — deep teal from the logo's middle ring, used sparingly */
+    field: "#F1F3F5",
     brand: "#0B7F74",
+    brandMid: "#14A090",
     brandDeep: "#08655C",
-    brandMist: "#E6F3F1",
-    /* Needs-you — logo orange, only for act_today / true urgency */
+    brandSoft: "#E6F3F1",
     signal: "#E5671A",
-    /* Functional link / send — calm blue, not competing with brand */
     action: "#1F5FD1",
-    actionSoft: "#E4EDFB",
-    /* Semantic chips only (triage tags) — never full-bleed washes */
-    violet: "#6E45B8",
-    clear: "#0E9BB0",
-    lime: "#6FA012",
   },
   principles: [
     {
-      title: "One idea",
-      body: "Fewer decisions. Every surface either reduces choice or makes the next action obvious.",
+      title: "Six colors, not sixteen",
+      body: "Ink, paper, field, brand, signal, action. Everything else is a tint of those.",
     },
     {
-      title: "Circle owns color",
-      body: "The mark keeps the spectrum. Product chrome stays quiet so mail can be read, not decorated.",
+      title: "Eye keeps the metaphor",
+      body: "Same three-ring, three-wedge geometry — reskinned so the pupil is the focus, not a rainbow.",
     },
     {
       title: "Signal is scarce",
-      body: "Orange means needs you today. If everything is urgent, nothing is — Seer's job is scarcity.",
+      body: "Orange only for needs-you-today (and optionally the Focus mark pupil). Never decoration.",
     },
     {
-      title: "Type does the work",
-      body: "Klim Untitled Sans for reading; Söhne for the wordmark. Sentence case. No tracked lockup in product.",
+      title: "Brand owns teal",
+      body: "One cultural color from the old middle ring. Chrome, CTAs, selected state — that’s it.",
     },
   ],
 } as const;
 
-/** @deprecated alias while /brand migrates */
+/** Back-compat for existing imports */
 export const seer2026 = {
   name: seerStudio.name,
   focus: seerStudio.idea,
-  logo: seerStudio.logo,
+  logo: {
+    mark: seerStudio.logo.recommended,
+    note: seerStudio.logo.options[0].note,
+  },
   type: {
     ui: {
       ...seerStudio.type.ui,
@@ -101,16 +125,16 @@ export const seer2026 = {
     mute: seerStudio.colors.mute,
     hairline: seerStudio.colors.hairline,
     paper: seerStudio.colors.paper,
-    paperDeep: seerStudio.colors.paperDeep,
-    violet: seerStudio.colors.violet,
+    paperDeep: seerStudio.colors.field,
+    violet: "#6E45B8",
     signal: seerStudio.colors.signal,
-    clear: seerStudio.colors.clear,
-    lime: seerStudio.colors.lime,
+    clear: seerStudio.colors.brandMid,
+    lime: "#6FA012",
     brand: seerStudio.colors.brand,
     brandDeep: seerStudio.colors.brandDeep,
-    brandMist: seerStudio.colors.brandMist,
+    brandMist: seerStudio.colors.brandSoft,
     action: seerStudio.colors.action,
-    actionSoft: seerStudio.colors.actionSoft,
+    actionSoft: "#E4EDFB",
   },
   legacy: {
     brand: "#12a493",

@@ -1,8 +1,7 @@
 @import "tailwindcss";
 
 /*
- * Seer studio direction — Collins × Wolff Olins lens.
- * Idea: Fewer decisions. Quiet field, scarce signal, Klim type.
+ * Seer studio — tight palette. Fewer decisions. Seeing what matters.
  */
 
 .seer-2026 {
@@ -12,15 +11,17 @@
   --s-hairline: #d4dae0;
   --s-paper: #ffffff;
   --s-paper-deep: #f1f3f5;
-  --s-violet: #6e45b8;
-  --s-signal: #e5671a;
-  --s-clear: #0e9bb0;
-  --s-lime: #6fa012;
   --s-brand: #0b7f74;
+  --s-brand-mid: #14a090;
   --s-brand-deep: #08655c;
   --s-brand-mist: #e6f3f1;
+  --s-signal: #e5671a;
   --s-action: #1f5fd1;
   --s-action-soft: #e4edfb;
+  /* legacy aliases kept for older page bits */
+  --s-violet: #6e45b8;
+  --s-clear: #14a090;
+  --s-lime: #6fa012;
 
   --font-ui: var(--font-seer-ui), "Untitled Sans", "Source Sans 3", var(--font-seer),
     sans-serif;
@@ -42,15 +43,14 @@
   color: var(--s-ink);
 }
 
-/* Quiet field — barely-there brand wash, not candy atmosphere */
 .seer-2026-atmosphere {
   background:
     radial-gradient(
       80% 50% at 8% -5%,
-      rgba(11, 127, 116, 0.07),
+      rgba(11, 127, 116, 0.06),
       transparent 55%
     ),
-    linear-gradient(180deg, #f3f5f6 0%, var(--s-paper) 38%, #fafbfc 100%);
+    linear-gradient(180deg, #f3f5f6 0%, var(--s-paper) 40%, #fafbfc 100%);
 }
 
 .seer-2026-wordmark {
@@ -60,7 +60,6 @@
   letter-spacing: -0.04em;
   line-height: 1.02;
   color: var(--s-ink);
-  text-transform: none;
 }
 
 .seer-2026-idea {
@@ -73,7 +72,6 @@
 }
 
 .seer-2026-kicker {
-  font-family: var(--font-ui);
   font-size: 0.75rem;
   font-weight: 600;
   letter-spacing: 0.1em;
@@ -110,7 +108,6 @@
   color: var(--s-mute);
 }
 
-/* Flat confident fills — agency restraint, not lacquer theater */
 .seer-swatch {
   background: var(--swatch, var(--s-brand));
 }
@@ -125,7 +122,6 @@
   border: 0;
   background: var(--s-brand);
   color: #fff;
-  font-family: var(--font-ui);
   font-size: 0.9375rem;
   font-weight: 600;
   letter-spacing: -0.01em;
@@ -152,31 +148,41 @@
   color: var(--s-ink);
   font-size: 0.9375rem;
   font-weight: 600;
-  letter-spacing: -0.01em;
   transition: background 160ms ease, border-color 160ms ease;
 }
 
 .seer-2026-cta-ghost:hover {
   background: var(--s-paper-deep);
-  border-color: #c5ccd3;
 }
 
 .seer-signal-chip {
   display: inline-flex;
   align-items: center;
-  gap: 0.35rem;
   padding: 0.2rem 0.55rem;
   border-radius: 0.25rem;
   background: color-mix(in srgb, var(--s-signal) 14%, white);
   color: var(--s-signal);
   font-size: 0.75rem;
   font-weight: 600;
-  letter-spacing: 0.02em;
 }
 
 .seer-chrome-bar {
   background: var(--s-brand);
   color: #fff;
+}
+
+.seer-mark-card {
+  transition: transform 160ms ease, box-shadow 160ms ease;
+}
+
+.seer-mark-card:hover {
+  transform: translateY(-2px);
+  box-shadow: 0 14px 32px -18px rgba(11, 13, 16, 0.35);
+}
+
+.seer-mark-card[data-rec="true"] {
+  outline: 2px solid var(--s-brand);
+  outline-offset: 0;
 }
 
 @keyframes seer-rise {
@@ -230,13 +236,13 @@
   animation: seer-wash 800ms ease both;
 }
 
-.seer-2026-swatch {
-  transition: transform 160ms ease, box-shadow 160ms ease;
-}
-
 .seer-2026-swatch:hover {
   transform: translateY(-2px);
   box-shadow: 0 12px 28px -16px rgba(11, 13, 16, 0.35);
+}
+
+.seer-2026-swatch {
+  transition: transform 160ms ease, box-shadow 160ms ease;
 }
 
 @media (prefers-reduced-motion: reduce) {
@@ -248,7 +254,8 @@
     animation: none;
   }
 
-  .seer-2026-swatch {
+  .seer-2026-swatch,
+  .seer-mark-card {
     transition: none;
   }
 }
