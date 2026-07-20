@@ -569,11 +569,12 @@ function CardFace({
             }
           : undefined
       }
-      className={`seer-card-face flex min-h-[380px] flex-col rounded-[22px] p-5 ${
+      className={`seer-card-face flex min-h-[380px] flex-col rounded-[22px] p-6 ${
         muted ? "pointer-events-none" : ""
       }`}
     >
-      <div className="flex items-start gap-3">
+      {/* 1. Sender */}
+      <div className="flex items-center gap-3">
         <div
           className="flex h-12 w-12 shrink-0 items-center justify-center rounded-full text-base font-semibold text-white"
           style={{ backgroundColor: accent }}
@@ -581,69 +582,33 @@ function CardFace({
           {mailInitial(item.fromName || item.fromEmail)}
         </div>
         <div className="min-w-0 flex-1">
-          <div className="flex items-baseline justify-between gap-2">
-            <h3 className="truncate text-[17px] font-semibold">
-              {item.fromName || item.fromEmail}
-            </h3>
-            <time className="shrink-0 text-xs text-[var(--muted)]">
-              {formatMailTime(item.receivedAt)}
-            </time>
-          </div>
-          <p className="truncate text-xs text-[var(--muted)]">
-            {item.fromEmail}
-          </p>
+          <h3 className="truncate text-[18px] font-semibold">
+            {item.fromName || item.fromEmail}
+          </h3>
+          {g?.category ? (
+            <span className="text-[12px] font-medium text-[var(--muted)]">
+              {g.category}
+            </span>
+          ) : null}
         </div>
       </div>
 
-      <h2 className="mt-4 text-[18px] font-medium leading-snug">
-        {item.subject}
-      </h2>
-      <p className="mt-2 line-clamp-5 flex-1 text-[14px] leading-relaxed text-[var(--muted)]">
-        {item.snippet || "No preview"}
-      </p>
-
-      {g ? (
-        <div
-          className="mt-4 rounded-xl px-3 py-3"
-          style={{ backgroundColor: `${g.color}16` }}
+      {/* 2. The action phrase */}
+      <div className="flex flex-1 flex-col items-start justify-center py-6">
+        <h2
+          className="text-[26px] font-bold leading-tight"
+          style={{ color: accent }}
         >
-          <div className="flex items-center justify-between gap-2">
-            <div
-              className="text-xs font-bold uppercase tracking-wide"
-              style={{ color: g.color }}
-            >
-              {g.label}
-            </div>
-            {g.category ? (
-              <span className="shrink-0 rounded-full bg-[var(--card)] px-2 py-0.5 text-[10px] font-semibold text-[var(--muted)]">
-                {g.category}
-              </span>
-            ) : null}
-          </div>
-          {g.task ? (
-            <div className="mt-1 text-[15px] font-bold leading-snug text-[var(--fg-strong)]">
-              {g.task}
-            </div>
-          ) : null}
-          {g.ask ? (
-            <div
-              className="mt-1.5 border-l-2 pl-2 text-sm font-medium leading-snug text-[var(--fg-strong)]"
-              style={{ borderColor: g.color }}
-            >
-              “{g.ask}”
-            </div>
-          ) : null}
-          {g.instruction && !g.ask ? (
-            <div className="mt-1 text-sm font-medium text-[var(--fg-strong)]">
-              {g.instruction}
-            </div>
-          ) : null}
-        </div>
-      ) : (
-        <div className="mt-4 rounded-xl bg-[var(--card)] px-3 py-3 text-sm text-[var(--muted)]">
-          Decide what to do with this message
-        </div>
-      )}
+          {g?.task ?? item.subject}
+        </h2>
+        {g?.ask ? (
+          <p className="mt-3 text-[15px] font-medium leading-snug text-[var(--muted)]">
+            “{g.ask}”
+          </p>
+        ) : null}
+      </div>
+
+      {/* 3. Suggested action lives on the parent (button below) */}
     </article>
   );
 }
