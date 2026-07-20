@@ -1,6 +1,6 @@
 /**
  * Seer 2026 — reading-first brand refresh.
- * Circle logo kept. Pure palette sharpened from the 2014 brand book.
+ * Circle logo kept. Pure palette pushed dark + dense (not pastel).
  * Type: Klim Untitled Sans (UI/reading) + Söhne (wordmark/display).
  */
 
@@ -33,25 +33,25 @@ export const seer2026 = {
     },
   },
   colors: {
-    /* Ink / paper — contrast first */
-    ink: "#12171C",
-    inkSoft: "#3D4A56",
-    mute: "#5C6B78",
-    hairline: "#D7DEE5",
-    paper: "#FAFBFC",
-    paperDeep: "#EEF2F5",
-    /* Sharpened Pure (from #967ad0 / #ff8f2d / #6bcfe1 / #96d322) */
-    violet: "#8B63D4",
-    signal: "#FF8618",
-    clear: "#14B8D4",
-    lime: "#8BC91E",
-    /* Brand chrome — teal pulled toward logo cyan, less muddy than #12a493 */
-    brand: "#0C9B8E",
-    brandDeep: "#087F74",
-    brandMist: "#E2F4F1",
-    /* Functional action (mail affordances) */
-    action: "#2B74F0",
-    actionSoft: "#D6E6FD",
+    /* Ink / paper — near-black type on clean paper */
+    ink: "#0A0E12",
+    inkSoft: "#2A333C",
+    mute: "#4E5C68",
+    hairline: "#C2CCD4",
+    paper: "#FFFFFF",
+    paperDeep: "#E6EBF0",
+    /* Pure, denser — same hue family as 2014, far less pastel */
+    violet: "#6B35C4",
+    signal: "#E55A00",
+    clear: "#008EAB",
+    lime: "#5F9E00",
+    /* Brand chrome — deep teal, almost inked */
+    brand: "#056B62",
+    brandDeep: "#044F48",
+    brandMist: "#C8E4DF",
+    /* Functional action */
+    action: "#1452D8",
+    actionSoft: "#BDD2F8",
   },
   legacy: {
     brand: "#12a493",

@@ -72,8 +72,8 @@ export default function BrandPage() {
             <h1 className="seer-2026-wordmark seer-2026-rise-delay">Seer</h1>
             <p className="seer-2026-lede seer-2026-rise-delay-2 mt-5">
               Fly through email without fighting the type. Circle mark kept.
-              Colors sharpened from the Pure palette. Klim faces for reading,
-              not decoration.
+              Pure colors pushed dark and dense — no washed pastels. Klim faces
+              for reading, not decoration.
             </p>
             <div className="seer-2026-rise-delay-2 mt-8 flex flex-wrap gap-3">
               <a href="#reading" className="seer-2026-cta">
@@ -190,13 +190,12 @@ export default function BrandPage() {
         id="colors"
         className="mx-auto w-full max-w-6xl border-t border-[var(--s-hairline)] px-6 py-20 md:px-10"
       >
-        <p className="seer-2026-kicker">Color · sharpened Pure</p>
-        <h2 className="seer-2026-section-title mt-3">Same DNA, clearer signal</h2>
+        <p className="seer-2026-kicker">Color · dense Pure</p>
+        <h2 className="seer-2026-section-title mt-3">Darker, crisper, less washed</h2>
         <p className="seer-2026-body mt-4">
-          Logo hues stay — orange, cyan, lime, violet — pushed a notch more
-          saturated so they hold on screens. Brand teal moves off the muddy
-          middle toward the logo’s cyan ring. Ink goes darker so body type
-          clears WCAG AAA on paper.
+          Same logo hues — orange, cyan, lime, violet — dropped in value and
+          bumped in chroma so they read as solid ink, not candy. Brand teal
+          goes deep (#056B62). Body type sits near-black on clean white.
         </p>
 
         <div className="mt-10 grid grid-cols-2 gap-3 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-6">
@@ -280,7 +279,7 @@ export default function BrandPage() {
         <ul className="mt-12 grid gap-4 sm:grid-cols-3">
           <Rule
             title="Contrast"
-            body="Body never uses the old mid-slate (#778591) as primary text. Mute bottoms out at #5C6B78."
+            body="Body never uses the old mid-slate (#778591) as primary text. Mute bottoms out at #4E5C68."
           />
           <Rule
             title="Measure"
@@ -298,7 +297,7 @@ export default function BrandPage() {
           <div className="flex items-center gap-3">
             <Image src="/seer-mark.png" alt="" width={28} height={28} />
             <p className="text-sm text-[var(--s-mute)]">
-              Circle logo retained · Klim type · Pure palette sharpened
+              Circle logo retained · Klim type · Pure palette densified
             </p>
           </div>
           <Link

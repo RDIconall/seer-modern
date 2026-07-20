@@ -2,25 +2,25 @@
 
 /*
  * Seer 2026 brand surface — scoped to .seer-2026
- * Reading-first: ink on paper, Klim type stacks, sharpened Pure accents.
+ * Reading-first: dense/dark Pure accents, near-black ink, clean paper.
  */
 
 .seer-2026 {
-  --s-ink: #12171c;
-  --s-ink-soft: #3d4a56;
-  --s-mute: #5c6b78;
-  --s-hairline: #d7dee5;
-  --s-paper: #fafbfc;
-  --s-paper-deep: #eef2f5;
-  --s-violet: #8b63d4;
-  --s-signal: #ff8618;
-  --s-clear: #14b8d4;
-  --s-lime: #8bc91e;
-  --s-brand: #0c9b8e;
-  --s-brand-deep: #087f74;
-  --s-brand-mist: #e2f4f1;
-  --s-action: #2b74f0;
-  --s-action-soft: #d6e6fd;
+  --s-ink: #0a0e12;
+  --s-ink-soft: #2a333c;
+  --s-mute: #4e5c68;
+  --s-hairline: #c2ccd4;
+  --s-paper: #ffffff;
+  --s-paper-deep: #e6ebf0;
+  --s-violet: #6b35c4;
+  --s-signal: #e55a00;
+  --s-clear: #008eab;
+  --s-lime: #5f9e00;
+  --s-brand: #056b62;
+  --s-brand-deep: #044f48;
+  --s-brand-mist: #c8e4df;
+  --s-action: #1452d8;
+  --s-action-soft: #bdd2f8;
 
   --font-ui: var(--font-seer-ui), "Untitled Sans", "Source Sans 3", var(--font-seer),
     sans-serif;
@@ -42,25 +42,25 @@
   color: var(--s-ink);
 }
 
-/* Atmosphere: cool paper with a quiet teal wash — not flat white */
+/* Atmosphere: crisp white with a denser teal / cyan edge wash */
 .seer-2026-atmosphere {
   background:
     radial-gradient(
       90% 60% at 12% -10%,
-      rgba(12, 155, 142, 0.11),
+      rgba(5, 107, 98, 0.16),
       transparent 55%
     ),
     radial-gradient(
       70% 50% at 100% 0%,
-      rgba(20, 184, 212, 0.08),
+      rgba(0, 142, 171, 0.12),
       transparent 50%
     ),
     radial-gradient(
       55% 40% at 80% 100%,
-      rgba(255, 134, 24, 0.05),
+      rgba(229, 90, 0, 0.08),
       transparent 55%
     ),
-    linear-gradient(180deg, #f3f6f8 0%, var(--s-paper) 42%, #f7fafb 100%);
+    linear-gradient(180deg, #e8eef1 0%, var(--s-paper) 40%, #f4f7f8 100%);
 }
 
 .seer-2026-wordmark {
