@@ -1,5 +1,7 @@
 import { auth } from "@/auth";
+import { revokeProviderGrant } from "@/lib/mail/revoke";
 import {
+  getAccount,
   listAccounts,
   providerLabel,
   removeAccount,
@@ -81,6 +83,10 @@ export async function POST(request: Request) {
   }
 
   if (body.action === "remove") {
+    // True disconnect: revoke the OAuth grant at the provider too, so the
+    // app disappears from the user's Google "connected apps" list.
+    const account = await getAccount(body.id);
+    if (account) await revokeProviderGrant(account);
     await removeAccount(body.id);
     return NextResponse.json({ ok: true });
   }

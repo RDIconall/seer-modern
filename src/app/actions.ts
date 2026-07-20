@@ -1,6 +1,8 @@
 "use server";
 
 import { signIn, signOut } from "@/auth";
+import { revokeProviderGrant } from "@/lib/mail/revoke";
+import { clearAccountTokens, getAccount } from "@/lib/store/accounts";
 
 export async function loginGoogle() {
   await signIn("google", { redirectTo: "/" });
@@ -34,6 +36,28 @@ export async function connectGoogleMobile() {
 
 export async function connectMicrosoftMobile() {
   await signIn("microsoft-entra-id", { redirectTo: "/m?settings=1" });
+}
+
+/**
+ * One-tap reconnect: revoke the old grant at the provider, drop the dead
+ * tokens, and immediately restart sign-in with a fresh consent screen
+ * pre-filled to the same address. Used to fix missed permissions without
+ * ever leaving the app.
+ */
+export async function reconnectAccount(id: string, mobile?: boolean) {
+  const account = await getAccount(id);
+  const redirectTo = mobile ? "/m?settings=1" : "/?settings=1";
+  if (!account) {
+    await signIn("google", { redirectTo });
+    return;
+  }
+  await revokeProviderGrant(account);
+  await clearAccountTokens(id);
+  await signIn(
+    account.provider,
+    { redirectTo },
+    { login_hint: account.email, prompt: "consent" },
+  );
 }
 
 export async function logout() {

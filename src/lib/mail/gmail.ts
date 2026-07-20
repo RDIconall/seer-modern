@@ -75,6 +75,14 @@ async function gmailFetch(
   });
   if (!res.ok) {
     const err = await res.text();
+    if (
+      res.status === 403 &&
+      /insufficient|ACCESS_TOKEN_SCOPE/i.test(err)
+    ) {
+      throw new Error(
+        "Gmail permissions are incomplete — open Settings and tap Reconnect on this account, then approve all access on Google's screen.",
+      );
+    }
     throw new Error(`Gmail ${path}: ${res.status} ${err.slice(0, 300)}`);
   }
   if (res.status === 204) return null;

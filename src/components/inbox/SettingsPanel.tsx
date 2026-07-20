@@ -9,6 +9,7 @@ import {
   Loader2,
   Mail,
   Plus,
+  RefreshCw,
   Settings,
   Trash2,
   UserRoundPlus,
@@ -21,6 +22,7 @@ import {
   connectMicrosoftMobile,
   logout,
   logoutMobile,
+  reconnectAccount,
 } from "@/app/actions";
 
 type AccountRow = {
@@ -193,6 +195,21 @@ export function SettingsPanel({
     }
   }
 
+  async function reconnect(id: string) {
+    setBusy(id);
+    setError(null);
+    try {
+      // Revokes the old grant server-side, then redirects to a fresh
+      // consent screen pre-filled with the same address.
+      await reconnectAccount(id, mobile);
+    } catch (e) {
+      // Next.js signals the OAuth redirect by throwing — let it through
+      if (e && typeof e === "object" && "digest" in e) throw e;
+      setError(e instanceof Error ? e.message : "Reconnect failed");
+      setBusy(null);
+    }
+  }
+
   async function removeAccount(id: string) {
     if (!confirm("Remove this account from Seer on this device?")) {
       return;
@@ -290,9 +307,24 @@ export function SettingsPanel({
           ) : null}
 
           {data?.sessionError ? (
-            <p className="mb-3 rounded-lg bg-[#ff8f2d]/10 px-3 py-2 text-sm text-[#c96a10]">
-              Session issue: reconnect an account below.
-            </p>
+            <div className="mb-3 rounded-lg bg-[#ff8f2d]/10 px-3 py-2 text-sm text-[#c96a10]">
+              Session issue with {data.active?.email ?? "your account"}.
+              {data.active ? (
+                <button
+                  type="button"
+                  disabled={busy === data.active.id}
+                  onClick={() => reconnect(data.active!.id)}
+                  className="mt-2 flex w-full items-center justify-center gap-2 rounded-lg bg-[#c96a10] px-3 py-2 text-sm font-medium text-white disabled:opacity-50"
+                >
+                  {busy === data.active.id ? (
+                    <Loader2 className="h-4 w-4 animate-spin" />
+                  ) : (
+                    <RefreshCw className="h-4 w-4" />
+                  )}
+                  Reconnect now
+                </button>
+              ) : null}
+            </div>
           ) : null}
 
           <section className="mb-6">
@@ -557,6 +589,20 @@ export function SettingsPanel({
                         {account.label}
                         {account.active ? " · Active" : ""}
                       </div>
+                    </button>
+                    <button
+                      type="button"
+                      disabled={busy === account.id}
+                      onClick={() => reconnect(account.id)}
+                      className="rounded-full p-2 text-[var(--muted)] hover:bg-[var(--card)] hover:text-[var(--primary)]"
+                      aria-label="Reconnect account (fresh permissions)"
+                      title="Reconnect — re-approve permissions"
+                    >
+                      {busy === account.id ? (
+                        <Loader2 className="h-4 w-4 animate-spin" />
+                      ) : (
+                        <RefreshCw className="h-4 w-4" />
+                      )}
                     </button>
                     <button
                       type="button"
