@@ -22,6 +22,8 @@ export type PersonalContext = {
   builtAt: string;
   contacts: string[];
   events: CalendarEventLite[];
+  /** Events refresh on a much shorter clock than contacts */
+  eventsBuiltAt?: string;
 };
 
 export type ContextSignals = {
@@ -32,8 +34,11 @@ export type ContextSignals = {
 
 const TTL_FULL_MS = 6 * 60 * 60 * 1000;
 const TTL_EMPTY_MS = 10 * 60 * 1000; // retry soon if scopes were missing
-// Long enough to match invite emails for events weeks out
-const LOOKAHEAD_DAYS = 60;
+// RSVPs made in Gmail/Calendar must show up in Seer fast
+const TTL_EVENTS_MS = 5 * 60 * 1000;
+// ANY invitation should match — look a full year out
+const LOOKAHEAD_DAYS = 365;
+const MAX_EVENTS = 500;
 
 const EMPTY: PersonalContext = { builtAt: "", contacts: [], events: [] };
 
@@ -41,13 +46,9 @@ function keyFor(accountEmail: string) {
   return `personal:${accountKey(accountEmail)}`;
 }
 
-async function readCache(accountEmail: string): Promise<PersonalContext | null> {
-  const parsed = await kvGet<PersonalContext>(keyFor(accountEmail));
-  if (!parsed) return null;
-  const age = Date.now() - new Date(parsed.builtAt).getTime();
-  const empty = parsed.contacts.length === 0 && parsed.events.length === 0;
-  if (age > (empty ? TTL_EMPTY_MS : TTL_FULL_MS)) return null;
-  return parsed;
+function ageOf(iso: string | undefined): number {
+  if (!iso) return Number.MAX_SAFE_INTEGER;
+  return Date.now() - new Date(iso).getTime();
 }
 
 async function safeJson(res: Response): Promise<Record<string, unknown>> {
@@ -87,38 +88,48 @@ async function googleContacts(token: string): Promise<string[]> {
 async function googleEvents(token: string): Promise<CalendarEventLite[]> {
   const now = new Date();
   const max = new Date(now.getTime() + LOOKAHEAD_DAYS * 24 * 60 * 60 * 1000);
-  const url =
-    "https://www.googleapis.com/calendar/v3/calendars/primary/events?" +
-    new URLSearchParams({
-      timeMin: now.toISOString(),
-      timeMax: max.toISOString(),
-      singleEvents: "true",
-      orderBy: "startTime",
-      maxResults: "100",
+  const out: CalendarEventLite[] = [];
+  let pageToken: string | undefined;
+
+  while (out.length < MAX_EVENTS) {
+    const url =
+      "https://www.googleapis.com/calendar/v3/calendars/primary/events?" +
+      new URLSearchParams({
+        timeMin: now.toISOString(),
+        timeMax: max.toISOString(),
+        singleEvents: "true",
+        orderBy: "startTime",
+        maxResults: "250",
+        ...(pageToken ? { pageToken } : {}),
+      });
+    const res = await fetch(url, {
+      headers: { Authorization: `Bearer ${token}` },
     });
-  const res = await fetch(url, {
-    headers: { Authorization: `Bearer ${token}` },
-  });
-  if (!res.ok) return [];
-  const json = await safeJson(res);
-  const items = (json.items ?? []) as Array<{
-    id?: string;
-    summary?: string;
-    start?: { dateTime?: string; date?: string };
-    attendees?: { email?: string; self?: boolean; responseStatus?: string }[];
-  }>;
-  return items.map((e) => {
-    const mine = (e.attendees ?? []).find((a) => a.self);
-    return {
-      id: e.id,
-      subject: e.summary ?? "(no title)",
-      startsAt: e.start?.dateTime ?? e.start?.date ?? "",
-      attendees: (e.attendees ?? [])
-        .map((a) => a.email?.toLowerCase().trim() ?? "")
-        .filter(Boolean),
-      myStatus: (mine?.responseStatus as RsvpStatus | undefined) ?? undefined,
-    };
-  });
+    if (!res.ok) break;
+    const json = await safeJson(res);
+    const items = (json.items ?? []) as Array<{
+      id?: string;
+      summary?: string;
+      start?: { dateTime?: string; date?: string };
+      attendees?: { email?: string; self?: boolean; responseStatus?: string }[];
+    }>;
+    for (const e of items) {
+      const mine = (e.attendees ?? []).find((a) => a.self);
+      out.push({
+        id: e.id,
+        subject: e.summary ?? "(no title)",
+        startsAt: e.start?.dateTime ?? e.start?.date ?? "",
+        attendees: (e.attendees ?? [])
+          .map((a) => a.email?.toLowerCase().trim() ?? "")
+          .filter(Boolean),
+        myStatus:
+          (mine?.responseStatus as RsvpStatus | undefined) ?? undefined,
+      });
+    }
+    pageToken = json.nextPageToken as string | undefined;
+    if (!pageToken || items.length === 0) break;
+  }
+  return out.slice(0, MAX_EVENTS);
 }
 
 // ---------- Microsoft Graph ----------
@@ -153,36 +164,46 @@ const GRAPH_STATUS: Record<string, RsvpStatus> = {
 async function graphEvents(token: string): Promise<CalendarEventLite[]> {
   const now = new Date();
   const max = new Date(now.getTime() + LOOKAHEAD_DAYS * 24 * 60 * 60 * 1000);
-  const url =
+  const first =
     "https://graph.microsoft.com/v1.0/me/calendarView?" +
     new URLSearchParams({
       startDateTime: now.toISOString(),
       endDateTime: max.toISOString(),
       $select: "id,subject,start,attendees,responseStatus",
-      $top: "100",
+      $top: "250",
       $orderby: "start/dateTime",
     });
-  const res = await fetch(url, {
-    headers: { Authorization: `Bearer ${token}` },
-  });
-  if (!res.ok) return [];
-  const json = await safeJson(res);
-  const values = (json.value ?? []) as Array<{
-    id?: string;
-    subject?: string;
-    start?: { dateTime?: string };
-    attendees?: { emailAddress?: { address?: string } }[];
-    responseStatus?: { response?: string };
-  }>;
-  return values.map((e) => ({
-    id: e.id,
-    subject: e.subject ?? "(no title)",
-    startsAt: e.start?.dateTime ?? "",
-    attendees: (e.attendees ?? [])
-      .map((a) => a.emailAddress?.address?.toLowerCase().trim() ?? "")
-      .filter(Boolean),
-    myStatus: GRAPH_STATUS[e.responseStatus?.response ?? ""] ?? undefined,
-  }));
+
+  const out: CalendarEventLite[] = [];
+  let next: string | undefined = first;
+  while (next && out.length < MAX_EVENTS) {
+    const res = await fetch(next, {
+      headers: { Authorization: `Bearer ${token}` },
+    });
+    if (!res.ok) break;
+    const json = await safeJson(res);
+    const values = (json.value ?? []) as Array<{
+      id?: string;
+      subject?: string;
+      start?: { dateTime?: string };
+      attendees?: { emailAddress?: { address?: string } }[];
+      responseStatus?: { response?: string };
+    }>;
+    for (const e of values) {
+      out.push({
+        id: e.id,
+        subject: e.subject ?? "(no title)",
+        startsAt: e.start?.dateTime ?? "",
+        attendees: (e.attendees ?? [])
+          .map((a) => a.emailAddress?.address?.toLowerCase().trim() ?? "")
+          .filter(Boolean),
+        myStatus: GRAPH_STATUS[e.responseStatus?.response ?? ""] ?? undefined,
+      });
+    }
+    next = json["@odata.nextLink"] as string | undefined;
+    if (!values.length) break;
+  }
+  return out.slice(0, MAX_EVENTS);
 }
 
 // ---------- Public API ----------
@@ -192,30 +213,47 @@ export async function getPersonalContext(session: {
   accessToken: string;
   provider: "google" | "microsoft" | string;
 }): Promise<PersonalContext> {
-  const cached = await readCache(session.accountEmail);
-  if (cached) return cached;
+  const cached = await kvGet<PersonalContext>(keyFor(session.accountEmail));
+
+  // Contacts change rarely (6h); events carry live RSVP state, so they
+  // refresh every few minutes — an answer given in Gmail or Calendar
+  // shows up in Seer on the next load, not hours later.
+  const contactsTtl =
+    cached && cached.contacts.length === 0 ? TTL_EMPTY_MS : TTL_FULL_MS;
+  const contactsFresh = Boolean(cached && ageOf(cached.builtAt) < contactsTtl);
+  const eventsFresh = Boolean(
+    cached && ageOf(cached.eventsBuiltAt ?? cached.builtAt) < TTL_EVENTS_MS,
+  );
+  if (cached && contactsFresh && eventsFresh) return cached;
 
   try {
-    const [contacts, events] =
-      session.provider === "google"
-        ? await Promise.all([
-            googleContacts(session.accessToken),
-            googleEvents(session.accessToken),
-          ])
-        : await Promise.all([
-            graphContacts(session.accessToken),
-            graphEvents(session.accessToken),
-          ]);
+    const [contacts, events] = await Promise.all([
+      contactsFresh && cached
+        ? Promise.resolve(cached.contacts)
+        : session.provider === "google"
+          ? googleContacts(session.accessToken)
+          : graphContacts(session.accessToken),
+      eventsFresh && cached
+        ? Promise.resolve(cached.events)
+        : session.provider === "google"
+          ? googleEvents(session.accessToken)
+          : graphEvents(session.accessToken),
+    ]);
 
+    const nowIso = new Date().toISOString();
     const ctx: PersonalContext = {
-      builtAt: new Date().toISOString(),
+      builtAt: contactsFresh && cached ? cached.builtAt : nowIso,
+      eventsBuiltAt:
+        eventsFresh && cached
+          ? (cached.eventsBuiltAt ?? cached.builtAt)
+          : nowIso,
       contacts,
       events,
     };
     await kvSet(keyFor(session.accountEmail), ctx);
     return ctx;
   } catch {
-    return { ...EMPTY, builtAt: new Date().toISOString() };
+    return cached ?? { ...EMPTY, builtAt: new Date().toISOString() };
   }
 }
 

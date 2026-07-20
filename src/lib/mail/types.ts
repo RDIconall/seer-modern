@@ -21,6 +21,8 @@ export type MailMessageDetail = MailMessageListItem & {
   toEmail: string;
   ccEmail: string;
   messageIdHeader: string;
+  /** UID from an embedded text/calendar part — exact invite → event link */
+  icalUid?: string;
 };
 
 export type SendMailInput = {
