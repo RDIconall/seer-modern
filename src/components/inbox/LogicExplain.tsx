@@ -87,7 +87,7 @@ export function LogicExplain({
         className="truncate text-[11px] font-semibold"
         style={{ color: guide.color }}
       >
-        {guide.label}
+        {guide.task ?? guide.label}
         {guide.confidence ? ` · ${guide.confidence}` : ""}
         {sourceLabel ? ` · ${sourceLabel}` : ""}
       </div>
@@ -184,7 +184,7 @@ export function ReaderGuideBar({
         />
         <span className="min-w-0 flex-1 truncate text-[13px]">
           <span className="font-bold" style={{ color: guide.color }}>
-            {guide.label}
+            {guide.task ?? guide.label}
           </span>
           <span className="text-[var(--fg)]"> — {guide.instruction}</span>
         </span>

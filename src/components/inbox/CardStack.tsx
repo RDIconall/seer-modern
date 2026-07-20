@@ -573,6 +573,11 @@ function CardFace({
           >
             {g.label}
           </div>
+          {g.task ? (
+            <div className="mt-1 text-[15px] font-bold leading-snug text-[var(--fg-strong)]">
+              {g.task}
+            </div>
+          ) : null}
           {g.ask ? (
             <div
               className="mt-1.5 border-l-2 pl-2 text-sm font-medium leading-snug text-[var(--fg-strong)]"

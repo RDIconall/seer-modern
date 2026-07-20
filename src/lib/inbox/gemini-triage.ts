@@ -39,7 +39,7 @@ import { z } from "zod";
  * Bump when the prompt/actions change so stale cached decisions
  * are ignored and re-classified.
  */
-export const PROMPT_VERSION = 12;
+export const PROMPT_VERSION = 13;
 
 const ACTIONS = [
   "respond",
@@ -61,6 +61,8 @@ const batchSchema = z.object({
       confidence: z.number().min(0).max(1),
       reason: z.string(),
       instruction: z.string(),
+      /** The implied action, 2-6 word imperative — or "Be aware: …" */
+      task: z.string(),
     }),
   ),
 });
@@ -83,6 +85,8 @@ export type DecisionSource = "gemini" | "rules" | "override" | "learned";
 export type AssistantClassifyResult = ClassifyResult & {
   source: DecisionSource;
   instruction?: string;
+  /** The implied action — imperative ("Fix the autopay payment") or "Be aware: …" */
+  task?: string;
   /** True when served from the persistent decision cache (no API call). */
   cached?: boolean;
 };
@@ -129,6 +133,7 @@ function applyUrgencyDecay(
     debug: { ...debugFor(item, history, "urgency-expired"), ruleId: "urgency-expired" },
     source: result.source,
     instruction: "This expired on its own. Safe to delete without opening.",
+    task: "Nothing — it expired",
   };
 }
 
@@ -403,7 +408,8 @@ Product/CI (GitHub, Vercel, Figma, etc.) → usually read_and_archive unless pro
 Be decisive. Prefer a confident archive/delete over needs_review.
 DELEGATION: if the user's profile mentions an assistant/EA and the task does not need the user personally — calling a company/bank/vendor, scheduling, chasing a status, purchases/returns, form-filling, research, screening — keep the action (respond/act_today) but START the instruction with "Delegate: " followed by the exact ask, e.g. "Delegate: have your EA call Bank of America about the disputed charge, then reply to Rebecca." The user's time goes only where only THEY can act (decisions, relationships, money authority).
 
-Return one item per input id. reason = short why. instruction = what the user should do in one sentence.`;
+Return one item per input id. reason = short why. instruction = what the user should do in one sentence.
+task = THE IMPLIED ACTION, as a 2-6 word imperative naming the concrete thing: "Fix the autopay payment", "Confirm the fraud charge", "Sign the permission form", "RSVP to Hilary", "Pay the invoice". This field keeps you disciplined: if you cannot name a concrete action, the email needs NOTHING — then task MUST be "Be aware: <5-word gist>" (e.g. "Be aware: statement ready") and the action must be an archive/delete class. NEVER vague ("check this out", "review email"). A named task and a delete_now action contradict each other — resolve the contradiction before answering.`;
 
 type CompactItem = {
   id: string;
@@ -535,6 +541,7 @@ async function geminiBatch(
       debug: debugFor(src, history, `gemini:${label}`),
       source: "gemini",
       instruction: row.instruction.slice(0, 200),
+      task: row.task?.trim().slice(0, 80) || undefined,
     });
   }
   return out;
@@ -546,6 +553,7 @@ function toCached(r: AssistantClassifyResult): CachedDecision {
     confidence: r.confidence,
     reason: r.reason,
     instruction: r.instruction,
+    task: r.task,
     source: r.source,
     ruleId: r.debug.ruleId,
     ts: Date.now(),
@@ -613,6 +621,7 @@ export async function classifyInboxWithAssistant(
         debug: debugFor(item, history, "already-replied"),
         source: "rules",
         instruction: "Handled — you replied. Archive it.",
+        task: "Be aware: you already replied",
       });
       continue;
     }
@@ -636,6 +645,7 @@ export async function classifyInboxWithAssistant(
           debug: debugFor(item, history, "invite-answered"),
           source: "rules",
           instruction: "Handled — RSVP is on your calendar. Archive it.",
+          task: "Be aware: RSVP is on your calendar",
         });
       } else {
         results.set(item.id, {
@@ -645,6 +655,7 @@ export async function classifyInboxWithAssistant(
           debug: debugFor(item, history, "invite-needs-rsvp"),
           source: "rules",
           instruction: "Accept, decline, or maybe — one tap in Seer.",
+          task: "RSVP yes or no",
         });
       }
       continue;
@@ -659,6 +670,7 @@ export async function classifyInboxWithAssistant(
         debug: debugFor(item, history, "rsvp-receipt-delete"),
         source: "rules",
         instruction: "Someone answered your invite. Nothing to do — delete.",
+        task: "Be aware: they answered your invite",
       });
       continue;
     }
@@ -699,6 +711,7 @@ export async function classifyInboxWithAssistant(
         source: "rules",
         instruction:
           "You normally ignore this sender, but this message says something failed or needs action — open it.",
+        task: "Open it — something failed",
       });
       continue;
     }
@@ -714,6 +727,7 @@ export async function classifyInboxWithAssistant(
         source: "rules",
         instruction:
           "Break in pattern: something failed or needs action — open it.",
+        task: "Open it — something failed",
       });
       continue;
     }
@@ -754,6 +768,7 @@ export async function classifyInboxWithAssistant(
         confidence: hit.confidence,
         reason: hit.reason,
         instruction: hit.instruction,
+        task: hit.task,
         debug: debugFor(item, history, hit.ruleId),
         source: hit.source,
         cached: true,

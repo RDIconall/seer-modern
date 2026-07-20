@@ -25,7 +25,46 @@ export type ActionGuide = {
   harm?: string;
   /** The actionable sentence pulled from the email — old Seer style */
   ask?: string;
+  /** The implied action — imperative ("Fix the autopay payment") or "Be aware: …" */
+  task?: string;
 };
+
+/**
+ * Every email carries an implied action — a concrete verb, or an
+ * explicit "Be aware". Rules-decided mail synthesizes one here; Gemini
+ * supplies its own (and the discipline of naming it keeps it honest).
+ */
+function impliedTask(
+  action: TriageAction,
+  subject: string,
+  ask?: string,
+): string {
+  if (ask && (action === "respond" || action === "act_today" || action === "needs_review")) {
+    const t = ask.replace(/[?.!]\s*$/, "");
+    return t.length <= 60 ? `Do it: ${t}` : `Do it: ${t.slice(0, 57)}…`;
+  }
+  const gist = subject.slice(0, 40) + (subject.length > 40 ? "…" : "");
+  switch (action) {
+    case "respond":
+      return "Reply — they're waiting";
+    case "act_today":
+      return "Handle it today";
+    case "review_subscription":
+      return "Check the charge";
+    case "needs_review":
+      return "Your call — decide";
+    case "read_and_archive":
+      return `Be aware: ${gist}`;
+    case "read_and_delete":
+      return `Be aware: ${gist}`;
+    case "delete_now":
+      return "Nothing — delete it";
+    case "unsubscribe":
+      return "Unsubscribe — dead list";
+    case "glance_promo":
+      return "Glance: worth buying?";
+  }
+}
 
 const WANTS_ASK = new Set<TriageAction>([
   "respond",
@@ -78,6 +117,7 @@ export function buildActionGuideQuick(
   classification: ClassifyResult & {
     source?: "gemini" | "rules" | "override" | "learned";
     instruction?: string;
+    task?: string;
   },
   subject: string,
   fromName?: string,
@@ -109,6 +149,9 @@ export function buildActionGuideQuick(
     who: story.who,
     harm: story.harm,
     ask,
+    task:
+      classification.task?.trim() ||
+      impliedTask(classification.action, subject, ask),
   };
 }
 
@@ -116,6 +159,7 @@ export async function buildActionGuideDetailed(
   classification: ClassifyResult & {
     source?: "gemini" | "rules" | "override" | "learned";
     instruction?: string;
+    task?: string;
   },
   subject: string,
   snippet: string,
@@ -168,5 +212,8 @@ export async function buildActionGuideDetailed(
     who: story.who,
     harm: story.harm,
     ask,
+    task:
+      classification.task?.trim() ||
+      impliedTask(classification.action, subject, ask),
   };
 }

@@ -18,6 +18,8 @@ export type Guide = {
   harm?: string;
   /** The actionable sentence pulled from the email — old Seer style */
   ask?: string;
+  /** The implied action — imperative ("Fix the autopay payment") or "Be aware: …" */
+  task?: string;
 };
 
 export type EmailItem = {
