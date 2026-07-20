@@ -1,7 +1,7 @@
 /**
  * Seer 2026 — reading-first brand refresh.
- * Circle logo kept. Pure palette pushed dark + dense (not pastel).
- * Type: Klim Untitled Sans (UI/reading) + Söhne (wordmark/display).
+ * Circle logo kept. Pure colors: lighter mid-tones under a lacquer gloss
+ * (Bentley clear-coat depth). Type: Klim Untitled Sans + Söhne.
  */
 
 export const seer2026 = {
@@ -33,25 +33,23 @@ export const seer2026 = {
     },
   },
   colors: {
-    /* Ink / paper — near-black type on clean paper */
+    /* Ink / paper — reading stays matte-crisp; chroma gets the lacquer */
     ink: "#0A0E12",
     inkSoft: "#2A333C",
-    mute: "#4E5C68",
-    hairline: "#C2CCD4",
+    mute: "#52606C",
+    hairline: "#C5CED6",
     paper: "#FFFFFF",
-    paperDeep: "#E6EBF0",
-    /* Pure, denser — same hue family as 2014, far less pastel */
-    violet: "#6B35C4",
-    signal: "#E55A00",
-    clear: "#008EAB",
-    lime: "#5F9E00",
-    /* Brand chrome — deep teal, almost inked */
-    brand: "#056B62",
-    brandDeep: "#044F48",
-    brandMist: "#C8E4DF",
-    /* Functional action */
-    action: "#1452D8",
-    actionSoft: "#BDD2F8",
+    paperDeep: "#E8EDF2",
+    /* Pure mid-tones — gloss supplies the depth */
+    violet: "#8A52D8",
+    signal: "#FF7A1F",
+    clear: "#1AB8D4",
+    lime: "#8BC91A",
+    brand: "#0F9A8C",
+    brandDeep: "#0A7A70",
+    brandMist: "#D5F0EB",
+    action: "#2B6FF0",
+    actionSoft: "#D0E2FC",
   },
   legacy: {
     brand: "#12a493",
