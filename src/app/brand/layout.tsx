@@ -4,8 +4,7 @@ import "./brand-2026.css";
 
 /**
  * Klim Untitled Sans / Söhne are the target faces (see src/fonts/klim/README.md).
- * Source Sans 3 stands in until those licensed files are dropped in — same job:
- * quiet neo-grotesque, built for long reading.
+ * Source Sans 3 stands in until those files are dropped in.
  */
 const seerUi = Source_Sans_3({
   subsets: ["latin"],
@@ -22,9 +21,9 @@ const seerDisplay = Source_Sans_3({
 });
 
 export const metadata: Metadata = {
-  title: "Seer 2026 — Brand refresh",
+  title: "Seer — Studio brand direction",
   description:
-    "Reading-first Seer brand refresh: circle logo kept, Klim type, uniform gloss colors.",
+    "Fewer decisions. Collins × Wolff Olins lens for Seer — Klim type, quiet field, scarce signal.",
 };
 
 export default function BrandLayout({

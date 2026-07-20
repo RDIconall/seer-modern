@@ -1,26 +1,26 @@
 @import "tailwindcss";
 
 /*
- * Seer 2026 brand surface — scoped to .seer-2026
- * Reading-first type + uniform lacquer on Pure accents (even clear-coat).
+ * Seer studio direction — Collins × Wolff Olins lens.
+ * Idea: Fewer decisions. Quiet field, scarce signal, Klim type.
  */
 
 .seer-2026 {
-  --s-ink: #0a0e12;
-  --s-ink-soft: #2a333c;
-  --s-mute: #52606c;
-  --s-hairline: #c5ced6;
+  --s-ink: #0b0d10;
+  --s-ink-soft: #2c333a;
+  --s-mute: #5a6570;
+  --s-hairline: #d4dae0;
   --s-paper: #ffffff;
-  --s-paper-deep: #e8edf2;
-  --s-violet: #8a52d8;
-  --s-signal: #ff7a1f;
-  --s-clear: #1ab8d4;
-  --s-lime: #8bc91a;
-  --s-brand: #0f9a8c;
-  --s-brand-deep: #0a7a70;
-  --s-brand-mist: #d5f0eb;
-  --s-action: #2b6ff0;
-  --s-action-soft: #d0e2fc;
+  --s-paper-deep: #f1f3f5;
+  --s-violet: #6e45b8;
+  --s-signal: #e5671a;
+  --s-clear: #0e9bb0;
+  --s-lime: #6fa012;
+  --s-brand: #0b7f74;
+  --s-brand-deep: #08655c;
+  --s-brand-mist: #e6f3f1;
+  --s-action: #1f5fd1;
+  --s-action-soft: #e4edfb;
 
   --font-ui: var(--font-seer-ui), "Untitled Sans", "Source Sans 3", var(--font-seer),
     sans-serif;
@@ -31,7 +31,7 @@
   color: var(--s-ink-soft);
   font-family: var(--font-ui);
   font-size: 17px;
-  line-height: 1.62;
+  line-height: 1.65;
   font-weight: 400;
   -webkit-font-smoothing: antialiased;
   text-rendering: optimizeLegibility;
@@ -42,48 +42,47 @@
   color: var(--s-ink);
 }
 
-/* Atmosphere: crisp white with a soft lacquered edge wash */
+/* Quiet field — barely-there brand wash, not candy atmosphere */
 .seer-2026-atmosphere {
   background:
     radial-gradient(
-      90% 60% at 12% -10%,
-      rgba(15, 154, 140, 0.14),
+      80% 50% at 8% -5%,
+      rgba(11, 127, 116, 0.07),
       transparent 55%
     ),
-    radial-gradient(
-      70% 50% at 100% 0%,
-      rgba(26, 184, 212, 0.1),
-      transparent 50%
-    ),
-    radial-gradient(
-      55% 40% at 80% 100%,
-      rgba(255, 122, 31, 0.07),
-      transparent 55%
-    ),
-    linear-gradient(180deg, #e9eef1 0%, var(--s-paper) 40%, #f5f8f9 100%);
+    linear-gradient(180deg, #f3f5f6 0%, var(--s-paper) 38%, #fafbfc 100%);
 }
 
 .seer-2026-wordmark {
   font-family: var(--font-display);
   font-weight: 500;
-  font-size: clamp(2.75rem, 6vw, 4.25rem);
-  letter-spacing: -0.035em;
-  line-height: 1.05;
+  font-size: clamp(2.75rem, 6vw, 4.5rem);
+  letter-spacing: -0.04em;
+  line-height: 1.02;
   color: var(--s-ink);
   text-transform: none;
+}
+
+.seer-2026-idea {
+  font-family: var(--font-display);
+  font-weight: 500;
+  font-size: clamp(1.75rem, 4vw, 2.5rem);
+  letter-spacing: -0.035em;
+  line-height: 1.15;
+  color: var(--s-ink);
 }
 
 .seer-2026-kicker {
   font-family: var(--font-ui);
   font-size: 0.75rem;
   font-weight: 600;
-  letter-spacing: 0.08em;
+  letter-spacing: 0.1em;
   text-transform: uppercase;
   color: var(--s-brand);
 }
 
 .seer-2026-lede {
-  max-width: 36rem;
+  max-width: 34rem;
   font-size: 1.125rem;
   line-height: 1.55;
   color: var(--s-ink-soft);
@@ -99,9 +98,9 @@
 }
 
 .seer-2026-body {
-  max-width: 62ch;
+  max-width: 58ch;
   font-size: 1.0625rem;
-  line-height: 1.62;
+  line-height: 1.65;
   color: var(--s-ink-soft);
 }
 
@@ -111,26 +110,9 @@
   color: var(--s-mute);
 }
 
-/*
- * Uniform clear-coat — even lacquer on every chip, no specular stripe.
- * Solid --gloss underneath so the hue stays readable; soft softbox veil on top.
- */
-.seer-gloss {
-  --gloss: var(--s-brand);
-  position: relative;
-  background:
-    linear-gradient(
-      180deg,
-      rgba(255, 255, 255, 0.2) 0%,
-      rgba(255, 255, 255, 0.08) 45%,
-      rgba(255, 255, 255, 0.02) 72%,
-      rgba(0, 0, 0, 0.1) 100%
-    ),
-    var(--gloss);
-  box-shadow:
-    inset 0 1px 0 rgba(255, 255, 255, 0.38),
-    inset 0 -1px 0 rgba(0, 0, 0, 0.14),
-    0 10px 22px -14px color-mix(in srgb, var(--gloss) 50%, #000);
+/* Flat confident fills — agency restraint, not lacquer theater */
+.seer-swatch {
+  background: var(--swatch, var(--s-brand));
 }
 
 .seer-2026-cta {
@@ -139,43 +121,23 @@
   justify-content: center;
   min-height: 2.875rem;
   padding: 0 1.25rem;
-  border-radius: 0.5rem;
+  border-radius: 0.375rem;
   border: 0;
-  background:
-    linear-gradient(
-      180deg,
-      rgba(255, 255, 255, 0.16) 0%,
-      rgba(255, 255, 255, 0.05) 50%,
-      rgba(0, 0, 0, 0.12) 100%
-    ),
-    var(--s-brand);
-  box-shadow:
-    inset 0 1px 0 rgba(255, 255, 255, 0.32),
-    inset 0 -1px 0 rgba(0, 0, 0, 0.18),
-    0 10px 22px -12px rgba(10, 122, 112, 0.45);
+  background: var(--s-brand);
   color: #fff;
   font-family: var(--font-ui);
   font-size: 0.9375rem;
   font-weight: 600;
   letter-spacing: -0.01em;
-  text-shadow: 0 1px 0 rgba(0, 0, 0, 0.18);
-  transition:
-    filter 160ms ease,
-    transform 160ms ease,
-    box-shadow 160ms ease;
+  transition: background 160ms ease, transform 160ms ease;
 }
 
 .seer-2026-cta:hover {
-  filter: brightness(1.03);
-  box-shadow:
-    inset 0 1px 0 rgba(255, 255, 255, 0.36),
-    inset 0 -1px 0 rgba(0, 0, 0, 0.2),
-    0 12px 26px -12px rgba(10, 122, 112, 0.55);
+  background: var(--s-brand-deep);
 }
 
 .seer-2026-cta:active {
   transform: translateY(1px);
-  filter: brightness(0.98);
 }
 
 .seer-2026-cta-ghost {
@@ -184,47 +146,43 @@
   justify-content: center;
   min-height: 2.875rem;
   padding: 0 1.25rem;
-  border-radius: 0.5rem;
+  border-radius: 0.375rem;
   border: 1px solid var(--s-hairline);
-  background:
-    linear-gradient(
-      180deg,
-      rgba(255, 255, 255, 0.55) 0%,
-      rgba(255, 255, 255, 0.12) 100%
-    ),
-    var(--s-paper);
+  background: var(--s-paper);
   color: var(--s-ink);
   font-size: 0.9375rem;
   font-weight: 600;
   letter-spacing: -0.01em;
-  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.85);
   transition: background 160ms ease, border-color 160ms ease;
 }
 
 .seer-2026-cta-ghost:hover {
   background: var(--s-paper-deep);
-  border-color: #c8d1da;
+  border-color: #c5ccd3;
 }
 
-.seer-gloss-bar {
-  --gloss: var(--s-brand);
-  background:
-    linear-gradient(
-      180deg,
-      rgba(255, 255, 255, 0.16) 0%,
-      rgba(255, 255, 255, 0.04) 50%,
-      rgba(0, 0, 0, 0.14) 100%
-    ),
-    var(--gloss);
-  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.28);
-  text-shadow: 0 1px 0 rgba(0, 0, 0, 0.18);
+.seer-signal-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.35rem;
+  padding: 0.2rem 0.55rem;
+  border-radius: 0.25rem;
+  background: color-mix(in srgb, var(--s-signal) 14%, white);
+  color: var(--s-signal);
+  font-size: 0.75rem;
+  font-weight: 600;
+  letter-spacing: 0.02em;
 }
 
-/* Motion: presence, not noise */
+.seer-chrome-bar {
+  background: var(--s-brand);
+  color: #fff;
+}
+
 @keyframes seer-rise {
   from {
     opacity: 0;
-    transform: translateY(12px);
+    transform: translateY(10px);
   }
   to {
     opacity: 1;
@@ -235,7 +193,7 @@
 @keyframes seer-mark-in {
   from {
     opacity: 0;
-    transform: scale(0.92);
+    transform: scale(0.94);
   }
   to {
     opacity: 1;
@@ -253,32 +211,32 @@
 }
 
 .seer-2026-rise {
-  animation: seer-rise 700ms cubic-bezier(0.22, 1, 0.36, 1) both;
+  animation: seer-rise 650ms cubic-bezier(0.22, 1, 0.36, 1) both;
 }
 
 .seer-2026-rise-delay {
-  animation: seer-rise 700ms cubic-bezier(0.22, 1, 0.36, 1) 120ms both;
+  animation: seer-rise 650ms cubic-bezier(0.22, 1, 0.36, 1) 100ms both;
 }
 
 .seer-2026-rise-delay-2 {
-  animation: seer-rise 700ms cubic-bezier(0.22, 1, 0.36, 1) 220ms both;
+  animation: seer-rise 650ms cubic-bezier(0.22, 1, 0.36, 1) 200ms both;
 }
 
 .seer-2026-mark-in {
-  animation: seer-mark-in 800ms cubic-bezier(0.22, 1, 0.36, 1) both;
+  animation: seer-mark-in 750ms cubic-bezier(0.22, 1, 0.36, 1) both;
 }
 
 .seer-2026-wash {
-  animation: seer-wash 900ms ease both;
+  animation: seer-wash 800ms ease both;
 }
 
 .seer-2026-swatch {
-  transition: transform 180ms ease, box-shadow 180ms ease;
+  transition: transform 160ms ease, box-shadow 160ms ease;
 }
 
 .seer-2026-swatch:hover {
   transform: translateY(-2px);
-  box-shadow: 0 14px 32px -14px rgba(10, 14, 18, 0.4);
+  box-shadow: 0 12px 28px -16px rgba(11, 13, 16, 0.35);
 }
 
 @media (prefers-reduced-motion: reduce) {
