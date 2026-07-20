@@ -275,6 +275,8 @@ export function CardStack({
                   transform: `translateY(${depth * 10}px) scale(${1 - depth * 0.04})`,
                   opacity: 1 - depth * 0.15,
                   zIndex: 10 - depth,
+                  transition:
+                    "transform 0.4s cubic-bezier(0.22, 1.3, 0.36, 1), opacity 0.3s ease",
                 }}
                 aria-hidden
               >
@@ -292,7 +294,10 @@ export function CardStack({
           className="seer-card absolute inset-x-0 top-0 z-20 touch-pan-y"
           style={{
             transform: `translateX(${dragX}px) rotate(${rotate}deg)`,
-            transition: dragging ? "none" : "transform 0.15s ease-out",
+            // Springy settle — one overshoot, the brand motion curve
+            transition: dragging
+              ? "none"
+              : "transform 0.5s cubic-bezier(0.22, 1.5, 0.36, 1)",
           }}
           onTouchStart={onTouchStart}
           onTouchMove={onTouchMove}
@@ -417,7 +422,7 @@ function BulkCardFace({
   const extra = section.items.length - shown.length;
   return (
     <article
-      className={`seer-card-face flex min-h-[380px] flex-col rounded-2xl p-5 ${
+      className={`seer-card-face flex min-h-[380px] flex-col rounded-[22px] p-5 ${
         muted ? "pointer-events-none" : ""
       }`}
     >
@@ -521,7 +526,7 @@ function CardFace({
             }
           : undefined
       }
-      className={`seer-card-face flex min-h-[380px] flex-col rounded-2xl p-5 ${
+      className={`seer-card-face flex min-h-[380px] flex-col rounded-[22px] p-5 ${
         muted ? "pointer-events-none" : ""
       }`}
     >

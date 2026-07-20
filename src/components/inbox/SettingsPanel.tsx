@@ -302,7 +302,7 @@ export function SettingsPanel({
             {data?.active ? (
               <div className="rounded-xl border border-[var(--border)] bg-[var(--card)] px-4 py-3">
                 <div className="flex items-center gap-3">
-                  <div className="flex h-11 w-11 items-center justify-center rounded-full bg-[var(--primary)] text-sm font-semibold text-white">
+                  <div className="flex h-11 w-11 items-center justify-center rounded-full bg-[var(--brand)] text-sm font-semibold text-white">
                     {(data.active.name || data.active.email)[0]?.toUpperCase()}
                   </div>
                   <div className="min-w-0 flex-1">

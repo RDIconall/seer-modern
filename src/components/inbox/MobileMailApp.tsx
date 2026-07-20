@@ -650,7 +650,7 @@ export function MobileMailApp() {
         <button
           type="button"
           onClick={startCompose}
-          className="fixed bottom-[calc(4.5rem+var(--safe-bottom))] right-4 z-30 flex h-14 w-14 items-center justify-center rounded-full bg-[var(--primary)] text-white shadow-lg"
+          className="fixed bottom-[calc(4.5rem+var(--safe-bottom))] right-4 z-30 flex h-14 w-14 items-center justify-center rounded-full bg-[var(--brand)] text-white shadow-lg"
           aria-label="Compose"
         >
           <PenSquare className="h-6 w-6" />
@@ -709,7 +709,7 @@ function DrawerItem({
       onClick={onClick}
       className={`flex w-full items-center gap-4 px-5 py-3.5 text-sm ${
         active
-          ? "border-l-4 border-[var(--primary)] bg-[var(--primary-soft)] font-semibold text-[var(--fg-strong)]"
+          ? "border-l-4 border-[var(--brand)] bg-[var(--brand-soft)] font-semibold text-[var(--fg-strong)]"
           : "border-l-4 border-transparent text-[var(--fg)]"
       }`}
     >
@@ -736,7 +736,7 @@ function BottomNavItem({
       onClick={onClick}
       className={`flex flex-col items-center gap-0.5 py-2.5 text-[11px] ${
         active
-          ? "font-semibold text-[var(--primary)]"
+          ? "font-semibold text-[var(--brand)]"
           : "text-[var(--muted)]"
       }`}
     >
@@ -779,7 +779,7 @@ function SectionHeader({
   onAction?: () => void;
 }) {
   return (
-    <div className="sticky top-0 z-[1] flex items-center justify-between border-b border-[var(--border)] bg-[var(--primary-soft)] px-4 py-2.5">
+    <div className="sticky top-0 z-[1] flex items-center justify-between border-b border-[var(--border)] bg-[var(--brand-soft)] px-4 py-2.5">
       <h2
         className="flex items-center gap-1.5 text-[13px] font-semibold"
         style={{ color: color ?? "var(--fg-strong)" }}
