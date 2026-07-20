@@ -27,6 +27,7 @@ import { ComposePanel } from "@/components/inbox/ComposePanel";
 import { DelegateSheet } from "@/components/inbox/DelegateSheet";
 import { ScheduleSheet } from "@/components/inbox/ScheduleSheet";
 import { UnsubAgentSheet } from "@/components/inbox/UnsubAgentSheet";
+import { WaitingSection } from "@/components/inbox/WaitingSection";
 import { AssistBar } from "@/components/inbox/AssistBar";
 import {
   LogicExplain,
@@ -119,6 +120,8 @@ export function DesktopMailApp() {
     startReply,
     draftReply,
     drafting,
+    nudge,
+    nudging,
     rsvp,
     rsvping,
   } = mb;
@@ -607,6 +610,10 @@ export function DesktopMailApp() {
                 </ul>
               </>
             )
+          ) : null}
+
+          {tab === "triage" && triage ? (
+            <WaitingSection nudge={nudge} nudging={nudging} />
           ) : null}
 
           {tab === "triage" && triage && triage.count === 0 ? (

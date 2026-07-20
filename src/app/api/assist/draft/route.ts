@@ -26,6 +26,8 @@ const INTENT_HINTS: Record<string, string> = {
     "The user can't deal with this now. Buy time gracefully: acknowledge, give a realistic follow-up window, no fake excuses.",
   delegate:
     "This is NOT a reply to the sender. Write a short forwarding note handing off this task to a helper. Open by addressing them by first name, say the user wants their help with this, then say exactly what to do (call the company/bank, chase the status, schedule, fill the form, handle the return…), what outcome to report back, and any deadline. Include the key facts from the email so they don't have to ask. Warm, direct, zero fluff.",
+  nudge:
+    "The email shown is the user's OWN earlier message that never got a reply. Write a short, friendly follow-up to the same recipient: reference what was asked in one clause, ask if there's any update, offer to make it easy ('happy to resend / jump on a call'). 1-3 sentences, zero guilt-tripping, no 'just checking in' filler openings.",
 };
 
 /**
@@ -120,9 +122,15 @@ Rules:
       });
     }
 
+    // Nudges reply to the RECIPIENT of the user's own sent message
+    const to =
+      intent === "nudge"
+        ? (message.toEmail.split(",")[0]?.trim() ?? message.fromEmail)
+        : message.fromEmail;
+
     return NextResponse.json({
       body: output.body.trim(),
-      to: message.fromEmail,
+      to,
       subject: /^re:/i.test(message.subject)
         ? message.subject
         : `Re: ${message.subject}`,

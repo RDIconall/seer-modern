@@ -39,6 +39,7 @@ import { ComposePanel } from "@/components/inbox/ComposePanel";
 import { DelegateSheet } from "@/components/inbox/DelegateSheet";
 import { PullToRefresh } from "@/components/inbox/PullToRefresh";
 import { UnsubAgentSheet } from "@/components/inbox/UnsubAgentSheet";
+import { WaitingSection } from "@/components/inbox/WaitingSection";
 import { ScheduleSheet } from "@/components/inbox/ScheduleSheet";
 import { AssistBar } from "@/components/inbox/AssistBar";
 import {
@@ -123,6 +124,8 @@ export function MobileMailApp() {
     startReply,
     draftReply,
     drafting,
+    nudge,
+    nudging,
     rsvp,
     rsvping,
   } = useMailbox();
@@ -791,6 +794,10 @@ export function MobileMailApp() {
               </p>
             ) : null}
           </div>
+        ) : null}
+
+        {tab === "triage" && triage ? (
+          <WaitingSection nudge={nudge} nudging={nudging} />
         ) : null}
 
         {tab === "triage" && triage && triage.count === 0 ? (

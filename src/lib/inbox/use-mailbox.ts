@@ -863,6 +863,37 @@ export function useMailbox(initialTab: ViewTab = "inbox") {
     [reader, readerId, rsvping, markActed, removeFromLists, closeReader],
   );
 
+  /** EA follow-up: AI drafts a nudge on a thread you're waiting on. */
+  const [nudging, setNudging] = useState<string | null>(null);
+  const nudge = useCallback(
+    async (messageId: string) => {
+      if (nudging) return;
+      setNudging(messageId);
+      try {
+        const res = await fetch("/api/assist/draft", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ id: messageId, intent: "nudge" }),
+        });
+        const json = await res.json();
+        if (!res.ok) throw new Error(json.error ?? "Draft failed");
+        setCompose({
+          mode: "reply",
+          to: json.to,
+          cc: "",
+          subject: json.subject,
+          body: json.body,
+          replyToId: json.replyToId,
+        });
+      } catch (e) {
+        setToast(e instanceof Error ? e.message : "Nudge failed");
+      } finally {
+        setNudging(null);
+      }
+    },
+    [nudging],
+  );
+
   const startReply = useCallback(
     (mode: "reply" | "replyAll" | "forward") => {
       if (!reader || !readerId) return;
@@ -948,6 +979,8 @@ export function useMailbox(initialTab: ViewTab = "inbox") {
     startReply,
     draftReply,
     drafting,
+    nudge,
+    nudging,
     rsvp,
     rsvping,
   };
