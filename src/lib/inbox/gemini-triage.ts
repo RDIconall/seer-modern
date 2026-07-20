@@ -39,7 +39,7 @@ import { z } from "zod";
  * Bump when the prompt/actions change so stale cached decisions
  * are ignored and re-classified.
  */
-export const PROMPT_VERSION = 13;
+export const PROMPT_VERSION = 14;
 
 const ACTIONS = [
   "respond",
@@ -63,6 +63,8 @@ const batchSchema = z.object({
       instruction: z.string(),
       /** The implied action, 2-6 word imperative — or "Be aware: …" */
       task: z.string(),
+      /** Life bucket in the user's language, staleness-aware */
+      category: z.string(),
     }),
   ),
 });
@@ -87,6 +89,8 @@ export type AssistantClassifyResult = ClassifyResult & {
   instruction?: string;
   /** The implied action — imperative ("Fix the autopay payment") or "Be aware: …" */
   task?: string;
+  /** Life bucket in the user's language ("Old trip", "Groceries — delivered") */
+  category?: string;
   /** True when served from the persistent decision cache (no API call). */
   cached?: boolean;
 };
@@ -419,7 +423,8 @@ Be decisive. Prefer a confident archive/delete over needs_review.
 DELEGATION: if the user's profile mentions an assistant/EA and the task does not need the user personally — calling a company/bank/vendor, scheduling, chasing a status, purchases/returns, form-filling, research, screening — keep the action (respond/act_today) but START the instruction with "Delegate: " followed by the exact ask, e.g. "Delegate: have your EA call Bank of America about the disputed charge, then reply to Rebecca." The user's time goes only where only THEY can act (decisions, relationships, money authority).
 
 Return one item per input id. reason = short why. instruction = what the user should do in one sentence.
-task = THE IMPLIED ACTION, as a 2-6 word imperative naming the concrete thing: "Fix the autopay payment", "Confirm the fraud charge", "Sign the permission form", "RSVP to Hilary", "Pay the invoice". This field keeps you disciplined: if you cannot name a concrete action, the email needs NOTHING — then task MUST be "Be aware: <5-word gist>" (e.g. "Be aware: statement ready") and the action must be an archive/delete class. NEVER vague ("check this out", "review email"). A named task and a delete_now action contradict each other — resolve the contradiction before answering.`;
+task = THE IMPLIED ACTION, as a 2-6 word imperative naming the concrete thing: "Fix the autopay payment", "Confirm the fraud charge", "Sign the permission form", "RSVP to Hilary", "Pay the invoice". This field keeps you disciplined: if you cannot name a concrete action, the email needs NOTHING — then task MUST be "Be aware: <5-word gist>" (e.g. "Be aware: statement ready") and the action must be an archive/delete class. NEVER vague ("check this out", "review email"). A named task and a delete_now action contradict each other — resolve the contradiction before answering.
+category = a 1-3 word LIFE BUCKET in the user's own terms (use their profile): Groceries, Travel, Kids & school, Golf, Money & bills, Payroll, Recruiting, Health, Home, Subscriptions, Shopping, Work, People, Receipts, Deliveries. STALENESS matters: if the underlying event already happened, say so in the category — "Old trip" not "Travel", "Groceries — delivered" not "Groceries", "Past event" not "Events". Same category = same word every time (no synonyms) so emails group cleanly.`;
 
 type CompactItem = {
   id: string;
@@ -555,6 +560,7 @@ async function geminiBatch(
       source: "gemini",
       instruction: row.instruction.slice(0, 200),
       task: row.task?.trim().slice(0, 80) || undefined,
+      category: row.category?.trim().slice(0, 40) || undefined,
     });
   }
   return out;
@@ -567,6 +573,7 @@ function toCached(r: AssistantClassifyResult): CachedDecision {
     reason: r.reason,
     instruction: r.instruction,
     task: r.task,
+    category: r.category,
     source: r.source,
     ruleId: r.debug.ruleId,
     ts: Date.now(),
@@ -782,6 +789,7 @@ export async function classifyInboxWithAssistant(
         reason: hit.reason,
         instruction: hit.instruction,
         task: hit.task,
+        category: hit.category,
         debug: debugFor(item, history, hit.ruleId),
         source: hit.source,
         cached: true,

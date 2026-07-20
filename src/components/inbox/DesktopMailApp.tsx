@@ -37,6 +37,7 @@ import { ACTION_META, type TriageAction } from "@/lib/inbox/classify";
 import { useMailbox } from "@/lib/inbox/use-mailbox";
 import {
   buildDeckCards,
+  groupByCategory,
   groupBySender,
   ensureRe,
   formatMailTime,
@@ -650,7 +651,21 @@ export function DesktopMailApp() {
                     onToggle={() => toggleSection(section.action)}
                   />
                   <ul className={collapsed.has(section.action) ? "hidden" : ""}>
-                    {groupBySender(section.items).flatMap((entry) => {
+                    {groupByCategory(section.items).flatMap((bucket, _i, all) => [
+                      ...(all.length > 1
+                        ? [
+                            <li
+                              key={`cat:${section.action}:${bucket.category}`}
+                              className="flex items-baseline gap-1.5 bg-[var(--card)] px-3 pb-0.5 pt-1.5 text-[10px] font-bold uppercase tracking-wide text-[var(--muted)]"
+                            >
+                              {bucket.category}
+                              <span className="font-medium">
+                                · {bucket.items.length}
+                              </span>
+                            </li>,
+                          ]
+                        : []),
+                      ...groupBySender(bucket.items).flatMap((entry) => {
                       if (entry.kind === "group") {
                         const open = openGroups.has(entry.key);
                         return [
@@ -707,7 +722,8 @@ export function DesktopMailApp() {
                           onDelete={() => runAction(item.id, "trash", item.fromEmail)}
                         />,
                       ];
-                    })}
+                      }),
+                    ])}
                   </ul>
                 </section>
               ))

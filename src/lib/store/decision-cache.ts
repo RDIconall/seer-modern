@@ -13,6 +13,8 @@ export type CachedDecision = {
   instruction?: string;
   /** The implied action ("Fix the autopay payment" / "Be aware: …") */
   task?: string;
+  /** Life bucket ("Old trip", "Groceries — delivered") */
+  category?: string;
   source: "gemini" | "rules" | "override" | "learned";
   ruleId: string;
   ts: number;

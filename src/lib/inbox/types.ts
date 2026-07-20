@@ -20,6 +20,8 @@ export type Guide = {
   ask?: string;
   /** The implied action — imperative ("Fix the autopay payment") or "Be aware: …" */
   task?: string;
+  /** Life bucket ("Old trip", "Groceries — delivered", "Money & bills") */
+  category?: string;
 };
 
 export type EmailItem = {
@@ -146,6 +148,34 @@ export function buildDeckCards(triage: TodayData | null): DeckCard[] {
   }
   if (triage.inbox) pushEmails(triage.inbox);
   return deck;
+}
+
+/** Category buckets within a section — "Groceries", "Old trip", … */
+export type CategoryBucket = { category: string; items: EmailItem[] };
+
+/**
+ * Bucket a section's mail by AI life-category, preserving first-seen
+ * order. Buckets only earn a sub-header when a section actually spans
+ * multiple categories.
+ */
+export function groupByCategory(items: EmailItem[]): CategoryBucket[] {
+  const map = new Map<string, EmailItem[]>();
+  for (const item of items) {
+    const c = item.guide?.category?.trim() || "Everything else";
+    const list = map.get(c) ?? [];
+    list.push(item);
+    map.set(c, list);
+  }
+  const buckets = [...map.entries()].map(([category, list]) => ({
+    category,
+    items: list,
+  }));
+  // Big buckets first; "Everything else" always last
+  return buckets.sort((a, b) => {
+    if (a.category === "Everything else") return 1;
+    if (b.category === "Everything else") return -1;
+    return b.items.length - a.items.length;
+  });
 }
 
 /** A triage section rendered as singles + same-sender groups. */

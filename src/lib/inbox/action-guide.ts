@@ -27,7 +27,37 @@ export type ActionGuide = {
   ask?: string;
   /** The implied action — imperative ("Fix the autopay payment") or "Be aware: …" */
   task?: string;
+  /** Life bucket ("Old trip", "Groceries — delivered", "Money & bills") */
+  category?: string;
 };
+
+/** Rules-decided mail gets a coarse but honest life bucket. */
+function categoryFor(ruleId: string | undefined, action: TriageAction): string {
+  const r = ruleId ?? "";
+  if (/invite|rsvp|meeting/.test(r)) return "Calendar";
+  if (/shipper|delivery/.test(r)) return "Deliveries";
+  if (/finance|money|autopay|subscription/.test(r)) return "Money & bills";
+  if (/already-replied/.test(r)) return "Handled";
+  if (/urgency-expired/.test(r)) return "Expired";
+  if (/shopping|promo|marketing|urgency-bait/.test(r)) return "Shopping & promos";
+  if (/product/.test(r)) return "Product updates";
+  if (/edu-gov/.test(r)) return "School & gov";
+  if (/contact|engaged|personal/.test(r)) return "People";
+  switch (action) {
+    case "respond":
+      return "People";
+    case "review_subscription":
+      return "Money & bills";
+    case "unsubscribe":
+      return "Mailing lists";
+    case "glance_promo":
+      return "Shopping & promos";
+    case "read_and_archive":
+      return "Records";
+    default:
+      return "Everything else";
+  }
+}
 
 /**
  * Every email carries an implied action — a concrete verb, or an
@@ -118,6 +148,7 @@ export function buildActionGuideQuick(
     source?: "gemini" | "rules" | "override" | "learned";
     instruction?: string;
     task?: string;
+    category?: string;
   },
   subject: string,
   fromName?: string,
@@ -152,6 +183,9 @@ export function buildActionGuideQuick(
     task:
       classification.task?.trim() ||
       impliedTask(classification.action, subject, ask),
+    category:
+      classification.category?.trim() ||
+      categoryFor(classification.debug?.ruleId, classification.action),
   };
 }
 
@@ -160,6 +194,7 @@ export async function buildActionGuideDetailed(
     source?: "gemini" | "rules" | "override" | "learned";
     instruction?: string;
     task?: string;
+    category?: string;
   },
   subject: string,
   snippet: string,
@@ -215,5 +250,8 @@ export async function buildActionGuideDetailed(
     task:
       classification.task?.trim() ||
       impliedTask(classification.action, subject, ask),
+    category:
+      classification.category?.trim() ||
+      categoryFor(classification.debug?.ruleId, classification.action),
   };
 }
