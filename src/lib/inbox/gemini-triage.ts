@@ -800,7 +800,25 @@ export async function classifyInboxWithAssistant(
   };
 
   // 1. Taught overrides + 2. learned priors from the user's own actions
+  const me = accountEmail.toLowerCase().trim();
   for (const item of items) {
+    // 0a. THE USER'S OWN MESSAGE — Gmail lists your replies inside
+    // inboxed threads. Never judge yourself as a sender: it's a sent
+    // message awaiting their reply, not incoming mail to triage.
+    if (item.fromEmail.toLowerCase().trim() === me) {
+      results.set(item.id, {
+        action: "read_and_archive",
+        confidence: "HIGH",
+        reason: "This is your own message in the thread",
+        debug: debugFor(item, history, "self-sent"),
+        source: "rules",
+        instruction: "You wrote this — nothing to triage.",
+        task: "Your message — awaiting their reply",
+        category: "Sent",
+      });
+      continue;
+    }
+
     const answered = repliedAt(item.threadId);
     if (answered && item.receivedAt && answered > item.receivedAt) {
       results.set(item.id, {
@@ -810,7 +828,7 @@ export async function classifyInboxWithAssistant(
         debug: debugFor(item, history, "already-replied"),
         source: "rules",
         instruction: "Handled — you replied. Archive it.",
-        task: "Be aware: you already replied",
+        task: "You already replied",
       });
       continue;
     }
@@ -834,7 +852,7 @@ export async function classifyInboxWithAssistant(
           debug: debugFor(item, history, "invite-answered"),
           source: "rules",
           instruction: "Handled — RSVP is on your calendar. Archive it.",
-          task: "Be aware: RSVP is on your calendar",
+          task: "RSVP already on your calendar",
         });
       } else {
         results.set(item.id, {
@@ -859,7 +877,7 @@ export async function classifyInboxWithAssistant(
         debug: debugFor(item, history, "rsvp-receipt-delete"),
         source: "rules",
         instruction: "Someone answered your invite. Nothing to do — delete.",
-        task: "Be aware: they answered your invite",
+        task: "They answered your invite",
       });
       continue;
     }
@@ -986,6 +1004,12 @@ export async function classifyInboxWithAssistant(
     const labeled = profileFresh ? null : extras?.labels?.lookup(item);
     if (labeled) {
       const rel = historySignals(history, item.fromEmail).relationship;
+      const tier = tiers.get(item.fromEmail.toLowerCase());
+      const personTier =
+        tier === "vip" ||
+        tier === "inner" ||
+        tier === "known" ||
+        tier === "new-credible";
       const suspiciousUrgent =
         (labeled === "act_today" || labeled === "respond") &&
         !ctx.inContacts &&
@@ -999,7 +1023,17 @@ export async function classifyInboxWithAssistant(
         !ctx.meeting &&
         rel !== "engaged" &&
         !RECORD_HINT.test(`${item.subject} ${item.snippet}`);
-      if (!suspiciousUrgent && !suspiciousArchive) {
+      // A PERSON's mail never trusts a dismissive label: an old prompt
+      // filing Rebecca's follow-up as "archive" must not stick — real
+      // people always get a current judgment.
+      const personDismissed =
+        personTier &&
+        (labeled === "read_and_archive" ||
+          labeled === "read_and_delete" ||
+          labeled === "delete_now" ||
+          labeled === "unsubscribe" ||
+          labeled === "glance_promo");
+      if (!suspiciousUrgent && !suspiciousArchive && !personDismissed) {
         results.set(item.id, {
           action: labeled,
           confidence: "HIGH",
@@ -1169,6 +1203,30 @@ export async function classifyInboxWithAssistant(
       history,
       { inContacts: ctx.inContacts, meeting: meetingLabel(ctx.meeting) },
     );
+    // THE PERSON FLOOR: when the AI couldn't grade it, a real person's
+    // mail surfaces — rules must never quietly bin a human. ("How are
+    // you?" from a friend is a respond, not a skim-and-delete.)
+    const tier = tiers.get(item.fromEmail.toLowerCase());
+    const personTier =
+      tier === "vip" || tier === "inner" || tier === "new-credible";
+    const dismissive =
+      r.action === "delete_now" ||
+      r.action === "unsubscribe" ||
+      r.action === "read_and_delete" ||
+      r.action === "glance_promo" ||
+      r.action === "read_and_archive";
+    if (personTier && dismissive) {
+      results.set(item.id, {
+        action: "respond",
+        confidence: "LOW",
+        reason: "Real person — surfaced until the AI reads it properly",
+        debug: { ...r.debug, ruleId: "person-floor" },
+        source: "rules",
+        instruction: "A person wrote this — worth your eyes.",
+        task: "See what they want",
+      });
+      continue;
+    }
     results.set(item.id, {
       ...r,
       source: "rules",
