@@ -38,7 +38,7 @@ import { z } from "zod";
  * Bump when the prompt/actions change so stale cached decisions
  * are ignored and re-classified.
  */
-export const PROMPT_VERSION = 10;
+export const PROMPT_VERSION = 11;
 
 const ACTIONS = [
   "respond",
@@ -85,6 +85,51 @@ export type AssistantClassifyResult = ClassifyResult & {
   /** True when served from the persistent decision cache (no API call). */
   cached?: boolean;
 };
+
+function ageInDays(receivedAt?: string): number {
+  if (!receivedAt) return 0;
+  const t = new Date(receivedAt).getTime();
+  if (Number.isNaN(t)) return 0;
+  return Math.floor((Date.now() - t) / (24 * 60 * 60 * 1000));
+}
+
+/**
+ * Urgency that EXPIRES: once the moment passes, the email is a fossil.
+ * (Persistent obligations — unpaid bill, unsigned doc — never match.)
+ */
+const EXPIRING_URGENCY =
+  /(check.?in|boarding|departs|departure|your (flight|trip)|deliver(y|ing|ed)? (today|tomorrow)|arriv(es|ing) (today|tomorrow)|out for delivery|verification code|one.?time (code|passcode)|security code|expires? (today|tonight|in \d+ (hours?|minutes?))|starts (today|tonight|soon)|happening (today|now)|(today|tonight) only|last day to|ends (today|tonight)|webinar|livestream|rsvp by|doors open)/i;
+
+/** Codes die in minutes; travel/events die once the day passes. */
+const FAST_EXPIRE =
+  /(verification code|one.?time (code|passcode)|security code|log.?in code)/i;
+
+/**
+ * Post-guard over EVERY decision source (cache, Gmail labels, Gemini,
+ * rules): an act_today from days ago whose moment has passed is dead.
+ * This is how a flight check-in stops screaming after the flight.
+ */
+function applyUrgencyDecay(
+  item: GeminiTriageItem,
+  result: AssistantClassifyResult,
+  history: MailHistory | null | undefined,
+): AssistantClassifyResult {
+  if (result.action !== "act_today") return result;
+  const age = ageInDays(item.receivedAt);
+  if (age < 1) return result;
+  const hay = `${item.subject} ${item.snippet}`;
+  const expiring = EXPIRING_URGENCY.test(hay);
+  const fast = FAST_EXPIRE.test(hay);
+  if (!(fast && age >= 1) && !(expiring && age >= 2)) return result;
+  return {
+    action: "delete_now",
+    confidence: "HIGH",
+    reason: `Was urgent when it arrived — the moment passed ${age}d ago`,
+    debug: { ...debugFor(item, history, "urgency-expired"), ruleId: "urgency-expired" },
+    source: result.source,
+    instruction: "This expired on its own. Safe to delete without opening.",
+  };
+}
 
 /** Looks like a record worth keeping (used to trust old archive labels). */
 const RECORD_HINT =
@@ -328,7 +373,7 @@ Actions:
 - respond: a real person is waiting on an answer / decision
 - act_today: the user must personally DO something today or lose something — sign, pay, pick up, board, reschedule, enter a code. Time-sensitive is NOT enough: a package "arriving tomorrow" arrives without the user; that is NOT act_today.
 - read_and_archive: a RECORD the user would realistically SEARCH FOR later — receipt, invoice, statement, confirmation/reference number, ticket, itinerary, tax/legal — or a real FYI from a person they engage with. Archive is for retrieval, not politeness.
-- read_and_delete: everything merely informational — skim once then delete. If they would never search for it later, it is NOT read_and_archive.
+- read_and_delete: a 10-second skim tells them something they'd actually want to know — a human note, a specific fact (appointment moved, who RSVP'd, what changed). If the SUBJECT LINE alone says it all, that is delete_now, not read_and_delete.
 - delete_now: safe to trash without opening (cold promo, bulk noreply junk)
 - unsubscribe: mailing list they clearly don't engage with
 - review_subscription: billing anomaly / price change / failed charge
@@ -337,6 +382,7 @@ Actions:
 
 Input is a JSON array. Item fields: id, from (display name), email, subject, snippet.
 Optional predictor fields (omitted when zero/default):
+- age: how many DAYS ago the email arrived (omitted when <2)
 - rel: engaged (user emails them) | known (frequent inbound only) | bulk (automated); sent/recv = message counts; stale = engagement quiet >30d
 - contact: true = in the user's address book — a real relationship, never delete_now
 - meeting: an upcoming calendar event with this sender (e.g. "Standup · in 2d") — strong signal to respond/act_today
@@ -346,6 +392,7 @@ Priority when signals conflict: meeting > contact > engaged rel > past behavior 
 USE WORLD KNOWLEDGE of the company behind the email. Airlines = travel. Banks/brokerages = money. Pharmacies/clinics = health. Schools/government = obligations. Judge WHO the company is and WHAT the message means for the user's day — no sent-history is NOT a reason to defer on a recognizable transactional sender.
 THE RAZOR — apply to every email: does the user personally have to DO anything? PASSIVE "it happened" mail needs nothing: package shipped/arriving/delivered, order confirmed, ride completed, build passed, PR merged, someone starred/liked/followed, weekly digest, statement ready → delete_now or read_and_delete. The event happens whether they read it or not. NEEDS-THEM mail is the exception: failed delivery/signature/pickup/customs, build FAILED, review requested, mentioned/assigned, security alert, payment failed/fraud/overdue, RSVP/invitation → act_today or respond. Records with future lookup value (receipts, invoices, confirmations with reference numbers) → read_and_archive, never delete.
 DELETE BEATS ARCHIVE: when torn between read_and_archive and read_and_delete, pick delete — the user keeps records, not reading material. Newsletters, product updates, community digests, "your weekly summary", social/forum notifications: read_and_delete even from recognizable brands.
+URGENCY DECAYS: act_today means today — judge it against age. A flight check-in, boarding pass, verification code, delivery window, event reminder, or "expires tonight" that is days old is DEAD: the moment passed, delete_now. Only obligations that persist stay urgent as they age: unpaid bill, unsigned document, unanswered person, overdue anything. When age is high, ask "is this STILL actionable, or is it a fossil of an urgency that expired?"
 FAKE URGENCY is the #1 trick: "expires today", "last chance", "action required", "final notice", "reminder:" from bulk/noreply/marketing senders is promo bait — delete_now or glance_promo, NEVER act_today. Urgency is real only from contacts, engaged/known senders, or genuine transactional mail (2FA codes, password resets, security alerts, boarding passes, deliveries, appointments).
 Cold noreply marketing → delete_now or unsubscribe.
 Product/CI (GitHub, Vercel, Figma, etc.) → usually read_and_archive unless promo.
@@ -360,6 +407,8 @@ type CompactItem = {
   email: string;
   subject: string;
   snippet: string;
+  /** Days since the email arrived (omitted when fresh) */
+  age?: number;
   rel?: string;
   sent?: number;
   recv?: number;
@@ -410,6 +459,8 @@ function compactPayload(
         .replace(/\s+/g, " ")
         .slice(0, 400),
     };
+    const age = ageInDays(m.receivedAt);
+    if (age >= 2) item.age = age;
     if (sig.relationship !== "cold") item.rel = sig.relationship;
     if (sig.sentTo > 0) item.sent = sig.sentTo;
     if (sig.receivedFrom > 0) item.recv = sig.receivedFrom;
@@ -823,6 +874,13 @@ export async function classifyInboxWithAssistant(
       source: "rules",
       debug: { ...r.debug, ruleId: `rules:${r.debug.ruleId}` },
     });
+  }
+
+  // Urgency decay pass — covers every source, including decisions that
+  // were correct days ago but are saved in caches/labels as act_today.
+  for (const item of items) {
+    const r = results.get(item.id);
+    if (r) results.set(item.id, applyUrgencyDecay(item, r, history));
   }
 
   await saveDecisions(accountEmail, toSave).catch(() => {});

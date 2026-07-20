@@ -96,6 +96,7 @@ export function MobileMailApp() {
     snooze,
     delegate,
     bulkSection,
+    unsubscribe,
     teachSender,
     openReader,
     closeReader,
@@ -249,6 +250,11 @@ export function MobileMailApp() {
                 onDraft={draftReply}
                 rsvping={rsvping}
                 onRsvp={rsvp}
+                onUnsubscribe={
+                  readerId
+                    ? () => unsubscribe(readerId, reader?.fromEmail)
+                    : undefined
+                }
               />
             ) : null}
           </div>

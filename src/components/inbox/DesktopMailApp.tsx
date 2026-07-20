@@ -94,6 +94,7 @@ export function DesktopMailApp() {
     snooze,
     delegate,
     bulkSection,
+    unsubscribe,
     teachSender,
     openReader,
     closeReader,
@@ -566,6 +567,11 @@ export function DesktopMailApp() {
                       onDraft={draftReply}
                       rsvping={rsvping}
                       onRsvp={rsvp}
+                      onUnsubscribe={
+                        readerId
+                          ? () => unsubscribe(readerId, reader?.fromEmail)
+                          : undefined
+                      }
                     />
                   </div>
 

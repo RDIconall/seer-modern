@@ -355,6 +355,29 @@ export function useMailbox(initialTab: ViewTab = "inbox") {
         };
       });
       try {
+        // The unsubscribe section actually unsubscribes (one-click /
+        // mailto), then trashes and teaches the sender — not just trash.
+        if (section.action === "unsubscribe") {
+          const res = await fetch("/api/unsubscribe", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({
+              items: section.items.map((i) => ({
+                id: i.id,
+                fromEmail: i.fromEmail,
+              })),
+            }),
+          });
+          const json = await res.json();
+          if (!res.ok) throw new Error(json.error ?? "Unsubscribe failed");
+          setToast(
+            json.unsubscribed > 0
+              ? `Unsubscribed from ${json.unsubscribed} of ${ids.length} · all trashed & muted`
+              : `Trashed ${ids.length} · senders muted`,
+          );
+          return;
+        }
+
         const res = await fetch("/api/action/bulk", {
           method: "POST",
           headers: { "Content-Type": "application/json" },
@@ -374,6 +397,36 @@ export function useMailbox(initialTab: ViewTab = "inbox") {
       }
     },
     [load],
+  );
+
+  /** Unsubscribe a single message for real, then trash + mute sender. */
+  const unsubscribe = useCallback(
+    async (id: string, fromEmail?: string) => {
+      removeFromLists(id);
+      if (readerId === id) closeReader();
+      try {
+        const res = await fetch("/api/unsubscribe", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ id, fromEmail }),
+        });
+        const json = await res.json();
+        if (!res.ok) throw new Error(json.error ?? "Unsubscribe failed");
+        if (json.links?.length) {
+          // No machine-readable path — one tap on the list's own page
+          window.open(json.links[0].url, "_blank", "noopener");
+          setToast("Opened the unsubscribe page — email trashed & sender muted");
+        } else if (json.unsubscribed > 0) {
+          setToast("Unsubscribed — email trashed & sender muted");
+        } else {
+          setToast("No unsubscribe link — trashed & sender muted instead");
+        }
+      } catch (e) {
+        setToast(e instanceof Error ? e.message : "Unsubscribe failed");
+        load();
+      }
+    },
+    [closeReader, load, readerId, removeFromLists],
   );
 
   const teachSender = useCallback(
@@ -636,6 +689,7 @@ export function useMailbox(initialTab: ViewTab = "inbox") {
     snooze,
     delegate,
     bulkSection,
+    unsubscribe,
     teachSender,
     openReader,
     closeReader,
