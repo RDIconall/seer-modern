@@ -178,7 +178,7 @@ export function DesktopMailApp() {
         <div className="border-b border-[var(--border)] px-4 py-4">
           <div className="flex items-center gap-2">
             {/* eslint-disable-next-line @next/next/no-img-element */}
-            <img src="/seer-mark.png" alt="" width={26} height={26} />
+            <img src="/seer-eye.png" alt="" width={26} height={26} />
             <span className="seer-brand text-lg">Seer</span>
           </div>
           <div className="seer-tagline mt-0.5 text-[11px]">Fewer decisions.</div>

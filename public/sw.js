@@ -1,8 +1,9 @@
 /* Seer — mobile shell at /m */
-const CACHE = "seer-mobile-v1";
+const CACHE = "seer-mobile-v2";
 const PRECACHE = [
   "/m",
   "/manifest.webmanifest",
+  "/seer-eye.png",
   "/icons/icon-192.png",
   "/icons/icon-512.png",
 ];
@@ -35,6 +36,26 @@ self.addEventListener("fetch", (event) => {
   if (url.origin !== self.location.origin) return;
   if (url.pathname.startsWith("/api/")) return;
 
+  // Brand marks / icons: network-first so logo updates aren't sticky
+  if (
+    url.pathname === "/seer-eye.png" ||
+    url.pathname === "/seer-mark.png" ||
+    url.pathname.startsWith("/seer-mark-") ||
+    url.pathname.startsWith("/icons/") ||
+    url.pathname.endsWith(".webmanifest")
+  ) {
+    event.respondWith(
+      fetch(request)
+        .then((res) => {
+          const copy = res.clone();
+          caches.open(CACHE).then((c) => c.put(request, copy));
+          return res;
+        })
+        .catch(() => caches.match(request)),
+    );
+    return;
+  }
+
   // Mobile app shell
   if (
     request.mode === "navigate" &&
@@ -52,11 +73,7 @@ self.addEventListener("fetch", (event) => {
     return;
   }
 
-  if (
-    url.pathname.startsWith("/icons/") ||
-    url.pathname.startsWith("/_next/static/") ||
-    url.pathname.endsWith(".webmanifest")
-  ) {
+  if (url.pathname.startsWith("/_next/static/")) {
     event.respondWith(
       caches.match(request).then(
         (cached) =>
