@@ -123,14 +123,14 @@ Rules:
     }
 
     // Nudges reply to the RECIPIENT of the user's own sent message
-    const to =
+    const replyTo =
       intent === "nudge"
-        ? (message.toEmail.split(",")[0]?.trim() ?? message.fromEmail)
+        ? (message.toEmail.split(",")[0]?.trim() || message.fromEmail)
         : message.fromEmail;
 
     return NextResponse.json({
       body: output.body.trim(),
-      to,
+      to: replyTo,
       subject: /^re:/i.test(message.subject)
         ? message.subject
         : `Re: ${message.subject}`,
