@@ -9,6 +9,7 @@ import { loadUserProfile } from "@/lib/store/user-profile";
 import type { EmailItem } from "@/lib/inbox/types";
 import {
   getGmailMessage,
+  getGmailThreadLast,
   listGmailFolder,
   searchGmail,
 } from "@/lib/mail/gmail";
@@ -118,7 +119,11 @@ export async function GET(request: Request) {
           labels,
           profile,
           replied,
-          fetchBody: async (id) => {
+          threadLast:
+          session.provider === "google"
+            ? (threadId) => getGmailThreadLast(session.accessToken, threadId)
+            : undefined,
+        fetchBody: async (id) => {
             const msg =
               session.provider === "google"
                 ? await getGmailMessage(session.accessToken, id)

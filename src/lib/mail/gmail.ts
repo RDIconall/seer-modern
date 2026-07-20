@@ -215,6 +215,40 @@ export async function searchGmail(
   return hydrateList(accessToken, list.messages ?? []);
 }
 
+/** Who spoke LAST in a thread — the fact that decides "answered or not". */
+export async function getGmailThreadLast(
+  accessToken: string,
+  threadId: string,
+): Promise<{ fromEmail: string; receivedAt: string; id: string } | null> {
+  try {
+    const t = (await gmailFetch(
+      accessToken,
+      `/users/me/threads/${threadId}?format=metadata&metadataHeaders=From`,
+    )) as {
+      messages?: {
+        id: string;
+        internalDate?: string;
+        payload?: { headers?: { name: string; value: string }[] };
+      }[];
+    };
+    const msgs = t.messages ?? [];
+    const last = msgs[msgs.length - 1];
+    if (!last) return null;
+    const fromRaw =
+      last.payload?.headers?.find((h) => h.name === "From")?.value ?? "";
+    const { email } = parseAddress(fromRaw);
+    return {
+      id: last.id,
+      fromEmail: email.toLowerCase(),
+      receivedAt: last.internalDate
+        ? new Date(Number(last.internalDate)).toISOString()
+        : new Date().toISOString(),
+    };
+  } catch {
+    return null;
+  }
+}
+
 export async function getGmailMessage(
   accessToken: string,
   id: string,

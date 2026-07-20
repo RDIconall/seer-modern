@@ -16,6 +16,7 @@ import { loadRepliedThreads } from "@/lib/store/replied-threads";
 import { loadUserProfile } from "@/lib/store/user-profile";
 import {
   getGmailMessage,
+  getGmailThreadLast,
   listGmailFolder,
   listGmailInbox,
 } from "@/lib/mail/gmail";
@@ -121,6 +122,10 @@ export async function GET() {
         labels,
         profile,
         replied,
+        threadLast:
+          session.provider === "google"
+            ? (threadId) => getGmailThreadLast(session.accessToken, threadId)
+            : undefined,
         fetchBody: async (id) => {
           const msg =
             session.provider === "google"

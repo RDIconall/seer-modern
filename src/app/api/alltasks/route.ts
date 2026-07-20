@@ -10,6 +10,7 @@ import type { IphoneTask } from "@/lib/api-parity/iphone-task-types";
 import { LEGACY_SESSION_COOKIE } from "@/lib/future-ios";
 import {
   getGmailMessage,
+  getGmailThreadLast,
   listGmailFolder,
   listGmailInbox,
 } from "@/lib/mail/gmail";
@@ -86,6 +87,10 @@ export async function GET() {
         labels,
         profile,
         replied,
+        threadLast:
+          session.provider === "google"
+            ? (threadId) => getGmailThreadLast(session.accessToken, threadId)
+            : undefined,
         fetchBody: async (id) => {
           const msg =
             session.provider === "google"

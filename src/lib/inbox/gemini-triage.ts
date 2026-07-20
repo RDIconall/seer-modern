@@ -524,6 +524,14 @@ export type TriageExtras = {
   /** Audits: skip the local junk pre-filter so every email is AI-judged. */
   forceGemini?: boolean;
   /**
+   * Who spoke LAST in a thread — conversations are threads, not
+   * messages. Decides "you already replied" vs "back to you", even
+   * when their newest turn was accidentally archived out of the inbox.
+   */
+  threadLast?: (
+    threadId: string,
+  ) => Promise<{ fromEmail: string; receivedAt: string } | null>;
+  /**
    * Deep read: fetch the FULL body text for a message about to be sent
    * to Gemini. Each email is read once (decision cached + labeled), so
    * the whole inbox costs pennies — snippets are only the fallback.
@@ -801,15 +809,94 @@ export async function classifyInboxWithAssistant(
 
   // 1. Taught overrides + 2. learned priors from the user's own actions
   const me = accountEmail.toLowerCase().trim();
+  // Conversations are THREADS: who spoke last decides everything.
+  // Memoized — one lookup per thread, only when it changes the verdict.
+  const threadLastMemo = new Map<
+    string,
+    { fromEmail: string; receivedAt: string } | null
+  >();
+  const lastTurn = async (threadId?: string) => {
+    if (!threadId || !extras?.threadLast) return null;
+    if (!threadLastMemo.has(threadId)) {
+      threadLastMemo.set(
+        threadId,
+        await extras.threadLast(threadId).catch(() => null),
+      );
+    }
+    return threadLastMemo.get(threadId) ?? null;
+  };
+  // Thread bookkeeping: one respond per thread (its newest row), and
+  // tasks must name the COUNTERPARTY, never the user.
+  const newestOfThread = new Map<string, string>();
+  const counterpartOfThread = new Map<string, string>();
+  for (const item of items) {
+    if (!item.threadId) continue;
+    const cur = newestOfThread.get(item.threadId);
+    const curItem = items.find((i) => i.id === cur);
+    if (!curItem || item.receivedAt! > curItem.receivedAt!) {
+      newestOfThread.set(item.threadId, item.id);
+    }
+    if (item.fromEmail.toLowerCase().trim() !== me) {
+      counterpartOfThread.set(
+        item.threadId,
+        item.fromName || item.fromEmail,
+      );
+    }
+  }
+
+  const backToYou = (
+    item: GeminiTriageItem,
+    turn: { fromEmail: string; receivedAt: string },
+  ): AssistantClassifyResult => {
+    const who =
+      item.fromEmail.toLowerCase().trim() === me
+        ? (counterpartOfThread.get(item.threadId ?? "") ??
+          turn.fromEmail.split("@")[0])
+        : item.fromName || item.fromEmail;
+    return {
+      action: "respond",
+      confidence: "HIGH",
+      reason: "Their reply is the newest turn in this thread — back to you",
+      debug: debugFor(item, history, "thread-back-to-you"),
+      source: "rules",
+      instruction: "They answered after your last reply — open the thread.",
+      task: `Reply to ${who}`.slice(0, 60),
+      category: "People",
+    };
+  };
+
+  /** Older rows of an already-surfaced thread file quietly. */
+  const threadSibling = (item: GeminiTriageItem): AssistantClassifyResult => ({
+    action: "read_and_archive",
+    confidence: "HIGH",
+    reason: "Older message in a thread that's already surfaced above",
+    debug: debugFor(item, history, "thread-sibling"),
+    source: "rules",
+    instruction: "The newest turn of this thread carries the action.",
+    task: "Part of an active thread",
+    category: "People",
+  });
+
   for (const item of items) {
     // 0a. THE USER'S OWN MESSAGE — Gmail lists your replies inside
-    // inboxed threads. Never judge yourself as a sender: it's a sent
-    // message awaiting their reply, not incoming mail to triage.
+    // inboxed threads. Never judge yourself as a sender. But check the
+    // THREAD: if they spoke after you (even if their message was
+    // archived out of the inbox), the ball is in YOUR court.
     if (item.fromEmail.toLowerCase().trim() === me) {
+      const turn = await lastTurn(item.threadId);
+      if (turn && turn.fromEmail !== me) {
+        results.set(
+          item.id,
+          newestOfThread.get(item.threadId ?? "") === item.id
+            ? backToYou(item, turn)
+            : threadSibling(item),
+        );
+        continue;
+      }
       results.set(item.id, {
         action: "read_and_archive",
         confidence: "HIGH",
-        reason: "This is your own message in the thread",
+        reason: "This is your own message — no reply yet",
         debug: debugFor(item, history, "self-sent"),
         source: "rules",
         instruction: "You wrote this — nothing to triage.",
@@ -821,6 +908,19 @@ export async function classifyInboxWithAssistant(
 
     const answered = repliedAt(item.threadId);
     if (answered && item.receivedAt && answered > item.receivedAt) {
+      // Per-message it looks handled — but verify per-THREAD before
+      // dismissing a person: their newest turn may live outside the
+      // inbox (archived), making "you already replied" a lie.
+      const turn = await lastTurn(item.threadId);
+      if (turn && turn.fromEmail !== me && turn.receivedAt > answered) {
+        results.set(
+          item.id,
+          newestOfThread.get(item.threadId ?? "") === item.id
+            ? backToYou(item, turn)
+            : threadSibling(item),
+        );
+        continue;
+      }
       results.set(item.id, {
         action: "read_and_archive",
         confidence: "HIGH",
