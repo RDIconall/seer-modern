@@ -3,6 +3,8 @@
 import DOMPurify from "dompurify";
 import {
   Archive,
+  Check,
+  ChevronDown,
   Forward,
   Inbox,
   Layers,
@@ -99,6 +101,7 @@ export function DesktopMailApp() {
     closeDelegate,
     confirmDelegate,
     bulkSection,
+    runBulk,
     unsubscribe,
     teachSender,
     openReader,
@@ -114,6 +117,52 @@ export function DesktopMailApp() {
   const searchParams = useSearchParams();
   const [settingsOpen, setSettingsOpen] = useState(false);
   const [logicMode, setLogicMode] = useState(false);
+
+  // Collapsible triage sections (persisted)
+  const [collapsed, setCollapsed] = useState<Set<string>>(() => {
+    if (typeof window === "undefined") return new Set();
+    try {
+      return new Set(
+        JSON.parse(window.localStorage.getItem("seer:collapsed") ?? "[]"),
+      );
+    } catch {
+      return new Set();
+    }
+  });
+  const toggleSection = (key: string) => {
+    setCollapsed((prev) => {
+      const next = new Set(prev);
+      if (next.has(key)) next.delete(key);
+      else next.add(key);
+      try {
+        window.localStorage.setItem("seer:collapsed", JSON.stringify([...next]));
+      } catch {
+        /* ignore */
+      }
+      return next;
+    });
+  };
+
+  // Multi-select in mail lists
+  const [picked, setPicked] = useState<Set<string>>(new Set());
+  const togglePick = (id: string) => {
+    setPicked((prev) => {
+      const next = new Set(prev);
+      if (next.has(id)) next.delete(id);
+      else next.add(id);
+      return next;
+    });
+  };
+  useEffect(() => {
+    setPicked(new Set());
+  }, [tab]);
+  const pickedItems = useMemo(
+    () =>
+      listItems
+        .filter((i) => picked.has(i.id))
+        .map((i) => ({ id: i.id, fromEmail: i.fromEmail })),
+    [listItems, picked],
+  );
   const deckCards = useMemo(() => buildDeckCards(triage), [triage]);
 
   useEffect(() => {
@@ -410,25 +459,73 @@ export function DesktopMailApp() {
                 }
               />
             ) : (
-              <ul>
-                {listItems.map((item) => (
-                  <DesktopMailRow
-                    key={item.id}
-                    item={item}
-                    selected={readerId === item.id}
-                    busy={busyId === item.id}
-                    showGuide={tab === "inbox" || Boolean(query)}
-                    logicMode={logicMode}
-                    onOpen={() => openReader(item.id)}
-                    onArchive={
-                      tab === "inbox"
-                        ? () => runAction(item.id, "archive", item.fromEmail)
-                        : undefined
-                    }
-                    onDelete={() => runAction(item.id, "trash", item.fromEmail)}
-                  />
-                ))}
-              </ul>
+              <>
+                {picked.size > 0 ? (
+                  <div className="sticky top-0 z-10 flex items-center gap-2 border-b border-[var(--border)] bg-[var(--brand-soft)] px-3 py-1.5">
+                    <span className="text-[12px] font-semibold">
+                      {picked.size} selected
+                    </span>
+                    <button
+                      type="button"
+                      onClick={() => {
+                        runBulk(pickedItems, "archive");
+                        setPicked(new Set());
+                      }}
+                      className="rounded px-2 py-1 text-[12px] font-semibold text-[#76ab19] hover:bg-[var(--card)]"
+                    >
+                      Archive
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => {
+                        runBulk(pickedItems, "trash");
+                        setPicked(new Set());
+                      }}
+                      className="rounded px-2 py-1 text-[12px] font-semibold text-[#d63b2f] hover:bg-[var(--card)]"
+                    >
+                      Delete
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => {
+                        runBulk(pickedItems, "read");
+                        setPicked(new Set());
+                      }}
+                      className="rounded px-2 py-1 text-[12px] font-semibold text-[var(--primary)] hover:bg-[var(--card)]"
+                    >
+                      Mark read
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => setPicked(new Set())}
+                      className="ml-auto rounded px-2 py-1 text-[12px] text-[var(--muted)] hover:bg-[var(--card)]"
+                    >
+                      Clear
+                    </button>
+                  </div>
+                ) : null}
+                <ul>
+                  {listItems.map((item) => (
+                    <DesktopMailRow
+                      key={item.id}
+                      item={item}
+                      selected={readerId === item.id}
+                      busy={busyId === item.id}
+                      showGuide={tab === "inbox" || Boolean(query)}
+                      logicMode={logicMode}
+                      checked={picked.has(item.id)}
+                      onToggleSelect={() => togglePick(item.id)}
+                      onOpen={() => openReader(item.id)}
+                      onArchive={
+                        tab === "inbox"
+                          ? () => runAction(item.id, "archive", item.fromEmail)
+                          : undefined
+                      }
+                      onDelete={() => runAction(item.id, "trash", item.fromEmail)}
+                    />
+                  ))}
+                </ul>
+              </>
             )
           ) : null}
 
@@ -440,8 +537,10 @@ export function DesktopMailApp() {
             <section>
               <SectionHeader
                 label={`Needs your call · ${triage.needsReview.length}`}
+                collapsed={collapsed.has("needsReview")}
+                onToggle={() => toggleSection("needsReview")}
               />
-              <ul>
+              <ul className={collapsed.has("needsReview") ? "hidden" : ""}>
                 {triage.needsReview.map((item) => (
                   <DesktopMailRow
                     key={item.id}
@@ -487,8 +586,10 @@ export function DesktopMailApp() {
                     onAction={() =>
                       bulkSection(section, primaryMailAction(section.action))
                     }
+                    collapsed={collapsed.has(section.action)}
+                    onToggle={() => toggleSection(section.action)}
                   />
-                  <ul>
+                  <ul className={collapsed.has(section.action) ? "hidden" : ""}>
                     {section.items.map((item) => (
                       <DesktopMailRow
                         key={item.id}
@@ -623,6 +724,8 @@ function DesktopMailRow({
   onArchive,
   onDelete,
   chips,
+  checked,
+  onToggleSelect,
 }: {
   item: EmailItem;
   selected: boolean;
@@ -633,6 +736,8 @@ function DesktopMailRow({
   onArchive?: () => void;
   onDelete: () => void;
   chips?: ReactNode;
+  checked?: boolean;
+  onToggleSelect?: () => void;
 }) {
   const [hovered, setHovered] = useState(false);
   const g = item.guide;
@@ -651,12 +756,32 @@ function DesktopMailRow({
         onKeyDown={(e) => e.key === "Enter" && onOpen()}
         className={`mail-row cursor-pointer pr-14 transition-colors ${
           selected ? "bg-[var(--brand-soft)]" : ""
-        } ${busy ? "opacity-50" : ""} ${item.isUnread ? "unread" : ""}`}
+        } ${checked ? "bg-[var(--primary-soft,rgba(52,152,217,0.1))]" : ""} ${
+          busy ? "opacity-50" : ""
+        } ${item.isUnread ? "unread" : ""}`}
       >
-        <span
-          className={`mail-unread-dot ${item.isUnread ? "" : "empty"}`}
-          aria-hidden
-        />
+        {onToggleSelect && (hovered || checked) ? (
+          <button
+            type="button"
+            aria-label={checked ? "Deselect" : "Select"}
+            onClick={(e) => {
+              e.stopPropagation();
+              onToggleSelect();
+            }}
+            className={`mr-1.5 flex h-4 w-4 shrink-0 items-center justify-center self-center rounded-full border-2 ${
+              checked
+                ? "border-[var(--primary)] bg-[var(--primary)] text-white"
+                : "border-[var(--muted)]"
+            }`}
+          >
+            {checked ? <Check className="h-2.5 w-2.5" /> : null}
+          </button>
+        ) : (
+          <span
+            className={`mail-unread-dot ${item.isUnread ? "" : "empty"}`}
+            aria-hidden
+          />
+        )}
         <div className="min-w-0 flex-1">
           <div className="flex items-baseline justify-between gap-2">
             <span className="mail-from truncate text-[13px] text-[var(--fg-strong)]">
@@ -712,16 +837,23 @@ function SectionHeader({
   color,
   actionLabel,
   onAction,
+  collapsed,
+  onToggle,
 }: {
   label: string;
   color?: string;
   actionLabel?: string;
   onAction?: () => void;
+  collapsed?: boolean;
+  onToggle?: () => void;
 }) {
   return (
     <div className="sticky top-0 z-10 flex items-center justify-between border-b border-[var(--border)] bg-[var(--brand-soft)] px-3 py-2">
-      <h2
-        className="flex items-center gap-1.5 text-[12px] font-semibold"
+      <button
+        type="button"
+        onClick={onToggle}
+        disabled={!onToggle}
+        className="flex min-w-0 flex-1 items-center gap-1.5 text-left text-[12px] font-semibold"
         style={{ color: color ?? "var(--fg-strong)" }}
       >
         {color ? (
@@ -731,13 +863,20 @@ function SectionHeader({
             aria-hidden
           />
         ) : null}
-        {label}
-      </h2>
-      {actionLabel && onAction ? (
+        <span className="truncate">{label}</span>
+        {onToggle ? (
+          <ChevronDown
+            className={`h-3.5 w-3.5 shrink-0 opacity-60 transition-transform ${
+              collapsed ? "-rotate-90" : ""
+            }`}
+          />
+        ) : null}
+      </button>
+      {actionLabel && onAction && !collapsed ? (
         <button
           type="button"
           onClick={onAction}
-          className="text-[11px] font-semibold text-[var(--primary)] hover:underline"
+          className="shrink-0 text-[11px] font-semibold text-[var(--primary)] hover:underline"
         >
           {actionLabel}
         </button>

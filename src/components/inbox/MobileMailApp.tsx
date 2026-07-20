@@ -3,6 +3,9 @@
 import DOMPurify from "dompurify";
 import {
   Archive,
+  Check,
+  ChevronDown,
+  MailOpen,
   ChevronLeft,
   Forward,
   Inbox,
@@ -101,6 +104,7 @@ export function MobileMailApp() {
     closeDelegate,
     confirmDelegate,
     bulkSection,
+    runBulk,
     unsubscribe,
     teachSender,
     openReader,
@@ -120,6 +124,57 @@ export function MobileMailApp() {
   const [logicMode, setLogicMode] = useState(false);
   const searchRef = useRef<HTMLInputElement>(null);
   const deckCards = useMemo(() => buildDeckCards(triage), [triage]);
+
+  // Collapsible triage sections (persisted)
+  const [collapsed, setCollapsed] = useState<Set<string>>(() => {
+    if (typeof window === "undefined") return new Set();
+    try {
+      return new Set(
+        JSON.parse(window.localStorage.getItem("seer:collapsed") ?? "[]"),
+      );
+    } catch {
+      return new Set();
+    }
+  });
+  const toggleSection = (key: string) => {
+    setCollapsed((prev) => {
+      const next = new Set(prev);
+      if (next.has(key)) next.delete(key);
+      else next.add(key);
+      try {
+        window.localStorage.setItem("seer:collapsed", JSON.stringify([...next]));
+      } catch {
+        /* ignore */
+      }
+      return next;
+    });
+  };
+
+  // Multi-select in mail lists
+  const [selectMode, setSelectMode] = useState(false);
+  const [picked, setPicked] = useState<Set<string>>(new Set());
+  const togglePick = (id: string) => {
+    setPicked((prev) => {
+      const next = new Set(prev);
+      if (next.has(id)) next.delete(id);
+      else next.add(id);
+      return next;
+    });
+  };
+  const exitSelect = () => {
+    setSelectMode(false);
+    setPicked(new Set());
+  };
+  useEffect(() => {
+    exitSelect();
+  }, [tab]);
+  const pickedItems = useMemo(
+    () =>
+      listItems
+        .filter((i) => picked.has(i.id))
+        .map((i) => ({ id: i.id, fromEmail: i.fromEmail })),
+    [listItems, picked],
+  );
 
   useEffect(() => {
     if (searchOpen) searchRef.current?.focus();
@@ -531,24 +586,80 @@ export function MobileMailApp() {
               }
             />
           ) : (
-            <ul>
-              {listItems.map((item) => (
-                <SwipeMailRow
-                  key={item.id}
-                  item={item}
-                  showGuide={tab === "inbox" || Boolean(query)}
-                  logicMode={logicMode}
-                  busy={busyId === item.id}
-                  onOpen={() => openReader(item.id)}
-                  onArchive={
-                    tab === "inbox"
-                      ? () => runAction(item.id, "archive", item.fromEmail)
-                      : undefined
-                  }
-                  onDelete={() => runAction(item.id, "trash", item.fromEmail)}
-                />
-              ))}
-            </ul>
+            <>
+              <div className="flex items-center justify-between border-b border-[var(--border)] bg-[var(--card)] px-4 py-1.5">
+                <span className="text-[12px] text-[var(--muted)]">
+                  {selectMode
+                    ? `${picked.size} selected`
+                    : `${listItems.length} messages`}
+                </span>
+                <button
+                  type="button"
+                  onClick={() => (selectMode ? exitSelect() : setSelectMode(true))}
+                  className="text-[12px] font-semibold text-[var(--primary)]"
+                >
+                  {selectMode ? "Cancel" : "Select"}
+                </button>
+              </div>
+              <ul className={picked.size > 0 ? "pb-16" : ""}>
+                {listItems.map((item) => (
+                  <SwipeMailRow
+                    key={item.id}
+                    item={item}
+                    showGuide={tab === "inbox" || Boolean(query)}
+                    logicMode={logicMode}
+                    busy={busyId === item.id}
+                    selectMode={selectMode}
+                    checked={picked.has(item.id)}
+                    onToggleSelect={() => togglePick(item.id)}
+                    onOpen={() => openReader(item.id)}
+                    onArchive={
+                      tab === "inbox"
+                        ? () => runAction(item.id, "archive", item.fromEmail)
+                        : undefined
+                    }
+                    onDelete={() => runAction(item.id, "trash", item.fromEmail)}
+                  />
+                ))}
+              </ul>
+              {selectMode && picked.size > 0 ? (
+                <div className="fixed inset-x-0 bottom-[calc(3.5rem+var(--safe-bottom))] z-40 mx-auto flex max-w-lg items-center justify-around border-t border-[var(--border)] bg-[var(--bg)] px-2 py-2 shadow-[0_-4px_16px_rgba(0,0,0,0.12)]">
+                  <button
+                    type="button"
+                    onClick={() => {
+                      runBulk(pickedItems, "archive");
+                      exitSelect();
+                    }}
+                    className="flex flex-col items-center gap-0.5 px-3 text-[11px] font-medium text-[#76ab19]"
+                  >
+                    <Archive className="h-5 w-5" />
+                    Archive
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      runBulk(pickedItems, "trash");
+                      exitSelect();
+                    }}
+                    className="flex flex-col items-center gap-0.5 px-3 text-[11px] font-medium text-[#d63b2f]"
+                  >
+                    <Trash2 className="h-5 w-5" />
+                    Delete
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      runBulk(pickedItems, "read");
+                      exitSelect();
+                    }}
+                    className="flex flex-col items-center gap-0.5 px-3 text-[11px] font-medium text-[var(--primary)]"
+                  >
+                    <MailOpen className="h-5 w-5" />
+                    Mark read
+                  </button>
+                </div>
+              ) : null}
+            </>
           )
         ) : null}
 
@@ -577,8 +688,10 @@ export function MobileMailApp() {
           <section>
             <SectionHeader
               label={`Needs your call · ${triage.needsReview.length}`}
+              collapsed={collapsed.has("needsReview")}
+              onToggle={() => toggleSection("needsReview")}
             />
-            <ul>
+            <ul className={collapsed.has("needsReview") ? "hidden" : ""}>
               {triage.needsReview.map((item) => (
                 <SwipeMailRow
                   key={item.id}
@@ -623,8 +736,10 @@ export function MobileMailApp() {
                   onAction={() =>
                     bulkSection(section, primaryMailAction(section.action))
                   }
+                  collapsed={collapsed.has(section.action)}
+                  onToggle={() => toggleSection(section.action)}
                 />
-                <ul>
+                <ul className={collapsed.has(section.action) ? "hidden" : ""}>
                   {section.items.map((item) => (
                     <SwipeMailRow
                       key={item.id}
@@ -800,16 +915,23 @@ function SectionHeader({
   color,
   actionLabel,
   onAction,
+  collapsed,
+  onToggle,
 }: {
   label: string;
   color?: string;
   actionLabel?: string;
   onAction?: () => void;
+  collapsed?: boolean;
+  onToggle?: () => void;
 }) {
   return (
     <div className="sticky top-0 z-[1] flex items-center justify-between border-b border-[var(--border)] bg-[var(--brand-soft)] px-4 py-2.5">
-      <h2
-        className="flex items-center gap-1.5 text-[13px] font-semibold"
+      <button
+        type="button"
+        onClick={onToggle}
+        disabled={!onToggle}
+        className="flex min-w-0 flex-1 items-center gap-1.5 text-left text-[13px] font-semibold"
         style={{ color: color ?? "var(--fg-strong)" }}
       >
         {color ? (
@@ -819,13 +941,20 @@ function SectionHeader({
             aria-hidden
           />
         ) : null}
-        {label}
-      </h2>
-      {actionLabel && onAction ? (
+        <span className="truncate">{label}</span>
+        {onToggle ? (
+          <ChevronDown
+            className={`h-4 w-4 shrink-0 opacity-60 transition-transform ${
+              collapsed ? "-rotate-90" : ""
+            }`}
+          />
+        ) : null}
+      </button>
+      {actionLabel && onAction && !collapsed ? (
         <button
           type="button"
           onClick={onAction}
-          className="text-[12px] font-semibold text-[var(--primary)]"
+          className="shrink-0 text-[12px] font-semibold text-[var(--primary)]"
         >
           {actionLabel}
         </button>
@@ -857,6 +986,9 @@ function SwipeMailRow({
   chips,
   showGuide,
   logicMode,
+  selectMode,
+  checked,
+  onToggleSelect,
 }: {
   item: EmailItem;
   onOpen: () => void;
@@ -866,6 +998,9 @@ function SwipeMailRow({
   chips?: ReactNode;
   showGuide: boolean;
   logicMode?: boolean;
+  selectMode?: boolean;
+  checked?: boolean;
+  onToggleSelect?: () => void;
 }) {
   const g = item.guide;
   const startX = useRef<number | null>(null);
@@ -875,7 +1010,7 @@ function SwipeMailRow({
     startX.current = e.touches[0]?.clientX ?? null;
   };
   const onTouchMove = (e: TouchEvent) => {
-    if (startX.current == null) return;
+    if (startX.current == null || selectMode) return;
     const dx = (e.touches[0]?.clientX ?? startX.current) - startX.current;
     setOffset(Math.max(-96, Math.min(96, dx)));
   };
@@ -898,21 +1033,40 @@ function SwipeMailRow({
         role="button"
         tabIndex={0}
         onClick={() => {
+          if (selectMode) {
+            onToggleSelect?.();
+            return;
+          }
           if (Math.abs(offset) < 8) onOpen();
         }}
-        onKeyDown={(e) => e.key === "Enter" && onOpen()}
+        onKeyDown={(e) =>
+          e.key === "Enter" && (selectMode ? onToggleSelect?.() : onOpen())
+        }
         onTouchStart={onTouchStart}
         onTouchMove={onTouchMove}
         onTouchEnd={onTouchEnd}
         className={`mail-row ${item.isUnread ? "unread" : ""} ${
           busy ? "opacity-50" : ""
-        }`}
+        } ${checked ? "bg-[var(--primary-soft,rgba(52,152,217,0.1))]" : ""}`}
         style={{ transform: `translateX(${offset}px)` }}
       >
-        <span
-          className={`mail-unread-dot ${item.isUnread ? "" : "empty"}`}
-          aria-hidden
-        />
+        {selectMode ? (
+          <span
+            aria-hidden
+            className={`mr-2 flex h-5 w-5 shrink-0 items-center justify-center self-center rounded-full border-2 ${
+              checked
+                ? "border-[var(--primary)] bg-[var(--primary)] text-white"
+                : "border-[var(--border)]"
+            }`}
+          >
+            {checked ? <Check className="h-3 w-3" /> : null}
+          </span>
+        ) : (
+          <span
+            className={`mail-unread-dot ${item.isUnread ? "" : "empty"}`}
+            aria-hidden
+          />
+        )}
         <div className="min-w-0 flex-1">
           <div className="flex items-baseline justify-between gap-2">
             <span className="mail-from truncate text-[15px] text-[var(--fg-strong)]">

@@ -421,6 +421,42 @@ export function useMailbox(initialTab: ViewTab = "inbox") {
     [load],
   );
 
+  /** Multi-select: one action over any set of picked emails. */
+  const runBulk = useCallback(
+    async (
+      picked: { id: string; fromEmail?: string }[],
+      action: MailAction,
+    ) => {
+      if (picked.length === 0) return;
+      for (const p of picked) removeFromLists(p.id);
+      try {
+        const res = await fetch("/api/action/bulk", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            items: picked.map((p) => ({
+              id: p.id,
+              action,
+              fromEmail: p.fromEmail,
+            })),
+          }),
+        });
+        if (!res.ok) throw new Error("Bulk failed");
+        setToast(
+          action === "trash"
+            ? `Deleted ${picked.length}`
+            : action === "archive"
+              ? `Archived ${picked.length}`
+              : `Marked ${picked.length} read`,
+        );
+      } catch {
+        setToast("Bulk action failed — refreshing");
+        load();
+      }
+    },
+    [load, removeFromLists],
+  );
+
   /** Unsubscribe a single message for real, then trash + mute sender. */
   const unsubscribe = useCallback(
     async (id: string, fromEmail?: string) => {
@@ -715,6 +751,7 @@ export function useMailbox(initialTab: ViewTab = "inbox") {
     closeDelegate,
     confirmDelegate,
     bulkSection,
+    runBulk,
     unsubscribe,
     teachSender,
     openReader,
