@@ -9,7 +9,9 @@ import {
 import { historySignals, type MailHistory } from "@/lib/inbox/mail-history";
 import {
   contextSignals,
+  inviteSignals,
   meetingLabel,
+  RSVP_RECEIPT_SUBJECT,
   type PersonalContext,
 } from "@/lib/inbox/personal-context";
 import type { SeerLabelStore } from "@/lib/mail/seer-labels";
@@ -550,6 +552,52 @@ export async function classifyInboxWithAssistant(
         debug: debugFor(item, history, "already-replied"),
         source: "rules",
         instruction: "Handled — you replied. Archive it.",
+      });
+      continue;
+    }
+
+    // 0b. Calendar invites — the RSVP inside the email IS the action.
+    // Answered (in Gmail, Calendar, or Seer) → the email is done;
+    // unanswered → the card asks for exactly one tap.
+    const invite = inviteSignals(extras?.personal, item.subject);
+    if (invite) {
+      if (invite.answered) {
+        const verb =
+          invite.event.myStatus === "declined"
+            ? "declined"
+            : invite.event.myStatus === "tentative"
+              ? "responded maybe to"
+              : "accepted";
+        results.set(item.id, {
+          action: "read_and_archive",
+          confidence: "HIGH",
+          reason: `You already ${verb} this invite — it's on your calendar`,
+          debug: debugFor(item, history, "invite-answered"),
+          source: "rules",
+          instruction: "Handled — RSVP is on your calendar. Archive it.",
+        });
+      } else {
+        results.set(item.id, {
+          action: "act_today",
+          confidence: "HIGH",
+          reason: "Calendar invite waiting on your RSVP",
+          debug: debugFor(item, history, "invite-needs-rsvp"),
+          source: "rules",
+          instruction: "Accept, decline, or maybe — one tap in Seer.",
+        });
+      }
+      continue;
+    }
+
+    // Organizer-side receipts ("Accepted: Standup") are pure noise
+    if (RSVP_RECEIPT_SUBJECT.test(item.subject)) {
+      results.set(item.id, {
+        action: "read_and_delete",
+        confidence: "HIGH",
+        reason: "RSVP receipt — the response is already on the calendar",
+        debug: debugFor(item, history, "rsvp-receipt-delete"),
+        source: "rules",
+        instruction: "Someone answered your invite. Nothing to do — delete.",
       });
       continue;
     }

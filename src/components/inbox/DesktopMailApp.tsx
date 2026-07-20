@@ -98,6 +98,8 @@ export function DesktopMailApp() {
     startReply,
     draftReply,
     drafting,
+    rsvp,
+    rsvping,
   } = mb;
 
   const searchParams = useSearchParams();
@@ -536,6 +538,8 @@ export function DesktopMailApp() {
                       reader={reader}
                       drafting={drafting}
                       onDraft={draftReply}
+                      rsvping={rsvping}
+                      onRsvp={rsvp}
                     />
                   </div>
 

@@ -158,6 +158,13 @@ export type ReaderMessage = {
   guide?: Guide;
   /** The one-tap actions pulled out of the body (track / RSVP / pay …) */
   keyActions?: { label: string; url: string }[];
+  /** Set when this email is a calendar invite matched to a real event */
+  calendarEvent?: {
+    id: string;
+    subject: string;
+    startsAt: string;
+    myStatus?: string;
+  };
 };
 
 export function formatMailTime(iso: string) {

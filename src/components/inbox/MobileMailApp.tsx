@@ -101,6 +101,8 @@ export function MobileMailApp() {
     startReply,
     draftReply,
     drafting,
+    rsvp,
+    rsvping,
   } = useMailbox();
 
   const searchParams = useSearchParams();
@@ -233,6 +235,8 @@ export function MobileMailApp() {
                 reader={reader}
                 drafting={drafting}
                 onDraft={draftReply}
+                rsvping={rsvping}
+                onRsvp={rsvp}
               />
             ) : null}
           </div>

@@ -79,6 +79,7 @@ type ReaderPayload = {
   };
   guide?: ReaderMessage["guide"];
   keyActions?: ReaderMessage["keyActions"];
+  calendarEvent?: ReaderMessage["calendarEvent"];
 };
 
 export function useMailbox(initialTab: ViewTab = "inbox") {
@@ -359,6 +360,7 @@ export function useMailbox(initialTab: ViewTab = "inbox") {
     receivedAt: json.message.receivedAt,
     guide: json.guide,
     keyActions: json.keyActions,
+    calendarEvent: json.calendarEvent,
   });
 
   const fetchMessage = useCallback(
@@ -482,6 +484,45 @@ export function useMailbox(initialTab: ViewTab = "inbox") {
     [readerId, drafting],
   );
 
+  const [rsvping, setRsvping] = useState(false);
+
+  /** One-tap calendar RSVP — answers the event and archives the invite. */
+  const rsvp = useCallback(
+    async (response: "accepted" | "declined" | "tentative") => {
+      const ev = reader?.calendarEvent;
+      if (!ev || !readerId || rsvping) return;
+      setRsvping(true);
+      try {
+        const res = await fetch("/api/calendar/rsvp", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            eventId: ev.id,
+            response,
+            messageId: readerId,
+          }),
+        });
+        const json = await res.json();
+        if (!res.ok) throw new Error(json.error ?? "RSVP failed");
+        messageCache.current.delete(readerId);
+        removeFromLists(readerId);
+        closeReader();
+        setToast(
+          response === "accepted"
+            ? "Accepted — invite archived"
+            : response === "declined"
+              ? "Declined — invite archived"
+              : "Maybe — invite archived",
+        );
+      } catch (e) {
+        setToast(e instanceof Error ? e.message : "RSVP failed");
+      } finally {
+        setRsvping(false);
+      }
+    },
+    [reader, readerId, rsvping, removeFromLists, closeReader],
+  );
+
   const startReply = useCallback(
     (mode: "reply" | "replyAll" | "forward") => {
       if (!reader || !readerId) return;
@@ -554,5 +595,7 @@ export function useMailbox(initialTab: ViewTab = "inbox") {
     startReply,
     draftReply,
     drafting,
+    rsvp,
+    rsvping,
   };
 }

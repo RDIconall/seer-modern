@@ -6,10 +6,16 @@ import { accountKey, kvGet, kvSet } from "@/lib/store/kv";
  * cached via the KV store; degrades to empty if scopes weren't granted.
  */
 
+export type RsvpStatus = "needsAction" | "accepted" | "declined" | "tentative";
+
 export type CalendarEventLite = {
+  /** Provider event id — needed to RSVP from inside Seer */
+  id?: string;
   subject: string;
   startsAt: string;
   attendees: string[];
+  /** The user's OWN response on this event */
+  myStatus?: RsvpStatus;
 };
 
 export type PersonalContext = {
@@ -26,7 +32,8 @@ export type ContextSignals = {
 
 const TTL_FULL_MS = 6 * 60 * 60 * 1000;
 const TTL_EMPTY_MS = 10 * 60 * 1000; // retry soon if scopes were missing
-const LOOKAHEAD_DAYS = 14;
+// Long enough to match invite emails for events weeks out
+const LOOKAHEAD_DAYS = 60;
 
 const EMPTY: PersonalContext = { builtAt: "", contacts: [], events: [] };
 
@@ -87,7 +94,7 @@ async function googleEvents(token: string): Promise<CalendarEventLite[]> {
       timeMax: max.toISOString(),
       singleEvents: "true",
       orderBy: "startTime",
-      maxResults: "50",
+      maxResults: "100",
     });
   const res = await fetch(url, {
     headers: { Authorization: `Bearer ${token}` },
@@ -95,17 +102,23 @@ async function googleEvents(token: string): Promise<CalendarEventLite[]> {
   if (!res.ok) return [];
   const json = await safeJson(res);
   const items = (json.items ?? []) as Array<{
+    id?: string;
     summary?: string;
     start?: { dateTime?: string; date?: string };
-    attendees?: { email?: string }[];
+    attendees?: { email?: string; self?: boolean; responseStatus?: string }[];
   }>;
-  return items.map((e) => ({
-    subject: e.summary ?? "(no title)",
-    startsAt: e.start?.dateTime ?? e.start?.date ?? "",
-    attendees: (e.attendees ?? [])
-      .map((a) => a.email?.toLowerCase().trim() ?? "")
-      .filter(Boolean),
-  }));
+  return items.map((e) => {
+    const mine = (e.attendees ?? []).find((a) => a.self);
+    return {
+      id: e.id,
+      subject: e.summary ?? "(no title)",
+      startsAt: e.start?.dateTime ?? e.start?.date ?? "",
+      attendees: (e.attendees ?? [])
+        .map((a) => a.email?.toLowerCase().trim() ?? "")
+        .filter(Boolean),
+      myStatus: (mine?.responseStatus as RsvpStatus | undefined) ?? undefined,
+    };
+  });
 }
 
 // ---------- Microsoft Graph ----------
@@ -129,6 +142,14 @@ async function graphContacts(token: string): Promise<string[]> {
   return [...out];
 }
 
+const GRAPH_STATUS: Record<string, RsvpStatus> = {
+  accepted: "accepted",
+  declined: "declined",
+  tentativelyAccepted: "tentative",
+  notResponded: "needsAction",
+  none: "needsAction",
+};
+
 async function graphEvents(token: string): Promise<CalendarEventLite[]> {
   const now = new Date();
   const max = new Date(now.getTime() + LOOKAHEAD_DAYS * 24 * 60 * 60 * 1000);
@@ -137,8 +158,8 @@ async function graphEvents(token: string): Promise<CalendarEventLite[]> {
     new URLSearchParams({
       startDateTime: now.toISOString(),
       endDateTime: max.toISOString(),
-      $select: "subject,start,attendees",
-      $top: "50",
+      $select: "id,subject,start,attendees,responseStatus",
+      $top: "100",
       $orderby: "start/dateTime",
     });
   const res = await fetch(url, {
@@ -147,16 +168,20 @@ async function graphEvents(token: string): Promise<CalendarEventLite[]> {
   if (!res.ok) return [];
   const json = await safeJson(res);
   const values = (json.value ?? []) as Array<{
+    id?: string;
     subject?: string;
     start?: { dateTime?: string };
     attendees?: { emailAddress?: { address?: string } }[];
+    responseStatus?: { response?: string };
   }>;
   return values.map((e) => ({
+    id: e.id,
     subject: e.subject ?? "(no title)",
     startsAt: e.start?.dateTime ?? "",
     attendees: (e.attendees ?? [])
       .map((a) => a.emailAddress?.address?.toLowerCase().trim() ?? "")
       .filter(Boolean),
+    myStatus: GRAPH_STATUS[e.responseStatus?.response ?? ""] ?? undefined,
   }));
 }
 
@@ -211,6 +236,66 @@ export function contextSignals(
     }
   }
   return { inContacts, meeting };
+}
+
+// ---------- Calendar invites (Google actions inside the email) ----------
+
+const INVITE_SUBJECT =
+  /^\s*(?:updated\s+)?invitation[:\s]+(.+?)(?:\s+@\s+.+)?\s*$/i;
+
+/** Organizer-side RSVP receipts: "Accepted: Standup @ Tue…" */
+export const RSVP_RECEIPT_SUBJECT =
+  /^\s*(accepted|declined|tentatively accepted|new time proposed)[:\s]/i;
+
+export type InviteSignals = {
+  /** Matched upcoming calendar event for this invite email */
+  event: CalendarEventLite;
+  /** True when the user has already answered (in Gmail, Calendar, or Seer) */
+  answered: boolean;
+};
+
+/**
+ * Match an "Invitation: …" email to the user's calendar and report
+ * whether they already responded — a native Google action inside the
+ * email that the triage engine treats as "handled".
+ */
+export function inviteSignals(
+  ctx: PersonalContext | null | undefined,
+  subject: string,
+): InviteSignals | null {
+  if (!ctx?.events?.length) return null;
+  const m = subject.match(INVITE_SUBJECT);
+  const title = m?.[1]?.trim().toLowerCase();
+  if (!title) return null;
+
+  const event = ctx.events.find((e) => {
+    const t = e.subject.trim().toLowerCase();
+    return t.length > 2 && (title === t || title.startsWith(t) || t.startsWith(title));
+  });
+  if (!event) return null;
+
+  return {
+    event,
+    answered: Boolean(event.myStatus && event.myStatus !== "needsAction"),
+  };
+}
+
+/** Rewrite one event's RSVP in the cached context (instant UI truth). */
+export async function updateCachedRsvp(
+  accountEmail: string,
+  eventId: string,
+  status: RsvpStatus,
+): Promise<void> {
+  const ctx = await kvGet<PersonalContext>(keyFor(accountEmail));
+  if (!ctx) return;
+  let touched = false;
+  for (const e of ctx.events) {
+    if (e.id === eventId) {
+      e.myStatus = status;
+      touched = true;
+    }
+  }
+  if (touched) await kvSet(keyFor(accountEmail), ctx);
 }
 
 /** Human-readable "Standup · in 2d" for prompts and UI. */

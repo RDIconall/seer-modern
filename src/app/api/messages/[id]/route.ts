@@ -3,7 +3,10 @@ import { classifyMessage } from "@/lib/inbox/classify";
 import { extractKeyActions } from "@/lib/inbox/key-actions";
 import { classifyInboxWithAssistant } from "@/lib/inbox/gemini-triage";
 import { getOrBuildMailHistory } from "@/lib/inbox/mail-history-store";
-import { getPersonalContext } from "@/lib/inbox/personal-context";
+import {
+  getPersonalContext,
+  inviteSignals,
+} from "@/lib/inbox/personal-context";
 import { loadActionMemory } from "@/lib/store/action-memory";
 import { loadRepliedThreads } from "@/lib/store/replied-threads";
 import { getGmailMessage, listGmailFolder } from "@/lib/mail/gmail";
@@ -106,7 +109,25 @@ export async function GET(
 
     const keyActions = extractKeyActions(message.htmlBody, guide.action);
 
-    return NextResponse.json({ message, guide, classification, keyActions });
+    // Calendar invite? Ship the matched event so the reader can RSVP
+    const invite = inviteSignals(personal, message.subject);
+    const calendarEvent =
+      invite?.event.id != null
+        ? {
+            id: invite.event.id,
+            subject: invite.event.subject,
+            startsAt: invite.event.startsAt,
+            myStatus: invite.event.myStatus,
+          }
+        : undefined;
+
+    return NextResponse.json({
+      message,
+      guide,
+      classification,
+      keyActions,
+      calendarEvent,
+    });
   } catch (e) {
     const msg = e instanceof Error ? e.message : "Failed to load message";
     return NextResponse.json({ error: msg }, { status: 502 });
