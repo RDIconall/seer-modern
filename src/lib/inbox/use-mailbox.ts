@@ -256,8 +256,14 @@ export function useMailbox(initialTab: ViewTab = "inbox") {
       if (tab === "triage" || tab === "cards") await loadTriage();
       else await loadMailbox(tab, query);
     } catch (e) {
-      // With a cached view on screen, fail silently rather than blanking it
-      if (!hadCache) setError(e instanceof Error ? e.message : "Load failed");
+      const msg = e instanceof Error ? e.message : "Load failed";
+      if (!hadCache) {
+        setError(msg);
+      } else {
+        // Never silently show stale mail — say so, so "out of sync"
+        // is visible instead of mysterious.
+        setToast(`Showing saved view — refresh failed: ${msg.slice(0, 80)}`);
+      }
     } finally {
       setLoading(false);
     }

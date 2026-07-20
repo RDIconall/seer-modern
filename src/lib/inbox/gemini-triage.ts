@@ -160,6 +160,16 @@ const MAX_BATCHES_PER_LOAD = Math.max(
 );
 
 /**
+ * Hard TIME budget for Gemini within one load. The serverless function
+ * dies at 60s — a slow model must never take the whole inbox load down
+ * with it (the client would silently show its stale cache forever).
+ */
+const GEMINI_TIME_BUDGET_MS = Math.max(
+  10_000,
+  Math.min(45_000, Number(process.env.SEER_GEMINI_TIME_BUDGET_MS ?? "30000") || 30_000),
+);
+
+/**
  * Rules the heuristic engine gets right with near-certainty and where a
  * wrong call is harmless (junk that was getting deleted/unsubscribed
  * anyway). These skip Gemini entirely — zero tokens spent.
@@ -866,8 +876,13 @@ export async function classifyInboxWithAssistant(
       const mins = Math.ceil((cooldown.until - Date.now()) / 60000);
       lastGeminiError = `${cooldown.reason} (~${mins}m). Decisions fall back to rules meanwhile.`;
     } else {
+      const geminiStarted = Date.now();
       const limit = Math.min(forGemini.length, MAX_BATCHES_PER_LOAD * BATCH);
       for (let i = 0; i < limit; i += BATCH) {
+        if (Date.now() - geminiStarted > GEMINI_TIME_BUDGET_MS) {
+          lastGeminiError = `Time budget hit — ${limit - i} emails deferred to the next refresh`;
+          break;
+        }
         const chunk = forGemini.slice(i, i + BATCH);
         try {
           const mapped = await geminiBatch(

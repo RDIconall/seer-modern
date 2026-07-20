@@ -37,6 +37,7 @@ import { ACTION_META, type TriageAction } from "@/lib/inbox/classify";
 import { CardStack } from "@/components/inbox/CardStack";
 import { ComposePanel } from "@/components/inbox/ComposePanel";
 import { DelegateSheet } from "@/components/inbox/DelegateSheet";
+import { PullToRefresh } from "@/components/inbox/PullToRefresh";
 import { ScheduleSheet } from "@/components/inbox/ScheduleSheet";
 import { AssistBar } from "@/components/inbox/AssistBar";
 import {
@@ -590,7 +591,8 @@ export function MobileMailApp() {
         )}
       </header>
 
-      <main
+      <PullToRefresh
+        onRefresh={load}
         className={`flex flex-1 flex-col overflow-auto pb-24 ${
           tab === "cards" ? "seer-deck-bg" : ""
         }`}
@@ -808,7 +810,7 @@ export function MobileMailApp() {
               </section>
             ))
           : null}
-      </main>
+      </PullToRefresh>
 
       <nav className="fixed bottom-0 left-0 right-0 z-20 mx-auto max-w-lg border-t border-[var(--border)] bg-[var(--bg)] bottom-nav">
         <div className="grid grid-cols-4">

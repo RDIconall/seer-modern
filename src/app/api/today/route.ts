@@ -54,6 +54,7 @@ export type TodaySection = {
 };
 
 export async function GET() {
+  const started = Date.now();
   try {
     const session = await requireMailSession();
     if (!session) {
@@ -161,6 +162,9 @@ export async function GET() {
         new Date(b.receivedAt).getTime() - new Date(a.receivedAt).getTime(),
     );
 
+    console.log(
+      `[seer] /api/today ${raw.length} msgs in ${Date.now() - started}ms`,
+    );
     return NextResponse.json({
       accountEmail: session.email,
       provider: session.provider,
