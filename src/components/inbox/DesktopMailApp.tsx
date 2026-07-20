@@ -91,6 +91,8 @@ export function DesktopMailApp() {
     load,
     refreshIdentity,
     runAction,
+    snooze,
+    delegate,
     bulkSection,
     teachSender,
     openReader,
@@ -109,6 +111,16 @@ export function DesktopMailApp() {
   useEffect(() => {
     if (searchParams.get("settings") === "1") setSettingsOpen(true);
   }, [searchParams]);
+
+  const delegateFromCard = async (id: string) => {
+    const r = await delegate(id);
+    if (r.needsEa) {
+      setToast("Add your EA's email in Settings first");
+      setSettingsOpen(true);
+      return false;
+    }
+    return true;
+  };
 
   const replyFromCard = async (id: string) => {
     try {
@@ -261,6 +273,8 @@ export function DesktopMailApp() {
                   onAction={runAction}
                   onBulk={bulkSection}
                   onReply={replyFromCard}
+                  onSnooze={snooze}
+                  onDelegate={delegateFromCard}
                   onEmptyRefresh={load}
                 />
               </div>

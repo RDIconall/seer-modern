@@ -93,6 +93,8 @@ export function MobileMailApp() {
     load,
     refreshIdentity,
     runAction,
+    snooze,
+    delegate,
     bulkSection,
     teachSender,
     openReader,
@@ -123,6 +125,16 @@ export function MobileMailApp() {
     hookSelectFolder(next);
     setDrawer(false);
     setSearchOpen(false);
+  };
+
+  const delegateFromCard = async (id: string) => {
+    const r = await delegate(id);
+    if (r.needsEa) {
+      setToast("Add your EA's email in Settings first");
+      setSettingsOpen(true);
+      return false;
+    }
+    return true;
   };
 
   const replyFromCard = async (id: string) => {
@@ -473,6 +485,8 @@ export function MobileMailApp() {
             onAction={runAction}
             onBulk={bulkSection}
             onReply={replyFromCard}
+            onSnooze={snooze}
+            onDelegate={delegateFromCard}
             onEmptyRefresh={load}
           />
         ) : null}
