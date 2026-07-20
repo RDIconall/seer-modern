@@ -219,7 +219,12 @@ export async function searchGmail(
 export async function getGmailThreadLast(
   accessToken: string,
   threadId: string,
-): Promise<{ fromEmail: string; receivedAt: string; id: string } | null> {
+): Promise<{
+  fromEmail: string;
+  fromName: string;
+  receivedAt: string;
+  id: string;
+} | null> {
   try {
     const t = (await gmailFetch(
       accessToken,
@@ -236,10 +241,11 @@ export async function getGmailThreadLast(
     if (!last) return null;
     const fromRaw =
       last.payload?.headers?.find((h) => h.name === "From")?.value ?? "";
-    const { email } = parseAddress(fromRaw);
+    const { name, email } = parseAddress(fromRaw);
     return {
       id: last.id,
       fromEmail: email.toLowerCase(),
+      fromName: name && name !== email ? name : "",
       receivedAt: last.internalDate
         ? new Date(Number(last.internalDate)).toISOString()
         : new Date().toISOString(),

@@ -530,7 +530,11 @@ export type TriageExtras = {
    */
   threadLast?: (
     threadId: string,
-  ) => Promise<{ fromEmail: string; receivedAt: string } | null>;
+  ) => Promise<{
+    fromEmail: string;
+    fromName?: string;
+    receivedAt: string;
+  } | null>;
   /**
    * Deep read: fetch the FULL body text for a message about to be sent
    * to Gemini. Each email is read once (decision cached + labeled), so
@@ -813,7 +817,7 @@ export async function classifyInboxWithAssistant(
   // Memoized — one lookup per thread, only when it changes the verdict.
   const threadLastMemo = new Map<
     string,
-    { fromEmail: string; receivedAt: string } | null
+    { fromEmail: string; fromName?: string; receivedAt: string } | null
   >();
   const lastTurn = async (threadId?: string) => {
     if (!threadId || !extras?.threadLast) return null;
@@ -846,13 +850,17 @@ export async function classifyInboxWithAssistant(
 
   const backToYou = (
     item: GeminiTriageItem,
-    turn: { fromEmail: string; receivedAt: string },
+    turn: { fromEmail: string; fromName?: string; receivedAt: string },
   ): AssistantClassifyResult => {
+    // Best name wins: the thread's own From header, then the Person
+    // Graph, then whatever the inbox rows knew, then the address stem.
     const who =
-      item.fromEmail.toLowerCase().trim() === me
-        ? (counterpartOfThread.get(item.threadId ?? "") ??
-          turn.fromEmail.split("@")[0])
-        : item.fromName || item.fromEmail;
+      turn.fromName ||
+      people[turn.fromEmail]?.name ||
+      (item.fromEmail.toLowerCase().trim() === me
+        ? counterpartOfThread.get(item.threadId ?? "")
+        : item.fromName) ||
+      turn.fromEmail.split("@")[0];
     return {
       action: "respond",
       confidence: "HIGH",
