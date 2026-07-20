@@ -38,6 +38,7 @@ import { CardStack } from "@/components/inbox/CardStack";
 import { ComposePanel } from "@/components/inbox/ComposePanel";
 import { DelegateSheet } from "@/components/inbox/DelegateSheet";
 import { PullToRefresh } from "@/components/inbox/PullToRefresh";
+import { UnsubAgentSheet } from "@/components/inbox/UnsubAgentSheet";
 import { ScheduleSheet } from "@/components/inbox/ScheduleSheet";
 import { AssistBar } from "@/components/inbox/AssistBar";
 import {
@@ -174,6 +175,8 @@ export function MobileMailApp() {
       return !d;
     });
   };
+
+  const [unsubAgentOpen, setUnsubAgentOpen] = useState(false);
 
   // Sender groups the user has expanded
   const [openGroups, setOpenGroups] = useState<Set<string>>(new Set());
@@ -450,6 +453,15 @@ export function MobileMailApp() {
           busy={scheduling}
           onConfirm={confirmSchedule}
           onClose={closeSchedule}
+        />
+      ) : null}
+      {unsubAgentOpen ? (
+        <UnsubAgentSheet
+          onClose={() => setUnsubAgentOpen(false)}
+          onDone={(summary) => {
+            setToast(summary);
+            load();
+          }}
         />
       ) : null}
       {drawer ? (
@@ -753,13 +765,22 @@ export function MobileMailApp() {
                   ? `Gemini ${triage.assistant.gemini} · rules ${triage.assistant.rules}${triage.assistant.learned ? ` · learned ${triage.assistant.learned}` : ""} · taught ${triage.assistant.override}${triage.assistant.cached ? ` · cached ${triage.assistant.cached}` : ""} · your call ${triage.assistant.needsReview}`
                   : `${triage.count} triaged · ${triage.assistant?.needsReview ?? triage.needsReview.length} need you`}
               </p>
-              <button
-                type="button"
-                onClick={toggleDense}
-                className="shrink-0 rounded-full border border-[var(--border)] px-2.5 py-1 text-[11px] font-semibold text-[var(--primary)]"
-              >
-                {dense ? "Cozy" : "Compact"}
-              </button>
+              <span className="flex shrink-0 gap-1.5">
+                <button
+                  type="button"
+                  onClick={() => setUnsubAgentOpen(true)}
+                  className="rounded-full border border-[#a855f7] px-2.5 py-1 text-[11px] font-semibold text-[#a855f7]"
+                >
+                  Unsub agent
+                </button>
+                <button
+                  type="button"
+                  onClick={toggleDense}
+                  className="rounded-full border border-[var(--border)] px-2.5 py-1 text-[11px] font-semibold text-[var(--primary)]"
+                >
+                  {dense ? "Cozy" : "Compact"}
+                </button>
+              </span>
             </div>
             {triage.assistant?.error ? (
               <p className="mt-0.5 text-[11px] font-medium text-[#b45309]">

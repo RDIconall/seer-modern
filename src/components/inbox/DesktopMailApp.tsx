@@ -26,6 +26,7 @@ import { CardStack } from "@/components/inbox/CardStack";
 import { ComposePanel } from "@/components/inbox/ComposePanel";
 import { DelegateSheet } from "@/components/inbox/DelegateSheet";
 import { ScheduleSheet } from "@/components/inbox/ScheduleSheet";
+import { UnsubAgentSheet } from "@/components/inbox/UnsubAgentSheet";
 import { AssistBar } from "@/components/inbox/AssistBar";
 import {
   LogicExplain,
@@ -167,6 +168,8 @@ export function DesktopMailApp() {
     });
   };
 
+  const [unsubAgentOpen, setUnsubAgentOpen] = useState(false);
+
   // Sender groups the user has expanded
   const [openGroups, setOpenGroups] = useState<Set<string>>(new Set());
   const toggleGroup = (key: string) => {
@@ -261,6 +264,15 @@ export function DesktopMailApp() {
           busy={scheduling}
           onConfirm={confirmSchedule}
           onClose={closeSchedule}
+        />
+      ) : null}
+      {unsubAgentOpen ? (
+        <UnsubAgentSheet
+          onClose={() => setUnsubAgentOpen(false)}
+          onDone={(summary) => {
+            setToast(summary);
+            load();
+          }}
         />
       ) : null}
       {settingsOpen ? (
@@ -471,13 +483,22 @@ export function DesktopMailApp() {
           </form>
           {tab === "triage" && (triage?.assistant || triage?.history) ? (
             <p className="flex items-start gap-2 bg-[var(--card)] px-4 py-2 text-[11px] text-[var(--muted)]">
-              <button
-                type="button"
-                onClick={toggleDense}
-                className="order-last ml-auto shrink-0 rounded-full border border-[var(--border)] px-2 py-0.5 text-[10px] font-semibold text-[var(--primary)]"
-              >
-                {dense ? "Cozy" : "Compact"}
-              </button>
+              <span className="order-last ml-auto flex shrink-0 gap-1.5">
+                <button
+                  type="button"
+                  onClick={() => setUnsubAgentOpen(true)}
+                  className="rounded-full border border-[#a855f7] px-2 py-0.5 text-[10px] font-semibold text-[#a855f7]"
+                >
+                  Unsub agent
+                </button>
+                <button
+                  type="button"
+                  onClick={toggleDense}
+                  className="rounded-full border border-[var(--border)] px-2 py-0.5 text-[10px] font-semibold text-[var(--primary)]"
+                >
+                  {dense ? "Cozy" : "Compact"}
+                </button>
+              </span>
               {logicMode && triage.assistant
                 ? `Gemini ${triage.assistant.gemini} · rules ${triage.assistant.rules}${triage.assistant.learned ? ` · learned ${triage.assistant.learned}` : ""} · taught ${triage.assistant.override}${triage.assistant.cached ? ` · cached ${triage.assistant.cached}` : ""} · your call ${triage.assistant.needsReview}`
                 : `${triage.count} triaged · ${triage.assistant?.needsReview ?? triage.needsReview.length} need you`}
