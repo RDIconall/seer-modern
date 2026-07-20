@@ -23,10 +23,12 @@ export type PersonRecord = {
   email: string;
   name?: string;
   tier: PersonTier;
+  /** Pinned by the user: top of the hierarchy, never auto-handled down */
+  vip?: boolean;
   /** Why (AI verdict for new senders, evidence tag for local calls) */
   reason?: string;
-  /** Who decided: local evidence or the AI's full-text read */
-  by: "evidence" | "ai";
+  /** Who decided: local evidence, the AI's full-text read, or the user */
+  by: "evidence" | "ai" | "user";
   judgedAt: string;
 };
 

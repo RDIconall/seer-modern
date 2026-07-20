@@ -420,7 +420,7 @@ function debugFor(
 const SYSTEM_PROMPT = `You are Seer, the user's email triage engine. Read the FULL text of every email, then judge it in four steps.
 
 STEP 1 — WHO WROTE IT: person or machine?
-person = a human wrote this to the user personally. The tier field is the personal database's view: inner (proven — they exchange mail, contacts, meetings), known (writes repeatedly), new (no history — YOU judge credibility from the words: a specific ask about a real project, company, or personal matter, mutual names, a reply to something the user did = credible; a template wearing a first name = not). Set sender and credible.
+person = a human wrote this to the user personally. The tier field is the personal database's view: vip (the user PINNED them — board, family, key colleagues; their mail is never below respond/read and always surfaces), inner (proven — they exchange mail, contacts, meetings), known (writes repeatedly), new (no history — YOU judge credibility from the words: a specific ask about a real project, company, or personal matter, mutual names, a reply to something the user did = credible; a template wearing a first name = not). Set sender and credible.
 For person mail the question is WHAT ARE THEY ASKING — put it in task, verbatim-short ("send the signed LMA paperwork"). Action = respond (act_today if deadline-bound). A credible person is NEVER deleted.
 
 STEP 2 — IMPORTANCE (score 0-3): THE CONSEQUENCE TEST.
@@ -725,7 +725,7 @@ export async function classifyInboxWithAssistant(
     if (tiers.has(key)) continue;
     const stored = people[key];
     if (stored) {
-      tiers.set(key, stored.tier);
+      tiers.set(key, stored.vip ? "vip" : stored.tier);
       continue;
     }
     const sig = historySignals(history, item.fromEmail);
@@ -1164,6 +1164,22 @@ export async function classifyInboxWithAssistant(
         action: "read_and_archive",
         reason: "Inner circle — never auto-deleted",
         debug: { ...r.debug, ruleId: "person-protect" },
+      });
+    }
+    // VIPs sit above everything: their mail never drops below "read"
+    if (
+      tier === "vip" &&
+      (r.action === "delete_now" ||
+        r.action === "unsubscribe" ||
+        r.action === "read_and_delete" ||
+        r.action === "glance_promo")
+    ) {
+      results.set(item.id, {
+        ...r,
+        action: "read_and_archive",
+        confidence: "HIGH",
+        reason: "VIP — you pinned this person; nothing of theirs is junk",
+        debug: { ...r.debug, ruleId: "vip-protect" },
       });
     }
   }

@@ -27,6 +27,7 @@ import { ComposePanel } from "@/components/inbox/ComposePanel";
 import { DelegateSheet } from "@/components/inbox/DelegateSheet";
 import { ScheduleSheet } from "@/components/inbox/ScheduleSheet";
 import { UnsubAgentSheet } from "@/components/inbox/UnsubAgentSheet";
+import { VipSheet } from "@/components/inbox/VipSheet";
 import { WaitingSection } from "@/components/inbox/WaitingSection";
 import { AssistBar } from "@/components/inbox/AssistBar";
 import {
@@ -172,6 +173,7 @@ export function DesktopMailApp() {
   };
 
   const [unsubAgentOpen, setUnsubAgentOpen] = useState(false);
+  const [vipsOpen, setVipsOpen] = useState(false);
 
   // Sender groups the user has expanded
   const [openGroups, setOpenGroups] = useState<Set<string>>(new Set());
@@ -267,6 +269,12 @@ export function DesktopMailApp() {
           busy={scheduling}
           onConfirm={confirmSchedule}
           onClose={closeSchedule}
+        />
+      ) : null}
+      {vipsOpen ? (
+        <VipSheet
+          onClose={() => setVipsOpen(false)}
+          onChanged={() => load()}
         />
       ) : null}
       {unsubAgentOpen ? (
@@ -487,6 +495,13 @@ export function DesktopMailApp() {
           {tab === "triage" && (triage?.assistant || triage?.history) ? (
             <p className="flex items-start gap-2 bg-[var(--card)] px-4 py-2 text-[11px] text-[var(--muted)]">
               <span className="order-last ml-auto flex shrink-0 gap-1.5">
+                <button
+                  type="button"
+                  onClick={() => setVipsOpen(true)}
+                  className="rounded-full border border-[#eab308] px-2 py-0.5 text-[10px] font-semibold text-[#b45309]"
+                >
+                  VIPs
+                </button>
                 <button
                   type="button"
                   onClick={() => setUnsubAgentOpen(true)}

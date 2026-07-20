@@ -39,6 +39,7 @@ import { ComposePanel } from "@/components/inbox/ComposePanel";
 import { DelegateSheet } from "@/components/inbox/DelegateSheet";
 import { PullToRefresh } from "@/components/inbox/PullToRefresh";
 import { UnsubAgentSheet } from "@/components/inbox/UnsubAgentSheet";
+import { VipSheet } from "@/components/inbox/VipSheet";
 import { WaitingSection } from "@/components/inbox/WaitingSection";
 import { ScheduleSheet } from "@/components/inbox/ScheduleSheet";
 import { AssistBar } from "@/components/inbox/AssistBar";
@@ -180,6 +181,7 @@ export function MobileMailApp() {
   };
 
   const [unsubAgentOpen, setUnsubAgentOpen] = useState(false);
+  const [vipsOpen, setVipsOpen] = useState(false);
 
   // Sender groups the user has expanded
   const [openGroups, setOpenGroups] = useState<Set<string>>(new Set());
@@ -456,6 +458,12 @@ export function MobileMailApp() {
           busy={scheduling}
           onConfirm={confirmSchedule}
           onClose={closeSchedule}
+        />
+      ) : null}
+      {vipsOpen ? (
+        <VipSheet
+          onClose={() => setVipsOpen(false)}
+          onChanged={() => load()}
         />
       ) : null}
       {unsubAgentOpen ? (
@@ -769,6 +777,13 @@ export function MobileMailApp() {
                   : `${triage.count} triaged · ${triage.assistant?.needsReview ?? triage.needsReview.length} need you`}
               </p>
               <span className="flex shrink-0 gap-1.5">
+                <button
+                  type="button"
+                  onClick={() => setVipsOpen(true)}
+                  className="rounded-full border border-[#eab308] px-2.5 py-1 text-[11px] font-semibold text-[#b45309]"
+                >
+                  VIPs
+                </button>
                 <button
                   type="button"
                   onClick={() => setUnsubAgentOpen(true)}
