@@ -64,6 +64,23 @@ function writeViewCache<T>(key: string, data: T, accountEmail?: string) {
 const PREFETCH_COUNT = 8;
 const MESSAGE_CACHE_MAX = 30;
 
+/** How long an acted-on message stays scrubbed from fresh list loads. */
+const TOMBSTONE_MS = 3 * 60 * 1000;
+
+// Gmail-style URL state: #inbox, #triage, #inbox/<messageId> … so the
+// browser back/forward buttons navigate the app instead of leaving it,
+// and a reload restores exactly where you were.
+const HASH_TABS: ViewTab[] = ["inbox", "sent", "trash", "triage", "cards"];
+
+function parseHash(): { tab?: ViewTab; id?: string } {
+  if (typeof window === "undefined") return {};
+  const [t, id] = window.location.hash.replace(/^#/, "").split("/");
+  return {
+    tab: HASH_TABS.includes(t as ViewTab) ? (t as ViewTab) : undefined,
+    id: id || undefined,
+  };
+}
+
 type ReaderPayload = {
   message: Record<string, unknown> & {
     htmlBody: string;
@@ -135,12 +152,42 @@ export function useMailbox(initialTab: ViewTab = "inbox") {
     identityEmailRef.current = identity?.email;
   }, [identity?.email]);
 
+  // Instant-sync tombstones: Gmail's list API lags a minute behind
+  // modify calls, so a background refresh can resurrect mail you just
+  // archived. Anything acted on recently is scrubbed from fresh loads.
+  const acted = useRef(new Map<string, number>());
+  const markActed = useCallback((id: string) => {
+    acted.current.set(id, Date.now());
+    if (acted.current.size > 500) {
+      const cutoff = Date.now() - TOMBSTONE_MS;
+      for (const [k, t] of acted.current) {
+        if (t < cutoff) acted.current.delete(k);
+      }
+    }
+  }, []);
+  const scrub = useCallback(
+    <T extends { id: string }>(arr: T[]): T[] =>
+      arr.filter((i) => {
+        const t = acted.current.get(i.id);
+        return t == null || Date.now() - t > TOMBSTONE_MS;
+      }),
+    [],
+  );
+
   const loadTriage = useCallback(async () => {
     const res = await fetch("/api/today", { cache: "no-store" });
     const json = await res.json();
     if (!res.ok) throw new Error(json.error ?? "Load failed");
-    setTriage(json);
-  }, []);
+    const scrubbed: TodayData = {
+      ...json,
+      inbox: json.inbox ? scrub(json.inbox) : json.inbox,
+      needsReview: scrub(json.needsReview ?? []),
+      sections: (json.sections ?? [])
+        .map((s: Section) => ({ ...s, items: scrub(s.items) }))
+        .filter((s: Section) => s.items.length > 0),
+    };
+    setTriage(scrubbed);
+  }, [scrub]);
 
   const loadMailbox = useCallback(
     async (folder: "inbox" | "sent" | "trash", q?: string) => {
@@ -149,9 +196,12 @@ export function useMailbox(initialTab: ViewTab = "inbox") {
       const res = await fetch(`/api/mailbox?${params}`, { cache: "no-store" });
       const json = await res.json();
       if (!res.ok) throw new Error(json.error ?? "Load failed");
-      setMailbox(json);
+      // Trash may legitimately contain just-trashed mail — don't scrub it
+      setMailbox(
+        folder === "trash" ? json : { ...json, items: scrub(json.items ?? []) },
+      );
     },
-    [],
+    [scrub],
   );
 
   // Persist views (including optimistic removals) for instant next paint
@@ -257,6 +307,7 @@ export function useMailbox(initialTab: ViewTab = "inbox") {
   const runAction = useCallback(
     async (id: string, action: MailAction, fromEmail?: string) => {
       setBusyId(id);
+      markActed(id);
       removeFromLists(id);
       if (readerId === id) closeReader();
       try {
@@ -283,7 +334,7 @@ export function useMailbox(initialTab: ViewTab = "inbox") {
         setBusyId(null);
       }
     },
-    [closeReader, load, readerId, removeFromLists],
+    [closeReader, load, markActed, readerId, removeFromLists],
   );
 
   /**
@@ -357,6 +408,7 @@ export function useMailbox(initialTab: ViewTab = "inbox") {
   const bulkSection = useCallback(
     async (section: Section, action: MailAction) => {
       const ids = section.items.map((i) => i.id);
+      ids.forEach(markActed);
       setTriage((prev) => {
         if (!prev) return prev;
         const idSet = new Set(ids);
@@ -418,7 +470,7 @@ export function useMailbox(initialTab: ViewTab = "inbox") {
         load();
       }
     },
-    [load],
+    [load, markActed],
   );
 
   /** Multi-select: one action over any set of picked emails. */
@@ -428,7 +480,10 @@ export function useMailbox(initialTab: ViewTab = "inbox") {
       action: MailAction,
     ) => {
       if (picked.length === 0) return;
-      for (const p of picked) removeFromLists(p.id);
+      for (const p of picked) {
+        markActed(p.id);
+        removeFromLists(p.id);
+      }
       try {
         const res = await fetch("/api/action/bulk", {
           method: "POST",
@@ -454,12 +509,13 @@ export function useMailbox(initialTab: ViewTab = "inbox") {
         load();
       }
     },
-    [load, removeFromLists],
+    [load, markActed, removeFromLists],
   );
 
   /** Unsubscribe a single message for real, then trash + mute sender. */
   const unsubscribe = useCallback(
     async (id: string, fromEmail?: string) => {
+      markActed(id);
       removeFromLists(id);
       if (readerId === id) closeReader();
       try {
@@ -484,7 +540,7 @@ export function useMailbox(initialTab: ViewTab = "inbox") {
         load();
       }
     },
-    [closeReader, load, readerId, removeFromLists],
+    [closeReader, load, markActed, readerId, removeFromLists],
   );
 
   const teachSender = useCallback(
@@ -599,6 +655,38 @@ export function useMailbox(initialTab: ViewTab = "inbox") {
     [fetchMessage],
   );
 
+  // ---- Gmail-style history: #inbox, #triage, #inbox/<id> ----
+  // Back/forward navigate the app (close reader, previous tab) instead
+  // of leaving it, and a reload restores exactly where you were.
+  const hashReady = useRef(false);
+
+  useEffect(() => {
+    const { tab: hTab, id } = parseHash();
+    if (hTab) setTab(hTab);
+    if (id) openReader(id);
+    hashReady.current = true;
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+  useEffect(() => {
+    if (!hashReady.current || typeof window === "undefined") return;
+    const desired = readerId ? `${tab}/${readerId}` : tab;
+    if (window.location.hash.replace(/^#/, "") !== desired) {
+      window.location.hash = desired;
+    }
+  }, [tab, readerId]);
+
+  useEffect(() => {
+    const onHashChange = () => {
+      const { tab: hTab, id } = parseHash();
+      if (hTab && hTab !== tab) setTab(hTab);
+      if (id && id !== readerId) openReader(id);
+      else if (!id && readerId) closeReader();
+    };
+    window.addEventListener("hashchange", onHashChange);
+    return () => window.removeEventListener("hashchange", onHashChange);
+  }, [tab, readerId, openReader, closeReader]);
+
   const startCompose = useCallback(() => {
     setCompose({
       mode: "compose",
@@ -662,6 +750,7 @@ export function useMailbox(initialTab: ViewTab = "inbox") {
         const json = await res.json();
         if (!res.ok) throw new Error(json.error ?? "RSVP failed");
         messageCache.current.delete(readerId);
+        markActed(readerId);
         removeFromLists(readerId);
         closeReader();
         setToast(
@@ -677,7 +766,7 @@ export function useMailbox(initialTab: ViewTab = "inbox") {
         setRsvping(false);
       }
     },
-    [reader, readerId, rsvping, removeFromLists, closeReader],
+    [reader, readerId, rsvping, markActed, removeFromLists, closeReader],
   );
 
   const startReply = useCallback(

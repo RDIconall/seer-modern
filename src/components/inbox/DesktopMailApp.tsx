@@ -1,6 +1,6 @@
 "use client";
 
-import DOMPurify from "dompurify";
+import { sanitizeEmailHtml } from "@/lib/inbox/sanitize";
 import {
   Archive,
   Check,
@@ -206,7 +206,7 @@ export function DesktopMailApp() {
     );
   }
 
-  const safeHtml = reader?.htmlBody ? DOMPurify.sanitize(reader.htmlBody) : "";
+  const safeHtml = reader?.htmlBody ? sanitizeEmailHtml(reader.htmlBody) : "";
   const listTitle = query ? "Search results" : FOLDER_LABEL[tab];
 
   return (
@@ -364,7 +364,7 @@ export function DesktopMailApp() {
                   <div
                     className="prose prose-sm max-w-none dark:prose-invert"
                     dangerouslySetInnerHTML={{
-                      __html: DOMPurify.sanitize(reader.htmlBody),
+                      __html: sanitizeEmailHtml(reader.htmlBody),
                     }}
                   />
                 ) : (

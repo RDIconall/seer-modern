@@ -1,6 +1,6 @@
 "use client";
 
-import DOMPurify from "dompurify";
+import { sanitizeEmailHtml } from "@/lib/inbox/sanitize";
 import {
   Archive,
   Check,
@@ -247,7 +247,7 @@ export function MobileMailApp() {
   if (readerId) {
     const g = reader?.guide;
     const safeHtml = reader?.htmlBody
-      ? DOMPurify.sanitize(reader.htmlBody)
+      ? sanitizeEmailHtml(reader.htmlBody)
       : "";
     return (
       <div className="app-shell fixed inset-0 z-50 flex flex-col bg-[var(--bg)]">
