@@ -273,6 +273,8 @@ export function CardStack({
                   transform: `translateY(${depth * 10}px) scale(${1 - depth * 0.04})`,
                   opacity: 1 - depth * 0.15,
                   zIndex: 10 - depth,
+                  transition:
+                    "transform 0.4s cubic-bezier(0.22, 1.3, 0.36, 1), opacity 0.3s ease",
                 }}
                 aria-hidden
               >
@@ -290,7 +292,10 @@ export function CardStack({
           className="seer-card absolute inset-x-0 top-0 z-20 touch-pan-y"
           style={{
             transform: `translateX(${dragX}px) rotate(${rotate}deg)`,
-            transition: dragging ? "none" : "transform 0.15s ease-out",
+            // Springy settle — one overshoot, the brand motion curve
+            transition: dragging
+              ? "none"
+              : "transform 0.5s cubic-bezier(0.22, 1.5, 0.36, 1)",
           }}
           onTouchStart={onTouchStart}
           onTouchMove={onTouchMove}
@@ -309,11 +314,9 @@ export function CardStack({
           {current.kind === "email" ? (
             <CardFace
               item={current.item}
-              busy={currentBusy}
               onTap={() => {
                 if (Math.abs(dragX) < 8) onOpen(current.item.id);
               }}
-              onSuggested={() => doSuggested(current.item, current)}
             />
           ) : (
             <BulkCardFace
@@ -329,7 +332,18 @@ export function CardStack({
 
       {current.kind === "email" ? (
         <>
-          <div className="mx-auto mt-4 flex w-full max-w-md items-center justify-around gap-1 pb-2">
+          {current.item.guide && SUGGEST_VERB[current.item.guide.action] ? (
+            // The AI's call, highlighted on the green — one tap to accept
+            <button
+              type="button"
+              disabled={currentBusy}
+              onClick={() => doSuggested(current.item, current)}
+              className="mx-auto mt-4 flex w-full max-w-md items-center justify-center gap-2 rounded-xl bg-white/20 py-3 text-sm font-semibold text-white shadow-[inset_0_1px_0_rgba(255,255,255,0.25)] backdrop-blur-sm transition hover:bg-white/30 disabled:opacity-50"
+            >
+              ✓ {SUGGEST_VERB[current.item.guide.action]} — as suggested
+            </button>
+          ) : null}
+          <div className="mx-auto mt-3 flex w-full max-w-md items-center justify-around gap-1 pb-2">
             <CardAction
               label="Delete"
               color="#d63b2f"
@@ -415,7 +429,7 @@ function BulkCardFace({
   const extra = section.items.length - shown.length;
   return (
     <article
-      className={`seer-card-face flex min-h-[380px] flex-col rounded-2xl p-5 ${
+      className={`seer-card-face flex min-h-[380px] flex-col rounded-[22px] p-5 ${
         muted ? "pointer-events-none" : ""
       }`}
     >
@@ -495,15 +509,11 @@ const SUGGEST_VERB: Partial<Record<string, string>> = {
 function CardFace({
   item,
   muted,
-  busy,
   onTap,
-  onSuggested,
 }: {
   item: EmailItem;
   muted?: boolean;
-  busy?: boolean;
   onTap?: () => void;
-  onSuggested?: () => void;
 }) {
   const g = item.guide;
   const accent = g?.color ?? "#2e7cf6";
@@ -519,7 +529,7 @@ function CardFace({
             }
           : undefined
       }
-      className={`seer-card-face flex min-h-[380px] flex-col rounded-2xl p-5 ${
+      className={`seer-card-face flex min-h-[380px] flex-col rounded-[22px] p-5 ${
         muted ? "pointer-events-none" : ""
       }`}
     >
@@ -575,20 +585,6 @@ function CardFace({
             <div className="mt-1 text-sm font-medium text-[var(--fg-strong)]">
               {g.instruction}
             </div>
-          ) : null}
-          {onSuggested && SUGGEST_VERB[g.action] ? (
-            <button
-              type="button"
-              disabled={busy}
-              onClick={(e) => {
-                e.stopPropagation();
-                onSuggested();
-              }}
-              className="mt-3 w-full rounded-lg py-2.5 text-sm font-semibold text-white disabled:opacity-50"
-              style={{ backgroundColor: g.color }}
-            >
-              ✓ {SUGGEST_VERB[g.action]} — as suggested
-            </button>
           ) : null}
         </div>
       ) : (

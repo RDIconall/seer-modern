@@ -48,7 +48,7 @@ export function SessionExpiredScreen({ mobile }: { mobile?: boolean }) {
         <form action={mobile ? logoutMobile : logout} className="mt-8">
           <button
             type="submit"
-            className="w-full rounded-md bg-[var(--accent)] py-3.5 text-sm font-medium text-[#333]"
+            className="w-full rounded-md bg-[var(--brand)] py-3.5 text-sm font-medium text-white"
           >
             Sign out and reconnect
           </button>
@@ -138,7 +138,7 @@ function ProviderButtons({ mobile }: { mobile?: boolean }) {
         <form action={googleAction}>
           <button
             type="submit"
-            className="w-full rounded-md bg-[var(--accent)] py-3.5 text-sm font-medium text-[#333] shadow-sm transition hover:brightness-105"
+            className="w-full rounded-md bg-[var(--brand)] py-3.5 text-sm font-medium text-white shadow-sm transition hover:bg-[var(--brand-strong)]"
           >
             Continue with Google
           </button>

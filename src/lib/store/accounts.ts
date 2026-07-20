@@ -85,6 +85,18 @@ export async function upsertAccount(input: {
   return next;
 }
 
+/** Drop dead tokens (after revocation) while keeping the account entry. */
+export async function clearAccountTokens(id: string) {
+  const store = await readStore();
+  const account = store.accounts.find((a) => a.id === id);
+  if (!account) return;
+  account.accessToken = undefined;
+  account.refreshToken = undefined;
+  account.expiresAt = undefined;
+  account.updatedAt = new Date().toISOString();
+  await writeStore(store);
+}
+
 export async function removeAccount(id: string) {
   const store = await readStore();
   store.accounts = store.accounts.filter((a) => a.id !== id);

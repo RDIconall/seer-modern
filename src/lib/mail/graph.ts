@@ -21,6 +21,11 @@ async function graphFetch(
   });
   if (!res.ok) {
     const err = await res.text();
+    if (res.status === 403 && /AccessDenied|Authorization_RequestDenied/i.test(err)) {
+      throw new Error(
+        "Outlook permissions are incomplete — open Settings and tap Reconnect on this account, then approve all access on Microsoft's screen.",
+      );
+    }
     throw new Error(`Graph ${path}: ${res.status} ${err.slice(0, 300)}`);
   }
   if (res.status === 204) return null;

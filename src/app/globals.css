@@ -1,10 +1,13 @@
 @import "tailwindcss";
 
 /*
- * Seer brand tokens — brand guidelines 1.4 / 1.6:
+ * Seer brand tokens — brand guidelines 1.4 / 1.6, modernized 2026:
+ * Hero  teal #12a493 — promoted from the 2014 card-deck backdrop.
+ *       Owns the chrome: headers, active nav, brand CTAs, wordmark moments.
  * Pure  purple #967ad0 · orange #ff8f2d · cyan #6bcfe1 · green #96d322
  * Dim   #1e242b · #778591 · #99a3ad · #a6bbc2
- * Blue #2e7cf6 is the action-icon blue from the original iPhone cards.
+ * Blue #2e7cf6 (original iPhone action-icon blue) stays the functional
+ * in-content action color: send, reply, links, unread.
  */
 :root {
   --bg: #ffffff;
@@ -14,6 +17,9 @@
   --border: #e2e7eb;
   --muted: #778591;
   --nav-muted: #99a3ad;
+  --brand: #12a493;
+  --brand-strong: #0d8478;
+  --brand-soft: #d9f1ed;
   --primary: #2e7cf6;
   --primary-soft: #cfe0fb;
   --accent: #ff8f2d;
@@ -33,6 +39,9 @@
     --border: #363f49;
     --muted: #99a3ad;
     --nav-muted: #778591;
+    --brand: #21b3a1;
+    --brand-strong: #2cc7b4;
+    --brand-soft: #11433c;
     --primary: #5e9df8;
     --primary-soft: #1d3a63;
     --accent: #ff8f2d;
@@ -112,7 +121,7 @@ body {
 }
 
 .outlook-header {
-  background: var(--primary);
+  background: var(--brand);
   color: #fff;
   padding-top: var(--safe-top);
 }
@@ -135,32 +144,48 @@ body {
   will-change: transform;
 }
 
-/* Teal backdrop the original card deck floated on (iOS bgGradient) */
+/*
+ * Hero teal deck — 2026 evolution of the 2014 iOS bgGradient.
+ * Aurora: brand cyan breathing in from the top corner, deep teal
+ * settling at the base, fine grain over everything.
+ */
 .seer-deck-bg {
-  background: linear-gradient(180deg, #4cbb95 0%, #16a89d 100%);
+  background:
+    url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='160' height='160'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.9' numOctaves='2' stitchTiles='stitch'/%3E%3CfeColorMatrix type='matrix' values='0 0 0 0 1 0 0 0 0 1 0 0 0 0 1 0 0 0 0.045 0'/%3E%3C/filter%3E%3Crect width='160' height='160' filter='url(%23n)'/%3E%3C/svg%3E"),
+    radial-gradient(
+      120% 100% at 88% -12%,
+      rgba(107, 207, 225, 0.38),
+      transparent 58%
+    ),
+    radial-gradient(
+      95% 75% at -12% 108%,
+      rgba(9, 62, 70, 0.4),
+      transparent 55%
+    ),
+    linear-gradient(162deg, #3fbc97 0%, #16a89d 52%, #0d8b90 100%);
+  background-repeat: repeat, no-repeat, no-repeat, no-repeat;
 }
 
-/* Glossy card face: layered shadows + top sheen, like the 2014 cards */
+/* Card face 2026: flat white, hairline border, one soft ambient
+   shadow — with a whisper of the 2014 sheen kept as a signature. */
 .seer-card-face {
   position: relative;
   overflow: hidden;
-  background: linear-gradient(180deg, #ffffff 0%, #fbfcfd 55%, #f4f7f9 100%);
-  border: 1px solid rgba(30, 36, 43, 0.08);
+  background: #ffffff;
+  border: 1px solid rgba(30, 36, 43, 0.06);
   box-shadow:
-    inset 0 1px 0 rgba(255, 255, 255, 0.95),
-    0 1px 2px rgba(10, 45, 40, 0.16),
-    0 10px 24px rgba(10, 45, 40, 0.2),
-    0 26px 48px rgba(10, 45, 40, 0.16);
+    0 1px 2px rgba(10, 45, 40, 0.1),
+    0 20px 44px -16px rgba(10, 45, 40, 0.35);
 }
 
 .seer-card-face::before {
   content: "";
   position: absolute;
   inset: 0 0 auto 0;
-  height: 44%;
+  height: 30%;
   background: linear-gradient(
     180deg,
-    rgba(255, 255, 255, 0.6),
+    rgba(255, 255, 255, 0.35),
     rgba(255, 255, 255, 0)
   );
   pointer-events: none;
@@ -168,38 +193,36 @@ body {
 
 @media (prefers-color-scheme: dark) {
   .seer-card-face {
-    background: linear-gradient(180deg, #2c343e 0%, #272f38 55%, #232a33 100%);
-    border-color: rgba(255, 255, 255, 0.08);
+    background: #272f38;
+    border-color: rgba(255, 255, 255, 0.07);
     box-shadow:
-      inset 0 1px 0 rgba(255, 255, 255, 0.08),
-      0 1px 2px rgba(0, 0, 0, 0.4),
-      0 10px 24px rgba(0, 0, 0, 0.4),
-      0 26px 48px rgba(0, 0, 0, 0.35);
+      0 1px 2px rgba(0, 0, 0, 0.35),
+      0 20px 44px -16px rgba(0, 0, 0, 0.55);
   }
 
   .seer-card-face::before {
     background: linear-gradient(
       180deg,
-      rgba(255, 255, 255, 0.06),
+      rgba(255, 255, 255, 0.05),
       rgba(255, 255, 255, 0)
     );
   }
 }
 
-/* Soft brand atmosphere (login / empty states) */
+/* Soft brand atmosphere (login / empty states) — teal-led */
 .seer-atmosphere {
   background:
-    radial-gradient(ellipse 80% 50% at 20% 0%, rgba(107, 207, 225, 0.16), transparent 55%),
-    radial-gradient(ellipse 60% 40% at 90% 100%, rgba(255, 143, 45, 0.1), transparent 50%),
-    radial-gradient(ellipse 50% 40% at 80% 10%, rgba(150, 211, 34, 0.08), transparent 50%),
+    radial-gradient(ellipse 80% 50% at 20% 0%, rgba(18, 164, 147, 0.14), transparent 55%),
+    radial-gradient(ellipse 60% 40% at 90% 100%, rgba(107, 207, 225, 0.14), transparent 50%),
+    radial-gradient(ellipse 50% 40% at 80% 10%, rgba(255, 143, 45, 0.06), transparent 50%),
     linear-gradient(180deg, #eef1f4 0%, #ffffff 45%, #f7fafb 100%);
 }
 
 @media (prefers-color-scheme: dark) {
   .seer-atmosphere {
     background:
-      radial-gradient(ellipse 80% 50% at 20% 0%, rgba(107, 207, 225, 0.12), transparent 55%),
-      radial-gradient(ellipse 60% 40% at 90% 100%, rgba(255, 143, 45, 0.08), transparent 50%),
+      radial-gradient(ellipse 80% 50% at 20% 0%, rgba(33, 179, 161, 0.14), transparent 55%),
+      radial-gradient(ellipse 60% 40% at 90% 100%, rgba(107, 207, 225, 0.08), transparent 50%),
       linear-gradient(180deg, #1e242b 0%, #272f38 100%);
   }
 }
@@ -213,6 +236,6 @@ body {
 }
 
 .seer-tagline {
-  font-weight: 300;
-  color: var(--muted);
+  font-weight: 400;
+  color: var(--brand);
 }

@@ -195,7 +195,7 @@ export function DesktopMailApp() {
           <button
             type="button"
             onClick={startCompose}
-            className="flex w-full items-center justify-center gap-2 rounded-md bg-[var(--primary)] px-3 py-2 text-sm font-medium text-white shadow-sm hover:opacity-90"
+            className="flex w-full items-center justify-center gap-2 rounded-md bg-[var(--brand)] px-3 py-2 text-sm font-medium text-white shadow-sm hover:bg-[var(--brand-strong)]"
           >
             <PenSquare className="h-4 w-4" />
             Compose
@@ -210,7 +210,7 @@ export function DesktopMailApp() {
               onClick={() => selectFolder(folderTab)}
               className={`mb-0.5 flex w-full items-center gap-2.5 rounded-md px-3 py-2 text-sm ${
                 tab === folderTab
-                  ? "bg-[var(--primary-soft)] font-medium text-[var(--fg-strong)]"
+                  ? "bg-[var(--brand-soft)] font-medium text-[var(--fg-strong)]"
                   : "text-[var(--fg)] hover:bg-[var(--row-hover)]"
               }`}
             >
@@ -339,7 +339,7 @@ export function DesktopMailApp() {
       <>
       <section className="flex w-[360px] shrink-0 flex-col border-r border-[var(--border)]">
         <header className="shrink-0 border-b border-[var(--border)]">
-          <div className="flex items-center justify-between gap-2 bg-[var(--primary)] px-4 py-3 text-white">
+          <div className="flex items-center justify-between gap-2 bg-[var(--brand)] px-4 py-3 text-white">
             <h1 className="text-lg font-semibold">{listTitle}</h1>
             <div className="flex items-center gap-2">
               {(tab === "inbox" || tab === "triage" || Boolean(query)) && (
@@ -650,7 +650,7 @@ function DesktopMailRow({
         onClick={onOpen}
         onKeyDown={(e) => e.key === "Enter" && onOpen()}
         className={`mail-row cursor-pointer pr-14 transition-colors ${
-          selected ? "bg-[var(--primary-soft)]" : ""
+          selected ? "bg-[var(--brand-soft)]" : ""
         } ${busy ? "opacity-50" : ""} ${item.isUnread ? "unread" : ""}`}
       >
         <span
@@ -719,7 +719,7 @@ function SectionHeader({
   onAction?: () => void;
 }) {
   return (
-    <div className="sticky top-0 z-10 flex items-center justify-between border-b border-[var(--border)] bg-[var(--primary-soft)] px-3 py-2">
+    <div className="sticky top-0 z-10 flex items-center justify-between border-b border-[var(--border)] bg-[var(--brand-soft)] px-3 py-2">
       <h2
         className="flex items-center gap-1.5 text-[12px] font-semibold"
         style={{ color: color ?? "var(--fg-strong)" }}
