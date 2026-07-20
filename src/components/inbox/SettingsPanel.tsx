@@ -11,6 +11,7 @@ import {
   Plus,
   Settings,
   Trash2,
+  UserRoundPlus,
 } from "lucide-react";
 import { useCallback, useEffect, useState } from "react";
 import {
@@ -68,6 +69,11 @@ export function SettingsPanel({
   const [profileBusy, setProfileBusy] = useState<string | null>(null);
   const [profileNote, setProfileNote] = useState<string | null>(null);
 
+  const [eaEmail, setEaEmail] = useState("");
+  const [eaName, setEaName] = useState("");
+  const [eaSaved, setEaSaved] = useState<{ email: string } | null>(null);
+  const [eaBusy, setEaBusy] = useState(false);
+
   const load = useCallback(async () => {
     setError(null);
     try {
@@ -94,10 +100,48 @@ export function SettingsPanel({
     }
   }, []);
 
+  const loadEa = useCallback(async () => {
+    try {
+      const res = await fetch("/api/ea", { cache: "no-store" });
+      const json = await res.json();
+      if (res.ok && json.ea) {
+        setEaEmail(json.ea.email);
+        setEaName(json.ea.name ?? "");
+        setEaSaved({ email: json.ea.email });
+      }
+    } catch {
+      /* EA is optional — settings still work */
+    }
+  }, []);
+
   useEffect(() => {
     load();
     loadProfile();
-  }, [load, loadProfile]);
+    loadEa();
+  }, [load, loadProfile, loadEa]);
+
+  async function saveEa(payload: { email?: string; name?: string; clear?: boolean }) {
+    setEaBusy(true);
+    setError(null);
+    try {
+      const res = await fetch("/api/ea", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(payload),
+      });
+      const json = await res.json();
+      if (!res.ok) throw new Error(json.error ?? "Save failed");
+      setEaSaved(json.ea ? { email: json.ea.email } : null);
+      if (!json.ea) {
+        setEaEmail("");
+        setEaName("");
+      }
+    } catch (e) {
+      setError(e instanceof Error ? e.message : "EA save failed");
+    } finally {
+      setEaBusy(false);
+    }
+  }
 
   async function saveProfile(payload: {
     text?: string;
@@ -240,13 +284,13 @@ export function SettingsPanel({
 
         <div className="flex-1 overflow-auto px-4 py-4">
           {error ? (
-            <p className="mb-3 rounded-lg bg-red-500/10 px-3 py-2 text-sm text-red-600 dark:text-red-300">
+            <p className="mb-3 rounded-lg bg-[#d63b2f]/10 px-3 py-2 text-sm text-[#d63b2f]">
               {error}
             </p>
           ) : null}
 
           {data?.sessionError ? (
-            <p className="mb-3 rounded-lg bg-amber-500/10 px-3 py-2 text-sm text-amber-700 dark:text-amber-300">
+            <p className="mb-3 rounded-lg bg-[#ff8f2d]/10 px-3 py-2 text-sm text-[#c96a10]">
               Session issue: reconnect an account below.
             </p>
           ) : null}
@@ -363,7 +407,7 @@ export function SettingsPanel({
                   type="button"
                   disabled={profileBusy !== null}
                   onClick={() => saveProfile({ clear: true })}
-                  className="rounded-xl border border-[var(--border)] px-4 py-2.5 text-sm font-medium text-red-600 disabled:opacity-50"
+                  className="rounded-xl border border-[var(--border)] px-4 py-2.5 text-sm font-medium text-[#d63b2f] disabled:opacity-50"
                 >
                   {profileBusy === "clear" ? (
                     <Loader2 className="h-4 w-4 animate-spin" />
@@ -414,6 +458,54 @@ export function SettingsPanel({
               decisions are made as <em>you</em> — who matters, what&apos;s
               urgent, how you sound. Stored privately on the server; saving
               re-reviews your inbox once with the new context.
+            </p>
+          </section>
+
+          <section className="mb-6">
+            <h2 className="mb-2 flex items-center gap-1.5 text-xs font-medium uppercase tracking-wide text-[var(--muted)]">
+              <UserRoundPlus className="h-3.5 w-3.5" />
+              Delegate to EA
+            </h2>
+            <div className="flex flex-col gap-2 sm:flex-row">
+              <input
+                type="email"
+                value={eaEmail}
+                onChange={(e) => setEaEmail(e.target.value)}
+                placeholder="assistant@company.com"
+                className="min-w-0 flex-1 rounded-xl border border-[var(--border)] bg-[var(--bg)] px-3 py-2.5 text-sm outline-none focus:border-[var(--primary)]"
+              />
+              <input
+                type="text"
+                value={eaName}
+                onChange={(e) => setEaName(e.target.value)}
+                placeholder="Name (optional)"
+                className="min-w-0 flex-1 rounded-xl border border-[var(--border)] bg-[var(--bg)] px-3 py-2.5 text-sm outline-none focus:border-[var(--primary)]"
+              />
+            </div>
+            <div className="mt-2 flex gap-2">
+              <button
+                type="button"
+                disabled={eaBusy || !eaEmail.trim()}
+                onClick={() => saveEa({ email: eaEmail, name: eaName })}
+                className="flex flex-1 items-center justify-center gap-2 rounded-xl bg-[var(--primary)] px-4 py-2.5 text-sm font-medium text-white disabled:opacity-50"
+              >
+                {eaBusy ? <Loader2 className="h-4 w-4 animate-spin" /> : null}
+                Save EA
+              </button>
+              {eaSaved ? (
+                <button
+                  type="button"
+                  disabled={eaBusy}
+                  onClick={() => saveEa({ clear: true })}
+                  className="rounded-xl border border-[var(--border)] px-4 py-2.5 text-sm font-medium text-[#d63b2f] disabled:opacity-50"
+                >
+                  Clear
+                </button>
+              ) : null}
+            </div>
+            <p className="mt-2 text-[11px] leading-relaxed text-[var(--muted)]">
+              The Delegate action on cards forwards the email here with a short
+              handoff note, then archives it — off your plate, on theirs.
             </p>
           </section>
 
@@ -470,7 +562,7 @@ export function SettingsPanel({
                       type="button"
                       disabled={busy === account.id}
                       onClick={() => removeAccount(account.id)}
-                      className="rounded-full p-2 text-[var(--muted)] hover:bg-[var(--card)] hover:text-red-500"
+                      className="rounded-full p-2 text-[var(--muted)] hover:bg-[var(--card)] hover:text-[#d63b2f]"
                       aria-label="Remove account"
                     >
                       <Trash2 className="h-4 w-4" />
@@ -484,7 +576,7 @@ export function SettingsPanel({
           <form action={signOutAction}>
             <button
               type="submit"
-              className="w-full rounded-xl border border-[var(--border)] py-3 text-sm font-medium text-red-600"
+              className="w-full rounded-xl border border-[var(--border)] py-3 text-sm font-medium text-[#d63b2f]"
             >
               Sign out
             </button>

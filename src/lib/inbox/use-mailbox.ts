@@ -286,6 +286,52 @@ export function useMailbox(initialTab: ViewTab = "inbox") {
     [closeReader, load, readerId, removeFromLists],
   );
 
+  /**
+   * Snooze: purely local — the card/row disappears now and comes back
+   * on the next refresh (no server call, nothing changes in the mailbox).
+   */
+  const snooze = useCallback(
+    (id: string) => {
+      removeFromLists(id);
+      if (readerId === id) closeReader();
+      setToast("Snoozed — back on next refresh");
+    },
+    [closeReader, readerId, removeFromLists],
+  );
+
+  /**
+   * Delegate to EA: forwards to the configured assistant and archives.
+   * Resolves { needsEa: true } when no EA is set so the caller can
+   * open Settings instead of failing silently.
+   */
+  const delegate = useCallback(
+    async (id: string): Promise<{ needsEa?: boolean }> => {
+      setBusyId(id);
+      try {
+        const res = await fetch("/api/delegate", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ id }),
+        });
+        const j = await res.json();
+        if (!res.ok) {
+          if (j.needsEa) return { needsEa: true };
+          throw new Error(j.error ?? "Delegate failed");
+        }
+        removeFromLists(id);
+        if (readerId === id) closeReader();
+        setToast(`Delegated to ${j.ea}`);
+        return {};
+      } catch (e) {
+        setToast(e instanceof Error ? e.message : "Delegate failed");
+        return {};
+      } finally {
+        setBusyId(null);
+      }
+    },
+    [closeReader, readerId, removeFromLists],
+  );
+
   const bulkSection = useCallback(
     async (section: Section, action: MailAction) => {
       const ids = section.items.map((i) => i.id);
@@ -587,6 +633,8 @@ export function useMailbox(initialTab: ViewTab = "inbox") {
     refreshIdentity,
     load,
     runAction,
+    snooze,
+    delegate,
     bulkSection,
     teachSender,
     openReader,

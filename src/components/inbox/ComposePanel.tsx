@@ -127,7 +127,7 @@ export function ComposePanel({
           autoFocus
         />
         {error ? (
-          <p className="mb-4 rounded-lg bg-red-500/10 px-3 py-2 text-sm text-red-600 dark:text-red-300">
+          <p className="mb-4 rounded-lg bg-[#d63b2f]/10 px-3 py-2 text-sm text-[#d63b2f]">
             {error}
           </p>
         ) : null}

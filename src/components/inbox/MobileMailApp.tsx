@@ -93,6 +93,8 @@ export function MobileMailApp() {
     load,
     refreshIdentity,
     runAction,
+    snooze,
+    delegate,
     bulkSection,
     teachSender,
     openReader,
@@ -125,6 +127,16 @@ export function MobileMailApp() {
     hookSelectFolder(next);
     setDrawer(false);
     setSearchOpen(false);
+  };
+
+  const delegateFromCard = async (id: string) => {
+    const r = await delegate(id);
+    if (r.needsEa) {
+      setToast("Add your EA's email in Settings first");
+      setSettingsOpen(true);
+      return false;
+    }
+    return true;
   };
 
   const replyFromCard = async (id: string) => {
@@ -452,11 +464,11 @@ export function MobileMailApp() {
 
       <main
         className={`flex flex-1 flex-col overflow-auto pb-24 ${
-          tab === "cards" ? "" : ""
+          tab === "cards" ? "seer-deck-bg" : ""
         }`}
       >
         {error ? (
-          <p className="mx-4 my-3 rounded-lg bg-red-500/10 px-3 py-2 text-sm text-red-600 dark:text-red-300">
+          <p className="mx-4 my-3 rounded-lg bg-[#d63b2f]/10 px-3 py-2 text-sm text-[#d63b2f]">
             {error}
           </p>
         ) : null}
@@ -477,6 +489,8 @@ export function MobileMailApp() {
             onAction={runAction}
             onBulk={bulkSection}
             onReply={replyFromCard}
+            onSnooze={snooze}
+            onDelegate={delegateFromCard}
             onEmptyRefresh={load}
           />
         ) : null}
@@ -524,7 +538,7 @@ export function MobileMailApp() {
                   : "Gemini-first triage — you are last resort"}
             </p>
             {triage.assistant?.error ? (
-              <p className="mt-0.5 text-[11px] font-medium text-[#dc2626]">
+              <p className="mt-0.5 text-[11px] font-medium text-[#d63b2f]">
                 Gemini offline — rules only: {triage.assistant.error.slice(0, 120)}
               </p>
             ) : null}
@@ -771,9 +785,16 @@ function SectionHeader({
   return (
     <div className="sticky top-0 z-[1] flex items-center justify-between border-b border-[var(--border)] bg-[var(--primary-soft)] px-4 py-2.5">
       <h2
-        className="text-[13px] font-semibold"
+        className="flex items-center gap-1.5 text-[13px] font-semibold"
         style={{ color: color ?? "var(--fg-strong)" }}
       >
+        {color ? (
+          <span
+            className="h-1.5 w-1.5 rounded-full"
+            style={{ backgroundColor: color }}
+            aria-hidden
+          />
+        ) : null}
         {label}
       </h2>
       {actionLabel && onAction ? (
@@ -797,7 +818,7 @@ function EmptyState({ text }: { text: string }) {
 
 function Toast({ message }: { message: string }) {
   return (
-    <div className="fixed bottom-[calc(5.5rem+var(--safe-bottom))] left-1/2 z-50 max-w-[90%] -translate-x-1/2 rounded bg-[#323232] px-4 py-2.5 text-xs text-white shadow-lg">
+    <div className="fixed bottom-[calc(5.5rem+var(--safe-bottom))] left-1/2 z-50 max-w-[90%] -translate-x-1/2 rounded bg-[#1e242b] px-4 py-2.5 text-xs text-white shadow-lg">
       {message}
     </div>
   );
@@ -843,10 +864,10 @@ function SwipeMailRow({
 
   return (
     <li className="relative overflow-hidden">
-      <div className="absolute inset-y-0 left-0 flex w-24 items-center justify-center bg-[#107c10] text-white">
+      <div className="absolute inset-y-0 left-0 flex w-24 items-center justify-center bg-[#76ab19] text-white">
         <Archive className="h-5 w-5" />
       </div>
-      <div className="absolute inset-y-0 right-0 flex w-24 items-center justify-center bg-[#d13438] text-white">
+      <div className="absolute inset-y-0 right-0 flex w-24 items-center justify-center bg-[#d63b2f] text-white">
         <Trash2 className="h-5 w-5" />
       </div>
       <article

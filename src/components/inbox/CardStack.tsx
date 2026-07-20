@@ -1,15 +1,19 @@
 "use client";
 
 import {
+  AlarmClock,
   Archive,
   CheckCircle2,
   Layers,
   MailOpen,
   Reply,
   Trash2,
+  UserRoundPlus,
   Zap,
 } from "lucide-react";
 import {
+  useCallback,
+  useEffect,
   useMemo,
   useRef,
   useState,
@@ -32,6 +36,10 @@ type Props = {
   onAction: (id: string, action: MailAction, fromEmail?: string) => void;
   onBulk: (section: Section, action: MailAction) => void;
   onReply: (id: string) => void;
+  /** Skip for now — card leaves the deck locally, returns next refresh. */
+  onSnooze?: (id: string) => void;
+  /** Forward to the EA. Resolves true when it actually went out. */
+  onDelegate?: (id: string) => Promise<boolean>;
   onEmptyRefresh?: () => void;
 };
 
@@ -51,6 +59,8 @@ export function CardStack({
   onAction,
   onBulk,
   onReply,
+  onSnooze,
+  onDelegate,
   onEmptyRefresh,
 }: Props) {
   // Locally skipped cards (e.g. "decide one by one" on a bulk card).
@@ -100,6 +110,22 @@ export function CardStack({
     commit(card, primaryMailAction(g.action));
   };
 
+  /** Skip this card without acting — it returns on the next refresh. */
+  const snoozeCard = (card: DeckCard) => {
+    setSkipped((prev) => new Set(prev).add(card.key));
+    setDragX(0);
+    if (card.kind === "email") onSnooze?.(card.item.id);
+  };
+
+  const delegateCard = async (card: DeckCard) => {
+    if (card.kind !== "email" || !onDelegate) return;
+    const ok = await onDelegate(card.item.id);
+    if (ok) {
+      setSkipped((prev) => new Set(prev).add(card.key));
+      setDragX(0);
+    }
+  };
+
   const onTouchStart = (e: TouchEvent) => {
     startX.current = e.touches[0]?.clientX ?? null;
     setDragging(true);
@@ -126,12 +152,76 @@ export function CardStack({
     startX.current = null;
   };
 
+  // ---- Trackpad swipe: two-finger horizontal scrolls arrive as wheel
+  // events with deltaX. Native non-passive listener so preventDefault
+  // stops the browser's own back/forward swipe navigation. ----
+  const cardEl = useRef<HTMLDivElement | null>(null);
+  const wheelX = useRef(0);
+  const wheelEndTimer = useRef<number | null>(null);
+  const wheelLocked = useRef(false);
+  const currentRef = useRef<DeckCard | undefined>(current);
+  currentRef.current = current;
+  const commitRef = useRef(commit);
+  commitRef.current = commit;
+
+  const endWheelGesture = useCallback(() => {
+    const dx = wheelX.current;
+    const alreadyCommitted = wheelLocked.current;
+    wheelX.current = 0;
+    wheelLocked.current = false;
+    setDragging(false);
+    const card = currentRef.current;
+    if (!alreadyCommitted && card?.kind === "email") {
+      if (dx > 110) {
+        commitRef.current(card, "archive");
+        return;
+      }
+      if (dx < -110) {
+        commitRef.current(card, "trash");
+        return;
+      }
+    }
+    setDragX(0);
+  }, []);
+
+  useEffect(() => {
+    const el = cardEl.current;
+    if (!el) return;
+    const onWheel = (e: globalThis.WheelEvent) => {
+      // Vertical scrolls pass through; horizontal ones drag the card
+      if (Math.abs(e.deltaX) <= Math.abs(e.deltaY) && wheelX.current === 0) {
+        return;
+      }
+      e.preventDefault();
+      if (wheelEndTimer.current) window.clearTimeout(wheelEndTimer.current);
+      wheelEndTimer.current = window.setTimeout(endWheelGesture, 140);
+      if (wheelLocked.current) return; // swallow trackpad inertia after commit
+      wheelX.current += -e.deltaX;
+      setDragging(true);
+      setDragX(wheelX.current);
+      // Swiped far enough — act now instead of waiting for fingers to lift
+      const card = currentRef.current;
+      if (card?.kind === "email" && Math.abs(wheelX.current) > 160) {
+        const dx = wheelX.current;
+        wheelX.current = 0;
+        wheelLocked.current = true;
+        setDragging(false);
+        commitRef.current(card, dx > 0 ? "archive" : "trash");
+      }
+    };
+    el.addEventListener("wheel", onWheel, { passive: false });
+    return () => {
+      el.removeEventListener("wheel", onWheel);
+      if (wheelEndTimer.current) window.clearTimeout(wheelEndTimer.current);
+    };
+  }, [endWheelGesture, current?.key]);
+
   if (!current) {
     return (
       <div className="flex flex-1 flex-col items-center justify-center px-8 py-16 text-center">
-        <CheckCircle2 className="mb-3 h-14 w-14 text-[var(--primary)] opacity-80" />
-        <h2 className="text-xl font-medium">Deck clear</h2>
-        <p className="mt-2 max-w-xs text-sm text-[var(--muted)]">
+        <CheckCircle2 className="mb-3 h-14 w-14 text-white opacity-90" />
+        <h2 className="text-xl font-semibold text-white">Deck clear</h2>
+        <p className="mt-2 max-w-xs text-sm text-white/85">
           You’ve worked through the card stack. Pull to refresh or check Mail
           for anything new.
         </p>
@@ -139,7 +229,7 @@ export function CardStack({
           <button
             type="button"
             onClick={onEmptyRefresh}
-            className="mt-6 rounded-md bg-[var(--accent)] px-5 py-2.5 text-sm font-medium text-[#333]"
+            className="mt-6 rounded-md bg-[var(--accent)] px-5 py-2.5 text-sm font-semibold text-white shadow-sm"
           >
             Refresh cards
           </button>
@@ -154,8 +244,10 @@ export function CardStack({
   const currentBusy =
     current.kind === "email" && busyId === current.item.id;
 
+  // The teal deck backdrop (.seer-deck-bg) is painted by the parent pane
+  // so it can run full-bleed behind headers, previews, and empty states.
   return (
-    <div className="seer-deck-bg flex flex-1 flex-col px-4 pb-2 pt-2">
+    <div className="flex flex-1 flex-col px-4 pb-2 pt-2">
       <div className="mb-3 flex items-center justify-between rounded-md bg-white/15 px-3 py-2">
         <div className="flex items-center gap-2 text-sm font-semibold text-white">
           <Layers className="h-4 w-4" />
@@ -196,6 +288,7 @@ export function CardStack({
           })}
 
         <div
+          ref={cardEl}
           className="seer-card absolute inset-x-0 top-0 z-20 touch-pan-y"
           style={{
             transform: `translateX(${dragX}px) rotate(${rotate}deg)`,
@@ -206,7 +299,7 @@ export function CardStack({
           onTouchEnd={onTouchEnd}
         >
           {archiveHint ? (
-            <div className="pointer-events-none absolute left-4 top-6 z-30 rounded-lg bg-[#0b8043] px-3 py-1 text-xs font-bold uppercase tracking-wide text-white">
+            <div className="pointer-events-none absolute left-4 top-6 z-30 rounded-lg bg-[#76ab19] px-3 py-1 text-xs font-bold uppercase tracking-wide text-white">
               Archive
             </div>
           ) : null}
@@ -238,7 +331,7 @@ export function CardStack({
 
       {current.kind === "email" ? (
         <>
-          <div className="mx-auto mt-4 flex w-full max-w-md items-center justify-around gap-2 pb-2">
+          <div className="mx-auto mt-4 flex w-full max-w-md items-center justify-around gap-1 pb-2">
             <CardAction
               label="Delete"
               color="#d63b2f"
@@ -247,6 +340,15 @@ export function CardStack({
             >
               <Trash2 className="h-5 w-5" />
             </CardAction>
+            {onSnooze ? (
+              <CardAction
+                label="Snooze"
+                color="var(--accent)"
+                onClick={() => snoozeCard(current)}
+              >
+                <AlarmClock className="h-5 w-5" />
+              </CardAction>
+            ) : null}
             <CardAction
               label="Open"
               color="var(--muted)"
@@ -261,9 +363,19 @@ export function CardStack({
             >
               <Reply className="h-5 w-5" />
             </CardAction>
+            {onDelegate ? (
+              <CardAction
+                label="Delegate"
+                color="#967ad0"
+                disabled={currentBusy}
+                onClick={() => delegateCard(current)}
+              >
+                <UserRoundPlus className="h-5 w-5" />
+              </CardAction>
+            ) : null}
             <CardAction
               label="Archive"
-              color="#0b8043"
+              color="#76ab19"
               disabled={currentBusy}
               onClick={() => commit(current, "archive")}
             >
@@ -271,7 +383,7 @@ export function CardStack({
             </CardAction>
           </div>
           <p className="pb-2 text-center text-[11px] text-white/80">
-            Swipe right to archive · left to delete
+            Swipe right to archive · left to delete — trackpad works too
           </p>
         </>
       ) : (
@@ -511,7 +623,7 @@ function CardAction({
       className="flex flex-col items-center gap-1 disabled:opacity-40"
     >
       <span
-        className="flex h-14 w-14 items-center justify-center rounded-full bg-white shadow-[0_2px_8px_rgba(10,45,40,0.25)]"
+        className="flex h-12 w-12 items-center justify-center rounded-full bg-white shadow-[0_2px_8px_rgba(10,45,40,0.25)]"
         style={{ color }}
       >
         {children}
