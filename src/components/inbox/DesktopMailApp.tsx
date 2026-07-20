@@ -37,6 +37,7 @@ import { ACTION_META, type TriageAction } from "@/lib/inbox/classify";
 import { useMailbox } from "@/lib/inbox/use-mailbox";
 import {
   buildDeckCards,
+  groupBySender,
   ensureRe,
   formatMailTime,
   mailInitial,
@@ -145,6 +146,33 @@ export function DesktopMailApp() {
       } catch {
         /* ignore */
       }
+      return next;
+    });
+  };
+
+  // Density: compact rows (persisted, shared key with mobile)
+  const [dense, setDense] = useState<boolean>(() => {
+    if (typeof window === "undefined") return false;
+    return window.localStorage.getItem("seer:dense") === "1";
+  });
+  const toggleDense = () => {
+    setDense((d) => {
+      try {
+        window.localStorage.setItem("seer:dense", d ? "0" : "1");
+      } catch {
+        /* ignore */
+      }
+      return !d;
+    });
+  };
+
+  // Sender groups the user has expanded
+  const [openGroups, setOpenGroups] = useState<Set<string>>(new Set());
+  const toggleGroup = (key: string) => {
+    setOpenGroups((prev) => {
+      const next = new Set(prev);
+      if (next.has(key)) next.delete(key);
+      else next.add(key);
       return next;
     });
   };
@@ -440,7 +468,14 @@ export function DesktopMailApp() {
             />
           </form>
           {tab === "triage" && (triage?.assistant || triage?.history) ? (
-            <p className="bg-[var(--card)] px-4 py-2 text-[11px] text-[var(--muted)]">
+            <p className="flex items-start gap-2 bg-[var(--card)] px-4 py-2 text-[11px] text-[var(--muted)]">
+              <button
+                type="button"
+                onClick={toggleDense}
+                className="order-last ml-auto shrink-0 rounded-full border border-[var(--border)] px-2 py-0.5 text-[10px] font-semibold text-[var(--primary)]"
+              >
+                {dense ? "Cozy" : "Compact"}
+              </button>
               {triage.assistant
                 ? `Gemini ${triage.assistant.gemini} · rules ${triage.assistant.rules}${triage.assistant.learned ? ` · learned ${triage.assistant.learned}` : ""} · taught ${triage.assistant.override}${triage.assistant.cached ? ` · cached ${triage.assistant.cached}` : ""} · your call ${triage.assistant.needsReview}`
                 : triage.history
@@ -615,20 +650,64 @@ export function DesktopMailApp() {
                     onToggle={() => toggleSection(section.action)}
                   />
                   <ul className={collapsed.has(section.action) ? "hidden" : ""}>
-                    {section.items.map((item) => (
-                      <DesktopMailRow
-                        key={item.id}
-                        item={item}
-                        selected={readerId === item.id}
-                        busy={busyId === item.id}
-                        showGuide
-                        logicMode={logicMode}
-                    onTeach={(a) => teachSender(item.fromEmail, a, item.id)}
-                        onOpen={() => openReader(item.id)}
-                        onArchive={() => runAction(item.id, "archive", item.fromEmail)}
-                        onDelete={() => runAction(item.id, "trash", item.fromEmail)}
-                      />
-                    ))}
+                    {groupBySender(section.items).flatMap((entry) => {
+                      if (entry.kind === "group") {
+                        const open = openGroups.has(entry.key);
+                        return [
+                          <DesktopGroupRow
+                            key={entry.key}
+                            fromName={entry.fromName}
+                            fromEmail={entry.fromEmail}
+                            count={entry.items.length}
+                            latest={entry.items[0]}
+                            color={section.color}
+                            actionLabel={section.bulkLabel}
+                            open={open}
+                            onToggle={() => toggleGroup(entry.key)}
+                            onActAll={() =>
+                              runBulk(
+                                entry.items.map((i) => ({
+                                  id: i.id,
+                                  fromEmail: i.fromEmail,
+                                })),
+                                primaryMailAction(section.action),
+                              )
+                            }
+                          />,
+                          ...(open ? entry.items : []).map((item) => (
+                            <DesktopMailRow
+                              key={item.id}
+                              item={item}
+                              dense={dense}
+                              selected={readerId === item.id}
+                              busy={busyId === item.id}
+                              showGuide
+                              logicMode={logicMode}
+                              onTeach={(a) => teachSender(item.fromEmail, a, item.id)}
+                              onOpen={() => openReader(item.id)}
+                              onArchive={() => runAction(item.id, "archive", item.fromEmail)}
+                              onDelete={() => runAction(item.id, "trash", item.fromEmail)}
+                            />
+                          )),
+                        ];
+                      }
+                      const item = entry.item;
+                      return [
+                        <DesktopMailRow
+                          key={item.id}
+                          item={item}
+                          dense={dense}
+                          selected={readerId === item.id}
+                          busy={busyId === item.id}
+                          showGuide
+                          logicMode={logicMode}
+                          onTeach={(a) => teachSender(item.fromEmail, a, item.id)}
+                          onOpen={() => openReader(item.id)}
+                          onArchive={() => runAction(item.id, "archive", item.fromEmail)}
+                          onDelete={() => runAction(item.id, "trash", item.fromEmail)}
+                        />,
+                      ];
+                    })}
                   </ul>
                 </section>
               ))
@@ -760,6 +839,75 @@ export function DesktopMailApp() {
   );
 }
 
+/** Same-sender pile: one row, one click clears the lot. */
+function DesktopGroupRow({
+  fromName,
+  fromEmail,
+  count,
+  latest,
+  color,
+  actionLabel,
+  open,
+  onToggle,
+  onActAll,
+}: {
+  fromName: string;
+  fromEmail: string;
+  count: number;
+  latest: EmailItem;
+  color: string;
+  actionLabel: string;
+  open: boolean;
+  onToggle: () => void;
+  onActAll: () => void;
+}) {
+  return (
+    <li className="border-b border-[var(--border)]">
+      <div className="flex items-center gap-2 px-3 py-2">
+        <button
+          type="button"
+          onClick={onToggle}
+          className="flex min-w-0 flex-1 items-center gap-2 text-left"
+        >
+          <span
+            className="flex h-6 w-6 shrink-0 items-center justify-center rounded-full text-[11px] font-bold text-white"
+            style={{ backgroundColor: color }}
+          >
+            {(fromName || fromEmail)[0]?.toUpperCase()}
+          </span>
+          <span className="min-w-0 flex-1">
+            <span className="flex items-baseline gap-1.5">
+              <span className="truncate text-[12px] font-semibold text-[var(--fg-strong)]">
+                {fromName || fromEmail}
+              </span>
+              <span
+                className="shrink-0 rounded-full px-1.5 text-[10px] font-bold text-white"
+                style={{ backgroundColor: color }}
+              >
+                {count}
+              </span>
+            </span>
+            <span className="block truncate text-[11px] text-[var(--muted)]">
+              {latest.subject}
+            </span>
+          </span>
+          <ChevronDown
+            className={`h-3.5 w-3.5 shrink-0 text-[var(--muted)] transition-transform ${open ? "rotate-180" : ""}`}
+          />
+        </button>
+        <button
+          type="button"
+          onClick={onActAll}
+          className="shrink-0 rounded-full px-2 py-1 text-[10px] font-bold text-white"
+          style={{ backgroundColor: color }}
+        >
+          {actionLabel} {count}
+        </button>
+      </div>
+    </li>
+  );
+}
+
 function DesktopMailRow({
   item,
   selected,
@@ -773,6 +921,7 @@ function DesktopMailRow({
   checked,
   onToggleSelect,
   onTeach,
+  dense,
 }: {
   item: EmailItem;
   selected: boolean;
@@ -786,6 +935,8 @@ function DesktopMailRow({
   checked?: boolean;
   onToggleSelect?: () => void;
   onTeach?: (action: TriageAction) => void;
+  /** Compact: hide the snippet, tighten padding. */
+  dense?: boolean;
 }) {
   const [hovered, setHovered] = useState(false);
   const g = item.guide;
@@ -839,13 +990,31 @@ function DesktopMailRow({
               {formatMailTime(item.receivedAt)}
             </span>
           </div>
-          <div className="mail-subject truncate text-[12px] leading-snug">
-            {item.subject}
-          </div>
-          <div className="truncate text-[11px] leading-snug text-[var(--muted)]">
-            {item.snippet}
-          </div>
-          {showGuide && g ? (
+          {dense ? (
+            <div className="flex items-baseline gap-1.5 truncate text-[12px] leading-snug">
+              {g?.task ? (
+                <span
+                  className="shrink-0 font-semibold"
+                  style={{ color: g.color }}
+                >
+                  {g.task}
+                </span>
+              ) : null}
+              <span className="truncate text-[var(--muted)]">
+                {item.subject}
+              </span>
+            </div>
+          ) : (
+            <>
+              <div className="mail-subject truncate text-[12px] leading-snug">
+                {item.subject}
+              </div>
+              <div className="truncate text-[11px] leading-snug text-[var(--muted)]">
+                {item.snippet}
+              </div>
+            </>
+          )}
+          {showGuide && g && (!dense || logicMode) ? (
             <LogicExplain guide={g} expanded={logicMode} onTeach={onTeach} />
           ) : null}
           {chips}

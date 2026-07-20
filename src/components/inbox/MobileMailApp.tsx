@@ -51,6 +51,7 @@ import {
   buildDeckCards,
   ensureRe,
   formatMailTime,
+  groupBySender,
   primaryMailAction,
   type EmailItem,
   type ViewTab,
@@ -153,6 +154,33 @@ export function MobileMailApp() {
       } catch {
         /* ignore */
       }
+      return next;
+    });
+  };
+
+  // Density: compact rows fit ~2x more triage on screen (persisted)
+  const [dense, setDense] = useState<boolean>(() => {
+    if (typeof window === "undefined") return false;
+    return window.localStorage.getItem("seer:dense") === "1";
+  });
+  const toggleDense = () => {
+    setDense((d) => {
+      try {
+        window.localStorage.setItem("seer:dense", d ? "0" : "1");
+      } catch {
+        /* ignore */
+      }
+      return !d;
+    });
+  };
+
+  // Sender groups the user has expanded
+  const [openGroups, setOpenGroups] = useState<Set<string>>(new Set());
+  const toggleGroup = (key: string) => {
+    setOpenGroups((prev) => {
+      const next = new Set(prev);
+      if (next.has(key)) next.delete(key);
+      else next.add(key);
       return next;
     });
   };
@@ -717,13 +745,22 @@ export function MobileMailApp() {
 
         {tab === "triage" && triage ? (
           <div className="border-b border-[var(--border)] bg-[var(--card)] px-4 py-2">
-            <p className="text-[12px] text-[var(--muted)]">
-              {triage.assistant
-                ? `Gemini ${triage.assistant.gemini} · rules ${triage.assistant.rules}${triage.assistant.learned ? ` · learned ${triage.assistant.learned}` : ""} · taught ${triage.assistant.override}${triage.assistant.cached ? ` · cached ${triage.assistant.cached}` : ""} · your call ${triage.assistant.needsReview}`
-                : triage.history
-                  ? `${triage.history.engagedCount} people you email · ${triage.history.contactCount} contacts`
-                  : "Gemini-first triage — you are last resort"}
-            </p>
+            <div className="flex items-start justify-between gap-2">
+              <p className="min-w-0 text-[12px] text-[var(--muted)]">
+                {triage.assistant
+                  ? `Gemini ${triage.assistant.gemini} · rules ${triage.assistant.rules}${triage.assistant.learned ? ` · learned ${triage.assistant.learned}` : ""} · taught ${triage.assistant.override}${triage.assistant.cached ? ` · cached ${triage.assistant.cached}` : ""} · your call ${triage.assistant.needsReview}`
+                  : triage.history
+                    ? `${triage.history.engagedCount} people you email · ${triage.history.contactCount} contacts`
+                    : "Gemini-first triage — you are last resort"}
+              </p>
+              <button
+                type="button"
+                onClick={toggleDense}
+                className="shrink-0 rounded-full border border-[var(--border)] px-2.5 py-1 text-[11px] font-semibold text-[var(--primary)]"
+              >
+                {dense ? "Cozy" : "Compact"}
+              </button>
+            </div>
             {triage.assistant?.error ? (
               <p className="mt-0.5 text-[11px] font-medium text-[#b45309]">
                 {(triage.assistant.gemini ?? 0) + (triage.assistant.cached ?? 0) > 0
@@ -796,19 +833,63 @@ export function MobileMailApp() {
                   onToggle={() => toggleSection(section.action)}
                 />
                 <ul className={collapsed.has(section.action) ? "hidden" : ""}>
-                  {section.items.map((item) => (
-                    <SwipeMailRow
-                      key={item.id}
-                      item={item}
-                      showGuide
-                      logicMode={logicMode}
-                    onTeach={(a) => teachSender(item.fromEmail, a, item.id)}
-                      busy={busyId === item.id}
-                      onOpen={() => openReader(item.id)}
-                      onArchive={() => runAction(item.id, "archive", item.fromEmail)}
-                      onDelete={() => runAction(item.id, "trash", item.fromEmail)}
-                    />
-                  ))}
+                  {groupBySender(section.items).flatMap((entry) => {
+                    if (entry.kind === "group") {
+                      const open = openGroups.has(entry.key);
+                      return [
+                        <SenderGroupRow
+                          key={entry.key}
+                          fromName={entry.fromName}
+                          fromEmail={entry.fromEmail}
+                          count={entry.items.length}
+                          latest={entry.items[0]}
+                          color={section.color}
+                          actionLabel={section.bulkLabel}
+                          open={open}
+                          onToggle={() => toggleGroup(entry.key)}
+                          onActAll={() =>
+                            runBulk(
+                              entry.items.map((i) => ({
+                                id: i.id,
+                                fromEmail: i.fromEmail,
+                              })),
+                              primaryMailAction(section.action),
+                            )
+                          }
+                        />,
+                        ...(open ? entry.items : []).map((item) => (
+                          <SwipeMailRow
+                            key={item.id}
+                            item={item}
+                            dense={dense}
+                            indented
+                            showGuide
+                            logicMode={logicMode}
+                            onTeach={(a) => teachSender(item.fromEmail, a, item.id)}
+                            busy={busyId === item.id}
+                            onOpen={() => openReader(item.id)}
+                            onArchive={() => runAction(item.id, "archive", item.fromEmail)}
+                            onDelete={() => runAction(item.id, "trash", item.fromEmail)}
+                          />
+                        )),
+                      ];
+                    }
+                    const item = entry.item;
+                    return [
+                      <SwipeMailRow
+                        key={item.id}
+                        item={item}
+                        dense={dense}
+                        showGuide
+                        logicMode={logicMode}
+                        onTeach={(a) => teachSender(item.fromEmail, a, item.id)}
+                        busy={busyId === item.id}
+                        onOpen={() => openReader(item.id)}
+                        onArchive={() => runAction(item.id, "archive", item.fromEmail)}
+                        onDelete={() => runAction(item.id, "trash", item.fromEmail)}
+                      />,
+                    ];
+                  })}
                 </ul>
               </section>
             ))
@@ -1034,6 +1115,75 @@ function Toast({ message }: { message: string }) {
   );
 }
 
+/** Same-sender pile: one row, one tap clears the lot. */
+function SenderGroupRow({
+  fromName,
+  fromEmail,
+  count,
+  latest,
+  color,
+  actionLabel,
+  open,
+  onToggle,
+  onActAll,
+}: {
+  fromName: string;
+  fromEmail: string;
+  count: number;
+  latest: EmailItem;
+  color: string;
+  actionLabel: string;
+  open: boolean;
+  onToggle: () => void;
+  onActAll: () => void;
+}) {
+  return (
+    <li className="border-b border-[var(--border)]">
+      <div className="flex items-center gap-2.5 px-4 py-2.5">
+        <button
+          type="button"
+          onClick={onToggle}
+          className="flex min-w-0 flex-1 items-center gap-2.5 text-left"
+        >
+          <span
+            className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full text-[13px] font-bold text-white"
+            style={{ backgroundColor: color }}
+          >
+            {(fromName || fromEmail)[0]?.toUpperCase()}
+          </span>
+          <span className="min-w-0 flex-1">
+            <span className="flex items-baseline gap-1.5">
+              <span className="truncate text-[14px] font-semibold text-[var(--fg-strong)]">
+                {fromName || fromEmail}
+              </span>
+              <span
+                className="shrink-0 rounded-full px-1.5 text-[11px] font-bold text-white"
+                style={{ backgroundColor: color }}
+              >
+                {count}
+              </span>
+            </span>
+            <span className="block truncate text-[12px] text-[var(--muted)]">
+              {latest.subject}
+            </span>
+          </span>
+          <ChevronDown
+            className={`h-4 w-4 shrink-0 text-[var(--muted)] transition-transform ${open ? "rotate-180" : ""}`}
+          />
+        </button>
+        <button
+          type="button"
+          onClick={onActAll}
+          className="shrink-0 rounded-full px-2.5 py-1.5 text-[11px] font-bold text-white"
+          style={{ backgroundColor: color }}
+        >
+          {actionLabel} {count}
+        </button>
+      </div>
+    </li>
+  );
+}
+
 function SwipeMailRow({
   item,
   onOpen,
@@ -1047,6 +1197,8 @@ function SwipeMailRow({
   checked,
   onToggleSelect,
   onTeach,
+  dense,
+  indented,
 }: {
   item: EmailItem;
   onOpen: () => void;
@@ -1060,6 +1212,10 @@ function SwipeMailRow({
   checked?: boolean;
   onToggleSelect?: () => void;
   onTeach?: (action: TriageAction) => void;
+  /** Compact: two lines max — sender/time, task+subject. */
+  dense?: boolean;
+  /** Rendered inside an expanded sender group. */
+  indented?: boolean;
 }) {
   const g = item.guide;
   const startX = useRef<number | null>(null);
@@ -1123,7 +1279,9 @@ function SwipeMailRow({
         onTouchEnd={onTouchEnd}
         className={`mail-row ${item.isUnread ? "unread" : ""} ${
           busy ? "opacity-50" : ""
-        } ${checked ? "bg-[var(--primary-soft,rgba(52,152,217,0.1))]" : ""}`}
+        } ${checked ? "bg-[var(--primary-soft,rgba(52,152,217,0.1))]" : ""} ${
+          dense ? "!py-1.5" : ""
+        } ${indented ? "pl-8 bg-[var(--card)]" : ""}`}
         style={{ transform: `translateX(${offset}px)` }}
       >
         {selectMode ? (
@@ -1145,20 +1303,41 @@ function SwipeMailRow({
         )}
         <div className="min-w-0 flex-1">
           <div className="flex items-baseline justify-between gap-2">
-            <span className="mail-from truncate text-[15px] text-[var(--fg-strong)]">
+            <span
+              className={`mail-from truncate text-[var(--fg-strong)] ${dense ? "text-[14px]" : "text-[15px]"}`}
+            >
               {item.fromName || item.fromEmail}
             </span>
             <span className="shrink-0 text-[12px] text-[var(--muted)]">
               {formatMailTime(item.receivedAt)}
             </span>
           </div>
-          <div className="mail-subject truncate text-[14px] leading-snug text-[var(--fg)]">
-            {item.subject}
-          </div>
-          <div className="truncate text-[13px] leading-snug text-[var(--muted)]">
-            {item.snippet}
-          </div>
-          {showGuide && g ? (
+          {dense ? (
+            // Compact: one line — the implied action, then the subject
+            <div className="flex items-baseline gap-1.5 truncate text-[13px] leading-snug">
+              {g?.task ? (
+                <span
+                  className="shrink-0 font-semibold"
+                  style={{ color: g.color }}
+                >
+                  {g.task}
+                </span>
+              ) : null}
+              <span className="truncate text-[var(--muted)]">
+                {item.subject}
+              </span>
+            </div>
+          ) : (
+            <>
+              <div className="mail-subject truncate text-[14px] leading-snug text-[var(--fg)]">
+                {item.subject}
+              </div>
+              <div className="truncate text-[13px] leading-snug text-[var(--muted)]">
+                {item.snippet}
+              </div>
+            </>
+          )}
+          {showGuide && g && (!dense || logicMode) ? (
             <LogicExplain guide={g} expanded={logicMode} onTeach={onTeach} />
           ) : null}
           {chips}

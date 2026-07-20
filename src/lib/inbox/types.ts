@@ -148,6 +148,54 @@ export function buildDeckCards(triage: TodayData | null): DeckCard[] {
   return deck;
 }
 
+/** A triage section rendered as singles + same-sender groups. */
+export type SenderGroup =
+  | { kind: "single"; key: string; item: EmailItem }
+  | {
+      kind: "group";
+      key: string;
+      fromEmail: string;
+      fromName: string;
+      items: EmailItem[];
+    };
+
+/**
+ * Intelligent grouping: within a section, mail from the same sender
+ * collapses into one row ("RetailMeNot · 12") that can be acted on as
+ * a unit or expanded. Order follows each sender's first appearance.
+ */
+export function groupBySender(items: EmailItem[], min = 2): SenderGroup[] {
+  const bySender = new Map<string, EmailItem[]>();
+  for (const item of items) {
+    const k = item.fromEmail.toLowerCase();
+    const list = bySender.get(k) ?? [];
+    list.push(item);
+    bySender.set(k, list);
+  }
+  const out: SenderGroup[] = [];
+  const emitted = new Set<string>();
+  for (const item of items) {
+    const k = item.fromEmail.toLowerCase();
+    if (emitted.has(k)) continue;
+    emitted.add(k);
+    const list = bySender.get(k) ?? [item];
+    if (list.length >= min) {
+      out.push({
+        kind: "group",
+        key: `g:${k}`,
+        fromEmail: item.fromEmail,
+        fromName: item.fromName,
+        items: list,
+      });
+    } else {
+      for (const single of list) {
+        out.push({ kind: "single", key: single.id, item: single });
+      }
+    }
+  }
+  return out;
+}
+
 export type ReaderMessage = {
   htmlBody: string;
   textBody: string;
