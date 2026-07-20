@@ -316,11 +316,9 @@ export function CardStack({
           {current.kind === "email" ? (
             <CardFace
               item={current.item}
-              busy={currentBusy}
               onTap={() => {
                 if (Math.abs(dragX) < 8) onOpen(current.item.id);
               }}
-              onSuggested={() => doSuggested(current.item, current)}
             />
           ) : (
             <BulkCardFace
@@ -336,7 +334,18 @@ export function CardStack({
 
       {current.kind === "email" ? (
         <>
-          <div className="mx-auto mt-4 flex w-full max-w-md items-center justify-around gap-1 pb-2">
+          {current.item.guide && SUGGEST_VERB[current.item.guide.action] ? (
+            // The AI's call, highlighted on the green — one tap to accept
+            <button
+              type="button"
+              disabled={currentBusy}
+              onClick={() => doSuggested(current.item, current)}
+              className="mx-auto mt-4 flex w-full max-w-md items-center justify-center gap-2 rounded-xl bg-white/20 py-3 text-sm font-semibold text-white shadow-[inset_0_1px_0_rgba(255,255,255,0.25)] backdrop-blur-sm transition hover:bg-white/30 disabled:opacity-50"
+            >
+              ✓ {SUGGEST_VERB[current.item.guide.action]} — as suggested
+            </button>
+          ) : null}
+          <div className="mx-auto mt-3 flex w-full max-w-md items-center justify-around gap-1 pb-2">
             <CardAction
               label="Delete"
               color="#d63b2f"
@@ -502,15 +511,11 @@ const SUGGEST_VERB: Partial<Record<string, string>> = {
 function CardFace({
   item,
   muted,
-  busy,
   onTap,
-  onSuggested,
 }: {
   item: EmailItem;
   muted?: boolean;
-  busy?: boolean;
   onTap?: () => void;
-  onSuggested?: () => void;
 }) {
   const g = item.guide;
   const accent = g?.color ?? "#2e7cf6";
@@ -574,20 +579,6 @@ function CardFace({
             <div className="mt-1 text-sm font-medium text-[var(--fg-strong)]">
               {g.instruction}
             </div>
-          ) : null}
-          {onSuggested && SUGGEST_VERB[g.action] ? (
-            <button
-              type="button"
-              disabled={busy}
-              onClick={(e) => {
-                e.stopPropagation();
-                onSuggested();
-              }}
-              className="mt-3 w-full rounded-lg py-2.5 text-sm font-semibold text-white disabled:opacity-50"
-              style={{ backgroundColor: g.color }}
-            >
-              ✓ {SUGGEST_VERB[g.action]} — as suggested
-            </button>
           ) : null}
         </div>
       ) : (

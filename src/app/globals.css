@@ -227,11 +227,10 @@ body {
   }
 }
 
-/* seer wordmark 2026 — lowercase, tight, confident slate */
+/* Seer wordmark — bold slate, natural case for readability */
 .seer-brand {
   font-weight: 700;
-  letter-spacing: -0.015em;
-  text-transform: lowercase;
+  letter-spacing: 0.01em;
   color: var(--fg-strong);
 }
 
