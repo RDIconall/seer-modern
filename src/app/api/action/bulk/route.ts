@@ -4,6 +4,11 @@ import { requireMailSession } from "@/lib/mail/session";
 import { recordSenderAction } from "@/lib/store/action-memory";
 import { NextResponse } from "next/server";
 
+export const maxDuration = 60;
+
+/** Parallelism per wave — Gmail per-user quota tolerates ~10-15 writes/s. */
+const CONCURRENCY = 15;
+
 export async function POST(request: Request) {
   try {
     const session = await requireMailSession();
@@ -24,13 +29,25 @@ export async function POST(request: Request) {
     }
 
     const run = session.provider === "google" ? gmailAction : graphAction;
-    const batch = items.slice(0, 15);
-    await Promise.all(
-      batch.map((item) => run(session.accessToken, item.id, item.action)),
-    );
 
-    // Implicit teaching from bulk sweeps too (sequential: shared file)
-    for (const item of batch) {
+    // EVERY item gets processed (the old 15-item cap silently dropped
+    // the rest of a "Delete all 40" — Seer showed clean, Gmail didn't).
+    // Waves of parallel calls; one bad id must not sink the rest.
+    let processed = 0;
+    let failed = 0;
+    for (let i = 0; i < items.length; i += CONCURRENCY) {
+      const wave = items.slice(i, i + CONCURRENCY);
+      const results = await Promise.allSettled(
+        wave.map((item) => run(session.accessToken, item.id, item.action)),
+      );
+      for (const r of results) {
+        if (r.status === "fulfilled") processed += 1;
+        else failed += 1;
+      }
+    }
+
+    // Implicit teaching from bulk sweeps too (sequential: shared store)
+    for (const item of items) {
       if (item.fromEmail && (item.action === "archive" || item.action === "trash")) {
         await recordSenderAction(session.email, item.fromEmail, item.action).catch(
           () => {},
@@ -38,7 +55,7 @@ export async function POST(request: Request) {
       }
     }
 
-    return NextResponse.json({ ok: true, processed: batch.length });
+    return NextResponse.json({ ok: true, processed, failed });
   } catch (e) {
     const msg = e instanceof Error ? e.message : "Bulk action failed";
     return NextResponse.json({ error: msg }, { status: 502 });

@@ -11,7 +11,10 @@ import { NextResponse } from "next/server";
 
 export const maxDuration = 60;
 
-const BULK_CAP = 30;
+/** Real unsubscribe attempts per call (each can hit a slow third party). */
+const UNSUB_CAP = 30;
+/** Everything beyond the cap still gets trashed + muted — nothing is dropped. */
+const BULK_CAP = 200;
 
 type Item = { id: string; fromEmail?: string };
 
@@ -53,10 +56,14 @@ export async function POST(request: Request) {
     let trashedOnly = 0;
     const links: { id: string; url: string }[] = [];
 
+    let attempts = 0;
     for (const item of items) {
       let result: UnsubscribeResult = { method: "none" };
       try {
-        result = await doUnsub(session.accessToken, item.id);
+        if (attempts < UNSUB_CAP) {
+          attempts += 1;
+          result = await doUnsub(session.accessToken, item.id);
+        }
       } catch {
         /* still trash + teach below */
       }
