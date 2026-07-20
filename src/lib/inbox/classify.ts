@@ -166,6 +166,14 @@ const PRODUCT_NEEDS_YOU =
 const FINANCE_RISK =
   /\b(payment (failed|declined|overdue|past due)|card (was )?declined|insufficient funds|overdraft|fraud|unusual activity|suspicious (charge|transaction)|dispute|due (today|tomorrow)|final notice|account (suspended|locked|on hold))\b/i;
 
+/** A bill the user must PAY BY HAND — amount due + no autopay. */
+const BILL_DUE =
+  /\b(amount due|payment (is )?due|due (by|on) [a-z0-9]|pay by [a-z0-9]|balance due|minimum payment|total (amount )?due|invoice (is )?(due|attached|enclosed)|remit(tance)? by)\b/i;
+
+/** Money coming TO the user — checks never expire, always surface. */
+const REFUND_CHECK =
+  /\b(refund (check|issued|processed|on its way)|rebate check|reimbursement (check|issued|sent)|check (is )?(enclosed|attached|mailed|in the mail|on its way)|cash (your|this) check|deposit (your|this) check|settlement (check|payment)|you('| a)re owed)\b/i;
+
 /** Enrolled autopay: the bill handles itself. */
 const AUTOPAY_BLOB =
   /\b(auto-?pay|autopay|automatic(ally)? (paid|payment|deducted|withdrawn|drafted)|will be (automatically )?(charged|deducted|drafted|debited)|scheduled payment)\b/i;
@@ -186,7 +194,9 @@ export function needsYouEscape(subject: string, snippet: string): boolean {
     FINANCE_RISK.test(hay) ||
     DELIVERY_NEEDS_YOU.test(hay) ||
     PRODUCT_NEEDS_YOU.test(hay) ||
-    TRANSACTIONAL_URGENT.test(hay)
+    TRANSACTIONAL_URGENT.test(hay) ||
+    REFUND_CHECK.test(hay) ||
+    (BILL_DUE.test(hay) && !AUTOPAY_BLOB.test(hay))
   );
 }
 
@@ -402,6 +412,32 @@ function classifyCore(
       "HIGH",
       "Money at risk — failed/declined/past-due/fraud language",
       "money-risk-act",
+      ctx,
+    );
+  }
+
+  // Money coming TO you: a refund/rebate/settlement check must be
+  // cashed — it never expires and never files itself.
+  if (REFUND_CHECK.test(blob) || REFUND_CHECK.test(input.subject)) {
+    return hit(
+      "act_today",
+      "HIGH",
+      "Money coming to you — a check needs depositing",
+      "refund-check-cash",
+      ctx,
+    );
+  }
+
+  // A bill with an amount due and NO autopay is a task, not a record.
+  if (
+    (BILL_DUE.test(blob) || BILL_DUE.test(input.subject)) &&
+    !AUTOPAY_BLOB.test(blob)
+  ) {
+    return hit(
+      "act_today",
+      "HIGH",
+      "Bill due — no autopay mentioned, you pay this one by hand",
+      "bill-due-pay",
       ctx,
     );
   }

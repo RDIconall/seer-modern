@@ -117,7 +117,8 @@ export async function GET(
           fromEmail: message.fromEmail,
           fromName: message.fromName,
           subject: message.subject,
-          snippet: (message.snippet || bodyText).slice(0, 600),
+          // Full-body depth: "amount due" on page two still counts
+          snippet: (bodyText || message.snippet).slice(0, 2000),
           labelIds: message.labelIds,
           threadId: message.threadId,
           receivedAt: message.receivedAt,

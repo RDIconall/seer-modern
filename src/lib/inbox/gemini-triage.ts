@@ -39,7 +39,7 @@ import { z } from "zod";
  * Bump when the prompt/actions change so stale cached decisions
  * are ignored and re-classified.
  */
-export const PROMPT_VERSION = 14;
+export const PROMPT_VERSION = 15;
 
 const ACTIONS = [
   "respond",
@@ -413,7 +413,8 @@ Priority when signals conflict: meeting > contact > engaged rel > past behavior 
 USE WORLD KNOWLEDGE of the company behind the email. Airlines = travel. Banks/brokerages = money. Pharmacies/clinics = health. Schools/government = obligations. Judge WHO the company is and WHAT the message means for the user's day — no sent-history is NOT a reason to defer on a recognizable transactional sender.
 THE RAZOR — apply to every email: does the user personally have to DO anything? PASSIVE "it happened" mail needs nothing: package shipped/arriving/delivered, order confirmed, ride completed, build passed, PR merged, someone starred/liked/followed, weekly digest, statement ready → delete_now or read_and_delete. The event happens whether they read it or not. NEEDS-THEM mail is the exception: failed delivery/signature/pickup/customs, build FAILED, review requested, mentioned/assigned, security alert, payment failed/fraud/overdue, RSVP/invitation → act_today or respond. Records with future lookup value (receipts, invoices, confirmations with reference numbers) → read_and_archive, never delete.
 DELETE BEATS ARCHIVE: when torn between read_and_archive and read_and_delete, pick delete — the user keeps records, not reading material. Newsletters, product updates, community digests, "your weekly summary", social/forum notifications: read_and_delete even from recognizable brands.
-AUTOPAY: when the email itself says autopay/automatic payment is on, "your bill is ready" needs NOTHING — the bill pays itself; read_and_archive the statement as a record. A bill is act_today ONLY on failed/declined payment, past due, or a suspicious amount. Handling home bills does not mean acting on bills that handle themselves.
+AUTOPAY: when the email itself says autopay/automatic payment is on, "your bill is ready" needs NOTHING — the bill pays itself; read_and_archive the statement as a record. Handling home bills does not mean acting on bills that handle themselves.
+MONEY TO PAY OR COLLECT — read for this on every email: a bill with an AMOUNT DUE and no autopay mention is act_today "Pay the <biller> bill" (the user pays it by hand). Money owed TO the user — refund check, rebate, reimbursement, settlement, "check enclosed/mailed" — is act_today "Deposit the <source> check"; money to collect NEVER expires and never counts as passive. Do not file either as a record: a statement is a record, an unpaid bill is a task, an uncashed check is cash on the table.
 SENDER HISTORY NEVER MUTES RISK: judge every message's own intent before applying the sender's pattern. Even from a sender the user always deletes, "payment failed", "fraud", "past due", "signature required", "security alert", "account locked" is act_today — the 347th autopay email that says autopay FAILED is the one that matters.
 URGENCY DECAYS: act_today means today — judge it against age. A flight check-in, boarding pass, verification code, delivery window, event reminder, or "expires tonight" that is days old is DEAD: the moment passed, delete_now. Only obligations that persist stay urgent as they age: unpaid bill, unsigned document, unanswered person, overdue anything. When age is high, ask "is this STILL actionable, or is it a fossil of an urgency that expired?"
 FAKE URGENCY is the #1 trick: "expires today", "last chance", "action required", "final notice", "reminder:" from bulk/noreply/marketing senders is promo bait — delete_now or glance_promo, NEVER act_today. Urgency is real only from contacts, engaged/known senders, or genuine transactional mail (2FA codes, password resets, security alerts, boarding passes, deliveries, appointments).
@@ -482,7 +483,7 @@ function compactPayload(
         .replace(/\[image:[^\]]*\]/gi, " ")
         .replace(/<https?:\/\/[^>\s]+>/g, " ")
         .replace(/\s+/g, " ")
-        .slice(0, 400),
+        .slice(0, 500),
     };
     const age = ageInDays(m.receivedAt);
     if (age >= 2) item.age = age;
