@@ -21,7 +21,6 @@ import {
   type TouchEvent,
 } from "react";
 import {
-  formatMailTime,
   mailInitial,
   primaryMailAction,
   type DeckCard,

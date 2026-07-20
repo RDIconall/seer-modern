@@ -28,6 +28,13 @@ import {
 } from "@/lib/store/decision-cache";
 import { kvGet, kvSet } from "@/lib/store/kv";
 import {
+  loadPeople,
+  savePeople,
+  tierFromEvidence,
+  type PeopleDb,
+  type PersonTier,
+} from "@/lib/store/people";
+import {
   profilePromptBlock,
   type UserProfile,
 } from "@/lib/store/user-profile";
@@ -39,7 +46,7 @@ import { z } from "zod";
  * Bump when the prompt/actions change so stale cached decisions
  * are ignored and re-classified.
  */
-export const PROMPT_VERSION = 15;
+export const PROMPT_VERSION = 16;
 
 const ACTIONS = [
   "respond",
@@ -65,6 +72,10 @@ const batchSchema = z.object({
       task: z.string(),
       /** Life bucket in the user's language, staleness-aware */
       category: z.string(),
+      /** THE MAIN FILTER: human writing personally, or a machine? */
+      sender: z.enum(["person", "machine"]),
+      /** For unknown people only: a real, credible person worth attention? */
+      credible: z.boolean(),
     }),
   ),
 });
@@ -91,6 +102,9 @@ export type AssistantClassifyResult = ClassifyResult & {
   task?: string;
   /** Life bucket in the user's language ("Old trip", "Groceries — delivered") */
   category?: string;
+  /** Main-filter verdict from the AI's full-text read */
+  senderKind?: "person" | "machine";
+  credible?: boolean;
   /** True when served from the persistent decision cache (no API call). */
   cached?: boolean;
 };
@@ -388,6 +402,11 @@ const SYSTEM_PROMPT = `You are Seer, an elite email copilot. The user's TIME is 
 
 Philosophy: the user's own behavior predicts their next action. Who they email, who is in their contacts, who they are about to meet, and what they did with past mail from a sender all outrank the email's content.
 
+THE MAIN FILTER — answer FIRST, for every email, from its full text:
+1) IS THIS A PERSON? A human writing to the user personally. The tier field gives the database view: inner (proven — they exchange mail, contacts, meetings), known (writes repeatedly), new (no history — YOU judge credibility from the words: a specific ask about a real project/company/personal matter, mutual names, replies to something the user did = credible; template blast wearing a first name = not). Set sender=person and credible accordingly.
+   For person mail the ONLY question left is: WHAT ARE THEY ASKING? Put the ask in the task field, verbatim-short ("provide your contact info", "send the signed LMA paperwork"). Action = respond (or act_today if deadline-bound, needs_review only if genuinely unjudgeable). A credible person is NEVER delete_now/unsubscribe.
+2) NOT A PERSON → machine mail. Bundle it (category) and apply the razor below: does the user personally have to DO anything?
+
 Decide an ACTION for every email. Make the call yourself. Do NOT defer to the user unless something is truly ambiguous AND high-stakes.
 
 Actions:
@@ -403,6 +422,7 @@ Actions:
 
 Input is a JSON array. Item fields: id, from (display name), email, subject, snippet.
 Optional predictor fields (omitted when zero/default):
+- tier: the personal database's view of this sender — inner | known | new (no history: judge them) | machine-shaped
 - age: how many DAYS ago the email arrived (omitted when <2)
 - rel: engaged (user emails them) | known (frequent inbound only) | bulk (automated); sent/recv = message counts; stale = engagement quiet >30d
 - contact: true = in the user's address book — a real relationship, never delete_now
@@ -433,6 +453,8 @@ type CompactItem = {
   email: string;
   subject: string;
   snippet: string;
+  /** Personal-database tier for the main filter */
+  tier?: string;
   /** Days since the email arrived (omitted when fresh) */
   age?: number;
   rel?: string;
@@ -471,8 +493,11 @@ export type TriageExtras = {
   fetchBody?: (id: string) => Promise<string | null>;
 };
 
-/** How much of a full body rides to Gemini (~600 tokens). */
-const DEEP_BODY_CHARS = 2500;
+/**
+ * "It really has to read every word": 12k chars covers essentially any
+ * human-written email whole (~3k tokens); machine blasts truncate fine.
+ */
+const DEEP_BODY_CHARS = 12_000;
 /** Max time spent fetching bodies per load — degrade to snippets after. */
 const BODY_FETCH_BUDGET_MS = 10_000;
 const BODY_FETCH_CONCURRENCY = 8;
@@ -505,6 +530,7 @@ function compactPayload(
   batch: GeminiTriageItem[],
   history: MailHistory | null | undefined,
   extras?: TriageExtras,
+  tiers?: Map<string, string>,
 ): CompactItem[] {
   return batch.map((m) => {
     const sig = historySignals(history, m.fromEmail);
@@ -523,6 +549,8 @@ function compactPayload(
         .replace(/\s+/g, " ")
         .slice(0, DEEP_BODY_CHARS),
     };
+    const tier = tiers?.get(m.fromEmail.toLowerCase());
+    if (tier) item.tier = tier;
     const age = ageInDays(m.receivedAt);
     if (age >= 2) item.age = age;
     if (sig.relationship !== "cold") item.rel = sig.relationship;
@@ -552,11 +580,12 @@ async function geminiBatch(
   history: MailHistory | null | undefined,
   extras?: TriageExtras,
   via?: { model: LanguageModel | string; label: string },
+  tiers?: Map<string, string>,
 ): Promise<Map<string, AssistantClassifyResult>> {
   const out = new Map<string, AssistantClassifyResult>();
   if (batch.length === 0) return out;
 
-  const payload = compactPayload(batch, history, extras);
+  const payload = compactPayload(batch, history, extras, tiers);
   const { model, label } = via ?? (await resolveModel());
   // Static prompt first (implicit-cache prefix), then the user's own
   // "about me" memory — identical bytes call to call until they edit it.
@@ -600,6 +629,8 @@ async function geminiBatch(
       instruction: row.instruction.slice(0, 200),
       task: row.task?.trim().slice(0, 80) || undefined,
       category: row.category?.trim().slice(0, 40) || undefined,
+      senderKind: row.sender,
+      credible: row.credible,
     });
   }
   return out;
@@ -656,6 +687,45 @@ export async function classifyInboxWithAssistant(
 ): Promise<Map<string, AssistantClassifyResult>> {
   const results = new Map<string, AssistantClassifyResult>();
   const candidates: GeminiTriageItem[] = [];
+
+  // THE PERSONAL DATABASE — resolve every sender's tier first.
+  // Local evidence (sent history, contacts, meetings, shape) decides
+  // most for free; genuinely unknown senders go to the AI's full read.
+  const people: PeopleDb = await loadPeople(accountEmail).catch(() => ({}));
+  const tiers = new Map<string, string>();
+  let peopleDirty = false;
+  for (const item of items) {
+    const key = item.fromEmail.toLowerCase();
+    if (tiers.has(key)) continue;
+    const stored = people[key];
+    if (stored) {
+      tiers.set(key, stored.tier);
+      continue;
+    }
+    const sig = historySignals(history, item.fromEmail);
+    const ctx = contextSignals(extras?.personal, item.fromEmail);
+    const evidence = tierFromEvidence({
+      fromEmail: item.fromEmail,
+      sentTo: sig.sentTo,
+      receivedFrom: sig.receivedFrom,
+      inContacts: ctx.inContacts,
+      hasMeeting: Boolean(ctx.meeting),
+    });
+    if (evidence) {
+      tiers.set(key, evidence.tier);
+      people[key] = {
+        email: key,
+        name: item.fromName,
+        tier: evidence.tier,
+        reason: evidence.reason,
+        by: "evidence",
+        judgedAt: new Date().toISOString(),
+      };
+      peopleDirty = true;
+    } else {
+      tiers.set(key, "new"); // the AI judges credibility from the words
+    }
+  }
 
   // 0. Already replied — the strongest "handled" signal there is. If the
   // user's last reply on this thread is NEWER than this message, the ball
@@ -950,10 +1020,31 @@ export async function classifyInboxWithAssistant(
             history,
             extras,
             useGateway ? gatewayModel() : undefined,
+            tiers,
           );
           for (const [id, r] of mapped) {
             results.set(id, r);
             toSave.set(id, toCached(r));
+            // Grow the personal database: AI verdicts on unknown
+            // senders are stored forever (outbound mail later promotes)
+            const src = chunk.find((c) => c.id === id);
+            const key = src?.fromEmail.toLowerCase();
+            if (key && tiers.get(key) === "new" && r.senderKind) {
+              const tier: PersonTier =
+                r.senderKind === "person" && r.credible
+                  ? "new-credible"
+                  : "machine";
+              people[key] = {
+                email: key,
+                name: src?.fromName,
+                tier,
+                reason: r.reason.slice(0, 120),
+                by: "ai",
+                judgedAt: new Date().toISOString(),
+              };
+              tiers.set(key, tier);
+              peopleDirty = true;
+            }
           }
         } catch (e) {
           const msg = e instanceof Error ? e.message : String(e);
@@ -1027,6 +1118,27 @@ export async function classifyInboxWithAssistant(
     if (r) results.set(item.id, applyUrgencyDecay(item, r, history));
   }
 
+  // Person-protect: someone from your inner circle is never silently
+  // trashed, whatever any layer decided. (Taught overrides still win —
+  // teaching a sender delete IS an explicit decision about a person.)
+  for (const item of items) {
+    const r = results.get(item.id);
+    if (!r || r.source === "override") continue;
+    const tier = tiers.get(item.fromEmail.toLowerCase());
+    if (
+      tier === "inner" &&
+      (r.action === "delete_now" || r.action === "unsubscribe")
+    ) {
+      results.set(item.id, {
+        ...r,
+        action: "read_and_archive",
+        reason: "Inner circle — never auto-deleted",
+        debug: { ...r.debug, ruleId: "person-protect" },
+      });
+    }
+  }
+
+  if (peopleDirty) await savePeople(accountEmail, people).catch(() => {});
   await saveDecisions(accountEmail, toSave).catch(() => {});
 
   // Save fresh calls as native Gmail labels — reviewed once, never re-paid
