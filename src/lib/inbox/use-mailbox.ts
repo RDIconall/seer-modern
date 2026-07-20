@@ -26,7 +26,9 @@ import {
  * - optimistic actions (already): the UI never waits for the server
  */
 
-const CACHE_PREFIX = "seer:v1:";
+// Bumped on releases that change server-computed text (tasks, asks,
+// categories) so stale local snapshots don't outlive the fix.
+const CACHE_PREFIX = "seer:v2:";
 const CACHE_MAX_AGE_MS = 12 * 60 * 60 * 1000;
 
 type CacheEnvelope<T> = { accountEmail?: string; savedAt: number; data: T };
