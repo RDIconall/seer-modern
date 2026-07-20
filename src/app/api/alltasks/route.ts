@@ -79,7 +79,12 @@ export async function GET() {
     for (const m of raw) {
       const classification = decisions.get(m.id);
       if (!classification) continue;
-      const guide = buildActionGuideQuick(classification, m.subject, m.fromName);
+      const guide = buildActionGuideQuick(
+        classification,
+        m.subject,
+        m.fromName,
+        m.snippet,
+      );
       tasks.push({
         id: m.id,
         taskType: guide.action,

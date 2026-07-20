@@ -16,6 +16,8 @@ export type Guide = {
   who?: string;
   /** Harm in deleting / when you actually need it */
   harm?: string;
+  /** The actionable sentence pulled from the email — old Seer style */
+  ask?: string;
 };
 
 export type EmailItem = {

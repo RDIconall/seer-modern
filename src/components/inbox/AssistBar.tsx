@@ -37,11 +37,22 @@ export function AssistBar({
     action === "needs_review";
   const keyActions = reader.keyActions ?? [];
   const invite = reader.calendarEvent;
+  const ask = reader.guide?.ask;
 
-  if (!wantsReply && keyActions.length === 0 && !invite) return null;
+  if (!wantsReply && keyActions.length === 0 && !invite && !ask) return null;
 
   return (
     <div className="mt-3 space-y-2">
+      {ask ? (
+        <div className="rounded-xl border-l-4 border-[var(--primary)] bg-[var(--primary-soft,rgba(52,152,217,0.08))] px-3 py-2.5">
+          <div className="text-[10px] font-semibold uppercase tracking-wide text-[var(--primary)]">
+            The ask
+          </div>
+          <p className="mt-0.5 text-[14px] font-medium leading-snug">
+            “{ask}”
+          </p>
+        </div>
+      ) : null}
       {invite && onRsvp ? (
         <div className="rounded-xl border border-[var(--border)] bg-[var(--card)] px-3 py-2.5">
           <div className="mb-2 flex items-center gap-1.5 text-[12px] font-semibold">

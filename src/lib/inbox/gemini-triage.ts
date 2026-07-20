@@ -402,7 +402,13 @@ function compactPayload(
       from: (m.fromName || m.fromEmail).slice(0, 60),
       email: m.fromEmail,
       subject: m.subject.slice(0, 140),
-      snippet: m.snippet.slice(0, 400),
+      // Strip html-to-text residue (image alts, bare <url> refs) that
+      // wastes tokens and poisons Gemini's instructions
+      snippet: m.snippet
+        .replace(/\[image:[^\]]*\]/gi, " ")
+        .replace(/<https?:\/\/[^>\s]+>/g, " ")
+        .replace(/\s+/g, " ")
+        .slice(0, 400),
     };
     if (sig.relationship !== "cold") item.rel = sig.relationship;
     if (sig.sentTo > 0) item.sent = sig.sentTo;

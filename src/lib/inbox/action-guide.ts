@@ -4,6 +4,7 @@ import {
   type ClassifyResult,
   type TriageAction,
 } from "@/lib/inbox/classify";
+import { extractAsk } from "@/lib/inbox/extract-ask";
 import { senderStory } from "@/lib/inbox/sender-story";
 
 export type ActionGuide = {
@@ -22,7 +23,24 @@ export type ActionGuide = {
   who?: string;
   /** Harm in deleting / when you actually need it */
   harm?: string;
+  /** The actionable sentence pulled from the email — old Seer style */
+  ask?: string;
 };
+
+const WANTS_ASK = new Set<TriageAction>([
+  "respond",
+  "act_today",
+  "needs_review",
+]);
+
+/** html-to-text residue that poisons NLP: image alts, bare <url> refs */
+function cleanForNlp(text: string): string {
+  return text
+    .replace(/\[image:[^\]]*\]/gi, " ")
+    .replace(/<https?:\/\/[^>\s]+>/g, " ")
+    .replace(/\s+/g, " ")
+    .trim();
+}
 
 function instructionFor(
   action: TriageAction,
@@ -63,6 +81,7 @@ export function buildActionGuideQuick(
   },
   subject: string,
   fromName?: string,
+  snippet?: string,
 ): ActionGuide {
   const meta = ACTION_META[classification.action];
   const story = senderStory(
@@ -70,6 +89,11 @@ export function buildActionGuideQuick(
     classification.debug,
     fromName,
   );
+  // The sender's own words beat any generated instruction
+  const ask =
+    snippet && WANTS_ASK.has(classification.action)
+      ? (extractAsk(cleanForNlp(snippet)) ?? undefined)
+      : undefined;
   return {
     action: classification.action,
     label: meta.label,
@@ -77,12 +101,14 @@ export function buildActionGuideQuick(
     confidence: classification.confidence,
     reason: classification.reason,
     instruction:
-      classification.instruction?.trim() ||
+      (ask ? `They ask: "${ask}"` : undefined) ??
+      classification.instruction?.trim() ??
       instructionFor(classification.action, subject),
     debug: classification.debug,
     source: classification.source,
     who: story.who,
     harm: story.harm,
+    ask,
   };
 }
 
@@ -98,13 +124,13 @@ export async function buildActionGuideDetailed(
 ): Promise<ActionGuide> {
   const meta = ACTION_META[classification.action];
   let detail: string | undefined;
-  const runNlp =
-    classification.action === "respond" ||
-    classification.action === "act_today" ||
-    classification.action === "needs_review";
+  let ask: string | undefined;
+  const runNlp = WANTS_ASK.has(classification.action);
 
   if (runNlp) {
-    const text = bodyForNlp ?? `${subject}\n\n${snippet}`;
+    const text = cleanForNlp(bodyForNlp ?? `${subject}\n\n${snippet}`);
+    // The literal ask, old-Seer style ("can you complete this form?")
+    ask = extractAsk(text) ?? undefined;
     try {
       const nlp = await hybridClassifyEmailBody(text);
       const top = nlp.sentences
@@ -133,12 +159,14 @@ export async function buildActionGuideDetailed(
     confidence: classification.confidence,
     reason: classification.reason,
     instruction:
-      classification.instruction?.trim() ||
+      (ask ? `They ask: "${ask}"` : undefined) ??
+      classification.instruction?.trim() ??
       instructionFor(classification.action, subject, detail),
     detail,
     debug: classification.debug,
     source: classification.source,
     who: story.who,
     harm: story.harm,
+    ask,
   };
 }
