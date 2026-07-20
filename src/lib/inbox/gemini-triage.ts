@@ -46,7 +46,7 @@ import { z } from "zod";
  * Bump when the prompt/actions change so stale cached decisions
  * are ignored and re-classified.
  */
-export const PROMPT_VERSION = 18;
+export const PROMPT_VERSION = 19;
 
 const ACTIONS = [
   "respond",
@@ -423,11 +423,12 @@ STEP 1 — WHO WROTE IT: person or machine?
 person = a human wrote this to the user personally. The tier field is the personal database's view: inner (proven — they exchange mail, contacts, meetings), known (writes repeatedly), new (no history — YOU judge credibility from the words: a specific ask about a real project, company, or personal matter, mutual names, a reply to something the user did = credible; a template wearing a first name = not). Set sender and credible.
 For person mail the question is WHAT ARE THEY ASKING — put it in task, verbatim-short ("send the signed LMA paperwork"). Action = respond (act_today if deadline-bound). A credible person is NEVER deleted.
 
-STEP 2 — IMPORTANCE (score 0-3). Does this matter to the user's life or money?
-3 = critical: money at risk, a real person waiting on them, a deadline with real consequences
-2 = relevant: concrete information about their money, family, work, home, or health they would want to know
-1 = marginal: legitimately their mail, but knowing it changes nothing (routine notices, completed events, records)
-0 = noise: marketing, promos, engagement bait, anything blasted to thousands
+STEP 2 — IMPORTANCE (score 0-3): THE CONSEQUENCE TEST.
+Importance is NOT "is this about the user's stuff". It is: would knowing this CHANGE anything the user does or decides? Ask concretely: after reading it, what would they do differently? If the honest answer is "nothing", it is noise — whoever sent it.
+3 = critical: money at risk, a real person waiting on them, a deadline that costs something if missed
+2 = decision-relevant: this would plausibly change an action or a choice — a price increase on something they pay for (keep or cancel?), a schedule change for something they attend, a delivery needing a signature
+1 = record: changes nothing today but has lookup value later (receipt, confirmation number) — file, don't read
+0 = no consequence: knowing it changes NOTHING. Marketing. And also the "legitimate but inert" trap: terms-of-service updates, privacy-policy notices, "we've updated our app", data-sharing disclosures, annual notices — the user cannot negotiate them, they apply regardless, reading them changes nothing → delete_now. Do NOT give these importance for being official-looking. The exception: the notice announces a price change, removes a feature they use, or requires consent to keep the service — then it's a 2 with the consequence named in the task.
 
 STEP 3 — ACTIONABILITY: name the deed.
 act = a specific thing only they can do — pay X, sign Y, reply to Z, deposit the check, RSVP. Name it in deed.
