@@ -380,7 +380,7 @@ export function CardStack({
             {onDelegate ? (
               <CardAction
                 label="Delegate"
-                color="#967ad0"
+                color="#6E45B8"
                 disabled={currentBusy}
                 onClick={() => delegateCard(current)}
               >
@@ -518,7 +518,7 @@ function CardFace({
   onTap?: () => void;
 }) {
   const g = item.guide;
-  const accent = g?.color ?? "#2e7cf6";
+  const accent = g?.color ?? "#1F5FD1";
   return (
     <article
       role={onTap ? "button" : undefined}

@@ -1,53 +1,49 @@
 @import "tailwindcss";
 
 /*
- * Seer brand tokens — brand guidelines 1.4 / 1.6, modernized 2026:
- * Hero  teal #12a493 — promoted from the 2014 card-deck backdrop.
- *       Owns the chrome: headers, active nav, brand CTAs, wordmark moments.
- * Pure  purple #967ad0 · orange #ff8f2d · cyan #6bcfe1 · green #96d322
- * Dim   #1e242b · #778591 · #99a3ad · #a6bbc2
- * Blue #2e7cf6 (original iPhone action-icon blue) stays the functional
- * in-content action color: send, reply, links, unread.
+ * Seer studio tokens — Fewer decisions. / Seeing what matters.
+ * Ink · Paper · Field · Brand · Signal · Action · Mute
+ * Dual eye mark. Klim National 2 + Tiempos Headline + Söhne Mono.
  */
 :root {
   --bg: #ffffff;
-  --fg: #3c4650;
-  --fg-strong: #1e242b;
-  --card: #eef1f4;
-  --border: #e2e7eb;
-  --muted: #778591;
-  --nav-muted: #99a3ad;
-  --brand: #12a493;
-  --brand-strong: #0d8478;
-  --brand-soft: #d9f1ed;
-  --primary: #2e7cf6;
-  --primary-soft: #cfe0fb;
-  --accent: #ff8f2d;
-  --row-hover: #f4f7f9;
-  --unread: #1e242b;
-  --selection: #cfe0fb;
+  --fg: #2c333a;
+  --fg-strong: #0b0d10;
+  --card: #f1f3f5;
+  --border: #d4dae0;
+  --muted: #5a6570;
+  --nav-muted: #5a6570;
+  --brand: #0b7f74;
+  --brand-strong: #08655c;
+  --brand-soft: #e6f3f1;
+  --primary: #1f5fd1;
+  --primary-soft: #e4edfb;
+  --accent: #e5671a;
+  --row-hover: #f4f6f7;
+  --unread: #0b0d10;
+  --selection: #e4edfb;
   --safe-top: env(safe-area-inset-top, 0px);
   --safe-bottom: env(safe-area-inset-bottom, 0px);
 }
 
 @media (prefers-color-scheme: dark) {
   :root {
-    --bg: #1e242b;
-    --fg: #ccd4db;
-    --fg-strong: #f0f3f6;
-    --card: #272f38;
-    --border: #363f49;
-    --muted: #99a3ad;
-    --nav-muted: #778591;
-    --brand: #21b3a1;
-    --brand-strong: #2cc7b4;
-    --brand-soft: #11433c;
-    --primary: #5e9df8;
-    --primary-soft: #1d3a63;
-    --accent: #ff8f2d;
-    --row-hover: #242b34;
+    --bg: #0b0d10;
+    --fg: #c5ccd3;
+    --fg-strong: #f1f3f5;
+    --card: #1a1f24;
+    --border: #2c333a;
+    --muted: #8a949e;
+    --nav-muted: #8a949e;
+    --brand: #14a090;
+    --brand-strong: #2bb8a6;
+    --brand-soft: #0f2f2c;
+    --primary: #5b8ef0;
+    --primary-soft: #1a2f55;
+    --accent: #e5671a;
+    --row-hover: #12161a;
     --unread: #ffffff;
-    --selection: #1d3a63;
+    --selection: #1a2f55;
   }
 }
 
@@ -67,8 +63,12 @@ body {
 body {
   background: var(--bg);
   color: var(--fg);
-  font-family: var(--font-seer), "Roboto", sans-serif;
+  font-family: var(--font-seer), "National 2", "Source Sans 3", sans-serif;
   font-weight: 400;
+  font-size: 16px;
+  line-height: 1.5;
+  -webkit-font-smoothing: antialiased;
+  text-rendering: optimizeLegibility;
   -webkit-tap-highlight-color: transparent;
   -webkit-touch-callout: none;
 }
@@ -139,53 +139,41 @@ body {
   min-height: 100dvh;
 }
 
-/* Legacy Seer card deck */
 .seer-card {
   will-change: transform;
 }
 
-/*
- * Hero teal deck — 2026 evolution of the 2014 iOS bgGradient.
- * Aurora: brand cyan breathing in from the top corner, deep teal
- * settling at the base, fine grain over everything.
- */
+/* Quiet brand deck — deep teal field, no candy aurora */
 .seer-deck-bg {
   background:
-    url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='160' height='160'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.9' numOctaves='2' stitchTiles='stitch'/%3E%3CfeColorMatrix type='matrix' values='0 0 0 0 1 0 0 0 0 1 0 0 0 0 1 0 0 0 0.045 0'/%3E%3C/filter%3E%3Crect width='160' height='160' filter='url(%23n)'/%3E%3C/svg%3E"),
+    url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='160' height='160'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.9' numOctaves='2' stitchTiles='stitch'/%3E%3CfeColorMatrix type='matrix' values='0 0 0 0 1 0 0 0 0 1 0 0 0 0 1 0 0 0 0.035 0'/%3E%3C/filter%3E%3Crect width='160' height='160' filter='url(%23n)'/%3E%3C/svg%3E"),
     radial-gradient(
-      120% 100% at 88% -12%,
-      rgba(107, 207, 225, 0.38),
-      transparent 58%
-    ),
-    radial-gradient(
-      95% 75% at -12% 108%,
-      rgba(9, 62, 70, 0.4),
+      100% 80% at 90% -10%,
+      rgba(20, 160, 144, 0.22),
       transparent 55%
     ),
-    linear-gradient(162deg, #3fbc97 0%, #16a89d 52%, #0d8b90 100%);
-  background-repeat: repeat, no-repeat, no-repeat, no-repeat;
+    linear-gradient(165deg, #0f9a8c 0%, #0b7f74 48%, #08655c 100%);
+  background-repeat: repeat, no-repeat, no-repeat;
 }
 
-/* Card face 2026: flat white, hairline border, one soft ambient
-   shadow — with a whisper of the 2014 sheen kept as a signature. */
 .seer-card-face {
   position: relative;
   overflow: hidden;
   background: #ffffff;
-  border: 1px solid rgba(30, 36, 43, 0.06);
+  border: 1px solid rgba(11, 13, 16, 0.06);
   box-shadow:
-    0 1px 2px rgba(10, 45, 40, 0.1),
-    0 20px 44px -16px rgba(10, 45, 40, 0.35);
+    0 1px 2px rgba(11, 13, 16, 0.06),
+    0 18px 40px -16px rgba(11, 13, 16, 0.28);
 }
 
 .seer-card-face::before {
   content: "";
   position: absolute;
   inset: 0 0 auto 0;
-  height: 30%;
+  height: 28%;
   background: linear-gradient(
     180deg,
-    rgba(255, 255, 255, 0.35),
+    rgba(255, 255, 255, 0.28),
     rgba(255, 255, 255, 0)
   );
   pointer-events: none;
@@ -193,49 +181,56 @@ body {
 
 @media (prefers-color-scheme: dark) {
   .seer-card-face {
-    background: #272f38;
+    background: #1a1f24;
     border-color: rgba(255, 255, 255, 0.07);
     box-shadow:
       0 1px 2px rgba(0, 0, 0, 0.35),
-      0 20px 44px -16px rgba(0, 0, 0, 0.55);
+      0 18px 40px -16px rgba(0, 0, 0, 0.55);
   }
 
   .seer-card-face::before {
     background: linear-gradient(
       180deg,
-      rgba(255, 255, 255, 0.05),
+      rgba(255, 255, 255, 0.04),
       rgba(255, 255, 255, 0)
     );
   }
 }
 
-/* Soft brand atmosphere (login / empty states) — teal-led */
+/* Login / empty — quiet field */
 .seer-atmosphere {
   background:
-    radial-gradient(ellipse 80% 50% at 20% 0%, rgba(18, 164, 147, 0.14), transparent 55%),
-    radial-gradient(ellipse 60% 40% at 90% 100%, rgba(107, 207, 225, 0.14), transparent 50%),
-    radial-gradient(ellipse 50% 40% at 80% 10%, rgba(255, 143, 45, 0.06), transparent 50%),
-    linear-gradient(180deg, #eef1f4 0%, #ffffff 45%, #f7fafb 100%);
+    radial-gradient(
+      ellipse 80% 50% at 16% 0%,
+      rgba(11, 127, 116, 0.08),
+      transparent 55%
+    ),
+    linear-gradient(180deg, #f1f3f5 0%, #ffffff 42%, #fafbfc 100%);
 }
 
 @media (prefers-color-scheme: dark) {
   .seer-atmosphere {
     background:
-      radial-gradient(ellipse 80% 50% at 20% 0%, rgba(33, 179, 161, 0.14), transparent 55%),
-      radial-gradient(ellipse 60% 40% at 90% 100%, rgba(107, 207, 225, 0.08), transparent 50%),
-      linear-gradient(180deg, #1e242b 0%, #272f38 100%);
+      radial-gradient(
+        ellipse 80% 50% at 16% 0%,
+        rgba(20, 160, 144, 0.12),
+        transparent 55%
+      ),
+      linear-gradient(180deg, #0b0d10 0%, #1a1f24 100%);
   }
 }
 
-/* SEER wordmark — bold, letter-spaced slate, per the seer.pdf lockup */
+/* Wordmark — Tiempos Headline */
 .seer-brand {
-  font-weight: 700;
-  letter-spacing: 0.18em;
-  text-transform: uppercase;
-  color: var(--muted);
+  font-family: var(--font-seer-display), "Tiempos Headline", Georgia, serif;
+  font-weight: 500;
+  letter-spacing: -0.02em;
+  text-transform: none;
+  color: var(--fg-strong);
 }
 
 .seer-tagline {
-  font-weight: 400;
-  color: var(--brand);
+  font-weight: 500;
+  letter-spacing: -0.02em;
+  color: var(--fg-strong);
 }

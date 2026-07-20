@@ -1,31 +1,50 @@
 import type { Metadata, Viewport } from "next";
-import { Roboto_Mono } from "next/font/google";
 import localFont from "next/font/local";
 import { PwaRegister } from "@/components/PwaRegister";
 import "./globals.css";
 
-/* Proxima Nova — the brand typeface from the Seer brand guidelines (1.3) */
+/* Klim National 2 — UI + reading */
 const seerSans = localFont({
   src: [
-    { path: "../fonts/ProximaNova-Light.otf", weight: "300", style: "normal" },
-    { path: "../fonts/ProximaNova-Regular.otf", weight: "400", style: "normal" },
-    { path: "../fonts/ProximaNova-Italic.otf", weight: "400", style: "italic" },
-    { path: "../fonts/ProximaNova-Semibold.otf", weight: "600", style: "normal" },
-    { path: "../fonts/ProximaNova-Bold.otf", weight: "700", style: "normal" },
+    { path: "../fonts/klim/National2-Regular.otf", weight: "400", style: "normal" },
+    { path: "../fonts/klim/National2-Medium.otf", weight: "500", style: "normal" },
+    { path: "../fonts/klim/National2-Bold.otf", weight: "700", style: "normal" },
   ],
   variable: "--font-seer",
   display: "swap",
 });
 
-const seerMono = Roboto_Mono({
+/* Klim Tiempos Headline — wordmark + display */
+const seerDisplay = localFont({
+  src: [
+    {
+      path: "../fonts/klim/TiemposHeadline-Regular.otf",
+      weight: "400",
+      style: "normal",
+    },
+    {
+      path: "../fonts/klim/TiemposHeadline-Medium.otf",
+      weight: "500",
+      style: "normal",
+    },
+  ],
+  variable: "--font-seer-display",
+  display: "swap",
+});
+
+/* Klim Söhne Mono */
+const seerMono = localFont({
+  src: [
+    { path: "../fonts/klim/SohneMono-Buch.otf", weight: "400", style: "normal" },
+    { path: "../fonts/klim/SohneMono-Kraftig.otf", weight: "500", style: "normal" },
+  ],
   variable: "--font-seer-mono",
-  subsets: ["latin"],
-  weight: ["400", "500"],
+  display: "swap",
 });
 
 export const metadata: Metadata = {
   title: "Seer",
-  description: "Work smarter — fly through email with your copilot",
+  description: "Fewer decisions — fly through email with your copilot",
   applicationName: "Seer",
   icons: {
     icon: [
@@ -39,8 +58,8 @@ export const metadata: Metadata = {
 
 export const viewport: Viewport = {
   themeColor: [
-    { media: "(prefers-color-scheme: light)", color: "#12a493" },
-    { media: "(prefers-color-scheme: dark)", color: "#1e242b" },
+    { media: "(prefers-color-scheme: light)", color: "#0B7F74" },
+    { media: "(prefers-color-scheme: dark)", color: "#0B0D10" },
   ],
   width: "device-width",
   initialScale: 1,
@@ -54,7 +73,7 @@ export default function RootLayout({
   return (
     <html lang="en">
       <body
-        className={`${seerSans.variable} ${seerMono.variable} antialiased`}
+        className={`${seerSans.variable} ${seerDisplay.variable} ${seerMono.variable} antialiased`}
       >
         {children}
         <PwaRegister />
