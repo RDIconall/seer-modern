@@ -28,6 +28,14 @@ import {
 } from "@/lib/store/decision-cache";
 import { kvGet, kvSet } from "@/lib/store/kv";
 import {
+  extractAmount,
+  isAnomalousCharge,
+  loadMerchants,
+  recordCharge,
+  saveMerchants,
+  usualLabel,
+} from "@/lib/store/merchants";
+import {
   loadPeople,
   savePeople,
   tierFromEvidence,
@@ -46,7 +54,7 @@ import { z } from "zod";
  * Bump when the prompt/actions change so stale cached decisions
  * are ignored and re-classified.
  */
-export const PROMPT_VERSION = 19;
+export const PROMPT_VERSION = 20;
 
 const ACTIONS = [
   "respond",
@@ -454,8 +462,13 @@ HARD RULES (override everything above):
 - Passive status updates (shipped/delivered/completed/liked) need nothing — the event happens whether they read it or not.
 - Sender history never mutes risk: judge THIS message's intent first.
 
-Input fields: id, from, email, subject, snippet (full text), and optional predictors: tier, age (days), rel, sent/recv, stale, contact, meeting, past (what they did with this sender's mail).
-Priority when signals conflict: meeting > contact > engaged rel > past behavior > content.
+Input fields: id, from, email, subject, snippet (full text), and optional predictors:
+- tier: personal-database view — vip (user PINNED them: never below respond/read) | inner | known | new | machine-shaped
+- age: days since arrival · rel/sent/recv/stale: relationship graph · contact/meeting: address book & calendar · past: what they did with this sender's mail
+- amount: largest dollar figure in the email. IMPORTANCE SCALES WITH DOLLARS — a $9 receipt is a record; a $2,000 unpaid invoice or an unfamiliar $500 charge deserves eyes.
+- usual: this biller's baseline from the user's own charge history ("usually ~$140 (6 charges)"). An amount far above usual → review_subscription, name the deviation in the task.
+- replyMins: median minutes the user takes to answer this sender. Under 60 = someone they drop everything for — weight like a VIP.
+Priority when signals conflict: vip/meeting > contact > engaged rel > replyMins > past behavior > content.
 
 OUTPUT one item per input id:
 - importance: 0-3 as scored
@@ -474,6 +487,12 @@ type CompactItem = {
   tier?: string;
   /** Days since the email arrived (omitted when fresh) */
   age?: number;
+  /** Largest dollar figure in the email — money in motion */
+  amount?: number;
+  /** This biller's baseline from the merchant graph */
+  usual?: string;
+  /** Median minutes the user takes to reply to this sender */
+  replyMins?: number;
   rel?: string;
   sent?: number;
   recv?: number;
@@ -550,6 +569,7 @@ function compactPayload(
   history: MailHistory | null | undefined,
   extras?: TriageExtras,
   tiers?: Map<string, string>,
+  merchants?: Awaited<ReturnType<typeof loadMerchants>>,
 ): CompactItem[] {
   return batch.map((m) => {
     const sig = historySignals(history, m.fromEmail);
@@ -572,6 +592,17 @@ function compactPayload(
     if (tier) item.tier = tier;
     const age = ageInDays(m.receivedAt);
     if (age >= 2) item.age = age;
+    // Money in motion + this biller's baseline
+    const amount = extractAmount(`${m.subject}\n${m.snippet}`);
+    if (amount != null && amount >= 1) item.amount = amount;
+    if (merchants) {
+      const usual = usualLabel(merchants, m.fromEmail);
+      if (usual) item.usual = usual;
+    }
+    // Revealed priority: how fast the user answers this sender
+    if (sig.medianReplyMins != null && sig.medianReplyMins < 7 * 24 * 60) {
+      item.replyMins = sig.medianReplyMins;
+    }
     if (sig.relationship !== "cold") item.rel = sig.relationship;
     if (sig.sentTo > 0) item.sent = sig.sentTo;
     if (sig.receivedFrom > 0) item.recv = sig.receivedFrom;
@@ -600,11 +631,12 @@ async function geminiBatch(
   extras?: TriageExtras,
   via?: { model: LanguageModel | string; label: string },
   tiers?: Map<string, string>,
+  merchants?: Awaited<ReturnType<typeof loadMerchants>>,
 ): Promise<Map<string, AssistantClassifyResult>> {
   const out = new Map<string, AssistantClassifyResult>();
   if (batch.length === 0) return out;
 
-  const payload = compactPayload(batch, history, extras, tiers);
+  const payload = compactPayload(batch, history, extras, tiers, merchants);
   const { model, label } = via ?? (await resolveModel());
   // Static prompt first (implicit-cache prefix), then the user's own
   // "about me" memory — identical bytes call to call until they edit it.
@@ -718,6 +750,8 @@ export async function classifyInboxWithAssistant(
   // Local evidence (sent history, contacts, meetings, shape) decides
   // most for free; genuinely unknown senders go to the AI's full read.
   const people: PeopleDb = await loadPeople(accountEmail).catch(() => ({}));
+  const merchants = await loadMerchants(accountEmail).catch(() => ({}));
+  let merchantsDirty = false;
   const tiers = new Map<string, string>();
   let peopleDirty = false;
   for (const item of items) {
@@ -1051,6 +1085,7 @@ export async function classifyInboxWithAssistant(
             extras,
             useGateway ? gatewayModel() : undefined,
             tiers,
+            merchants,
           );
           for (const [id, r] of mapped) {
             results.set(id, r);
@@ -1182,6 +1217,40 @@ export async function classifyInboxWithAssistant(
         debug: { ...r.debug, ruleId: "vip-protect" },
       });
     }
+  }
+
+  // Merchant graph: learn every fresh charge; scream on anomalies.
+  // toSave gates dedupe — cached decisions were recorded when fresh.
+  for (const item of items) {
+    if (!toSave.has(item.id)) continue;
+    const r = results.get(item.id);
+    if (!r) continue;
+    const moneyish =
+      /finance|bill|autopay|receipt|money|subscription/i.test(
+        `${r.debug.ruleId} ${r.category ?? ""}`,
+      ) || /receipt|invoice|bill|statement|payment/i.test(item.subject);
+    if (!moneyish) continue;
+    const amount = extractAmount(`${item.subject}\n${item.snippet}`);
+    if (amount == null || amount < 1) continue;
+    if (
+      isAnomalousCharge(merchants, item.fromEmail, amount) &&
+      r.action !== "act_today"
+    ) {
+      const usual = usualLabel(merchants, item.fromEmail);
+      results.set(item.id, {
+        ...r,
+        action: "review_subscription",
+        confidence: "HIGH",
+        reason: `Unusual amount: $${amount}${usual ? ` — ${usual}` : ""}`,
+        task: `Check the $${amount} ${item.fromName || "charge"}`.slice(0, 80),
+        debug: { ...r.debug, ruleId: "merchant-anomaly" },
+      });
+    }
+    recordCharge(merchants, item.fromEmail, item.fromName, amount);
+    merchantsDirty = true;
+  }
+  if (merchantsDirty) {
+    await saveMerchants(accountEmail, merchants).catch(() => {});
   }
 
   if (peopleDirty) await savePeople(accountEmail, people).catch(() => {});

@@ -17,6 +17,10 @@ export type ContactStat = {
   receivedFrom: number;
   lastSentAt?: string;
   lastReceivedAt?: string;
+  /** Threads the user STARTED with this person — the strongest VIP vote */
+  initiated?: number;
+  /** Median minutes the user takes to reply to them — revealed priority */
+  medianReplyMins?: number;
 };
 
 export type MailHistory = {
@@ -36,6 +40,10 @@ export type HistorySignals = {
   daysSinceLastSent: number | null;
   /** Classic Seer: downgrade if you haven't written them in ~30 days */
   staleEngagement: boolean;
+  /** Median minutes the user takes to reply to this sender */
+  medianReplyMins?: number;
+  /** Threads the user started with them */
+  initiated?: number;
 };
 
 const STALE_DAYS = 30;
@@ -75,6 +83,20 @@ export function buildMailHistory(
     return contacts[key];
   };
 
+  // Earliest inbound per thread — the message the user was replying to
+  const inboundByThread = new Map<string, { from: string; at: number }>();
+  for (const m of inbox) {
+    const t = new Date(m.receivedAt).getTime();
+    const prev = inboundByThread.get(m.threadId);
+    if (!prev || t < prev.at) {
+      inboundByThread.set(m.threadId, {
+        from: norm(m.fromEmail),
+        at: t,
+      });
+    }
+  }
+
+  const replySamples = new Map<string, number[]>();
   const repliedThreads: Record<string, string> = {};
   for (const m of sent) {
     if (m.threadId) {
@@ -86,6 +108,28 @@ export function buildMailHistory(
     if (!c) continue;
     c.sentTo += 1;
     if (!c.lastSentAt || m.receivedAt > c.lastSentAt) c.lastSentAt = m.receivedAt;
+
+    // Reply telemetry: how fast does the user answer this person?
+    const inbound = inboundByThread.get(m.threadId);
+    const sentAt = new Date(m.receivedAt).getTime();
+    if (inbound && inbound.from === norm(peer) && sentAt > inbound.at) {
+      const mins = (sentAt - inbound.at) / 60_000;
+      if (mins < 14 * 24 * 60) {
+        const list = replySamples.get(norm(peer)) ?? [];
+        list.push(mins);
+        replySamples.set(norm(peer), list);
+      }
+    } else if (!inbound) {
+      // No inbound in this thread — the user STARTED the conversation
+      c.initiated = (c.initiated ?? 0) + 1;
+    }
+  }
+
+  for (const [email, samples] of replySamples) {
+    const c = contacts[email];
+    if (!c) continue;
+    samples.sort((a, b) => a - b);
+    c.medianReplyMins = Math.round(samples[Math.floor(samples.length / 2)]);
   }
 
   for (const m of inbox) {
@@ -136,5 +180,7 @@ export function historySignals(
     receivedFrom,
     daysSinceLastSent,
     staleEngagement,
+    medianReplyMins: c?.medianReplyMins,
+    initiated: c?.initiated,
   };
 }

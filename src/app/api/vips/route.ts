@@ -75,14 +75,22 @@ export async function GET() {
           c.lastSentAt &&
           Date.now() - new Date(c.lastSentAt).getTime() <
             45 * 24 * 60 * 60 * 1000;
+        // Reply telemetry: fast answers and initiated threads are the
+        // strongest revealed-preference votes there are
+        const fastReply =
+          c.medianReplyMins != null && c.medianReplyMins <= 60;
         const score =
           c.sentTo * 3 +
           meetings * 5 +
+          (c.initiated ?? 0) * 4 +
+          (fastReply ? 8 : 0) +
           (contactSet.has(c.email) ? 4 : 0) +
           (inProfile ? 10 : 0) +
           (recentSent ? 5 : 0);
         const evidence = [
           c.sentTo > 0 ? `you wrote ${c.sentTo}×` : null,
+          fastReply ? `you reply in ~${c.medianReplyMins}min` : null,
+          (c.initiated ?? 0) > 0 ? `you start the threads` : null,
           meetings > 0 ? `${meetings} meeting${meetings > 1 ? "s" : ""}` : null,
           contactSet.has(c.email) ? "in contacts" : null,
           inProfile ? "named in your profile" : null,
