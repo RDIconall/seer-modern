@@ -378,6 +378,7 @@ export function DesktopMailApp() {
                   onReply={replyFromCard}
                   onSnooze={snooze}
                   onDelegate={openDelegate}
+                  onSchedule={openSchedule}
                   onEmptyRefresh={load}
                 />
               </div>

@@ -53,15 +53,8 @@ export function AssistBar({
     action === "glance_promo" ||
     action === "review_subscription";
 
-  if (
-    !wantsReply &&
-    keyActions.length === 0 &&
-    !invite &&
-    !ask &&
-    !(wantsUnsub && onUnsubscribe)
-  ) {
-    return null;
-  }
+  // Delegate + Time block are universal actions — the bar always renders
+  // when their handlers exist, on every kind of email.
 
   return (
     <div className="mt-3 space-y-2">
@@ -143,62 +136,63 @@ export function AssistBar({
         </div>
       ) : null}
 
-      {wantsReply ? (
-        <div className="flex flex-wrap items-center gap-1.5">
+      <div className="flex flex-wrap items-center gap-1.5">
+        {wantsReply ? (
+          <>
+            <button
+              type="button"
+              disabled={drafting}
+              onClick={() => onDraft()}
+              className="inline-flex items-center gap-1 rounded-full border border-[var(--primary)] px-3 py-1.5 text-[12px] font-semibold text-[var(--primary)] disabled:opacity-50"
+            >
+              <Sparkles className="h-3.5 w-3.5" />
+              {drafting ? "Drafting…" : "Draft reply"}
+            </button>
+            {(["yes", "no", "later"] as const).map((intent) => (
+              <button
+                key={intent}
+                type="button"
+                disabled={drafting}
+                onClick={() => onDraft(intent)}
+                className="rounded-full bg-[var(--card)] px-3 py-1.5 text-[12px] font-medium text-[var(--fg)] disabled:opacity-50"
+              >
+                {intent === "yes" ? "Say yes" : intent === "no" ? "Decline" : "Buy time"}
+              </button>
+            ))}
+          </>
+        ) : null}
+        {onDelegate ? (
           <button
             type="button"
             disabled={drafting}
-            onClick={() => onDraft()}
-            className="inline-flex items-center gap-1 rounded-full border border-[var(--primary)] px-3 py-1.5 text-[12px] font-semibold text-[var(--primary)] disabled:opacity-50"
+            onClick={onDelegate}
+            className="inline-flex items-center gap-1 rounded-full bg-[var(--card)] px-3 py-1.5 text-[12px] font-medium text-[var(--fg)] disabled:opacity-50"
           >
-            <Sparkles className="h-3.5 w-3.5" />
-            {drafting ? "Drafting…" : "Draft reply"}
+            <UserCheck className="h-3.5 w-3.5" />
+            Delegate…
           </button>
-          {(["yes", "no", "later"] as const).map((intent) => (
-            <button
-              key={intent}
-              type="button"
-              disabled={drafting}
-              onClick={() => onDraft(intent)}
-              className="rounded-full bg-[var(--card)] px-3 py-1.5 text-[12px] font-medium text-[var(--fg)] disabled:opacity-50"
-            >
-              {intent === "yes" ? "Say yes" : intent === "no" ? "Decline" : "Buy time"}
-            </button>
-          ))}
-          {onDelegate ? (
-            <button
-              type="button"
-              disabled={drafting}
-              onClick={onDelegate}
-              className="inline-flex items-center gap-1 rounded-full bg-[var(--card)] px-3 py-1.5 text-[12px] font-medium text-[var(--fg)] disabled:opacity-50"
-            >
-              <UserCheck className="h-3.5 w-3.5" />
-              Delegate…
-            </button>
-          ) : null}
-          {onSchedule ? (
-            <button
-              type="button"
-              onClick={onSchedule}
-              className="inline-flex items-center gap-1 rounded-full bg-[var(--card)] px-3 py-1.5 text-[12px] font-medium text-[var(--fg)]"
-            >
-              <CalendarClock className="h-3.5 w-3.5" />
-              Schedule it
-            </button>
-          ) : null}
-        </div>
-      ) : null}
-
-      {wantsUnsub && onUnsubscribe ? (
-        <button
-          type="button"
-          onClick={onUnsubscribe}
-          className="inline-flex items-center gap-1 rounded-full border border-[#a855f7] px-3 py-1.5 text-[12px] font-semibold text-[#a855f7]"
-        >
-          <BellOff className="h-3.5 w-3.5" />
-          Unsubscribe for real
-        </button>
-      ) : null}
+        ) : null}
+        {onSchedule ? (
+          <button
+            type="button"
+            onClick={onSchedule}
+            className="inline-flex items-center gap-1 rounded-full bg-[var(--card)] px-3 py-1.5 text-[12px] font-medium text-[var(--fg)]"
+          >
+            <CalendarClock className="h-3.5 w-3.5" />
+            Time block
+          </button>
+        ) : null}
+        {wantsUnsub && onUnsubscribe ? (
+          <button
+            type="button"
+            onClick={onUnsubscribe}
+            className="inline-flex items-center gap-1 rounded-full border border-[#a855f7] px-3 py-1.5 text-[12px] font-semibold text-[#a855f7]"
+          >
+            <BellOff className="h-3.5 w-3.5" />
+            Unsubscribe for real
+          </button>
+        ) : null}
+      </div>
     </div>
   );
 }

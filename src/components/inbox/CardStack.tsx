@@ -3,6 +3,7 @@
 import {
   AlarmClock,
   Archive,
+  CalendarClock,
   CheckCircle2,
   Layers,
   MailOpen,
@@ -40,6 +41,13 @@ type Props = {
   onSnooze?: (id: string) => void;
   /** Opens the delegate "to who?" sheet for this email. */
   onDelegate?: (id: string, subject: string) => void;
+  /** Opens the "Schedule it" time-blocking sheet for this email. */
+  onSchedule?: (
+    id: string,
+    subject: string,
+    ask?: string,
+    fromName?: string,
+  ) => void;
   onEmptyRefresh?: () => void;
 };
 
@@ -61,6 +69,7 @@ export function CardStack({
   onReply,
   onSnooze,
   onDelegate,
+  onSchedule,
   onEmptyRefresh,
 }: Props) {
   // Locally skipped cards (e.g. "decide one by one" on a bulk card).
@@ -397,6 +406,23 @@ export function CardStack({
                 onClick={() => delegateCard(current)}
               >
                 <UserRoundPlus className="h-5 w-5" />
+              </CardAction>
+            ) : null}
+            {onSchedule ? (
+              <CardAction
+                label="Time block"
+                color="#0e7490"
+                disabled={currentBusy}
+                onClick={() =>
+                  onSchedule(
+                    current.item.id,
+                    current.item.subject,
+                    current.item.guide?.ask,
+                    current.item.fromName,
+                  )
+                }
+              >
+                <CalendarClock className="h-5 w-5" />
               </CardAction>
             ) : null}
             <CardAction

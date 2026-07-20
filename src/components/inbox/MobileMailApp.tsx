@@ -650,6 +650,7 @@ export function MobileMailApp() {
             onReply={replyFromCard}
             onSnooze={snooze}
             onDelegate={openDelegate}
+            onSchedule={openSchedule}
             onEmptyRefresh={load}
           />
         ) : null}
