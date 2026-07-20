@@ -447,8 +447,11 @@ export function DesktopMailApp() {
                   ? `Sent history · ${triage.history.engagedCount} people you email · ${triage.history.contactCount} contacts`
                   : null}
               {triage.assistant?.error ? (
-                <span className="ml-2 font-medium text-[#d63b2f]">
-                  Gemini offline — rules only: {triage.assistant.error.slice(0, 120)}
+                <span className="ml-2 font-medium text-[#b45309]">
+                  {(triage.assistant.gemini ?? 0) + (triage.assistant.cached ?? 0) > 0
+                    ? "Some new mail used rules this load — "
+                    : "Gemini offline — rules only: "}
+                  {triage.assistant.error.slice(0, 110)}
                 </span>
               ) : null}
             </p>

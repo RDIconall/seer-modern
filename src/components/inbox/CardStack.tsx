@@ -124,30 +124,44 @@ export function CardStack({
     onDelegate(card.item.id, card.item.subject);
   };
 
+  const startY = useRef<number | null>(null);
+  const horizontal = useRef<boolean | null>(null);
+
   const onTouchStart = (e: TouchEvent) => {
     startX.current = e.touches[0]?.clientX ?? null;
+    startY.current = e.touches[0]?.clientY ?? null;
+    horizontal.current = null;
     setDragging(true);
   };
   const onTouchMove = (e: TouchEvent) => {
-    if (startX.current == null) return;
-    setDragX((e.touches[0]?.clientX ?? startX.current) - startX.current);
+    if (startX.current == null || startY.current == null) return;
+    const dx = (e.touches[0]?.clientX ?? startX.current) - startX.current;
+    const dy = (e.touches[0]?.clientY ?? startY.current) - startY.current;
+    // Direction lock — deliberate sideways drag only, never scroll drift
+    if (horizontal.current == null) {
+      if (Math.abs(dx) < 14 && Math.abs(dy) < 14) return;
+      horizontal.current = Math.abs(dx) > Math.abs(dy) * 1.6;
+    }
+    if (!horizontal.current) return;
+    setDragX(dx);
   };
   const onTouchEnd = () => {
     setDragging(false);
-    if (current?.kind === "email") {
-      if (dragX > 110) {
+    const armed = horizontal.current;
+    startX.current = null;
+    startY.current = null;
+    horizontal.current = null;
+    if (armed && current?.kind === "email") {
+      if (dragX > 140) {
         commit(current, "archive");
-        startX.current = null;
         return;
       }
-      if (dragX < -110) {
+      if (dragX < -140) {
         commit(current, "trash");
-        startX.current = null;
         return;
       }
     }
     setDragX(0);
-    startX.current = null;
   };
 
   // ---- Trackpad swipe: two-finger horizontal scrolls arrive as wheel

@@ -524,6 +524,9 @@ async function geminiBatch(
     model,
     temperature: 0,
     maxRetries: 0, // a retry against an exhausted quota is a wasted request
+    // A hung upstream call must never eat the function's 60s budget —
+    // that kills the whole inbox load and strands users on stale cache.
+    abortSignal: AbortSignal.timeout(20_000),
     output: Output.object({ schema: batchSchema }),
     system,
     prompt: JSON.stringify(payload),
@@ -865,6 +868,10 @@ export async function classifyInboxWithAssistant(
     isGeminiConfigured() &&
     extras?.geminiEnabled !== false
   ) {
+    // Fresh load, fresh status — a stale error from an hour ago must
+    // not paint "offline" over a load that worked fine.
+    lastGeminiError = null;
+
     // Direct Google key first; if it's in quota cooldown, fail over to
     // the Vercel AI Gateway (separate monthly credit pool) before ever
     // degrading to rules.
@@ -909,6 +916,11 @@ export async function classifyInboxWithAssistant(
             msg,
           );
           const cd = cooldownFromError(msg);
+          // Overloaded model / hung call — transient, not quota
+          const transient =
+            /high demand|overloaded|unavailable|503|timed? ?out|abort/i.test(
+              msg,
+            );
           if (cd && !useGateway) {
             // Direct key is out — remember it, then retry THIS chunk
             // through the gateway credit pool.
@@ -920,6 +932,11 @@ export async function classifyInboxWithAssistant(
             }
             const mins = Math.ceil((cd.until - Date.now()) / 60000);
             lastGeminiError = `${cd.reason} (~${mins}m). Decisions fall back to rules meanwhile.`;
+          } else if (transient && !useGateway && gatewayAvailable()) {
+            // Google's model is busy — same batch, different pipe
+            useGateway = true;
+            i -= BATCH;
+            continue;
           }
           break;
         }

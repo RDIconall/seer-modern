@@ -725,8 +725,11 @@ export function MobileMailApp() {
                   : "Gemini-first triage — you are last resort"}
             </p>
             {triage.assistant?.error ? (
-              <p className="mt-0.5 text-[11px] font-medium text-[#d63b2f]">
-                Gemini offline — rules only: {triage.assistant.error.slice(0, 120)}
+              <p className="mt-0.5 text-[11px] font-medium text-[#b45309]">
+                {(triage.assistant.gemini ?? 0) + (triage.assistant.cached ?? 0) > 0
+                  ? "Some new mail used rules this load — "
+                  : "Gemini offline — rules only: "}
+                {triage.assistant.error.slice(0, 110)}
               </p>
             ) : null}
           </div>
@@ -1060,21 +1063,38 @@ function SwipeMailRow({
 }) {
   const g = item.guide;
   const startX = useRef<number | null>(null);
+  const startY = useRef<number | null>(null);
+  /** null = undecided · true = horizontal swipe · false = vertical scroll */
+  const horizontal = useRef<boolean | null>(null);
   const [offset, setOffset] = useState(0);
 
   const onTouchStart = (e: TouchEvent) => {
     startX.current = e.touches[0]?.clientX ?? null;
+    startY.current = e.touches[0]?.clientY ?? null;
+    horizontal.current = null;
   };
   const onTouchMove = (e: TouchEvent) => {
-    if (startX.current == null || selectMode) return;
+    if (startX.current == null || startY.current == null || selectMode) return;
     const dx = (e.touches[0]?.clientX ?? startX.current) - startX.current;
-    setOffset(Math.max(-96, Math.min(96, dx)));
+    const dy = (e.touches[0]?.clientY ?? startY.current) - startY.current;
+    // Direction lock: a swipe must be deliberately sideways. Scrolling
+    // with slight drift must never arm archive/delete.
+    if (horizontal.current == null) {
+      if (Math.abs(dx) < 14 && Math.abs(dy) < 14) return;
+      horizontal.current = Math.abs(dx) > Math.abs(dy) * 1.6;
+    }
+    if (!horizontal.current) return;
+    setOffset(Math.max(-120, Math.min(120, dx)));
   };
   const onTouchEnd = () => {
-    if (offset <= -64) onDelete();
-    else if (offset >= 64 && onArchive) onArchive();
+    if (horizontal.current) {
+      if (offset <= -96) onDelete();
+      else if (offset >= 96 && onArchive) onArchive();
+    }
     setOffset(0);
     startX.current = null;
+    startY.current = null;
+    horizontal.current = null;
   };
 
   return (
