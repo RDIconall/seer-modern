@@ -478,11 +478,9 @@ export function DesktopMailApp() {
               >
                 {dense ? "Cozy" : "Compact"}
               </button>
-              {triage.assistant
+              {logicMode && triage.assistant
                 ? `Gemini ${triage.assistant.gemini} · rules ${triage.assistant.rules}${triage.assistant.learned ? ` · learned ${triage.assistant.learned}` : ""} · taught ${triage.assistant.override}${triage.assistant.cached ? ` · cached ${triage.assistant.cached}` : ""} · your call ${triage.assistant.needsReview}`
-                : triage.history
-                  ? `Sent history · ${triage.history.engagedCount} people you email · ${triage.history.contactCount} contacts`
-                  : null}
+                : `${triage.count} triaged · ${triage.assistant?.needsReview ?? triage.needsReview.length} need you`}
               {triage.assistant?.error ? (
                 <span className="ml-2 font-medium text-[#b45309]">
                   {(triage.assistant.gemini ?? 0) + (triage.assistant.cached ?? 0) > 0
@@ -1009,6 +1007,11 @@ function DesktopMailRow({
           </div>
           {dense ? (
             <div className="flex items-baseline gap-1.5 truncate text-[12px] leading-snug">
+              {g?.category ? (
+                <span className="shrink-0 rounded bg-[var(--card)] px-1 text-[9px] font-semibold text-[var(--muted)]">
+                  {g.category}
+                </span>
+              ) : null}
               {g?.task ? (
                 <span
                   className="shrink-0 font-semibold"

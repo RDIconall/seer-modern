@@ -749,11 +749,9 @@ export function MobileMailApp() {
           <div className="border-b border-[var(--border)] bg-[var(--card)] px-4 py-2">
             <div className="flex items-start justify-between gap-2">
               <p className="min-w-0 text-[12px] text-[var(--muted)]">
-                {triage.assistant
+                {logicMode && triage.assistant
                   ? `Gemini ${triage.assistant.gemini} · rules ${triage.assistant.rules}${triage.assistant.learned ? ` · learned ${triage.assistant.learned}` : ""} · taught ${triage.assistant.override}${triage.assistant.cached ? ` · cached ${triage.assistant.cached}` : ""} · your call ${triage.assistant.needsReview}`
-                  : triage.history
-                    ? `${triage.history.engagedCount} people you email · ${triage.history.contactCount} contacts`
-                    : "Gemini-first triage — you are last resort"}
+                  : `${triage.count} triaged · ${triage.assistant?.needsReview ?? triage.needsReview.length} need you`}
               </p>
               <button
                 type="button"
@@ -1330,8 +1328,13 @@ function SwipeMailRow({
             </span>
           </div>
           {dense ? (
-            // Compact: one line — the implied action, then the subject
+            // Compact: one line — category, the implied action, subject
             <div className="flex items-baseline gap-1.5 truncate text-[13px] leading-snug">
+              {g?.category ? (
+                <span className="shrink-0 rounded bg-[var(--card)] px-1 text-[10px] font-semibold text-[var(--muted)]">
+                  {g.category}
+                </span>
+              ) : null}
               {g?.task ? (
                 <span
                   className="shrink-0 font-semibold"

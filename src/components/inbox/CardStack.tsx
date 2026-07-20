@@ -607,11 +607,18 @@ function CardFace({
           className="mt-4 rounded-xl px-3 py-3"
           style={{ backgroundColor: `${g.color}16` }}
         >
-          <div
-            className="text-xs font-bold uppercase tracking-wide"
-            style={{ color: g.color }}
-          >
-            {g.label}
+          <div className="flex items-center justify-between gap-2">
+            <div
+              className="text-xs font-bold uppercase tracking-wide"
+              style={{ color: g.color }}
+            >
+              {g.label}
+            </div>
+            {g.category ? (
+              <span className="shrink-0 rounded-full bg-[var(--card)] px-2 py-0.5 text-[10px] font-semibold text-[var(--muted)]">
+                {g.category}
+              </span>
+            ) : null}
           </div>
           {g.task ? (
             <div className="mt-1 text-[15px] font-bold leading-snug text-[var(--fg-strong)]">

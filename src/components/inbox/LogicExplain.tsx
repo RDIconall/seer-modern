@@ -83,17 +83,27 @@ export function LogicExplain({
 
   return (
     <div className="mt-1 space-y-1">
-      <div
-        className="truncate text-[11px] font-semibold"
-        style={{ color: guide.color }}
-      >
-        {guide.task ?? guide.label}
-        {guide.confidence ? ` · ${guide.confidence}` : ""}
-        {sourceLabel ? ` · ${sourceLabel}` : ""}
+      <div className="flex min-w-0 items-center gap-1.5">
+        {guide.category ? (
+          <span className="shrink-0 rounded bg-[var(--card)] px-1.5 py-0.5 text-[10px] font-semibold text-[var(--muted)]">
+            {guide.category}
+          </span>
+        ) : null}
+        <span
+          className="truncate text-[11px] font-semibold"
+          style={{ color: guide.color }}
+        >
+          {guide.task ?? guide.label}
+          {expanded
+            ? `${guide.confidence ? ` · ${guide.confidence}` : ""}${sourceLabel ? ` · ${sourceLabel}` : ""}`
+            : ""}
+        </span>
       </div>
-      <div className="line-clamp-2 text-[11px] leading-snug text-[var(--muted)]">
-        {guide.reason}
-      </div>
+      {expanded ? (
+        <div className="line-clamp-2 text-[11px] leading-snug text-[var(--muted)]">
+          {guide.reason}
+        </div>
+      ) : null}
       {expanded && guide.who ? (
         <div className="text-[11px] leading-snug text-[var(--fg)]">
           <span className="font-semibold">Who:</span> {guide.who}
