@@ -69,9 +69,14 @@ function impliedTask(
   subject: string,
   ask?: string,
 ): string {
-  if (ask && (action === "respond" || action === "act_today" || action === "needs_review")) {
-    const t = ask.replace(/[?.!]\s*$/, "");
-    return t.length <= 60 ? `Do it: ${t}` : `Do it: ${t.slice(0, 57)}…`;
+  // Only echo the ask when it's short enough to BE an action phrase —
+  // a truncated sentence is not a task. Long asks display separately.
+  if (
+    ask &&
+    ask.length <= 48 &&
+    (action === "respond" || action === "act_today" || action === "needs_review")
+  ) {
+    return `Do it: ${ask.replace(/[?.!]\s*$/, "")}`;
   }
   const gist = subject.slice(0, 40) + (subject.length > 40 ? "…" : "");
   switch (action) {

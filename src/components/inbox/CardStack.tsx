@@ -601,7 +601,7 @@ function CardFace({
         >
           {g?.task ?? item.subject}
         </h2>
-        {g?.ask ? (
+        {g?.ask && !(g.task ?? "").includes(g.ask.slice(0, 24)) ? (
           <p className="mt-3 text-[15px] font-medium leading-snug text-[var(--muted)]">
             “{g.ask}”
           </p>
