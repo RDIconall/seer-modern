@@ -11,13 +11,28 @@ export function PwaRegister() {
     if (!("serviceWorker" in navigator)) return;
     if (!pathname?.startsWith("/m")) return;
 
-    const register = () => {
-      navigator.serviceWorker.register("/sw.js", { scope: "/m" }).catch(() => {
+    const register = async () => {
+      try {
+        // Drop stale v1 caches that pinned the spectrum mark / old shell
+        const keys = await caches.keys();
+        await Promise.all(
+          keys
+            .filter((k) => k.startsWith("seer-mobile-") && k !== "seer-mobile-v2")
+            .map((k) => caches.delete(k)),
+        );
+
+        const reg = await navigator.serviceWorker.register("/sw.js", {
+          scope: "/m",
+          updateViaCache: "none",
+        });
+        await reg.update();
+      } catch {
         /* ignore in unsupported browsers */
-      });
+      }
     };
-    if (document.readyState === "complete") register();
-    else window.addEventListener("load", register, { once: true });
+
+    if (document.readyState === "complete") void register();
+    else window.addEventListener("load", () => void register(), { once: true });
   }, [pathname]);
 
   return null;

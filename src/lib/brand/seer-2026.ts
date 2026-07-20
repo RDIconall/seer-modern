@@ -13,7 +13,7 @@ export const seerStudio = {
   job: "Triage email so they decide less and act on what matters",
   logo: {
     legacy: "/seer-mark.png",
-    recommended: "/seer-mark.png",
+    recommended: "/seer-eye.png",
     options: [
       {
         id: "dual",
