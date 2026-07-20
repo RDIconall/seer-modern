@@ -512,8 +512,9 @@ function classifyCore(
   // Known product / finance / shopping before bulk-noreply relationship,
   // so GitHub/Vercel/etc. aren't hard-deleted just because local is noreply.
   if (SHOPPING_DOMAINS.test(dom) || SHOPPING_DOMAINS.test(fromBlob)) {
+    // Deals mail is noise unless the user buys from them (engaged/taught)
     return hit(
-      "glance_promo",
+      signals.relationship === "engaged" ? "glance_promo" : "delete_now",
       "MED",
       "Shopping / deals mail",
       "shopping-domain",
@@ -524,9 +525,9 @@ function classifyCore(
   if (PRODUCT_NOTIFY_DOMAINS.test(dom) || PRODUCT_NOTIFY_DOMAINS.test(fromBlob)) {
     if (PROMO_BLOB.test(blob)) {
       return hit(
-        "glance_promo",
+        signals.relationship === "engaged" ? "glance_promo" : "delete_now",
         "MED",
-        "Product promo",
+        "Product promo — junk unless you buy from them",
         "product-notify-promo",
         ctx,
       );
@@ -615,9 +616,9 @@ function classifyCore(
       );
     }
     return hit(
-      "glance_promo",
+      "delete_now",
       "MED",
-      "Marketing pattern",
+      "Marketing pattern — noise",
       "marketing-glance",
       ctx,
     );
@@ -667,7 +668,7 @@ function classifyCore(
   if (PERSONAL_PROVIDERS.test(email)) {
     if (PROMO_BLOB.test(blob) || /\bunsubscribe\b/i.test(blob)) {
       return hit(
-        "glance_promo",
+        "read_and_delete",
         "MED",
         "Personal provider but promotional content",
         "personal-promo",
@@ -694,9 +695,9 @@ function classifyCore(
 
   if (PROMO_BLOB.test(blob)) {
     return hit(
-      "glance_promo",
+      "delete_now",
       "MED",
-      "Promotional content",
+      "Promotional content — noise",
       "promo-blob",
       ctx,
     );

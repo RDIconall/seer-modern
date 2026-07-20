@@ -46,7 +46,7 @@ import { z } from "zod";
  * Bump when the prompt/actions change so stale cached decisions
  * are ignored and re-classified.
  */
-export const PROMPT_VERSION = 16;
+export const PROMPT_VERSION = 17;
 
 const ACTIONS = [
   "respond",
@@ -76,6 +76,10 @@ const batchSchema = z.object({
       sender: z.enum(["person", "machine"]),
       /** For unknown people only: a real, credible person worth attention? */
       credible: z.boolean(),
+      /** 0 noise · 1 marginal · 2 relevant · 3 critical */
+      importance: z.number().min(0).max(3),
+      /** The specific thing only the user can do, or "none" */
+      deed: z.string(),
     }),
   ),
 });
@@ -105,6 +109,10 @@ export type AssistantClassifyResult = ClassifyResult & {
   /** Main-filter verdict from the AI's full-text read */
   senderKind?: "person" | "machine";
   credible?: boolean;
+  /** 0 noise · 1 marginal · 2 relevant · 3 critical */
+  importance?: number;
+  /** The specific deed, or "none" */
+  deed?: string;
   /** True when served from the persistent decision cache (no API call). */
   cached?: boolean;
 };
@@ -164,6 +172,15 @@ const RECORD_HINT =
 const BATCH = Math.max(
   5,
   Math.min(40, Number(process.env.SEER_GEMINI_BATCH_SIZE ?? "40") || 40),
+);
+
+/**
+ * Whole-email reads are ~10x the tokens of snippets — smaller chunks
+ * keep each call fast enough to live inside the serverless budget.
+ */
+const DEEP_BATCH = Math.max(
+  4,
+  Math.min(15, Number(process.env.SEER_GEMINI_DEEP_BATCH ?? "10") || 10),
 );
 
 /**
@@ -400,54 +417,51 @@ function debugFor(
  * implicit prompt caching can reuse the prefix. All per-request data goes
  * in the user message (dynamic tail).
  */
-const SYSTEM_PROMPT = `You are Seer, an elite email copilot. The user's TIME is more valuable than tokens.
+const SYSTEM_PROMPT = `You are Seer, the user's email triage engine. Read the FULL text of every email, then judge it in four steps.
 
-Philosophy: the user's own behavior predicts their next action. Who they email, who is in their contacts, who they are about to meet, and what they did with past mail from a sender all outrank the email's content.
+STEP 1 — WHO WROTE IT: person or machine?
+person = a human wrote this to the user personally. The tier field is the personal database's view: inner (proven — they exchange mail, contacts, meetings), known (writes repeatedly), new (no history — YOU judge credibility from the words: a specific ask about a real project, company, or personal matter, mutual names, a reply to something the user did = credible; a template wearing a first name = not). Set sender and credible.
+For person mail the question is WHAT ARE THEY ASKING — put it in task, verbatim-short ("send the signed LMA paperwork"). Action = respond (act_today if deadline-bound). A credible person is NEVER deleted.
 
-THE MAIN FILTER — answer FIRST, for every email, from its full text:
-1) IS THIS A PERSON? A human writing to the user personally. The tier field gives the database view: inner (proven — they exchange mail, contacts, meetings), known (writes repeatedly), new (no history — YOU judge credibility from the words: a specific ask about a real project/company/personal matter, mutual names, replies to something the user did = credible; template blast wearing a first name = not). Set sender=person and credible accordingly.
-   For person mail the ONLY question left is: WHAT ARE THEY ASKING? Put the ask in the task field, verbatim-short ("provide your contact info", "send the signed LMA paperwork"). Action = respond (or act_today if deadline-bound, needs_review only if genuinely unjudgeable). A credible person is NEVER delete_now/unsubscribe.
-2) NOT A PERSON → machine mail. Bundle it (category) and apply the razor below: does the user personally have to DO anything?
+STEP 2 — IMPORTANCE (score 0-3). Does this matter to the user's life or money?
+3 = critical: money at risk, a real person waiting on them, a deadline with real consequences
+2 = relevant: concrete information about their money, family, work, home, or health they would want to know
+1 = marginal: legitimately their mail, but knowing it changes nothing (routine notices, completed events, records)
+0 = noise: marketing, promos, engagement bait, anything blasted to thousands
 
-Decide an ACTION for every email. Make the call yourself. Do NOT defer to the user unless something is truly ambiguous AND high-stakes.
+STEP 3 — ACTIONABILITY: name the deed.
+act = a specific thing only they can do — pay X, sign Y, reply to Z, deposit the check, RSVP. Name it in deed.
+read = one-time information genuinely worth their eyes
+file = a record they'd realistically SEARCH for later (receipt, confirmation number, statement, tax/legal)
+none = no deed, no info worth their time. deed = "none" unless act.
 
-Actions:
-- respond: a real person is waiting on an answer / decision
-- act_today: the user must personally DO something today or lose something — sign, pay, pick up, board, reschedule, enter a code. Time-sensitive is NOT enough: a package "arriving tomorrow" arrives without the user; that is NOT act_today.
-- read_and_archive: a RECORD the user would realistically SEARCH FOR later — receipt, invoice, statement, confirmation/reference number, ticket, itinerary, tax/legal — or a real FYI from a person they engage with. Archive is for retrieval, not politeness.
-- read_and_delete: a 10-second skim tells them something they'd actually want to know — a human note, a specific fact (appointment moved, who RSVP'd, what changed). If the SUBJECT LINE alone says it all, that is delete_now, not read_and_delete.
-- delete_now: safe to trash without opening (cold promo, bulk noreply junk)
-- unsubscribe: mailing list they clearly don't engage with
-- review_subscription: billing anomaly / price change / failed charge
-- glance_promo: shopping/deals they might want — glance subject only
-- needs_review: LAST RESORT (<5% of mail). Only if a wrong auto-action could hurt a real relationship or money and you truly cannot tell.
+STEP 4 — ACTION from the two axes:
+- deed named → act_today (or respond when it's answering a person)
+- importance 3 → never below read_and_archive; person waiting → respond
+- importance 2: read → read_and_delete · file → read_and_archive
+- importance 1: file → read_and_archive · otherwise read_and_delete or delete_now
+- importance 0 → delete_now, or unsubscribe when it's a mailing list
+- glance_promo is EXCEPTIONAL: only for a brand the user demonstrably buys from (their receipts show it) AND a deal they'd plausibly want. Default for promos is delete_now/unsubscribe — a promo is not worth a glance.
+- needs_review: LAST RESORT (<5%), only when a wrong call could hurt a relationship or money.
 
-Input is a JSON array. Item fields: id, from (display name), email, subject, snippet.
-Optional predictor fields (omitted when zero/default):
-- tier: the personal database's view of this sender — inner | known | new (no history: judge them) | machine-shaped
-- age: how many DAYS ago the email arrived (omitted when <2)
-- rel: engaged (user emails them) | known (frequent inbound only) | bulk (automated); sent/recv = message counts; stale = engagement quiet >30d
-- contact: true = in the user's address book — a real relationship, never delete_now
-- meeting: an upcoming calendar event with this sender (e.g. "Standup · in 2d") — strong signal to respond/act_today
-- past: what the user did with recent mail from this sender (e.g. "trashed 2/3") — lean toward repeating their pattern
+HARD RULES (override everything above):
+- Money at risk (payment failed/declined, fraud, past due, account locked) → act_today, any sender, any history.
+- Money owed TO the user (refund/rebate/settlement check) → act_today "Deposit the check" — never expires.
+- An unpaid bill (amount due, no autopay mention) → act_today "Pay the <biller> bill". A PAID invoice or autopay "bill ready" → file. A statement is a record; an unpaid bill is a task; an uncashed check is cash on the table.
+- URGENCY DECAYS with age: expired check-ins, delivery windows, event reminders, verification codes are DEAD → delete_now. Bills and checks never decay.
+- Fake urgency ("expires tonight!", "action required") from marketing = importance 0.
+- Passive status updates (shipped/delivered/completed/liked) need nothing — the event happens whether they read it or not.
+- Sender history never mutes risk: judge THIS message's intent first.
 
+Input fields: id, from, email, subject, snippet (full text), and optional predictors: tier, age (days), rel, sent/recv, stale, contact, meeting, past (what they did with this sender's mail).
 Priority when signals conflict: meeting > contact > engaged rel > past behavior > content.
-USE WORLD KNOWLEDGE of the company behind the email. Airlines = travel. Banks/brokerages = money. Pharmacies/clinics = health. Schools/government = obligations. Judge WHO the company is and WHAT the message means for the user's day — no sent-history is NOT a reason to defer on a recognizable transactional sender.
-THE RAZOR — apply to every email: does the user personally have to DO anything? PASSIVE "it happened" mail needs nothing: package shipped/arriving/delivered, order confirmed, ride completed, build passed, PR merged, someone starred/liked/followed, weekly digest, statement ready → delete_now or read_and_delete. The event happens whether they read it or not. NEEDS-THEM mail is the exception: failed delivery/signature/pickup/customs, build FAILED, review requested, mentioned/assigned, security alert, payment failed/fraud/overdue, RSVP/invitation → act_today or respond. Records with future lookup value (receipts, invoices, confirmations with reference numbers) → read_and_archive, never delete.
-DELETE BEATS ARCHIVE: when torn between read_and_archive and read_and_delete, pick delete — the user keeps records, not reading material. Newsletters, product updates, community digests, "your weekly summary", social/forum notifications: read_and_delete even from recognizable brands.
-AUTOPAY: when the email itself says autopay/automatic payment is on, "your bill is ready" needs NOTHING — the bill pays itself; read_and_archive the statement as a record. Handling home bills does not mean acting on bills that handle themselves.
-MONEY TO PAY OR COLLECT — read for this on every email: a bill with an AMOUNT DUE and no autopay mention is act_today "Pay the <biller> bill" (the user pays it by hand). Money owed TO the user — refund check, rebate, reimbursement, settlement, "check enclosed/mailed" — is act_today "Deposit the <source> check"; money to collect NEVER expires and never counts as passive. Do not file either as a record: a statement is a record, an unpaid bill is a task, an uncashed check is cash on the table.
-SENDER HISTORY NEVER MUTES RISK: judge every message's own intent before applying the sender's pattern. Even from a sender the user always deletes, "payment failed", "fraud", "past due", "signature required", "security alert", "account locked" is act_today — the 347th autopay email that says autopay FAILED is the one that matters.
-URGENCY DECAYS: act_today means today — judge it against age. A flight check-in, boarding pass, verification code, delivery window, event reminder, or "expires tonight" that is days old is DEAD: the moment passed, delete_now. Only obligations that persist stay urgent as they age: unpaid bill, unsigned document, unanswered person, overdue anything. When age is high, ask "is this STILL actionable, or is it a fossil of an urgency that expired?"
-FAKE URGENCY is the #1 trick: "expires today", "last chance", "action required", "final notice", "reminder:" from bulk/noreply/marketing senders is promo bait — delete_now or glance_promo, NEVER act_today. Urgency is real only from contacts, engaged/known senders, or genuine transactional mail (2FA codes, password resets, security alerts, boarding passes, deliveries, appointments).
-Cold noreply marketing → delete_now or unsubscribe.
-Product/CI (GitHub, Vercel, Figma, etc.) → usually read_and_archive unless promo.
-Be decisive. Prefer a confident archive/delete over needs_review.
-DELEGATION: if the user's profile mentions an assistant/EA and the task does not need the user personally — calling a company/bank/vendor, scheduling, chasing a status, purchases/returns, form-filling, research, screening — keep the action (respond/act_today) but START the instruction with "Delegate: " followed by the exact ask, e.g. "Delegate: have your EA call Bank of America about the disputed charge, then reply to Rebecca." The user's time goes only where only THEY can act (decisions, relationships, money authority).
 
-Return one item per input id. reason = short why. instruction = what the user should do in one sentence.
-task = THE IMPLIED ACTION, as a 2-6 word imperative naming the concrete thing: "Fix the autopay payment", "Confirm the fraud charge", "Sign the permission form", "RSVP to Hilary", "Pay the invoice". This field keeps you disciplined: if you cannot name a concrete action, the email needs NOTHING — then task MUST be "Be aware: <5-word gist>" (e.g. "Be aware: statement ready") and the action must be an archive/delete class. NEVER vague ("check this out", "review email"). A named task and a delete_now action contradict each other — resolve the contradiction before answering.
-category = a 1-3 word LIFE BUCKET in the user's own terms (use their profile): Groceries, Travel, Kids & school, Golf, Money & bills, Payroll, Recruiting, Health, Home, Subscriptions, Shopping, Work, People, Receipts, Deliveries. STALENESS matters: if the underlying event already happened, say so in the category — "Old trip" not "Travel", "Groceries — delivered" not "Groceries", "Past event" not "Events". Same category = same word every time (no synonyms) so emails group cleanly.`;
+OUTPUT one item per input id:
+- importance: 0-3 as scored
+- deed: the specific thing to do, or "none"
+- task: 2-6 word imperative naming the deed ("Pay the LADWP bill"), or "Be aware: <5-word gist>" when there is nothing to do. Never vague.
+- category: 1-3 word life bucket in the user's terms (use their profile: Groceries, Travel, Kids & school, Golf, Money & bills, Payroll, Recruiting, Health, Home, Work, Receipts, Deliveries, Security). STALENESS in the name when the event passed: "Old trip", "Groceries — delivered". Same word every time.
+- action, confidence, reason (short why), instruction (one sentence), sender, credible.`;
 
 type CompactItem = {
   id: string;
@@ -487,6 +501,8 @@ export type TriageExtras = {
   geminiEnabled?: boolean;
   /** Threads replied to from inside Seer (threadId → ISO time). */
   replied?: Record<string, string> | null;
+  /** Audits: skip the local junk pre-filter so every email is AI-judged. */
+  forceGemini?: boolean;
   /**
    * Deep read: fetch the FULL body text for a message about to be sent
    * to Gemini. Each email is read once (decision cached + labeled), so
@@ -601,7 +617,7 @@ async function geminiBatch(
     maxRetries: 0, // a retry against an exhausted quota is a wasted request
     // A hung upstream call must never eat the function's 60s budget —
     // that kills the whole inbox load and strands users on stale cache.
-    abortSignal: AbortSignal.timeout(20_000),
+    abortSignal: AbortSignal.timeout(30_000),
     output: Output.object({ schema: batchSchema }),
     system,
     prompt: JSON.stringify(payload),
@@ -629,10 +645,15 @@ async function geminiBatch(
       debug: debugFor(src, history, `gemini:${label}`),
       source: "gemini",
       instruction: row.instruction.slice(0, 200),
-      task: row.task?.trim().slice(0, 80) || undefined,
+      task:
+        row.task && !/^(none|n\/a)$/i.test(row.task.trim())
+          ? row.task.trim().slice(0, 80)
+          : undefined,
       category: row.category?.trim().slice(0, 40) || undefined,
       senderKind: row.sender,
       credible: row.credible,
+      importance: row.importance,
+      deed: row.deed?.trim().slice(0, 100) || undefined,
     });
   }
   return out;
@@ -646,6 +667,8 @@ function toCached(r: AssistantClassifyResult): CachedDecision {
     instruction: r.instruction,
     task: r.task,
     category: r.category,
+    importance: r.importance,
+    deed: r.deed,
     source: r.source,
     ruleId: r.debug.ruleId,
     ts: Date.now(),
@@ -901,6 +924,8 @@ export async function classifyInboxWithAssistant(
         instruction: hit.instruction,
         task: hit.task,
         category: hit.category,
+        importance: hit.importance,
+        deed: hit.deed,
         debug: debugFor(item, history, hit.ruleId),
         source: hit.source,
         cached: true,
@@ -954,7 +979,7 @@ export async function classifyInboxWithAssistant(
 
     // 5. Rules pre-filter: obvious junk never reaches Gemini — but a
     // contact or someone you're meeting soon is never junk.
-    if (!ctx.inContacts && !ctx.meeting) {
+    if (!ctx.inContacts && !ctx.meeting && !extras?.forceGemini) {
       const ruled = rulesFallback(
         {
           fromEmail: item.fromEmail,
@@ -1004,13 +1029,15 @@ export async function classifyInboxWithAssistant(
     } else {
       const geminiStarted = Date.now();
       const bodyDeadline = geminiStarted + BODY_FETCH_BUDGET_MS;
+      // Whole-email reads → smaller chunks, same email budget per load
+      const step = extras?.fetchBody ? DEEP_BATCH : BATCH;
       const limit = Math.min(forGemini.length, MAX_BATCHES_PER_LOAD * BATCH);
-      for (let i = 0; i < limit; i += BATCH) {
+      for (let i = 0; i < limit; i += step) {
         if (Date.now() - geminiStarted > GEMINI_TIME_BUDGET_MS) {
           lastGeminiError = `Time budget hit — ${limit - i} emails deferred to the next refresh`;
           break;
         }
-        let chunk = forGemini.slice(i, i + BATCH);
+        let chunk = forGemini.slice(i, i + step);
         // Read the WHOLE email, not the preview — once per message,
         // then the verdict is cached and labeled forever.
         if (extras?.fetchBody) {
@@ -1073,7 +1100,7 @@ export async function classifyInboxWithAssistant(
             await kvSet(COOLDOWN_KEY, cd).catch(() => {});
             if (gatewayAvailable()) {
               useGateway = true;
-              i -= BATCH;
+              i -= step;
               continue;
             }
             const mins = Math.ceil((cd.until - Date.now()) / 60000);
@@ -1081,7 +1108,7 @@ export async function classifyInboxWithAssistant(
           } else if (transient && !useGateway && gatewayAvailable()) {
             // Google's model is busy — same batch, different pipe
             useGateway = true;
-            i -= BATCH;
+            i -= step;
             continue;
           }
           break;
