@@ -46,7 +46,7 @@ import { z } from "zod";
  * Bump when the prompt/actions change so stale cached decisions
  * are ignored and re-classified.
  */
-export const PROMPT_VERSION = 17;
+export const PROMPT_VERSION = 18;
 
 const ACTIONS = [
   "respond",
@@ -68,18 +68,18 @@ const batchSchema = z.object({
       confidence: z.number().min(0).max(1),
       reason: z.string(),
       instruction: z.string(),
-      /** The implied action, 2-6 word imperative — or "Be aware: …" */
-      task: z.string(),
+      /** The implied action / specific fact headline — or "none" */
+      task: z.string().optional(),
       /** Life bucket in the user's language, staleness-aware */
-      category: z.string(),
+      category: z.string().optional(),
       /** THE MAIN FILTER: human writing personally, or a machine? */
-      sender: z.enum(["person", "machine"]),
+      sender: z.enum(["person", "machine"]).optional(),
       /** For unknown people only: a real, credible person worth attention? */
-      credible: z.boolean(),
+      credible: z.boolean().optional(),
       /** 0 noise · 1 marginal · 2 relevant · 3 critical */
-      importance: z.number().min(0).max(3),
+      importance: z.number().min(0).max(3).optional(),
       /** The specific thing only the user can do, or "none" */
-      deed: z.string(),
+      deed: z.string().optional(),
     }),
   ),
 });
@@ -459,7 +459,7 @@ Priority when signals conflict: meeting > contact > engaged rel > past behavior 
 OUTPUT one item per input id:
 - importance: 0-3 as scored
 - deed: the specific thing to do, or "none"
-- task: 2-6 word imperative naming the deed ("Pay the LADWP bill"), or "Be aware: <5-word gist>" when there is nothing to do. Never vague.
+- task: for a deed → a 2-6 word imperative WITH its particulars ("Pay the $140 pool invoice", "Deposit the State Farm check"). For no-deed mail → the ONE specific fact worth knowing, written like a sharp lock-screen notification with names/amounts/dates from the body: "Hilary's groceries land June 27", "Ubiquiti login code — was it you?", "Play terms change Aug 28", "$89 Netflix renewal on the 1st". FORBIDDEN: restating the subject line, generic labels ("statement ready", "order update", "payment receipt"), and filler prefixes ("Be aware:", "FYI:", "Note:"). If you cannot state a specific fact worth the user's eyes, importance is 0 and the action is delete_now with task "none".
 - category: 1-3 word life bucket in the user's terms (use their profile: Groceries, Travel, Kids & school, Golf, Money & bills, Payroll, Recruiting, Health, Home, Work, Receipts, Deliveries, Security). STALENESS in the name when the event passed: "Old trip", "Groceries — delivered". Same word every time.
 - action, confidence, reason (short why), instruction (one sentence), sender, credible.`;
 

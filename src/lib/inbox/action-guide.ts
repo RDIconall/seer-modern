@@ -78,7 +78,7 @@ function impliedTask(
   ) {
     return `Do it: ${ask.replace(/[?.!]\s*$/, "")}`;
   }
-  const gist = subject.slice(0, 40) + (subject.length > 40 ? "…" : "");
+  const gist = subject.slice(0, 44) + (subject.length > 44 ? "…" : "");
   switch (action) {
     case "respond":
       return "Reply — they're waiting";
@@ -89,9 +89,9 @@ function impliedTask(
     case "needs_review":
       return "Your call — decide";
     case "read_and_archive":
-      return `Be aware: ${gist}`;
     case "read_and_delete":
-      return `Be aware: ${gist}`;
+      // Rules can't read the body — the subject IS the best fact we have
+      return gist;
     case "delete_now":
       return "Nothing — delete it";
     case "unsubscribe":
