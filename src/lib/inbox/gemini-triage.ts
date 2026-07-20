@@ -201,7 +201,9 @@ const PREFILTER_RULE_IDS = new Set([
   "shopping-domain",
   "product-notify-promo",
   "product-passive-delete",
-  "finance-record-archive",
+  // NOTE: finance-record-archive deliberately NOT here — anything
+  // money-shaped gets the full AI read (an invoice that says "please
+  // pay" must never be filed as a receipt off a 200-char snippet).
   "urgency-bait-delete",
   "shipper-status-delete",
   "autopay-record-archive",

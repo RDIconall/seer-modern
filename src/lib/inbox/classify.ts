@@ -168,7 +168,11 @@ const FINANCE_RISK =
 
 /** A bill the user must PAY BY HAND — amount due + no autopay. */
 const BILL_DUE =
-  /\b(amount due|payment (is )?due|due (by|on) [a-z0-9]|pay by [a-z0-9]|balance due|minimum payment|total (amount )?due|invoice (is )?(due|attached|enclosed)|remit(tance)? by)\b/i;
+  /\b(amount due|payment (is )?due|due (by|on) [a-z0-9]|pay by [a-z0-9]|balance due|minimum payment|total (amount )?due|invoice (is )?(due|attached|enclosed)|here('s| is) your invoice|new invoice|invoice #?\d|invoice from|please pay|view (and|&) pay|remit(tance)? by)\b/i;
+
+/** Already settled — a receipt, not a bill. */
+const PAID_MARKER =
+  /\b(paid|payment (received|confirmed|successful|processed)|thank you for your payment|this is a receipt|no (payment|action) (is )?(due|needed|required))\b/i;
 
 /** Money coming TO the user — checks never expire, always surface. */
 const REFUND_CHECK =
@@ -431,7 +435,8 @@ function classifyCore(
   // A bill with an amount due and NO autopay is a task, not a record.
   if (
     (BILL_DUE.test(blob) || BILL_DUE.test(input.subject)) &&
-    !AUTOPAY_BLOB.test(blob)
+    !AUTOPAY_BLOB.test(blob) &&
+    !PAID_MARKER.test(blob)
   ) {
     return hit(
       "act_today",
