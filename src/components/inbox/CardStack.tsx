@@ -21,6 +21,7 @@ import {
   type TouchEvent,
 } from "react";
 import {
+  actionThreadId,
   mailInitial,
   primaryMailAction,
   type DeckCard,
@@ -101,7 +102,7 @@ export function CardStack({
       if (busyId === card.item.id) return;
       // The optimistic removal in onAction pulls this card out of the
       // deck; also mark skipped so the UI advances even if it lingers.
-      onAction(card.item.id, action, card.item.fromEmail, card.item.threadId);
+      onAction(card.item.id, action, card.item.fromEmail, actionThreadId(card.item));
     } else {
       onBulk(card.section, action);
     }

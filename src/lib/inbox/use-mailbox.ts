@@ -12,6 +12,7 @@ import type {
 } from "@/lib/inbox/types";
 import type { ComposeDraft } from "@/components/inbox/ComposePanel";
 import {
+  actionThreadId,
   buildCardDeck,
   ensureFwd,
   ensureRe,
@@ -434,7 +435,7 @@ export function useMailbox(initialTab: ViewTab = "inbox") {
   const bulkSection = useCallback(
     async (section: Section, action: MailAction) => {
       const ids = section.items.map((i) => i.id);
-      for (const i of section.items) markActed(i.id, i.threadId);
+      for (const i of section.items) markActed(i.id, actionThreadId(i));
       setTriage((prev) => {
         if (!prev) return prev;
         const idSet = new Set(ids);
@@ -464,7 +465,7 @@ export function useMailbox(initialTab: ViewTab = "inbox") {
             body: JSON.stringify({
               items: section.items.map((i) => ({
                 id: i.id,
-                threadId: i.threadId,
+                threadId: actionThreadId(i),
                 fromEmail: i.fromEmail,
               })),
             }),
@@ -485,7 +486,7 @@ export function useMailbox(initialTab: ViewTab = "inbox") {
           body: JSON.stringify({
             items: section.items.map((i) => ({
               id: i.id,
-              threadId: i.threadId,
+              threadId: actionThreadId(i),
               action,
               fromEmail: i.fromEmail,
             })),

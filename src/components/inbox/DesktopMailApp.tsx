@@ -38,6 +38,7 @@ import { SettingsPanel } from "@/components/inbox/SettingsPanel";
 import { type TriageAction } from "@/lib/inbox/classify";
 import { useMailbox } from "@/lib/inbox/use-mailbox";
 import {
+  actionThreadId,
   buildDeckCards,
   ensureRe,
   formatMailTime,
@@ -155,10 +156,16 @@ export function DesktopMailApp() {
     () =>
       listItems
         .filter((i) => picked.has(i.id))
-        .map((i) => ({ id: i.id, fromEmail: i.fromEmail, threadId: i.threadId })),
+        .map((i) => ({ id: i.id, fromEmail: i.fromEmail, threadId: actionThreadId(i) })),
     [listItems, picked],
   );
   const deckCards = useMemo(() => buildDeckCards(triage), [triage]);
+  // Sibling of an active thread → act on this message only, never
+  // sweep the conversation turn that's still awaiting a reply.
+  const readerThreadId =
+    reader?.guide?.debug?.ruleId === "thread-sibling"
+      ? undefined
+      : reader?.threadId;
 
   useEffect(() => {
     if (searchParams.get("settings") === "1") setSettingsOpen(true);
@@ -573,12 +580,12 @@ export function DesktopMailApp() {
                                 item.id,
                                 "archive",
                                 item.fromEmail,
-                                item.threadId,
+                                actionThreadId(item),
                               )
                           : undefined
                       }
                       onDelete={() =>
-                        runAction(item.id, "trash", item.fromEmail, item.threadId)
+                        runAction(item.id, "trash", item.fromEmail, actionThreadId(item))
                       }
                     />
                   ))}
@@ -634,12 +641,12 @@ export function DesktopMailApp() {
                       readerId,
                       "archive",
                       reader?.fromEmail,
-                      reader?.threadId,
+                      readerThreadId,
                     )
                   }
                   onDelete={() =>
                     readerId &&
-                    runAction(readerId, "trash", reader?.fromEmail, reader?.threadId)
+                    runAction(readerId, "trash", reader?.fromEmail, readerThreadId)
                   }
                 />
               </div>

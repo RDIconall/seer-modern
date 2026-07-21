@@ -50,6 +50,7 @@ import {
 import { SettingsPanel } from "@/components/inbox/SettingsPanel";
 import { useMailbox } from "@/lib/inbox/use-mailbox";
 import {
+  actionThreadId,
   buildDeckCards,
   ensureRe,
   formatMailTime,
@@ -168,7 +169,7 @@ export function MobileMailApp() {
     () =>
       listItems
         .filter((i) => picked.has(i.id))
-        .map((i) => ({ id: i.id, fromEmail: i.fromEmail, threadId: i.threadId })),
+        .map((i) => ({ id: i.id, fromEmail: i.fromEmail, threadId: actionThreadId(i) })),
     [listItems, picked],
   );
 
@@ -242,6 +243,10 @@ export function MobileMailApp() {
 
   if (readerId) {
     const g = reader?.guide;
+    // Sibling of an active thread → act on this message only, never
+    // sweep the conversation turn that's still awaiting a reply.
+    const readerThreadId =
+      g?.debug?.ruleId === "thread-sibling" ? undefined : reader?.threadId;
     const safeHtml = reader?.htmlBody
       ? sanitizeEmailHtml(reader.htmlBody)
       : "";
@@ -276,7 +281,7 @@ export function MobileMailApp() {
           <IconBtn
             disabled={busyId === readerId}
             onClick={() =>
-              runAction(readerId, "archive", reader?.fromEmail, reader?.threadId)
+              runAction(readerId, "archive", reader?.fromEmail, readerThreadId)
             }
             label="Archive"
             light
@@ -286,7 +291,7 @@ export function MobileMailApp() {
           <IconBtn
             disabled={busyId === readerId}
             onClick={() =>
-              runAction(readerId, "trash", reader?.fromEmail, reader?.threadId)
+              runAction(readerId, "trash", reader?.fromEmail, readerThreadId)
             }
             label="Delete"
             light
@@ -683,12 +688,12 @@ export function MobileMailApp() {
                               item.id,
                               "archive",
                               item.fromEmail,
-                              item.threadId,
+                              actionThreadId(item),
                             )
                         : undefined
                     }
                     onDelete={() =>
-                      runAction(item.id, "trash", item.fromEmail, item.threadId)
+                      runAction(item.id, "trash", item.fromEmail, actionThreadId(item))
                     }
                   />
                 ))}

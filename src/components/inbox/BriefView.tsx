@@ -11,6 +11,7 @@ import { LogicExplain } from "@/components/inbox/LogicExplain";
 import { WaitingSection } from "@/components/inbox/WaitingSection";
 import type { TriageAction } from "@/lib/inbox/classify";
 import {
+  actionThreadId,
   formatMailTime,
   primaryMailAction,
   type EmailItem,
@@ -355,7 +356,7 @@ function BriefRow({
           disabled={busy}
           aria-label="Archive it"
           onClick={() =>
-            h.runAction(item.id, "archive", item.fromEmail, item.threadId)
+            h.runAction(item.id, "archive", item.fromEmail, actionThreadId(item))
           }
           className="shrink-0 rounded-full border border-[var(--border)] p-2 text-[#0b8043] disabled:opacity-40"
         >
@@ -367,8 +368,8 @@ function BriefRow({
           aria-label="Delete it"
           onClick={() =>
             g?.action === "unsubscribe"
-              ? h.unsubscribe(item.id, item.fromEmail, item.threadId)
-              : h.runAction(item.id, "trash", item.fromEmail, item.threadId)
+              ? h.unsubscribe(item.id, item.fromEmail, actionThreadId(item))
+              : h.runAction(item.id, "trash", item.fromEmail, actionThreadId(item))
           }
           className="shrink-0 rounded-full border border-[var(--border)] p-2 text-[#d63b2f] disabled:opacity-40"
         >

@@ -283,6 +283,18 @@ export function ensureFwd(subject: string) {
   return /^(fwd|fw):/i.test(subject) ? subject : `Fwd: ${subject}`;
 }
 
+/**
+ * Which thread id an ACTION should carry. Rows that are only "part of
+ * an active thread" (older siblings of a conversation whose newest turn
+ * still needs the user) act on JUST that message — a thread-wide
+ * archive here would silently sweep away the turn awaiting a reply.
+ */
+export function actionThreadId(item: EmailItem): string | undefined {
+  const ruleId = item.guide?.debug?.ruleId ?? "";
+  if (ruleId === "thread-sibling") return undefined;
+  return item.threadId;
+}
+
 export function primaryMailAction(action: TriageAction): MailAction {
   if (
     action === "delete_now" ||
