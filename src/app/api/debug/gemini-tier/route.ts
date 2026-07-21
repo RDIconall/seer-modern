@@ -41,9 +41,24 @@ export async function GET(request: Request) {
     };
   };
 
+  // Which models does Google offer THIS key? (pro visibility = tier hint)
+  const listRes = await fetch(
+    "https://generativelanguage.googleapis.com/v1beta/models?pageSize=100",
+    { headers: { "x-goog-api-key": key }, cache: "no-store" },
+  );
+  const listJson = (await listRes.json().catch(() => ({}))) as {
+    models?: { name: string; supportedGenerationMethods?: string[] }[];
+  };
+  const generatable = (listJson.models ?? [])
+    .filter((m) => m.supportedGenerationMethods?.includes("generateContent"))
+    .map((m) => m.name.replace("models/", ""));
+  const proModels = generatable.filter((n) => /pro/i.test(n));
+
   return NextResponse.json({
     keyPrefix: key.slice(0, 10),
     flash: await probe("gemini-flash-latest"),
-    pro: await probe("gemini-2.5-pro"),
+    pro: await probe(proModels[0] ?? "gemini-pro-latest"),
+    proModelsVisible: proModels.slice(0, 8),
+    modelCount: generatable.length,
   });
 }
