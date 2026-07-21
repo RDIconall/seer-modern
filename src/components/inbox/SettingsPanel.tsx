@@ -82,6 +82,66 @@ export function SettingsPanel({
   } | null>(null);
   const [healthBusy, setHealthBusy] = useState(false);
 
+  const [bbUrl, setBbUrl] = useState("");
+  const [bbPassword, setBbPassword] = useState("");
+  const [bbStatus, setBbStatus] = useState<{
+    configured: boolean;
+    stats: {
+      syncedAt: string;
+      contactCount: number;
+      chatCount: number;
+      emailsMatched: number;
+    } | null;
+  } | null>(null);
+  const [bbBusy, setBbBusy] = useState<string | null>(null);
+  const [bbNote, setBbNote] = useState<string | null>(null);
+
+  const loadBb = useCallback(async () => {
+    try {
+      const res = await fetch("/api/imessage", { cache: "no-store" });
+      const json = await res.json();
+      if (res.ok) {
+        setBbStatus(json);
+        if (json.url) setBbUrl(json.url);
+      }
+    } catch {
+      /* optional */
+    }
+  }, []);
+
+  async function bbAction(action: "save" | "sync" | "clear") {
+    setBbBusy(action);
+    setBbNote(null);
+    try {
+      const res = await fetch("/api/imessage", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(
+          action === "save"
+            ? { action, url: bbUrl, password: bbPassword }
+            : { action },
+        ),
+      });
+      const json = await res.json();
+      if (!res.ok) throw new Error(json.error ?? "Failed");
+      if (action === "save") {
+        setBbNote(`Connected — ${json.detail}. Now tap Sync.`);
+        setBbPassword("");
+      } else if (action === "sync") {
+        setBbNote(
+          `Synced ${json.chats} chats · ${json.contacts} contacts · ${json.emailsMatched} emails matched · ${json.promotedToInner} people promoted to inner circle`,
+        );
+      } else {
+        setBbNote("Disconnected.");
+      }
+      await loadBb();
+    } catch (e) {
+      setBbNote(e instanceof Error ? e.message : "Failed");
+    } finally {
+      setBbBusy(null);
+    }
+  }
+
   const loadHealth = useCallback(async () => {
     setHealthBusy(true);
     try {
@@ -140,7 +200,8 @@ export function SettingsPanel({
     loadProfile();
     loadEa();
     loadHealth();
-  }, [load, loadProfile, loadEa, loadHealth]);
+    loadBb();
+  }, [load, loadProfile, loadEa, loadHealth, loadBb]);
 
   async function saveEa(payload: { email?: string; name?: string; clear?: boolean }) {
     setEaBusy(true);
@@ -613,6 +674,79 @@ export function SettingsPanel({
               Live probes of every Google API Seer depends on. Red means that
               feature is silently degraded — the detail says exactly why.
             </p>
+          </section>
+
+          <section className="mb-6">
+            <h2 className="mb-2 text-xs font-medium uppercase tracking-wide text-[var(--muted)]">
+              iMessage (BlueBubbles)
+            </h2>
+            <div className="rounded-xl border border-[var(--border)] bg-[var(--bg)] px-4 py-3">
+              <p className="mb-2 text-[12px] leading-relaxed text-[var(--muted)]">
+                Who you text is the strongest relationship signal there is.
+                Connect your BlueBubbles server and the people you actually
+                text become inner circle — their email can never be junked.
+              </p>
+              <input
+                type="url"
+                value={bbUrl}
+                onChange={(e) => setBbUrl(e.target.value)}
+                placeholder="https://…​.share.zrok.io"
+                className="mb-2 w-full rounded-lg border border-[var(--border)] bg-[var(--card)] px-3 py-2 text-[13px]"
+              />
+              <input
+                type="password"
+                value={bbPassword}
+                onChange={(e) => setBbPassword(e.target.value)}
+                placeholder="Server password (BlueBubbles → API & Webhooks)"
+                className="mb-2 w-full rounded-lg border border-[var(--border)] bg-[var(--card)] px-3 py-2 text-[13px]"
+              />
+              <div className="flex flex-wrap items-center gap-2">
+                <button
+                  type="button"
+                  disabled={bbBusy != null || !bbUrl.trim() || !bbPassword.trim()}
+                  onClick={() => bbAction("save")}
+                  className="rounded-full bg-[var(--primary)] px-4 py-1.5 text-[12px] font-semibold text-white disabled:opacity-50"
+                >
+                  {bbBusy === "save" ? "Connecting…" : "Connect"}
+                </button>
+                <button
+                  type="button"
+                  disabled={bbBusy != null || !bbStatus?.configured}
+                  onClick={() => bbAction("sync")}
+                  className="rounded-full border border-[var(--primary)] px-4 py-1.5 text-[12px] font-semibold text-[var(--primary)] disabled:opacity-50"
+                >
+                  {bbBusy === "sync" ? "Syncing…" : "Sync texting circle"}
+                </button>
+                {bbStatus?.configured ? (
+                  <button
+                    type="button"
+                    disabled={bbBusy != null}
+                    onClick={() => bbAction("clear")}
+                    className="rounded-full px-3 py-1.5 text-[12px] font-medium text-[#d63b2f] disabled:opacity-50"
+                  >
+                    Disconnect
+                  </button>
+                ) : null}
+              </div>
+              {bbStatus?.stats ? (
+                <p className="mt-2 text-[11px] text-[var(--muted)]">
+                  Last sync{" "}
+                  {new Date(bbStatus.stats.syncedAt).toLocaleString([], {
+                    month: "short",
+                    day: "numeric",
+                    hour: "numeric",
+                    minute: "2-digit",
+                  })}{" "}
+                  · {bbStatus.stats.chatCount} chats ·{" "}
+                  {bbStatus.stats.emailsMatched} emails matched
+                </p>
+              ) : null}
+              {bbNote ? (
+                <p className="mt-2 text-[11px] font-medium text-[var(--fg)]">
+                  {bbNote}
+                </p>
+              ) : null}
+            </div>
           </section>
 
           <section className="mb-6">
