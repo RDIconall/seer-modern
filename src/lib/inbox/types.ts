@@ -36,6 +36,10 @@ export type EmailItem = {
   receivedAt: string;
   isUnread: boolean;
   guide?: Guide;
+  /** All addresses on the message — recipient-group identity for threads */
+  participants?: string[];
+  /** How many inbox messages collapsed into this thread row */
+  threadCount?: number;
 };
 
 export type Section = {

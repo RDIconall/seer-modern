@@ -10,6 +10,7 @@ import {
   getAssistantStatus,
 } from "@/lib/inbox/gemini-triage";
 import { getOrBuildMailHistory } from "@/lib/inbox/mail-history-store";
+import { collapseThreads } from "@/lib/inbox/thread-collapse";
 import { getPersonalContext } from "@/lib/inbox/personal-context";
 import { loadActionMemory } from "@/lib/store/action-memory";
 import { loadRepliedThreads } from "@/lib/store/replied-threads";
@@ -52,6 +53,8 @@ export type TodayEmail = {
   receivedAt: string;
   isUnread: boolean;
   guide: ReturnType<typeof buildActionGuideQuick>;
+  participants?: string[];
+  threadCount?: number;
 };
 
 export type TodaySection = {
@@ -162,10 +165,14 @@ export async function GET() {
       classified.push({ ...m, guide });
     }
 
-    const needsReview = classified.filter(
+    // Threads, not messages: one row per conversation (same recipient
+    // group), represented by its newest message — like Gmail renders it.
+    const collapsed = collapseThreads(classified);
+
+    const needsReview = collapsed.filter(
       (e) => e.guide.action === "needs_review",
     );
-    const processed = classified.filter(
+    const processed = collapsed.filter(
       (e) => e.guide.action !== "needs_review",
     );
 
@@ -186,7 +193,7 @@ export async function GET() {
       items: byAction.get(action) ?? [],
     }));
 
-    const inbox = [...classified].sort(
+    const inbox = [...collapsed].sort(
       (a, b) =>
         new Date(b.receivedAt).getTime() - new Date(a.receivedAt).getTime(),
     );
@@ -201,7 +208,7 @@ export async function GET() {
       inbox,
       needsReview,
       sections,
-      count: classified.length,
+      count: collapsed.length,
       history: {
         builtAt: history.builtAt,
         contactCount: history.contactCount,

@@ -13,6 +13,9 @@ export type MailMessageListItem = {
   isUnread: boolean;
   /** Provider label ids (Gmail) — carries saved Seer decisions */
   labelIds?: string[];
+  /** Every address on the message (from + to + cc, lowercase) — the
+   *  recipient group that decides whether thread rows collapse */
+  participants?: string[];
 };
 
 export type MailMessageDetail = MailMessageListItem & {

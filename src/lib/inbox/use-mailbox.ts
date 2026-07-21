@@ -28,7 +28,7 @@ import {
 
 // Bumped on releases that change server-computed text (tasks, asks,
 // categories) so stale local snapshots don't outlive the fix.
-const CACHE_PREFIX = "seer:v2:";
+const CACHE_PREFIX = "seer:v3:";
 const CACHE_MAX_AGE_MS = 12 * 60 * 60 * 1000;
 
 type CacheEnvelope<T> = { accountEmail?: string; savedAt: number; data: T };
@@ -161,22 +161,30 @@ export function useMailbox(initialTab: ViewTab = "inbox") {
 
   // Instant-sync tombstones: Gmail's list API lags a minute behind
   // modify calls, so a background refresh can resurrect mail you just
-  // archived. Anything acted on recently is scrubbed from fresh loads.
+  // archived. Anything acted on recently is scrubbed from fresh loads —
+  // by message id AND by thread id, since actions clear whole threads.
   const acted = useRef(new Map<string, number>());
-  const markActed = useCallback((id: string) => {
+  const actedThreads = useRef(new Map<string, number>());
+  const markActed = useCallback((id: string, threadId?: string) => {
     acted.current.set(id, Date.now());
-    if (acted.current.size > 500) {
+    if (threadId) actedThreads.current.set(threadId, Date.now());
+    if (acted.current.size > 500 || actedThreads.current.size > 500) {
       const cutoff = Date.now() - TOMBSTONE_MS;
       for (const [k, t] of acted.current) {
         if (t < cutoff) acted.current.delete(k);
       }
+      for (const [k, t] of actedThreads.current) {
+        if (t < cutoff) actedThreads.current.delete(k);
+      }
     }
   }, []);
   const scrub = useCallback(
-    <T extends { id: string }>(arr: T[]): T[] =>
+    <T extends { id: string; threadId?: string }>(arr: T[]): T[] =>
       arr.filter((i) => {
         const t = acted.current.get(i.id);
-        return t == null || Date.now() - t > TOMBSTONE_MS;
+        if (t != null && Date.now() - t <= TOMBSTONE_MS) return false;
+        const tt = i.threadId ? actedThreads.current.get(i.threadId) : null;
+        return tt == null || Date.now() - tt > TOMBSTONE_MS;
       }),
     [],
   );
@@ -318,16 +326,21 @@ export function useMailbox(initialTab: ViewTab = "inbox") {
   }, []);
 
   const runAction = useCallback(
-    async (id: string, action: MailAction, fromEmail?: string) => {
+    async (
+      id: string,
+      action: MailAction,
+      fromEmail?: string,
+      threadId?: string,
+    ) => {
       setBusyId(id);
-      markActed(id);
+      markActed(id, threadId);
       removeFromLists(id);
       if (readerId === id) closeReader();
       try {
         const res = await fetch("/api/action", {
           method: "POST",
           headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ id, action, fromEmail }),
+          body: JSON.stringify({ id, action, fromEmail, threadId }),
         });
         if (!res.ok) {
           const j = await res.json();
@@ -421,7 +434,7 @@ export function useMailbox(initialTab: ViewTab = "inbox") {
   const bulkSection = useCallback(
     async (section: Section, action: MailAction) => {
       const ids = section.items.map((i) => i.id);
-      ids.forEach(markActed);
+      for (const i of section.items) markActed(i.id, i.threadId);
       setTriage((prev) => {
         if (!prev) return prev;
         const idSet = new Set(ids);
@@ -451,6 +464,7 @@ export function useMailbox(initialTab: ViewTab = "inbox") {
             body: JSON.stringify({
               items: section.items.map((i) => ({
                 id: i.id,
+                threadId: i.threadId,
                 fromEmail: i.fromEmail,
               })),
             }),
@@ -471,6 +485,7 @@ export function useMailbox(initialTab: ViewTab = "inbox") {
           body: JSON.stringify({
             items: section.items.map((i) => ({
               id: i.id,
+              threadId: i.threadId,
               action,
               fromEmail: i.fromEmail,
             })),
@@ -489,12 +504,12 @@ export function useMailbox(initialTab: ViewTab = "inbox") {
   /** Multi-select: one action over any set of picked emails. */
   const runBulk = useCallback(
     async (
-      picked: { id: string; fromEmail?: string }[],
+      picked: { id: string; fromEmail?: string; threadId?: string }[],
       action: MailAction,
     ) => {
       if (picked.length === 0) return;
       for (const p of picked) {
-        markActed(p.id);
+        markActed(p.id, p.threadId);
         removeFromLists(p.id);
       }
       try {
@@ -504,6 +519,7 @@ export function useMailbox(initialTab: ViewTab = "inbox") {
           body: JSON.stringify({
             items: picked.map((p) => ({
               id: p.id,
+              threadId: p.threadId,
               action,
               fromEmail: p.fromEmail,
             })),
@@ -527,15 +543,15 @@ export function useMailbox(initialTab: ViewTab = "inbox") {
 
   /** Unsubscribe a single message for real, then trash + mute sender. */
   const unsubscribe = useCallback(
-    async (id: string, fromEmail?: string) => {
-      markActed(id);
+    async (id: string, fromEmail?: string, threadId?: string) => {
+      markActed(id, threadId);
       removeFromLists(id);
       if (readerId === id) closeReader();
       try {
         const res = await fetch("/api/unsubscribe", {
           method: "POST",
           headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ id, fromEmail }),
+          body: JSON.stringify({ id, fromEmail, threadId }),
         });
         const json = await res.json();
         if (!res.ok) throw new Error(json.error ?? "Unsubscribe failed");
@@ -563,7 +579,12 @@ export function useMailbox(initialTab: ViewTab = "inbox") {
    * "unsubscribe" actually unsubscribes.
    */
   const teachSender = useCallback(
-    async (fromEmail: string, action: TriageAction, messageId?: string) => {
+    async (
+      fromEmail: string,
+      action: TriageAction,
+      messageId?: string,
+      threadId?: string,
+    ) => {
       await fetch("/api/reclassify", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
@@ -571,13 +592,13 @@ export function useMailbox(initialTab: ViewTab = "inbox") {
       }).catch(() => {});
 
       if (messageId && action === "unsubscribe") {
-        await unsubscribe(messageId, fromEmail);
+        await unsubscribe(messageId, fromEmail, threadId);
         return;
       }
       if (messageId) {
         const apply = primaryMailAction(action);
         if (apply === "trash" || apply === "archive") {
-          await runAction(messageId, apply, fromEmail);
+          await runAction(messageId, apply, fromEmail, threadId);
           setToast(
             `Taught — "${fromEmail.split("@")[1] ?? fromEmail}" is always ${apply === "trash" ? "deleted" : "archived"} now`,
           );

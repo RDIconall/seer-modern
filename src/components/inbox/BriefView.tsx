@@ -45,10 +45,20 @@ const HANDLED: TriageAction[] = [
 
 type Handlers = {
   openReader: (id: string) => void;
-  runAction: (id: string, action: MailAction, fromEmail?: string) => void;
+  runAction: (
+    id: string,
+    action: MailAction,
+    fromEmail?: string,
+    threadId?: string,
+  ) => void;
   bulkSection: (section: Section, action: MailAction) => void;
-  unsubscribe: (id: string, fromEmail?: string) => void;
-  teachSender: (fromEmail: string, action: TriageAction, id?: string) => void;
+  unsubscribe: (id: string, fromEmail?: string, threadId?: string) => void;
+  teachSender: (
+    fromEmail: string,
+    action: TriageAction,
+    id?: string,
+    threadId?: string,
+  ) => void;
   nudge: (messageId: string) => void;
   nudging: string | null;
   logicMode: boolean;
@@ -317,6 +327,12 @@ function BriefRow({
           <span className="flex items-baseline gap-1.5 truncate text-[12px] text-[var(--muted)]">
             <span className="truncate font-medium text-[var(--fg)]">
               {item.fromName || item.fromEmail}
+              {(item.threadCount ?? 1) > 1 ? (
+                <span className="font-normal text-[var(--muted)]">
+                  {" "}
+                  · {item.threadCount}
+                </span>
+              ) : null}
             </span>
             {g?.category ? (
               <span className="shrink-0 rounded bg-[var(--card)] px-1 text-[10px] font-semibold">
@@ -329,7 +345,7 @@ function BriefRow({
             <LogicExplain
               guide={g}
               expanded
-              onTeach={(a) => h.teachSender(item.fromEmail, a, item.id)}
+              onTeach={(a) => h.teachSender(item.fromEmail, a, item.id, item.threadId)}
             />
           ) : null}
         </button>
@@ -338,7 +354,9 @@ function BriefRow({
           type="button"
           disabled={busy}
           aria-label="Archive it"
-          onClick={() => h.runAction(item.id, "archive", item.fromEmail)}
+          onClick={() =>
+            h.runAction(item.id, "archive", item.fromEmail, item.threadId)
+          }
           className="shrink-0 rounded-full border border-[var(--border)] p-2 text-[#0b8043] disabled:opacity-40"
         >
           <Archive className="h-4 w-4" />
@@ -349,8 +367,8 @@ function BriefRow({
           aria-label="Delete it"
           onClick={() =>
             g?.action === "unsubscribe"
-              ? h.unsubscribe(item.id, item.fromEmail)
-              : h.runAction(item.id, "trash", item.fromEmail)
+              ? h.unsubscribe(item.id, item.fromEmail, item.threadId)
+              : h.runAction(item.id, "trash", item.fromEmail, item.threadId)
           }
           className="shrink-0 rounded-full border border-[var(--border)] p-2 text-[#d63b2f] disabled:opacity-40"
         >

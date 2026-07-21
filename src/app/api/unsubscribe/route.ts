@@ -1,5 +1,5 @@
-import { gmailAction } from "@/lib/mail/gmail";
-import { graphAction } from "@/lib/mail/graph";
+import { gmailAction, gmailThreadAction } from "@/lib/mail/gmail";
+import { graphAction, graphThreadAction } from "@/lib/mail/graph";
 import { requireMailSession } from "@/lib/mail/session";
 import {
   unsubscribeGmail,
@@ -16,7 +16,7 @@ const UNSUB_CAP = 30;
 /** Everything beyond the cap still gets trashed + muted — nothing is dropped. */
 const BULK_CAP = 200;
 
-type Item = { id: string; fromEmail?: string };
+type Item = { id: string; threadId?: string; fromEmail?: string };
 
 /**
  * Unsubscribe for real: one-click POST / mailto send / link handoff,
@@ -32,13 +32,14 @@ export async function POST(request: Request) {
 
     const body = (await request.json()) as {
       id?: string;
+      threadId?: string;
       fromEmail?: string;
       items?: Item[];
     };
     const items: Item[] = body.items?.length
       ? body.items.slice(0, BULK_CAP)
       : body.id
-        ? [{ id: body.id, fromEmail: body.fromEmail }]
+        ? [{ id: body.id, threadId: body.threadId, fromEmail: body.fromEmail }]
         : [];
     if (items.length === 0) {
       return NextResponse.json(
@@ -72,7 +73,15 @@ export async function POST(request: Request) {
       else if (result.method === "link") links.push({ id: item.id, url: result.url });
       else trashedOnly += 1;
 
-      await doTrash(session.accessToken, item.id, "trash").catch(() => {});
+      if (item.threadId) {
+        const threadTrash =
+          session.provider === "google" ? gmailThreadAction : graphThreadAction;
+        await threadTrash(session.accessToken, item.threadId, "trash").catch(
+          () => {},
+        );
+      } else {
+        await doTrash(session.accessToken, item.id, "trash").catch(() => {});
+      }
       if (item.fromEmail?.includes("@")) {
         await setSenderOverride(item.fromEmail, "delete_now").catch(() => {});
       }

@@ -118,7 +118,7 @@ async function hydrateOne(
 ): Promise<MailMessageListItem> {
   const msg = (await gmailFetch(
     accessToken,
-    `/users/me/messages/${m.id}?format=metadata&metadataHeaders=From&metadataHeaders=Subject&metadataHeaders=To`,
+    `/users/me/messages/${m.id}?format=metadata&metadataHeaders=From&metadataHeaders=Subject&metadataHeaders=To&metadataHeaders=Cc`,
   )) as {
     id: string;
     threadId: string;
@@ -130,15 +130,30 @@ async function hydrateOne(
   const headers = msg.payload?.headers ?? [];
   const fromRaw = headers.find((h) => h.name === "From")?.value ?? "";
   const toRaw = headers.find((h) => h.name === "To")?.value ?? "";
+  const ccRaw = headers.find((h) => h.name === "Cc")?.value ?? "";
   const { name, email } = parseAddress(fromRaw);
   const firstTo = toRaw.split(",")[0]?.trim() ?? "";
   const peer = firstTo ? parseAddress(firstTo).email : undefined;
+  // The recipient group: everyone on the message. When this set changes
+  // mid-thread (someone drops the group and writes just to you), that
+  // message stops collapsing into the thread row.
+  const participants = [
+    email,
+    ...`${toRaw},${ccRaw}`
+      .split(",")
+      .map((s) => s.trim())
+      .filter(Boolean)
+      .map((s) => parseAddress(s).email),
+  ]
+    .map((e) => e.toLowerCase())
+    .filter((e, i, arr) => e.includes("@") && arr.indexOf(e) === i);
   return {
     id: msg.id,
     threadId: msg.threadId,
     fromEmail: email,
     fromName: name,
     peerEmail: peer,
+    participants,
     subject:
       headers.find((h) => h.name === "Subject")?.value ?? "(no subject)",
     snippet: msg.snippet ?? "",
@@ -342,6 +357,30 @@ export async function gmailAction(
   if (action === "archive") body.removeLabelIds = ["INBOX"];
   if (action === "read") body.removeLabelIds = ["UNREAD"];
   await gmailFetch(accessToken, `/users/me/messages/${id}/modify`, {
+    method: "POST",
+    body: JSON.stringify(body),
+  });
+}
+
+/**
+ * Act on the WHOLE conversation the way Gmail itself does — its native
+ * thread endpoints trash/archive every message in one call.
+ */
+export async function gmailThreadAction(
+  accessToken: string,
+  threadId: string,
+  action: "archive" | "trash" | "read",
+) {
+  if (action === "trash") {
+    await gmailFetch(accessToken, `/users/me/threads/${threadId}/trash`, {
+      method: "POST",
+    });
+    return;
+  }
+  const body: { removeLabelIds?: string[] } = {};
+  if (action === "archive") body.removeLabelIds = ["INBOX"];
+  if (action === "read") body.removeLabelIds = ["UNREAD"];
+  await gmailFetch(accessToken, `/users/me/threads/${threadId}/modify`, {
     method: "POST",
     body: JSON.stringify(body),
   });

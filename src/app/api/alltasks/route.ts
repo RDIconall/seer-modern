@@ -2,6 +2,7 @@ import { buildActionGuideQuick } from "@/lib/inbox/action-guide";
 import { classifyMessage } from "@/lib/inbox/classify";
 import { classifyInboxWithAssistant } from "@/lib/inbox/gemini-triage";
 import { getOrBuildMailHistory } from "@/lib/inbox/mail-history-store";
+import { collapseThreads } from "@/lib/inbox/thread-collapse";
 import { getPersonalContext } from "@/lib/inbox/personal-context";
 import { loadActionMemory } from "@/lib/store/action-memory";
 import { loadRepliedThreads } from "@/lib/store/replied-threads";
@@ -105,7 +106,7 @@ export async function GET() {
     );
 
     const tasks: IphoneTask[] = [];
-    for (const m of raw) {
+    for (const m of collapseThreads(raw)) {
       const classification = decisions.get(m.id);
       if (!classification) continue;
       const guide = buildActionGuideQuick(

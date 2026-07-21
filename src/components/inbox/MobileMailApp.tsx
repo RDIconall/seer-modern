@@ -168,7 +168,7 @@ export function MobileMailApp() {
     () =>
       listItems
         .filter((i) => picked.has(i.id))
-        .map((i) => ({ id: i.id, fromEmail: i.fromEmail })),
+        .map((i) => ({ id: i.id, fromEmail: i.fromEmail, threadId: i.threadId })),
     [listItems, picked],
   );
 
@@ -275,7 +275,9 @@ export function MobileMailApp() {
           </div>
           <IconBtn
             disabled={busyId === readerId}
-            onClick={() => runAction(readerId, "archive", reader?.fromEmail)}
+            onClick={() =>
+              runAction(readerId, "archive", reader?.fromEmail, reader?.threadId)
+            }
             label="Archive"
             light
           >
@@ -283,7 +285,9 @@ export function MobileMailApp() {
           </IconBtn>
           <IconBtn
             disabled={busyId === readerId}
-            onClick={() => runAction(readerId, "trash", reader?.fromEmail)}
+            onClick={() =>
+              runAction(readerId, "trash", reader?.fromEmail, reader?.threadId)
+            }
             label="Delete"
             light
           >
@@ -317,6 +321,7 @@ export function MobileMailApp() {
                           reader.fromEmail,
                           a,
                           readerId ?? undefined,
+                          reader.threadId,
                         )
                     : undefined
                 }
@@ -331,7 +336,8 @@ export function MobileMailApp() {
                 onRsvp={rsvp}
                 onUnsubscribe={
                   readerId
-                    ? () => unsubscribe(readerId, reader?.fromEmail)
+                    ? () =>
+                        unsubscribe(readerId, reader?.fromEmail, reader?.threadId)
                     : undefined
                 }
                 onDelegate={
@@ -664,7 +670,7 @@ export function MobileMailApp() {
                     item={item}
                     showGuide={tab === "inbox" || Boolean(query)}
                     logicMode={logicMode}
-                    onTeach={(a) => teachSender(item.fromEmail, a, item.id)}
+                    onTeach={(a) => teachSender(item.fromEmail, a, item.id, item.threadId)}
                     busy={busyId === item.id}
                     selectMode={selectMode}
                     checked={picked.has(item.id)}
@@ -672,10 +678,18 @@ export function MobileMailApp() {
                     onOpen={() => openReader(item.id)}
                     onArchive={
                       tab === "inbox"
-                        ? () => runAction(item.id, "archive", item.fromEmail)
+                        ? () =>
+                            runAction(
+                              item.id,
+                              "archive",
+                              item.fromEmail,
+                              item.threadId,
+                            )
                         : undefined
                     }
-                    onDelete={() => runAction(item.id, "trash", item.fromEmail)}
+                    onDelete={() =>
+                      runAction(item.id, "trash", item.fromEmail, item.threadId)
+                    }
                   />
                 ))}
               </ul>
@@ -1074,6 +1088,11 @@ function SwipeMailRow({
               className={`mail-from truncate text-[var(--fg-strong)] ${dense ? "text-[14px]" : "text-[15px]"}`}
             >
               {item.fromName || item.fromEmail}
+              {(item.threadCount ?? 1) > 1 ? (
+                <span className="ml-1 font-normal text-[var(--muted)]">
+                  · {item.threadCount}
+                </span>
+              ) : null}
             </span>
             <span className="shrink-0 text-[12px] text-[var(--muted)]">
               {formatMailTime(item.receivedAt)}

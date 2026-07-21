@@ -155,7 +155,7 @@ export function DesktopMailApp() {
     () =>
       listItems
         .filter((i) => picked.has(i.id))
-        .map((i) => ({ id: i.id, fromEmail: i.fromEmail })),
+        .map((i) => ({ id: i.id, fromEmail: i.fromEmail, threadId: i.threadId })),
     [listItems, picked],
   );
   const deckCards = useMemo(() => buildDeckCards(triage), [triage]);
@@ -379,7 +379,7 @@ export function DesktopMailApp() {
                   <ReaderGuideBar
                     guide={reader.guide}
                     onTeach={(a) =>
-                      teachSender(reader.fromEmail, a, readerId ?? undefined)
+                      teachSender(reader.fromEmail, a, readerId ?? undefined, reader.threadId)
                     }
                   />
                 </div>
@@ -562,16 +562,24 @@ export function DesktopMailApp() {
                       busy={busyId === item.id}
                       showGuide={tab === "inbox" || Boolean(query)}
                       logicMode={logicMode}
-                    onTeach={(a) => teachSender(item.fromEmail, a, item.id)}
+                    onTeach={(a) => teachSender(item.fromEmail, a, item.id, item.threadId)}
                       checked={picked.has(item.id)}
                       onToggleSelect={() => togglePick(item.id)}
                       onOpen={() => openReader(item.id)}
                       onArchive={
                         tab === "inbox"
-                          ? () => runAction(item.id, "archive", item.fromEmail)
+                          ? () =>
+                              runAction(
+                                item.id,
+                                "archive",
+                                item.fromEmail,
+                                item.threadId,
+                              )
                           : undefined
                       }
-                      onDelete={() => runAction(item.id, "trash", item.fromEmail)}
+                      onDelete={() =>
+                        runAction(item.id, "trash", item.fromEmail, item.threadId)
+                      }
                     />
                   ))}
                 </ul>
@@ -621,10 +629,17 @@ export function DesktopMailApp() {
                   onReplyAll={() => startReply("replyAll")}
                   onForward={() => startReply("forward")}
                   onArchive={() =>
-                    readerId && runAction(readerId, "archive", reader?.fromEmail)
+                    readerId &&
+                    runAction(
+                      readerId,
+                      "archive",
+                      reader?.fromEmail,
+                      reader?.threadId,
+                    )
                   }
                   onDelete={() =>
-                    readerId && runAction(readerId, "trash", reader?.fromEmail)
+                    readerId &&
+                    runAction(readerId, "trash", reader?.fromEmail, reader?.threadId)
                   }
                 />
               </div>
@@ -666,6 +681,7 @@ export function DesktopMailApp() {
                             reader.fromEmail,
                             a,
                             readerId ?? undefined,
+                            reader.threadId,
                           )
                         }
                       />
@@ -678,7 +694,12 @@ export function DesktopMailApp() {
                       onRsvp={rsvp}
                       onUnsubscribe={
                         readerId
-                          ? () => unsubscribe(readerId, reader?.fromEmail)
+                          ? () =>
+                              unsubscribe(
+                                readerId,
+                                reader?.fromEmail,
+                                reader?.threadId,
+                              )
                           : undefined
                       }
                       onDelegate={
@@ -803,6 +824,11 @@ function DesktopMailRow({
           <div className="flex items-baseline justify-between gap-2">
             <span className="mail-from truncate text-[13px] text-[var(--fg-strong)]">
               {item.fromName || item.fromEmail}
+              {(item.threadCount ?? 1) > 1 ? (
+                <span className="ml-1 font-normal text-[var(--muted)]">
+                  · {item.threadCount}
+                </span>
+              ) : null}
             </span>
             <span className="shrink-0 text-[11px] text-[var(--muted)]">
               {formatMailTime(item.receivedAt)}

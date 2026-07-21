@@ -2,6 +2,7 @@ import { buildActionGuideQuick } from "@/lib/inbox/action-guide";
 import { classifyMessage } from "@/lib/inbox/classify";
 import { classifyInboxWithAssistant } from "@/lib/inbox/gemini-triage";
 import { getOrBuildMailHistory } from "@/lib/inbox/mail-history-store";
+import { collapseThreads } from "@/lib/inbox/thread-collapse";
 import { getPersonalContext } from "@/lib/inbox/personal-context";
 import { loadActionMemory } from "@/lib/store/action-memory";
 import { loadRepliedThreads } from "@/lib/store/replied-threads";
@@ -159,6 +160,12 @@ export async function GET(request: Request) {
         });
       }
       assistant = { gemini, rules, override, learned, cached };
+    }
+
+    // Threads, not messages — the inbox shows one row per conversation
+    // (Gmail-style), unless the recipient group changed mid-thread.
+    if (folder === "inbox" && !q?.trim()) {
+      annotated = collapseThreads(annotated);
     }
 
     return NextResponse.json({

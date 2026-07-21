@@ -33,7 +33,12 @@ type Props = {
   deck: DeckCard[];
   busyId: string | null;
   onOpen: (id: string) => void;
-  onAction: (id: string, action: MailAction, fromEmail?: string) => void;
+  onAction: (
+    id: string,
+    action: MailAction,
+    fromEmail?: string,
+    threadId?: string,
+  ) => void;
   onBulk: (section: Section, action: MailAction) => void;
   onReply: (id: string) => void;
   /** Skip for now — card leaves the deck locally, returns next refresh. */
@@ -96,7 +101,7 @@ export function CardStack({
       if (busyId === card.item.id) return;
       // The optimistic removal in onAction pulls this card out of the
       // deck; also mark skipped so the UI advances even if it lingers.
-      onAction(card.item.id, action, card.item.fromEmail);
+      onAction(card.item.id, action, card.item.fromEmail, card.item.threadId);
     } else {
       onBulk(card.section, action);
     }
