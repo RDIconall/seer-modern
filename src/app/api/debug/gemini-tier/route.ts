@@ -53,11 +53,16 @@ export async function GET(request: Request) {
     .filter((m) => m.supportedGenerationMethods?.includes("generateContent"))
     .map((m) => m.name.replace("models/", ""));
   const proModels = generatable.filter((n) => /pro/i.test(n));
+  const proPick =
+    searchParams.get("m") ??
+    (proModels.includes("gemini-pro-latest")
+      ? "gemini-pro-latest"
+      : (proModels[0] ?? "gemini-pro-latest"));
 
   return NextResponse.json({
     keyPrefix: key.slice(0, 10),
     flash: await probe("gemini-flash-latest"),
-    pro: await probe(proModels[0] ?? "gemini-pro-latest"),
+    pro: await probe(proPick),
     proModelsVisible: proModels.slice(0, 8),
     modelCount: generatable.length,
   });
