@@ -327,7 +327,9 @@ function BriefRow({
           </span>
           <span className="flex items-baseline gap-1.5 truncate text-[12px] text-[var(--muted)]">
             <span className="truncate font-medium text-[var(--fg)]">
-              {item.fromName || item.fromEmail}
+              {item.threadSenders?.length
+                ? item.threadSenders.join(", ")
+                : item.fromName || item.fromEmail}
               {(item.threadCount ?? 1) > 1 ? (
                 <span className="font-normal text-[var(--muted)]">
                   {" "}

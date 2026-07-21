@@ -40,6 +40,8 @@ export type EmailItem = {
   participants?: string[];
   /** How many inbox messages collapsed into this thread row */
   threadCount?: number;
+  /** Distinct senders in speaking order — Gmail's "fs2117, me, Faisal" */
+  threadSenders?: string[];
 };
 
 export type Section = {

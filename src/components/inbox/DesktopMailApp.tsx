@@ -842,7 +842,9 @@ function DesktopMailRow({
         <div className="min-w-0 flex-1">
           <div className="flex items-baseline justify-between gap-2">
             <span className="mail-from truncate text-[13px] text-[var(--fg-strong)]">
-              {item.fromName || item.fromEmail}
+              {item.threadSenders?.length
+                ? item.threadSenders.join(", ")
+                : item.fromName || item.fromEmail}
               {(item.threadCount ?? 1) > 1 ? (
                 <span className="ml-1 font-normal text-[var(--muted)]">
                   · {item.threadCount}

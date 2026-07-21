@@ -1104,7 +1104,9 @@ function SwipeMailRow({
             <span
               className={`mail-from truncate text-[var(--fg-strong)] ${dense ? "text-[14px]" : "text-[15px]"}`}
             >
-              {item.fromName || item.fromEmail}
+              {item.threadSenders?.length
+                ? item.threadSenders.join(", ")
+                : item.fromName || item.fromEmail}
               {(item.threadCount ?? 1) > 1 ? (
                 <span className="ml-1 font-normal text-[var(--muted)]">
                   · {item.threadCount}

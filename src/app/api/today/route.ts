@@ -56,6 +56,7 @@ export type TodayEmail = {
   guide: ReturnType<typeof buildActionGuideQuick>;
   participants?: string[];
   threadCount?: number;
+  threadSenders?: string[];
 };
 
 export type TodaySection = {
