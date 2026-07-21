@@ -53,6 +53,8 @@ export function senderStory(
       : `A real correspondent — you've emailed them ${d.sentTo}× recently.`;
   } else if (d?.relationship === "known") {
     who = `They write you often (${d.receivedFrom} recent) but you've never replied.`;
+  } else if ((d?.keptFrom ?? 0) >= 2) {
+    who = `A service you signed up for — you've read and kept ${d?.keptFrom} of their emails.`;
   } else if (d?.relationship === "bulk") {
     who = "A machine, not a person — an automated sender you've never written.";
   } else {

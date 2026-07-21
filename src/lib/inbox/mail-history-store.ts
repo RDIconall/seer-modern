@@ -37,9 +37,14 @@ type HistoryLoader = {
     folder: "inbox" | "sent",
     max: number,
   ) => Promise<MailMessageListItem[]>;
+  /** Read-and-archived mail — the "I signed up for this" evidence. */
+  listArchive?: (
+    accessToken: string,
+    max: number,
+  ) => Promise<MailMessageListItem[]>;
 };
 
-/** Load or rebuild relationship graph (sent + inbox sample). Server-only. */
+/** Load or rebuild relationship graph (sent + inbox + kept archive). */
 export async function getOrBuildMailHistory(
   accountEmail: string,
   accessToken: string,
@@ -49,13 +54,16 @@ export async function getOrBuildMailHistory(
   const cached = await loadCachedHistory(accountEmail);
   if (cached) return cached;
 
-  const [inbox, sent] = await Promise.all([
+  const [inbox, sent, archived] = await Promise.all([
     inboxSample
       ? Promise.resolve(inboxSample)
       : loader.listFolder(accessToken, "inbox", 50),
     loader.listFolder(accessToken, "sent", 80),
+    loader.listArchive
+      ? loader.listArchive(accessToken, 200).catch(() => [])
+      : Promise.resolve([]),
   ]);
-  const history = buildMailHistory(accountEmail, inbox, sent);
+  const history = buildMailHistory(accountEmail, inbox, sent, archived);
   await saveCachedHistory(history);
   return history;
 }

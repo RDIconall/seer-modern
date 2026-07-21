@@ -21,6 +21,9 @@ export type ContactStat = {
   initiated?: number;
   /** Median minutes the user takes to reply to them — revealed priority */
   medianReplyMins?: number;
+  /** Emails from this sender the user READ and ARCHIVED — deliberate
+   *  keeping. "I signed up for this" leaves exactly this trail. */
+  keptFrom?: number;
 };
 
 export type MailHistory = {
@@ -44,6 +47,8 @@ export type HistorySignals = {
   medianReplyMins?: number;
   /** Threads the user started with them */
   initiated?: number;
+  /** Read-and-kept mail from this sender in the archive */
+  keptFrom?: number;
 };
 
 const STALE_DAYS = 30;
@@ -70,6 +75,7 @@ export function buildMailHistory(
   accountEmail: string,
   inbox: MailMessageListItem[],
   sent: MailMessageListItem[],
+  archived?: MailMessageListItem[],
 ): MailHistory {
   const me = norm(accountEmail);
   const contacts: Record<string, ContactStat> = {};
@@ -141,6 +147,19 @@ export function buildMailHistory(
     }
   }
 
+  // The archive is testimony: mail the user READ and then KEPT is a
+  // relationship they opted into (registrations, services, teams).
+  // Unread-but-archived is excluded — that's a bulk sweep, not a choice.
+  for (const m of archived ?? []) {
+    if (m.isUnread) continue;
+    const c = touch(m.fromEmail);
+    if (!c) continue;
+    c.keptFrom = (c.keptFrom ?? 0) + 1;
+    if (!c.lastReceivedAt || m.receivedAt > c.lastReceivedAt) {
+      c.lastReceivedAt = m.receivedAt;
+    }
+  }
+
   const engagedCount = Object.values(contacts).filter((c) => c.sentTo > 0)
     .length;
 
@@ -167,11 +186,16 @@ export function historySignals(
     sentTo > 0 &&
     (daysSinceLastSent == null || daysSinceLastSent > STALE_DAYS);
 
+  const keptFrom = c?.keptFrom ?? 0;
+
   let relationship: Relationship;
-  if (looksBulkAddress(email) && sentTo === 0) relationship = "bulk";
-  else if (sentTo > 0) relationship = "engaged";
-  else if (receivedFrom >= 3) relationship = "known";
+  if (sentTo > 0) relationship = "engaged";
+  // Deliberately-kept mail beats address shape: a noreply@ sender whose
+  // messages the user reads and files is a signed-up-for service, not
+  // bulk ("I signed up for it and there is history for that").
+  else if (keptFrom >= 2) relationship = "known";
   else if (looksBulkAddress(email)) relationship = "bulk";
+  else if (receivedFrom >= 3) relationship = "known";
   else relationship = "cold";
 
   return {
@@ -182,5 +206,6 @@ export function historySignals(
     staleEngagement,
     medianReplyMins: c?.medianReplyMins,
     initiated: c?.initiated,
+    keptFrom,
   };
 }

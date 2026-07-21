@@ -14,6 +14,7 @@ import {
   getGmailThreadLast,
   listGmailFolder,
   listGmailInbox,
+  searchGmail,
 } from "@/lib/mail/gmail";
 import {
   getGraphMessage,
@@ -51,6 +52,15 @@ export async function GET() {
               session.provider === "google"
                 ? listGmailFolder(token, folder, max)
                 : listGraphFolder(token, folder, max),
+            listArchive:
+              session.provider === "google"
+                ? (token, max) =>
+                    searchGmail(
+                      token,
+                      "-in:inbox -in:sent -in:trash -in:spam is:read",
+                      max,
+                    )
+                : undefined,
           },
           raw,
         ),

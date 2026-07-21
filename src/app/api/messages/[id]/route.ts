@@ -13,6 +13,7 @@ import {
   getGmailMessage,
   getGmailThreadLast,
   listGmailFolder,
+  searchGmail,
 } from "@/lib/mail/gmail";
 import { getGraphMessage, listGraphFolder } from "@/lib/mail/graph";
 import { makeGmailLabelStore } from "@/lib/mail/seer-labels";
@@ -95,6 +96,15 @@ export async function GET(
               session.provider === "google"
                 ? listGmailFolder(token, folder, max)
                 : listGraphFolder(token, folder, max),
+            listArchive:
+              session.provider === "google"
+                ? (token, max) =>
+                    searchGmail(
+                      token,
+                      "-in:inbox -in:sent -in:trash -in:spam is:read",
+                      max,
+                    )
+                : undefined,
           },
         ),
         getPersonalContext({

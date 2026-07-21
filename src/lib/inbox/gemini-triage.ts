@@ -56,7 +56,7 @@ import { z } from "zod";
  * Bump when the prompt/actions change so stale cached decisions
  * are ignored and re-classified.
  */
-export const PROMPT_VERSION = 21;
+export const PROMPT_VERSION = 22;
 
 const ACTIONS = [
   "respond",
@@ -420,6 +420,7 @@ function debugFor(
     staleEngagement: signals.staleEngagement,
     actionable: intelContainsAny(text) || intel.request > 0 || intel.schedule > 0,
     intel,
+    keptFrom: signals.keptFrom,
   };
 }
 
@@ -465,12 +466,14 @@ HARD RULES (override everything above):
 - Passive status updates (shipped/delivered/completed/liked) need nothing — the event happens whether they read it or not.
 - Sender history never mutes risk: judge THIS message's intent first.
 - A REAL PERSON in the user's life (family, school, colleagues — anyone writing personally, whatever their tier) is NEVER delete_now/read_and_delete. "Someone else already handled it" makes it a record (read_and_archive), not trash — family and money threads get filed, never burned.
+- MEMBERSHIP LANGUAGE IN THE BODY beats missing history: "you're already registered", "your entry is confirmed", "your account/membership/reservation" = the user SIGNED UP for this. A dated opportunity from a signed-up service (ticket window, presale, renewal deadline, race entry) is decision-relevant — act_today or read_and_delete with the date in the task, never delete_now unread.
 - A confirmed appointment/service visit ("scheduled", "arriving between 9-1") holds the user's time → act_today while upcoming.
 
 Input fields: id, from, email, subject, snippet (full text), and optional predictors:
 - tier: personal-database view — vip (user PINNED them: never below respond/read) | inner | known | new | machine-shaped
 - age: days since arrival · rel/sent/recv/stale: relationship graph · contact/meeting: address book & calendar · past: what they did with this sender's mail
 - amount: largest dollar figure in the email. IMPORTANCE SCALES WITH DOLLARS — a $9 receipt is a record; a $2,000 unpaid invoice or an unfamiliar $500 charge deserves eyes.
+- kept: how many emails from this sender the user READ and deliberately KEPT in their archive. kept > 0 = a service they signed up for (registrations, teams, memberships) — an announcement with dates/windows from a kept sender is decision-relevant to them, not marketing noise. Never delete_now a kept sender's dated opportunity unread.
 - usual: this biller's baseline from the user's own charge history ("usually ~$140 (6 charges)"). An amount far above usual → review_subscription, name the deviation in the task.
 - replyMins: median minutes the user takes to answer this sender. Under 60 = someone they drop everything for — weight like a VIP.
 Priority when signals conflict: vip/meeting > contact > engaged rel > replyMins > past behavior > content.
@@ -505,6 +508,8 @@ type CompactItem = {
   contact?: boolean;
   meeting?: string;
   past?: string;
+  /** Read-and-kept archive mail from this sender — opted-in service */
+  kept?: number;
 };
 
 export type TriageExtras = {
@@ -624,6 +629,9 @@ function compactPayload(
     if (sig.sentTo > 0) item.sent = sig.sentTo;
     if (sig.receivedFrom > 0) item.recv = sig.receivedFrom;
     if (sig.staleEngagement) item.stale = true;
+    // "I signed up for it and there is history for that" — read-and-kept
+    // archive mail from this sender is opted-in evidence
+    if ((sig.keptFrom ?? 0) > 0) item.kept = sig.keptFrom;
 
     const ctx = contextSignals(extras?.personal, m.fromEmail);
     if (ctx.inContacts) item.contact = true;

@@ -35,6 +35,8 @@ export type ClassifyDebug = {
   /** Address-book / calendar signals when available */
   inContacts?: boolean;
   meeting?: string | null;
+  /** Read-and-kept archive mail from this sender — opted-in evidence */
+  keptFrom?: number;
 };
 
 /** Contact + calendar context, threaded in from personal-context. */
@@ -300,6 +302,7 @@ function hit(
       intel: ctx.intel,
       inContacts: ctx.extras?.inContacts,
       meeting: ctx.extras?.meeting ?? null,
+      keptFrom: ctx.signals.keptFrom,
     },
   };
 }

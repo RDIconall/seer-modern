@@ -83,6 +83,15 @@ export async function GET(request: Request) {
                 session.provider === "google"
                   ? listGmailFolder(token, f, max)
                   : listGraphFolder(token, f, max),
+              listArchive:
+                session.provider === "google"
+                  ? (token, max) =>
+                      searchGmail(
+                        token,
+                        "-in:inbox -in:sent -in:trash -in:spam is:read",
+                        max,
+                      )
+                  : undefined,
             },
             folder === "inbox" && !q?.trim() ? items : undefined,
           ),
