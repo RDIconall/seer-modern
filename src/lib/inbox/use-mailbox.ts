@@ -691,6 +691,9 @@ export function useMailbox(initialTab: ViewTab = "inbox") {
     guide: json.guide,
     keyActions: json.keyActions,
     calendarEvent: json.calendarEvent,
+    attachments: (json.message.attachments ?? undefined) as
+      | ReaderMessage["attachments"]
+      | undefined,
   });
 
   const fetchMessage = useCallback(

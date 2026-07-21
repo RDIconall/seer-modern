@@ -255,6 +255,13 @@ export type ReaderMessage = {
     startsAt: string;
     myStatus?: string;
   };
+  /** Real file attachments — name, type, size, provider attachment id */
+  attachments?: {
+    id: string;
+    filename: string;
+    mimeType: string;
+    size: number;
+  }[];
 };
 
 export function formatMailTime(iso: string) {

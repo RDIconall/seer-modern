@@ -18,6 +18,13 @@ export type MailMessageListItem = {
   participants?: string[];
 };
 
+export type MailAttachment = {
+  id: string;
+  filename: string;
+  mimeType: string;
+  size: number;
+};
+
 export type MailMessageDetail = MailMessageListItem & {
   textBody: string;
   htmlBody: string;
@@ -26,6 +33,7 @@ export type MailMessageDetail = MailMessageListItem & {
   messageIdHeader: string;
   /** UID from an embedded text/calendar part — exact invite → event link */
   icalUid?: string;
+  attachments?: MailAttachment[];
 };
 
 export type SendMailInput = {

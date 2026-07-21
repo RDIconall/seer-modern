@@ -707,6 +707,7 @@ export function DesktopMailApp() {
                     ) : null}
                     <AssistBar
                       reader={reader}
+                      messageId={readerId ?? undefined}
                       drafting={drafting}
                       onDraft={draftReply}
                       rsvping={rsvping}

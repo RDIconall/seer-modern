@@ -35,12 +35,31 @@ function extractBodies(payload: GmailPayload): {
   text: string;
   html: string;
   icalUid?: string;
+  attachments: {
+    id: string;
+    filename: string;
+    mimeType: string;
+    size: number;
+  }[];
 } {
   let text = "";
   let html = "";
   let icalUid: string | undefined;
+  const attachments: {
+    id: string;
+    filename: string;
+    mimeType: string;
+    size: number;
+  }[] = [];
   function walk(part: GmailPayload) {
-    if (part.mimeType === "text/plain" && part.body?.data) {
+    if (part.filename && part.body?.attachmentId) {
+      attachments.push({
+        id: part.body.attachmentId,
+        filename: part.filename,
+        mimeType: part.mimeType ?? "application/octet-stream",
+        size: part.body.size ?? 0,
+      });
+    } else if (part.mimeType === "text/plain" && part.body?.data) {
       text += decodeBase64Url(part.body.data);
     } else if (part.mimeType === "text/html" && part.body?.data) {
       html += decodeBase64Url(part.body.data);
@@ -58,12 +77,13 @@ function extractBodies(payload: GmailPayload): {
       html = decodeBase64Url(payload.body.data);
   }
   walk(payload);
-  return { text, html, icalUid };
+  return { text, html, icalUid, attachments };
 }
 
 type GmailPayload = {
   mimeType?: string;
-  body?: { data?: string; size?: number };
+  filename?: string;
+  body?: { data?: string; size?: number; attachmentId?: string };
   parts?: GmailPayload[];
   headers?: { name: string; value: string }[];
 };
@@ -317,9 +337,10 @@ export async function getGmailMessage(
     "";
   const fromRaw = header("From");
   const { name, email } = parseAddress(fromRaw);
-  const { text, html, icalUid } = extractBodies(msg.payload);
+  const { text, html, icalUid, attachments } = extractBodies(msg.payload);
   return {
     icalUid,
+    attachments,
     id: msg.id,
     threadId: msg.threadId,
     fromEmail: email,
@@ -352,6 +373,20 @@ function buildMime(input: SendMailInput): string {
     input.body,
   ];
   return lines.join("\r\n");
+}
+
+/** Raw attachment bytes for download/preview. */
+export async function getGmailAttachment(
+  accessToken: string,
+  messageId: string,
+  attachmentId: string,
+): Promise<Buffer> {
+  const res = (await gmailFetch(
+    accessToken,
+    `/users/me/messages/${messageId}/attachments/${attachmentId}`,
+  )) as { data?: string };
+  const padded = (res.data ?? "").replace(/-/g, "+").replace(/_/g, "/");
+  return Buffer.from(padded, "base64");
 }
 
 export async function sendGmailMessage(

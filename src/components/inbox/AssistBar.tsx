@@ -8,6 +8,7 @@ import {
   Check,
   ExternalLink,
   HelpCircle,
+  Paperclip,
   Sparkles,
   UserCheck,
   X,
@@ -18,8 +19,15 @@ import {
  * one-tap links pulled from the body (track / RSVP / pay), one-tap AI
  * reply drafts, and a one-tap handoff to the user's EA.
  */
+function prettySize(bytes: number): string {
+  if (bytes >= 1_000_000) return `${(bytes / 1_000_000).toFixed(1)} MB`;
+  if (bytes >= 1_000) return `${Math.round(bytes / 1_000)} KB`;
+  return bytes > 0 ? `${bytes} B` : "";
+}
+
 export function AssistBar({
   reader,
+  messageId,
   drafting,
   onDraft,
   rsvping,
@@ -29,6 +37,8 @@ export function AssistBar({
   onSchedule,
 }: {
   reader: ReaderMessage;
+  /** Needed to build attachment download URLs */
+  messageId?: string;
   drafting: boolean;
   onDraft: (intent?: "yes" | "no" | "later" | "delegate") => void;
   rsvping?: boolean;
@@ -56,8 +66,31 @@ export function AssistBar({
   // Delegate + Time block are universal actions — the bar always renders
   // when their handlers exist, on every kind of email.
 
+  const attachments = reader.attachments ?? [];
+
   return (
     <div className="mt-3 space-y-2">
+      {attachments.length > 0 && messageId ? (
+        <div className="flex flex-wrap gap-1.5">
+          {attachments.map((a) => (
+            <a
+              key={a.id}
+              href={`/api/messages/${messageId}/attachment?aid=${encodeURIComponent(a.id)}&name=${encodeURIComponent(a.filename)}&type=${encodeURIComponent(a.mimeType)}`}
+              target="_blank"
+              rel="noopener noreferrer"
+              className="inline-flex max-w-full items-center gap-1.5 rounded-lg border border-[var(--border)] bg-[var(--card)] px-2.5 py-1.5 text-[12px] font-medium"
+            >
+              <Paperclip className="h-3.5 w-3.5 shrink-0 text-[var(--primary)]" />
+              <span className="truncate">{a.filename}</span>
+              {a.size > 0 ? (
+                <span className="shrink-0 text-[10px] text-[var(--muted)]">
+                  {prettySize(a.size)}
+                </span>
+              ) : null}
+            </a>
+          ))}
+        </div>
+      ) : null}
       {ask ? (
         <div className="rounded-xl border-l-4 border-[var(--primary)] bg-[var(--primary-soft,rgba(52,152,217,0.08))] px-3 py-2.5">
           <div className="text-[10px] font-semibold uppercase tracking-wide text-[var(--primary)]">

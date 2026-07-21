@@ -347,6 +347,7 @@ export function MobileMailApp() {
             {reader ? (
               <AssistBar
                 reader={reader}
+                messageId={readerId ?? undefined}
                 drafting={drafting}
                 onDraft={draftReply}
                 rsvping={rsvping}
