@@ -176,7 +176,13 @@ function applyUrgencyDecay(
   const hay = `${item.subject} ${item.snippet}`;
   const expiring = EXPIRING_URGENCY.test(hay);
   const fast = FAST_EXPIRE.test(hay);
-  if (!(fast && age >= 1) && !(expiring && age >= 2)) return result;
+  // Appointment reminders arrive days before the visit — an email 8+
+  // days old is about a visit that already happened (May's allergy
+  // reminder must not scream in July).
+  const staleAppointment = APPOINTMENT_HOLD.test(hay) && age >= 8;
+  if (!(fast && age >= 1) && !(expiring && age >= 2) && !staleAppointment) {
+    return result;
+  }
   return {
     action: "delete_now",
     confidence: "HIGH",
