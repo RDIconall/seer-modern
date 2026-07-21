@@ -1,5 +1,6 @@
 import {
   ACTION_META,
+  APPOINTMENT_HOLD,
   needsYouEscape,
   type ClassifyDebug,
   type ClassifyExtras,
@@ -226,28 +227,6 @@ const GEMINI_TIME_BUDGET_MS = Math.max(
   10_000,
   Math.min(45_000, Number(process.env.SEER_GEMINI_TIME_BUDGET_MS ?? "30000") || 30_000),
 );
-
-/**
- * Rules the heuristic engine gets right with near-certainty and where a
- * wrong call is harmless (junk that was getting deleted/unsubscribed
- * anyway). These skip Gemini entirely — zero tokens spent.
- */
-const PREFILTER_RULE_IDS = new Set([
-  "bulk-delete",
-  "bulk-unsubscribe",
-  "marketing-cold-delete",
-  "marketing-unsubscribe",
-  "noreply-cold-delete",
-  "shopping-domain",
-  "product-notify-promo",
-  "product-passive-delete",
-  // NOTE: finance-record-archive deliberately NOT here — anything
-  // money-shaped gets the full AI read (an invoice that says "please
-  // pay" must never be filed as a receipt off a 200-char snippet).
-  "urgency-bait-delete",
-  "shipper-status-delete",
-  "autopay-record-archive",
-]);
 
 /**
  * Model discovery: Google retires model ids (gemini-2.5-flash died for
@@ -1054,7 +1033,15 @@ export async function classifyInboxWithAssistant(
       });
       continue;
     }
-    if (learned) {
+    // A learned mute is SENDER-level; records are MESSAGE-level. The
+    // same airline that spams you also sends the receipt you'll search
+    // for at tax time — "learned delete" never swallows a record; the
+    // AI reads it and files it properly instead.
+    const learnedRecord =
+      learned &&
+      learned.action === "delete_now" &&
+      /(receipt|itinerary|invoice|statement|confirmation)/i.test(item.subject);
+    if (learned && !learnedRecord) {
       const verb = learned.dominant === "trash" ? "deleted" : "archived";
       results.set(item.id, {
         action: learned.action,
@@ -1123,10 +1110,6 @@ export async function classifyInboxWithAssistant(
     }
 
     const ctx = contextSignals(extras?.personal, item.fromEmail);
-    const classifyExtras: ClassifyExtras = {
-      inContacts: ctx.inContacts,
-      meeting: meetingLabel(ctx.meeting),
-    };
 
     // 4. Native Gmail label: reviewed once earlier, call saved on the message.
     // Exception: an "urgent" label on a non-person sender (bulk/known robot,
@@ -1182,32 +1165,10 @@ export async function classifyInboxWithAssistant(
       }
     }
 
-    // 5. Rules pre-filter: obvious junk never reaches Gemini — but a
-    // contact or someone you're meeting soon is never junk.
-    if (!ctx.inContacts && !ctx.meeting && !extras?.forceGemini) {
-      const ruled = rulesFallback(
-        {
-          fromEmail: item.fromEmail,
-          fromName: item.fromName,
-          subject: item.subject,
-          snippet: item.snippet,
-        },
-        null,
-        history,
-        classifyExtras,
-      );
-      if (PREFILTER_RULE_IDS.has(ruled.debug.ruleId)) {
-        const r: AssistantClassifyResult = {
-          ...ruled,
-          source: "rules",
-          debug: { ...ruled.debug, ruleId: `rules:${ruled.debug.ruleId}` },
-        };
-        results.set(item.id, r);
-        toSave.set(item.id, toCached(r));
-        continue;
-      }
-    }
-
+    // 5. Everything ungraded gets the full AI read. (The old rules
+    // pre-filter that skipped Gemini for "obvious junk" is gone — it
+    // judged by sender shape and binned a plumber's "arriving 9am-1pm
+    // TODAY" as bulk noise. Paid gateway: content decides, not cost.)
     forGemini.push(item);
   }
 
@@ -1375,6 +1336,28 @@ export async function classifyInboxWithAssistant(
   for (const item of items) {
     const r = results.get(item.id);
     if (r) results.set(item.id, applyUrgencyDecay(item, r, history));
+  }
+
+  // Appointment floor: a CONFIRMED visit ("arriving between 9-1",
+  // "your appointment is scheduled") holds the user's time — no layer
+  // may file it below act_today while it's fresh. Once the day passes,
+  // it ages out naturally (guard only applies to recent mail).
+  for (const item of items) {
+    const r = results.get(item.id);
+    if (!r || r.action === "act_today" || r.action === "respond") continue;
+    if (r.source === "override") continue;
+    if (ageInDays(item.receivedAt) > 5) continue;
+    if (!APPOINTMENT_HOLD.test(`${item.subject}\n${item.snippet}`)) continue;
+    results.set(item.id, {
+      ...r,
+      action: "act_today",
+      confidence: "HIGH",
+      reason: "Confirmed appointment — you may need to be there",
+      debug: { ...r.debug, ruleId: "appointment-floor" },
+      task: r.task && r.task !== "none" ? r.task : "Be there — visit scheduled",
+      instruction:
+        "Someone is coming (or you're expected somewhere). Check the time window.",
+    });
   }
 
   // Person-protect: someone from your inner circle is never silently

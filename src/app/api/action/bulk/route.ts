@@ -1,7 +1,6 @@
 import { gmailAction, gmailThreadAction } from "@/lib/mail/gmail";
 import { graphAction, graphThreadAction } from "@/lib/mail/graph";
 import { requireMailSession } from "@/lib/mail/session";
-import { recordSenderAction } from "@/lib/store/action-memory";
 import { NextResponse } from "next/server";
 
 export const maxDuration = 60;
@@ -58,14 +57,11 @@ export async function POST(request: Request) {
       }
     }
 
-    // Implicit teaching from bulk sweeps too (sequential: shared store)
-    for (const item of items) {
-      if (item.fromEmail && (item.action === "archive" || item.action === "trash")) {
-        await recordSenderAction(session.email, item.fromEmail, item.action).catch(
-          () => {},
-        );
-      }
-    }
+    // NO implicit teaching from bulk sweeps: accepting Seer's own
+    // "delete all 30" suggestion is not the user judging each sender —
+    // recording it let Seer teach itself its own opinion (three AA
+    // receipts swept in one tap became "always delete American
+    // Airlines"). Only individual, deliberate actions teach.
 
     return NextResponse.json({ ok: true, processed, failed });
   } catch (e) {
