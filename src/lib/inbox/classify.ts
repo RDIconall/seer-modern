@@ -186,8 +186,8 @@ export const APPOINTMENT_HOLD =
   /\b(has been scheduled|is scheduled for|job scheduled|appointment (is )?(confirmed|scheduled|booked)|your (appointment|visit|service|installation|delivery window) (is|on|at)\b|arriv(e|es|ing) between|arrival window|technician (is |will )|(we|our team)('ll| will) (arrive|be there|see you)|on (his|her|their|our) way|upcoming appointment|appointment reminder|reminder: your appointment)\b/i;
 
 /** Money coming TO the user — checks never expire, always surface. */
-const REFUND_CHECK =
-  /\b(refund (check|issued|processed|on its way)|rebate check|reimbursement (check|issued|sent)|check (is )?(enclosed|attached|mailed|in the mail|on its way)|cash (your|this) check|deposit (your|this) check|settlement (check|payment)|you('| a)re owed)\b/i;
+export const REFUND_CHECK =
+  /\b(refund (check|checks|issued|processed|on its way)|tuition refund|rebate check|reimbursement (check|issued|sent)|check (is )?(enclosed|attached|mailed|in the mail|on its way)|cash (your|this) check|deposit (your|this) check|settlement (check|payment)|you('| a)re owed)\b/i;
 
 /** Enrolled autopay: the bill handles itself. */
 const AUTOPAY_BLOB =

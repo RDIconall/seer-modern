@@ -1,6 +1,7 @@
 import {
   ACTION_META,
   APPOINTMENT_HOLD,
+  REFUND_CHECK,
   needsYouEscape,
   type ClassifyDebug,
   type ClassifyExtras,
@@ -55,7 +56,7 @@ import { z } from "zod";
  * Bump when the prompt/actions change so stale cached decisions
  * are ignored and re-classified.
  */
-export const PROMPT_VERSION = 20;
+export const PROMPT_VERSION = 21;
 
 const ACTIONS = [
   "respond",
@@ -455,6 +456,8 @@ HARD RULES (override everything above):
 - Fake urgency ("expires tonight!", "action required") from marketing = importance 0.
 - Passive status updates (shipped/delivered/completed/liked) need nothing — the event happens whether they read it or not.
 - Sender history never mutes risk: judge THIS message's intent first.
+- A REAL PERSON in the user's life (family, school, colleagues — anyone writing personally, whatever their tier) is NEVER delete_now/read_and_delete. "Someone else already handled it" makes it a record (read_and_archive), not trash — family and money threads get filed, never burned.
+- A confirmed appointment/service visit ("scheduled", "arriving between 9-1") holds the user's time → act_today while upcoming.
 
 Input fields: id, from, email, subject, snippet (full text), and optional predictors:
 - tier: personal-database view — vip (user PINNED them: never below respond/read) | inner | known | new | machine-shaped
@@ -1360,22 +1363,50 @@ export async function classifyInboxWithAssistant(
     });
   }
 
-  // Person-protect: someone from your inner circle is never silently
-  // trashed, whatever any layer decided. (Taught overrides still win —
-  // teaching a sender delete IS an explicit decision about a person.)
+  // Person-protect: a real person in the user's life is never silently
+  // trashed, whatever any layer decided — including a fresh Gemini
+  // verdict. "Hilary already handled it" may be true, but a family
+  // thread about a refund check files as a record, it doesn't burn.
+  // (Taught overrides still win — teaching a sender delete IS an
+  // explicit decision about a person.)
+  const DELETEY = new Set<TriageAction>([
+    "delete_now",
+    "read_and_delete",
+    "unsubscribe",
+    "glance_promo",
+  ]);
   for (const item of items) {
     const r = results.get(item.id);
     if (!r || r.source === "override") continue;
     const tier = tiers.get(item.fromEmail.toLowerCase());
-    if (
-      tier === "inner" &&
-      (r.action === "delete_now" || r.action === "unsubscribe")
-    ) {
+    const ctx = contextSignals(extras?.personal, item.fromEmail);
+    const personish =
+      tier === "inner" ||
+      tier === "known" ||
+      tier === "new-credible" ||
+      ctx.inContacts;
+    if (personish && DELETEY.has(r.action)) {
       results.set(item.id, {
         ...r,
         action: "read_and_archive",
-        reason: "Inner circle — never auto-deleted",
+        reason: `A person in your life — filed, never deleted (${r.reason.slice(0, 80)})`,
         debug: { ...r.debug, ruleId: "person-protect" },
+      });
+    }
+    // Money coming TO you (refund/reimbursement/check in the mail) is
+    // kept until it clears — a fresh AI "no action needed" may be right
+    // about the deed, but the record floor still applies.
+    if (
+      DELETEY.has(r.action) &&
+      r.source !== "learned" &&
+      REFUND_CHECK.test(`${item.subject}\n${item.snippet}`)
+    ) {
+      const cur = results.get(item.id)!;
+      results.set(item.id, {
+        ...cur,
+        action: "read_and_archive",
+        reason: "Money coming to you — keep until the check clears",
+        debug: { ...cur.debug, ruleId: "refund-record-floor" },
       });
     }
     // VIPs sit above everything: their mail never drops below "read"
