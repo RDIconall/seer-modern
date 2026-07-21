@@ -162,7 +162,13 @@ export async function GET() {
         m.fromName,
         m.snippet,
       );
-      classified.push({ ...m, guide });
+      // Your own turns in inboxed threads display as "You" — the row's
+      // task says what to do; the name says who wrote what you're seeing.
+      const fromName =
+        m.fromEmail.toLowerCase() === session.email.toLowerCase()
+          ? "You"
+          : m.fromName;
+      classified.push({ ...m, fromName, guide });
     }
 
     // Threads, not messages: one row per conversation (same recipient
@@ -172,8 +178,14 @@ export async function GET() {
     const needsReview = collapsed.filter(
       (e) => e.guide.action === "needs_review",
     );
+    // Sibling rows of an active thread ("Part of an active thread")
+    // stay OUT of the triage sections — the thread's live row carries
+    // the action, and acting on it clears the whole conversation
+    // thread-wide anyway. They remain in the inbox list.
     const processed = collapsed.filter(
-      (e) => e.guide.action !== "needs_review",
+      (e) =>
+        e.guide.action !== "needs_review" &&
+        e.guide.debug?.ruleId !== "thread-sibling",
     );
 
     const byAction = new Map<TriageAction, TodayEmail[]>();

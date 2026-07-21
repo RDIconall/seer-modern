@@ -156,6 +156,10 @@ export async function GET(request: Request) {
         if (result.cached) cached += 1;
         annotated.push({
           ...m,
+          fromName:
+            m.fromEmail.toLowerCase() === session.email.toLowerCase()
+              ? "You"
+              : m.fromName,
           guide: buildActionGuideQuick(result, m.subject, m.fromName, m.snippet),
         });
       }
