@@ -176,6 +176,15 @@ const BILL_DUE =
 const PAID_MARKER =
   /\b(paid|payment (received|confirmed|successful|processed)|thank you for your payment|this is a receipt|no (payment|action) (is )?(due|needed|required))\b/i;
 
+/**
+ * A CONFIRMED appointment/service visit — someone is coming, or the
+ * user must show up. Confirmation phrasing only ("has been scheduled",
+ * "arriving between"), never marketing invitations ("schedule your
+ * appointment today!").
+ */
+export const APPOINTMENT_HOLD =
+  /\b(has been scheduled|is scheduled for|job scheduled|appointment (is )?(confirmed|scheduled|booked)|your (appointment|visit|service|installation|delivery window) (is|on|at)\b|arriv(e|es|ing) between|arrival window|technician (is |will )|(we|our team)('ll| will) (arrive|be there|see you)|on (his|her|their|our) way|upcoming appointment|appointment reminder|reminder: your appointment)\b/i;
+
 /** Money coming TO the user — checks never expire, always surface. */
 const REFUND_CHECK =
   /\b(refund (check|issued|processed|on its way)|rebate check|reimbursement (check|issued|sent)|check (is )?(enclosed|attached|mailed|in the mail|on its way)|cash (your|this) check|deposit (your|this) check|settlement (check|payment)|you('| a)re owed)\b/i;
@@ -202,6 +211,7 @@ export function needsYouEscape(subject: string, snippet: string): boolean {
     PRODUCT_NEEDS_YOU.test(hay) ||
     TRANSACTIONAL_URGENT.test(hay) ||
     REFUND_CHECK.test(hay) ||
+    APPOINTMENT_HOLD.test(hay) ||
     (BILL_DUE.test(hay) && !AUTOPAY_BLOB.test(hay) && !PAID_MARKER.test(hay))
   );
 }
@@ -475,6 +485,19 @@ function classifyCore(
       "MED",
       "Transactional time-sensitive (code / security / travel / delivery)",
       "transactional-urgent",
+      ctx,
+    );
+  }
+
+  // A confirmed appointment holds YOUR time — the plumber arriving
+  // 9am-1pm needs you home. Robots send these, but they're commitments,
+  // not noise; never bulk-delete them off the sender's shape.
+  if (APPOINTMENT_HOLD.test(blob) || APPOINTMENT_HOLD.test(input.subject)) {
+    return hit(
+      "act_today",
+      "HIGH",
+      "Confirmed appointment — you may need to be there",
+      "appointment-hold",
       ctx,
     );
   }
