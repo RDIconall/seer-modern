@@ -268,10 +268,16 @@ export async function getGmailThreadLast(
       messages?: {
         id: string;
         internalDate?: string;
+        labelIds?: string[];
         payload?: { headers?: { name: string; value: string }[] };
       }[];
     };
-    const msgs = t.messages ?? [];
+    // Drafts are not turns — an abandoned half-reply must never count
+    // as "you spoke last". (Trashed messages DO count: a wrongly-swept
+    // reply from a person still means the ball is in the user's court.)
+    const msgs = (t.messages ?? []).filter(
+      (m) => !(m.labelIds ?? []).includes("DRAFT"),
+    );
     const last = msgs[msgs.length - 1];
     if (!last) return null;
     const fromRaw =
