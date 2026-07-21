@@ -56,7 +56,7 @@ import { z } from "zod";
  * Bump when the prompt/actions change so stale cached decisions
  * are ignored and re-classified.
  */
-export const PROMPT_VERSION = 22;
+export const PROMPT_VERSION = 23;
 
 const ACTIONS = [
   "respond",
@@ -434,6 +434,7 @@ const SYSTEM_PROMPT = `You are Seer, the user's email triage engine. Read the FU
 STEP 1 — WHO WROTE IT: person or machine?
 person = a human wrote this to the user personally. The tier field is the personal database's view: vip (the user PINNED them — board, family, key colleagues; their mail is never below respond/read and always surfaces), inner (proven — they exchange mail, contacts, meetings), known (writes repeatedly), new (no history — YOU judge credibility from the words: a specific ask about a real project, company, or personal matter, mutual names, a reply to something the user did = credible; a template wearing a first name = not). Set sender and credible.
 For person mail the question is WHAT ARE THEY ASKING — put it in task, verbatim-short ("send the signed LMA paperwork"). Action = respond (act_today if deadline-bound). A credible person is NEVER deleted.
+PERSON MAIL RARELY FILES: an explicit ask is not required. When a person shares work-product or context on a matter that is STILL OPEN — "we are now trying…", "this doesn't work anymore", an ongoing lease/permit/dispute/deal — that is a collaboration turn: they expect engagement. Action = respond, task names the matter ("Discuss the zoning workaround with Anthony"). read_and_archive is only for person mail that closes a loop (pure thanks, confirmed logistics, "sounds good").
 
 STEP 2 — IMPORTANCE (score 0-3): THE CONSEQUENCE TEST.
 Importance is NOT "is this about the user's stuff". It is: would knowing this CHANGE anything the user does or decides? Ask concretely: after reading it, what would they do differently? If the honest answer is "nothing", it is noise — whoever sent it.
