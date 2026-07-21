@@ -73,29 +73,38 @@ async function gmailFetch(
   path: string,
   init?: RequestInit,
 ) {
-  const res = await fetch(`https://gmail.googleapis.com/gmail/v1${path}`, {
-    ...init,
-    headers: {
-      Authorization: `Bearer ${accessToken}`,
-      "Content-Type": "application/json",
-      ...init?.headers,
-    },
-    cache: "no-store",
-  });
-  if (!res.ok) {
+  // Inbox loads fire ~100 calls in a burst — Gmail will occasionally
+  // 429/5xx one of them. Transient failures retry with backoff instead
+  // of taking the whole refresh down.
+  let lastErr = "";
+  for (let attempt = 0; attempt < 3; attempt++) {
+    if (attempt > 0) {
+      await new Promise((r) => setTimeout(r, 300 * 2 ** attempt));
+    }
+    const res = await fetch(`https://gmail.googleapis.com/gmail/v1${path}`, {
+      ...init,
+      headers: {
+        Authorization: `Bearer ${accessToken}`,
+        "Content-Type": "application/json",
+        ...init?.headers,
+      },
+      cache: "no-store",
+    });
+    if (res.ok) {
+      if (res.status === 204) return null;
+      return res.json();
+    }
     const err = await res.text();
-    if (
-      res.status === 403 &&
-      /insufficient|ACCESS_TOKEN_SCOPE/i.test(err)
-    ) {
+    if (res.status === 403 && /insufficient|ACCESS_TOKEN_SCOPE/i.test(err)) {
       throw new Error(
         "Gmail permissions are incomplete — open Settings and tap Reconnect on this account, then approve all access on Google's screen.",
       );
     }
-    throw new Error(`Gmail ${path}: ${res.status} ${err.slice(0, 300)}`);
+    lastErr = `Gmail ${path}: ${res.status} ${err.slice(0, 300)}`;
+    const transient = res.status === 429 || res.status >= 500;
+    if (!transient) break;
   }
-  if (res.status === 204) return null;
-  return res.json();
+  throw new Error(lastErr);
 }
 
 function folderToQuery(folder: MailFolder, q?: string): string {
@@ -172,10 +181,21 @@ async function hydrateList(
   const items: MailMessageListItem[] = [];
   for (let i = 0; i < messages.length; i += HYDRATE_CONCURRENCY) {
     const chunk = messages.slice(i, i + HYDRATE_CONCURRENCY);
-    const hydrated = await Promise.all(
+    // One vanished/throttled message must not sink the other 89 — a
+    // message that won't hydrate is dropped from THIS load and comes
+    // back on the next one.
+    const hydrated = await Promise.allSettled(
       chunk.map((m) => hydrateOne(accessToken, m)),
     );
-    items.push(...hydrated);
+    for (const h of hydrated) {
+      if (h.status === "fulfilled") items.push(h.value);
+      else {
+        console.warn(
+          "[seer] hydrate skipped:",
+          h.reason instanceof Error ? h.reason.message.slice(0, 160) : h.reason,
+        );
+      }
+    }
   }
   return items;
 }
