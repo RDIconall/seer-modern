@@ -171,6 +171,8 @@ function applyUrgencyDecay(
   history: MailHistory | null | undefined,
 ): AssistantClassifyResult {
   if (result.action !== "act_today") return result;
+  // The user's own call is never decayed away — they said actionable.
+  if (result.source === "override") return result;
   const age = ageInDays(item.receivedAt);
   if (age < 1) return result;
   const hay = `${item.subject} ${item.snippet}`;
@@ -1076,6 +1078,15 @@ export async function classifyInboxWithAssistant(
     PROMPT_VERSION,
   ).catch(() => new Map<string, CachedDecision>());
 
+  // Gmail labels carry no version — after a prompt bump, every label is
+  // a previous era's opinion. Until one full load re-grades cleanly
+  // under the current version, label lookups are ignored (the LA28
+  // presale sat on a stale read_and_delete label this way).
+  const eraKey = `labels-era:${accountEmail.toLowerCase()}`;
+  const labelsTrusted = extras?.labels
+    ? (await kvGet<number>(eraKey).catch(() => null)) === PROMPT_VERSION
+    : false;
+
   const forGemini: GeminiTriageItem[] = [];
   const toSave = new Map<string, CachedDecision>();
 
@@ -1129,7 +1140,8 @@ export async function classifyInboxWithAssistant(
       extras?.profile &&
       Date.now() - new Date(extras.profile.updatedAt).getTime() <
         30 * 60 * 1000;
-    const labeled = profileFresh ? null : extras?.labels?.lookup(item);
+    const labeled =
+      profileFresh || !labelsTrusted ? null : extras?.labels?.lookup(item);
     if (labeled) {
       const rel = historySignals(history, item.fromEmail).relationship;
       const suspiciousUrgent =
@@ -1295,6 +1307,7 @@ export async function classifyInboxWithAssistant(
 
   // 7. Rules fallback for anything Gemini missed (not cached, so Gemini
   //    gets another shot on the next load)
+  let uncachedRulesLeftovers = 0;
   for (const item of forGemini) {
     if (results.has(item.id)) continue;
     const ctx = contextSignals(extras?.personal, item.fromEmail);
@@ -1333,6 +1346,7 @@ export async function classifyInboxWithAssistant(
       });
       continue;
     }
+    uncachedRulesLeftovers += 1;
     results.set(item.id, {
       ...r,
       source: "rules",
@@ -1483,6 +1497,12 @@ export async function classifyInboxWithAssistant(
       action: d.action,
     }));
     await extras.labels.persist(labelWrites).catch(() => {});
+  }
+
+  // A clean load under the current prompt version (nothing left on
+  // uncached rules fallbacks) re-earns label trust for this era.
+  if (extras?.labels && !labelsTrusted && uncachedRulesLeftovers === 0) {
+    await kvSet(eraKey, PROMPT_VERSION).catch(() => {});
   }
 
   return results;

@@ -26,15 +26,37 @@ export type TeachHandler = (action: TriageAction) => void;
 function TeachRow({
   guide,
   onTeach,
+  onActionable,
 }: {
   guide: Guide;
   onTeach: TeachHandler;
+  /** Correct THIS email only: actionable + offer to time-block it. */
+  onActionable?: () => void;
 }) {
   return (
     <div className="mt-1.5">
+      {onActionable && guide.action !== "act_today" ? (
+        <div className="mb-1.5">
+          <div className="mb-1 flex items-center gap-1 text-[10px] font-semibold uppercase tracking-wide text-[var(--muted)]">
+            <GraduationCap className="h-3 w-3" />
+            Wrong? Just this email:
+          </div>
+          <button
+            type="button"
+            onClick={(e) => {
+              e.stopPropagation();
+              onActionable();
+            }}
+            className="rounded px-2 py-1 text-[11px] font-bold text-white"
+            style={{ backgroundColor: ACTION_META.act_today.color }}
+          >
+            Actionable — keep &amp; schedule
+          </button>
+        </div>
+      ) : null}
       <div className="mb-1 flex items-center gap-1 text-[10px] font-semibold uppercase tracking-wide text-[var(--muted)]">
         <GraduationCap className="h-3 w-3" />
-        Wrong? Teach Seer — always:
+        Teach Seer — this sender, always:
       </div>
       <div className="flex flex-wrap gap-1">
         {TEACH_ACTIONS.filter((a) => a !== guide.action).map((a) => (
@@ -73,10 +95,12 @@ export function LogicExplain({
   guide,
   expanded,
   onTeach,
+  onActionable,
 }: {
   guide: Guide;
   expanded?: boolean;
   onTeach?: TeachHandler;
+  onActionable?: () => void;
 }) {
   const d = guide.debug;
   const sourceLabel = sourceLabelFor(guide);
@@ -153,7 +177,9 @@ export function LogicExplain({
           </dd>
         </dl>
       ) : null}
-      {expanded && onTeach ? <TeachRow guide={guide} onTeach={onTeach} /> : null}
+      {expanded && onTeach ? (
+        <TeachRow guide={guide} onTeach={onTeach} onActionable={onActionable} />
+      ) : null}
     </div>
   );
 }
@@ -165,9 +191,11 @@ export function LogicExplain({
 export function ReaderGuideBar({
   guide,
   onTeach,
+  onActionable,
 }: {
   guide: Guide;
   onTeach?: TeachHandler;
+  onActionable?: () => void;
 }) {
   const [open, setOpen] = useState(false);
   const d = guide.debug;
@@ -241,7 +269,13 @@ export function ReaderGuideBar({
               {d.meeting ? ` · ${d.meeting}` : ""}
             </p>
           ) : null}
-          {onTeach ? <TeachRow guide={guide} onTeach={onTeach} /> : null}
+          {onTeach ? (
+            <TeachRow
+              guide={guide}
+              onTeach={onTeach}
+              onActionable={onActionable}
+            />
+          ) : null}
         </div>
       ) : null}
     </div>

@@ -108,6 +108,7 @@ export function MobileMailApp() {
     runBulk,
     unsubscribe,
     teachSender,
+    markActionable,
     openReader,
     closeReader,
     startCompose,
@@ -327,6 +328,17 @@ export function MobileMailApp() {
                           a,
                           readerId ?? undefined,
                           reader.threadId,
+                        )
+                    : undefined
+                }
+                onActionable={
+                  reader && readerId
+                    ? () =>
+                        markActionable(
+                          readerId,
+                          reader.subject,
+                          g?.ask,
+                          reader.fromName,
                         )
                     : undefined
                 }

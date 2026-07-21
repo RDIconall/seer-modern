@@ -3,6 +3,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import type { TriageAction } from "@/lib/inbox/classify";
 import type {
+  Guide,
   MailAction,
   MailboxData,
   ReaderMessage,
@@ -574,6 +575,65 @@ export function useMailbox(initialTab: ViewTab = "inbox") {
   );
 
   /**
+   * Correct ONE email (not the sender): "this presale IS actionable".
+   * Updates the guide in place, keeps the email in Needs You, and
+   * offers to time-block it immediately.
+   */
+  const markActionable = useCallback(
+    async (id: string, subject?: string, ask?: string, fromName?: string) => {
+      const patch = (g: Guide): Guide => ({
+        ...g,
+        action: "act_today",
+        label: "Act today",
+        color: "#e8710a",
+        confidence: "HIGH",
+        reason: "You corrected this email yourself",
+        source: "override" as const,
+        task:
+          g.task && g.task !== "none" ? g.task : "Act on this — you flagged it",
+      });
+      const apply = <T extends { id: string; guide?: Guide }>(
+        arr: T[],
+      ): T[] =>
+        arr.map((i) =>
+          i.id === id && i.guide ? { ...i, guide: patch(i.guide) } : i,
+        );
+      setMailbox((prev) =>
+        prev ? { ...prev, items: apply(prev.items) } : prev,
+      );
+      setTriage((prev) => {
+        if (!prev) return prev;
+        return {
+          ...prev,
+          inbox: prev.inbox ? apply(prev.inbox) : prev.inbox,
+          needsReview: apply(prev.needsReview),
+          sections: prev.sections.map((s) => ({ ...s, items: apply(s.items) })),
+        };
+      });
+      setReader((prev) =>
+        prev && readerId === id && prev.guide
+          ? { ...prev, guide: patch(prev.guide) }
+          : prev,
+      );
+      messageCache.current.delete(id);
+      try {
+        const res = await fetch("/api/correct", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ id, action: "act_today" }),
+        });
+        if (!res.ok) throw new Error((await res.json()).error);
+        setToast("Marked actionable — staying in Needs you");
+        openSchedule(id, subject ?? "", ask, fromName);
+      } catch (e) {
+        setToast(e instanceof Error ? e.message : "Correction failed");
+      }
+    },
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [readerId],
+  );
+
+  /**
    * Correct / train Seer: saves a taught override (top of the
    * precedence chain — beats Gemini, labels, everything, forever) and
    * applies the correction to THIS email right now. Teaching
@@ -995,6 +1055,7 @@ export function useMailbox(initialTab: ViewTab = "inbox") {
     runBulk,
     unsubscribe,
     teachSender,
+    markActionable,
     openReader,
     closeReader,
     startCompose,
