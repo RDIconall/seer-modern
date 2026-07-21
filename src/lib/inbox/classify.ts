@@ -166,9 +166,11 @@ const PRODUCT_NEEDS_YOU =
 const FINANCE_RISK =
   /\b(payment (failed|declined|overdue|past due)|card (was )?declined|insufficient funds|overdraft|fraud|unusual activity|suspicious (charge|transaction)|dispute|due (today|tomorrow)|final notice|account (suspended|locked|on hold))\b/i;
 
-/** A bill the user must PAY BY HAND — amount due + no autopay. */
+/** A bill the user must PAY BY HAND — amount due + no autopay.
+ *  Covers real-world shapes: "DUE 07/31/2026", "Invoice 9905",
+ *  "Here&#39;s your invoice" (HTML-entity apostrophes). */
 const BILL_DUE =
-  /\b(amount due|payment (is )?due|due (by|on) [a-z0-9]|pay by [a-z0-9]|balance due|minimum payment|total (amount )?due|invoice (is )?(due|attached|enclosed)|here('s| is) your invoice|new invoice|invoice #?\d|invoice from|please pay|view (and|&) pay|remit(tance)? by)\b/i;
+  /\b(amount due|payment (is )?due|due (by|on) [a-z0-9]|due:? \d{1,2}[/-]\d{1,2}|pay by [a-z0-9]|balance due|minimum payment|total (amount )?due|invoice (is )?(due|attached|enclosed)|here('s|&#39;s|’s| is) your invoice|your invoice!|new invoice|invoice #?\s?\d|invoice from|please pay|view (and|&) pay|remit(tance)? by)\b/i;
 
 /** Already settled — a receipt, not a bill. */
 const PAID_MARKER =
@@ -200,7 +202,7 @@ export function needsYouEscape(subject: string, snippet: string): boolean {
     PRODUCT_NEEDS_YOU.test(hay) ||
     TRANSACTIONAL_URGENT.test(hay) ||
     REFUND_CHECK.test(hay) ||
-    (BILL_DUE.test(hay) && !AUTOPAY_BLOB.test(hay))
+    (BILL_DUE.test(hay) && !AUTOPAY_BLOB.test(hay) && !PAID_MARKER.test(hay))
   );
 }
 

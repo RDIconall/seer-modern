@@ -68,6 +68,21 @@ const ACTIONS = [
   "needs_review",
 ] as const;
 
+/**
+ * Verdicts that make an email disappear without the user's eyes.
+ * EVERY memory layer (taught, learned, decision cache, Gmail labels,
+ * rules) must clear the same needs-you bar before one of these sticks —
+ * a saved "ignore" from last week must never outrank what THIS email
+ * says today.
+ */
+const DISMISSIVE = new Set<TriageAction>([
+  "delete_now",
+  "unsubscribe",
+  "read_and_delete",
+  "glance_promo",
+  "read_and_archive",
+]);
+
 const batchSchema = z.object({
   items: z.array(
     z.object({
@@ -993,15 +1008,8 @@ export async function classifyInboxWithAssistant(
     // INTENT pierces sender history: a sender you taught/learned to
     // dismiss can still send the ONE message that needs you — the 347th
     // autopay email that says "autopay FAILED". Strict needs-you
-    // signals (payment failed, fraud, signature required, security
-    // alert, 2FA) bypass the mute and demand action.
-    const DISMISSIVE = new Set<TriageAction>([
-      "delete_now",
-      "unsubscribe",
-      "read_and_delete",
-      "glance_promo",
-      "read_and_archive",
-    ]);
+    // signals (payment failed, fraud, signature required, unpaid bill)
+    // bypass the mute and demand action.
     const escape = needsYouEscape(item.subject, item.snippet);
 
     const override = await getOverride(item.fromEmail);
@@ -1076,8 +1084,28 @@ export async function classifyInboxWithAssistant(
   const toSave = new Map<string, CachedDecision>();
 
   for (const item of candidates) {
+    // The SAME needs-you bar guards every stored verdict below: a saved
+    // "ignore" (cache or label) is a memory of an older read — the text
+    // in front of us wins when it says money/action/unpaid bill.
+    const escape = needsYouEscape(item.subject, item.snippet);
+    const tier = tiers.get(item.fromEmail.toLowerCase());
+    const personTier =
+      tier === "vip" ||
+      tier === "inner" ||
+      tier === "known" ||
+      tier === "new-credible";
+
     const hit = cachedHits.get(item.id);
-    if (hit) {
+    // A cached dismissal that came from RULES (a snippet-level shortcut,
+    // never a full read) must survive the same challenges a Gmail label
+    // does: needs-you language or person mail → send to the AI instead.
+    // Gemini's own current-version verdicts are the trusted AI memory.
+    const staleCachedDismissal =
+      hit &&
+      hit.source === "rules" &&
+      DISMISSIVE.has(hit.action) &&
+      (escape || personTier);
+    if (hit && !staleCachedDismissal) {
       results.set(item.id, {
         action: hit.action,
         confidence: hit.confidence,
@@ -1112,12 +1140,6 @@ export async function classifyInboxWithAssistant(
     const labeled = profileFresh ? null : extras?.labels?.lookup(item);
     if (labeled) {
       const rel = historySignals(history, item.fromEmail).relationship;
-      const tier = tiers.get(item.fromEmail.toLowerCase());
-      const personTier =
-        tier === "vip" ||
-        tier === "inner" ||
-        tier === "known" ||
-        tier === "new-credible";
       const suspiciousUrgent =
         (labeled === "act_today" || labeled === "respond") &&
         !ctx.inContacts &&
@@ -1134,14 +1156,20 @@ export async function classifyInboxWithAssistant(
       // A PERSON's mail never trusts a dismissive label: an old prompt
       // filing Rebecca's follow-up as "archive" must not stick — real
       // people always get a current judgment.
-      const personDismissed =
-        personTier &&
-        (labeled === "read_and_archive" ||
-          labeled === "read_and_delete" ||
-          labeled === "delete_now" ||
-          labeled === "unsubscribe" ||
-          labeled === "glance_promo");
-      if (!suspiciousUrgent && !suspiciousArchive && !personDismissed) {
+      const personDismissed = personTier && DISMISSIVE.has(labeled);
+      // Labels aren't versioned — an old prompt's "ignore" lives on the
+      // message forever. When the TEXT says needs-you (unpaid bill,
+      // payment failed, signature required), the label loses and the
+      // email gets a fresh full read. This is how the $140 pool invoice
+      // sat filed as a "record" for 3 weeks: "invoice" matched
+      // RECORD_HINT, and the escape hatch never challenged labels.
+      const labelDismissedNeedsYou = DISMISSIVE.has(labeled) && escape;
+      if (
+        !suspiciousUrgent &&
+        !suspiciousArchive &&
+        !personDismissed &&
+        !labelDismissedNeedsYou
+      ) {
         results.set(item.id, {
           action: labeled,
           confidence: "HIGH",
