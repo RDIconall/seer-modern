@@ -78,8 +78,14 @@ export async function POST(request: Request) {
       },
     );
     if (!res.ok) {
-      const detail =
-        res.status === 401 || res.status === 403
+      const errText = await res.text().catch(() => "");
+      // Two very different 403s: the USER hasn't granted the scope, vs
+      // the app's own Google Cloud project has the API switched off.
+      const detail = /accessNotConfigured|SERVICE_DISABLED|has not been used in project/i.test(
+        errText,
+      )
+        ? "The app's Google project has the Calendar API disabled — enable it in the Google Cloud console (APIs & Services → Calendar API → Enable)."
+        : res.status === 401 || res.status === 403
           ? "Sign in again in Settings to grant calendar write access."
           : `Calendar event failed (${res.status}).`;
       return NextResponse.json({ error: detail }, { status: 502 });
