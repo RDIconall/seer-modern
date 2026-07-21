@@ -126,9 +126,22 @@ export function ComposePanel({
           value={body}
           onChange={(e) => setBody(e.target.value)}
           className="mt-3 min-h-[45vh] flex-1 resize-none bg-transparent text-[15px] leading-relaxed outline-none"
-          placeholder="Compose email"
+          placeholder={
+            draft.mode === "forward"
+              ? "Add a note (optional)"
+              : draft.mode === "reply" || draft.mode === "replyAll"
+                ? "Your reply"
+                : "Compose email"
+          }
           autoFocus
         />
+        {draft.mode !== "compose" ? (
+          <p className="mb-2 text-[11px] text-[var(--muted)]">
+            {draft.mode === "forward"
+              ? "The original email is included below your note automatically."
+              : "The original message is quoted below your reply automatically."}
+          </p>
+        ) : null}
         {error ? (
           <p className="mb-4 rounded-lg bg-[#d63b2f]/10 px-3 py-2 text-sm text-[#d63b2f]">
             {error}
