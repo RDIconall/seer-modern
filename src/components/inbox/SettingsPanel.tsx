@@ -76,6 +76,25 @@ export function SettingsPanel({
   const [eaSaved, setEaSaved] = useState<{ email: string } | null>(null);
   const [eaBusy, setEaBusy] = useState(false);
 
+  const [health, setHealth] = useState<{
+    checks: { name: string; ok: boolean; detail: string }[];
+    engine?: { model?: string | null; error?: string | null };
+  } | null>(null);
+  const [healthBusy, setHealthBusy] = useState(false);
+
+  const loadHealth = useCallback(async () => {
+    setHealthBusy(true);
+    try {
+      const res = await fetch("/api/health", { cache: "no-store" });
+      const json = await res.json();
+      if (res.ok) setHealth(json);
+    } catch {
+      /* health is diagnostic — settings still work */
+    } finally {
+      setHealthBusy(false);
+    }
+  }, []);
+
   const load = useCallback(async () => {
     setError(null);
     try {
@@ -120,7 +139,8 @@ export function SettingsPanel({
     load();
     loadProfile();
     loadEa();
-  }, [load, loadProfile, loadEa]);
+    loadHealth();
+  }, [load, loadProfile, loadEa, loadHealth]);
 
   async function saveEa(payload: { email?: string; name?: string; clear?: boolean }) {
     setEaBusy(true);
@@ -538,6 +558,60 @@ export function SettingsPanel({
             <p className="mt-2 text-[11px] leading-relaxed text-[var(--muted)]">
               The Delegate action on cards forwards the email here with a short
               handoff note, then archives it — off your plate, on theirs.
+            </p>
+          </section>
+
+          <section className="mb-6">
+            <h2 className="mb-2 text-xs font-medium uppercase tracking-wide text-[var(--muted)]">
+              Integration health
+            </h2>
+            <div className="rounded-xl border border-[var(--border)] bg-[var(--bg)] px-4 py-3">
+              {healthBusy && !health ? (
+                <p className="text-[12px] text-[var(--muted)]">Checking…</p>
+              ) : health ? (
+                <ul className="space-y-1.5">
+                  {health.checks.map((c) => (
+                    <li key={c.name} className="flex items-start gap-2 text-[12px]">
+                      <span
+                        className={`mt-1 h-2 w-2 shrink-0 rounded-full ${c.ok ? "bg-[#0b8043]" : "bg-[#d93025]"}`}
+                        aria-hidden
+                      />
+                      <span className="font-medium">{c.name}</span>
+                      <span className="min-w-0 flex-1 truncate text-right text-[var(--muted)]">
+                        {c.detail}
+                      </span>
+                    </li>
+                  ))}
+                  {health.engine ? (
+                    <li className="flex items-start gap-2 border-t border-[var(--border)] pt-1.5 text-[12px]">
+                      <span
+                        className={`mt-1 h-2 w-2 shrink-0 rounded-full ${health.engine.error ? "bg-[#f9ab00]" : "bg-[#0b8043]"}`}
+                        aria-hidden
+                      />
+                      <span className="font-medium">AI engine</span>
+                      <span className="min-w-0 flex-1 truncate text-right text-[var(--muted)]">
+                        {health.engine.error ?? health.engine.model ?? "idle"}
+                      </span>
+                    </li>
+                  ) : null}
+                </ul>
+              ) : (
+                <p className="text-[12px] text-[var(--muted)]">
+                  Could not check — sign in first.
+                </p>
+              )}
+              <button
+                type="button"
+                disabled={healthBusy}
+                onClick={loadHealth}
+                className="mt-2 text-[12px] font-semibold text-[var(--primary)] disabled:opacity-50"
+              >
+                {healthBusy ? "Checking…" : "Re-check"}
+              </button>
+            </div>
+            <p className="mt-2 text-[11px] leading-relaxed text-[var(--muted)]">
+              Live probes of every Google API Seer depends on. Red means that
+              feature is silently degraded — the detail says exactly why.
             </p>
           </section>
 

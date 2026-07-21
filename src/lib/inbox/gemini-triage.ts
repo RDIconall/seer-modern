@@ -1386,11 +1386,17 @@ export async function classifyInboxWithAssistant(
     if (!r || r.source === "override") continue;
     const tier = tiers.get(item.fromEmail.toLowerCase());
     const ctx = contextSignals(extras?.personal, item.fromEmail);
+    // Google auto-collects "other contacts" from every interaction —
+    // that list is NOT a relationship. An auto-contact only earns
+    // person protection when the mail graph shows real strength
+    // (the user has actually written to them).
+    const rel = historySignals(history, item.fromEmail);
     const personish =
       tier === "inner" ||
       tier === "known" ||
       tier === "new-credible" ||
-      ctx.inContacts;
+      ctx.inContacts ||
+      (ctx.autoContact && (rel.sentTo > 0 || rel.relationship === "engaged"));
     if (personish && DELETEY.has(r.action)) {
       results.set(item.id, {
         ...r,
