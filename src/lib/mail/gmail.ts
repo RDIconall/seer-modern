@@ -97,9 +97,9 @@ async function gmailFetch(
   // 429/5xx one of them. Transient failures retry with backoff instead
   // of taking the whole refresh down.
   let lastErr = "";
-  for (let attempt = 0; attempt < 3; attempt++) {
+  for (let attempt = 0; attempt < 4; attempt++) {
     if (attempt > 0) {
-      await new Promise((r) => setTimeout(r, 300 * 2 ** attempt));
+      await new Promise((r) => setTimeout(r, 500 * 2 ** attempt));
     }
     const res = await fetch(`https://gmail.googleapis.com/gmail/v1${path}`, {
       ...init,
@@ -121,7 +121,12 @@ async function gmailFetch(
       );
     }
     lastErr = `Gmail ${path}: ${res.status} ${err.slice(0, 300)}`;
-    const transient = res.status === 429 || res.status >= 500;
+    // Gmail reports per-minute quota exhaustion as 403 "Quota exceeded"
+    // — transient by definition (the window resets in seconds).
+    const transient =
+      res.status === 429 ||
+      res.status >= 500 ||
+      (res.status === 403 && /quota exceeded|rate ?limit/i.test(err));
     if (!transient) break;
   }
   throw new Error(lastErr);

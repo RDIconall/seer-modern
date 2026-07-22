@@ -27,6 +27,7 @@ import {
   listGraphFolder,
   listGraphInbox,
 } from "@/lib/mail/graph";
+import { getInboxSnapshot } from "@/lib/mail/inbox-snapshot";
 import { makeGmailLabelStore } from "@/lib/mail/seer-labels";
 import { requireMailSession } from "@/lib/mail/session";
 import { getSenderOverride } from "@/lib/store/senders";
@@ -75,10 +76,11 @@ export async function GET() {
       return NextResponse.json({ error: "Not signed in" }, { status: 401 });
     }
 
-    const raw =
+    const raw = await getInboxSnapshot(session.email, () =>
       session.provider === "google"
-        ? await listGmailInbox(session.accessToken, SCAN)
-        : await listGraphInbox(session.accessToken, SCAN);
+        ? listGmailInbox(session.accessToken, SCAN)
+        : listGraphInbox(session.accessToken, SCAN),
+    );
 
     const [history, personal, actionMemory, labels, profile, replied] =
       await Promise.all([

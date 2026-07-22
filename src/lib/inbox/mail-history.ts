@@ -75,7 +75,7 @@ export function buildMailHistory(
   accountEmail: string,
   inbox: MailMessageListItem[],
   sent: MailMessageListItem[],
-  archived?: MailMessageListItem[],
+  archived?: Pick<MailMessageListItem, "fromEmail" | "isUnread" | "receivedAt">[],
 ): MailHistory {
   const me = norm(accountEmail);
   const contacts: Record<string, ContactStat> = {};

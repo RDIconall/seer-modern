@@ -2,6 +2,7 @@ import { buildActionGuideQuick } from "@/lib/inbox/action-guide";
 import { classifyMessage } from "@/lib/inbox/classify";
 import { classifyInboxWithAssistant } from "@/lib/inbox/gemini-triage";
 import { getOrBuildMailHistory } from "@/lib/inbox/mail-history-store";
+import { getInboxSnapshot } from "@/lib/mail/inbox-snapshot";
 import { collapseThreads } from "@/lib/inbox/thread-collapse";
 import { getPersonalContext } from "@/lib/inbox/personal-context";
 import { loadActionMemory } from "@/lib/store/action-memory";
@@ -49,15 +50,23 @@ export async function GET(request: Request) {
 
     const depth = folder === "inbox" ? SCAN : 100;
     let items: MailMessageListItem[];
-    if (session.provider === "google") {
-      items = q?.trim()
-        ? await searchGmail(session.accessToken, q, 60)
-        : await listGmailFolder(session.accessToken, folder, depth, q);
+    if (q?.trim()) {
+      items =
+        session.provider === "google"
+          ? await searchGmail(session.accessToken, q, 60)
+          : await searchGraph(session.accessToken, q, 60);
+    } else if (folder === "inbox") {
+      // Same snapshot the triage tab uses — one hydration per minute
+      items = await getInboxSnapshot(session.email, () =>
+        session.provider === "google"
+          ? listGmailFolder(session.accessToken, "inbox", depth)
+          : listGraphFolder(session.accessToken, "inbox", depth),
+      );
     } else {
       items =
-        q?.trim() && !searchParams.get("folder")
-          ? await searchGraph(session.accessToken, q, 60)
-          : await listGraphFolder(session.accessToken, folder, depth, q);
+        session.provider === "google"
+          ? await listGmailFolder(session.accessToken, folder, depth)
+          : await listGraphFolder(session.accessToken, folder, depth);
     }
 
     const shouldClassify = folder === "inbox" || Boolean(q?.trim());
