@@ -25,7 +25,9 @@ const INTENT_HINTS: Record<string, string> = {
   later:
     "The user can't deal with this now. Buy time gracefully: acknowledge, give a realistic follow-up window, no fake excuses.",
   delegate:
-    "This is NOT a reply to the sender. Write a short forwarding note to the user's executive assistant handing off this task. Say exactly what to do (call the company/bank, chase the status, schedule, handle the return…), what outcome to report back, and any deadline. Include the key facts from the email so the EA doesn't have to ask. Address the EA directly.",
+    "This is NOT a reply to the sender. Write a short forwarding note handing off this task to a helper. Open by addressing them by first name, say the user wants their help with this, then say exactly what to do (call the company/bank, chase the status, schedule, fill the form, handle the return…), what outcome to report back, and any deadline. Include the key facts from the email so they don't have to ask. Warm, direct, zero fluff.",
+  nudge:
+    "The email shown is the user's OWN earlier message that never got a reply. Write a short, friendly follow-up to the same recipient: reference what was asked in one clause, ask if there's any update, offer to make it easy ('happy to resend / jump on a call'). 1-3 sentences, zero guilt-tripping, no 'just checking in' filler openings.",
 };
 
 /**
@@ -45,10 +47,16 @@ export async function POST(request: Request) {
       );
     }
 
-    const { id, intent } = (await request.json()) as {
-      id?: string;
-      intent?: string;
-    };
+    const { id, intent, to, toName, instruction } =
+      (await request.json()) as {
+        id?: string;
+        intent?: string;
+        /** Delegate: who the handoff goes to */
+        to?: string;
+        toName?: string;
+        /** Delegate: what the user wants done, in their words */
+        instruction?: string;
+      };
     if (!id) {
       return NextResponse.json({ error: "Provide { id }" }, { status: 400 });
     }
@@ -87,6 +95,12 @@ Rules:
         subject: message.subject,
         email: bodyText,
         ...(hint ? { direction: hint } : {}),
+        ...(intent === "delegate" && toName
+          ? { handoffTo: toName }
+          : {}),
+        ...(intent === "delegate" && instruction?.trim()
+          ? { userWants: instruction.trim() }
+          : {}),
       }),
     });
 
@@ -94,22 +108,29 @@ Rules:
       return NextResponse.json({ error: "Draft failed" }, { status: 502 });
     }
 
-    // Delegation goes to the EA as a forward, not back to the sender
+    // Delegation goes to the chosen helper as a forward, not the sender
     if (intent === "delegate") {
       return NextResponse.json({
         body: output.body.trim(),
-        to: process.env.SEER_EA_EMAIL?.trim() ?? "",
+        to: to?.trim() || process.env.SEER_EA_EMAIL?.trim() || "",
         subject: /^(fwd|fw):/i.test(message.subject)
           ? message.subject
           : `Fwd: ${message.subject}`,
         replyToId: id,
         mode: "forward",
+        archiveOriginal: true,
       });
     }
 
+    // Nudges reply to the RECIPIENT of the user's own sent message
+    const replyTo =
+      intent === "nudge"
+        ? (message.toEmail.split(",")[0]?.trim() || message.fromEmail)
+        : message.fromEmail;
+
     return NextResponse.json({
       body: output.body.trim(),
-      to: message.fromEmail,
+      to: replyTo,
       subject: /^re:/i.test(message.subject)
         ? message.subject
         : `Re: ${message.subject}`,

@@ -18,6 +18,12 @@ export type Guide = {
   harm?: string;
   /** The actionable sentence pulled from the email — old Seer style */
   ask?: string;
+  /** The implied action — imperative ("Fix the autopay payment") or "Be aware: …" */
+  task?: string;
+  /** Life bucket ("Old trip", "Groceries — delivered", "Money & bills") */
+  category?: string;
+  /** 0 noise · 1 marginal · 2 relevant · 3 critical */
+  importance?: number;
 };
 
 export type EmailItem = {
@@ -30,6 +36,12 @@ export type EmailItem = {
   receivedAt: string;
   isUnread: boolean;
   guide?: Guide;
+  /** All addresses on the message — recipient-group identity for threads */
+  participants?: string[];
+  /** How many inbox messages collapsed into this thread row */
+  threadCount?: number;
+  /** Distinct senders in speaking order — Gmail's "fs2117, me, Faisal" */
+  threadSenders?: string[];
 };
 
 export type Section = {
@@ -146,6 +158,82 @@ export function buildDeckCards(triage: TodayData | null): DeckCard[] {
   return deck;
 }
 
+/** Category buckets within a section — "Groceries", "Old trip", … */
+export type CategoryBucket = { category: string; items: EmailItem[] };
+
+/**
+ * Bucket a section's mail by AI life-category, preserving first-seen
+ * order. Buckets only earn a sub-header when a section actually spans
+ * multiple categories.
+ */
+export function groupByCategory(items: EmailItem[]): CategoryBucket[] {
+  const map = new Map<string, EmailItem[]>();
+  for (const item of items) {
+    const c = item.guide?.category?.trim() || "Everything else";
+    const list = map.get(c) ?? [];
+    list.push(item);
+    map.set(c, list);
+  }
+  const buckets = [...map.entries()].map(([category, list]) => ({
+    category,
+    items: list,
+  }));
+  // Big buckets first; "Everything else" always last
+  return buckets.sort((a, b) => {
+    if (a.category === "Everything else") return 1;
+    if (b.category === "Everything else") return -1;
+    return b.items.length - a.items.length;
+  });
+}
+
+/** A triage section rendered as singles + same-sender groups. */
+export type SenderGroup =
+  | { kind: "single"; key: string; item: EmailItem }
+  | {
+      kind: "group";
+      key: string;
+      fromEmail: string;
+      fromName: string;
+      items: EmailItem[];
+    };
+
+/**
+ * Intelligent grouping: within a section, mail from the same sender
+ * collapses into one row ("RetailMeNot · 12") that can be acted on as
+ * a unit or expanded. Order follows each sender's first appearance.
+ */
+export function groupBySender(items: EmailItem[], min = 2): SenderGroup[] {
+  const bySender = new Map<string, EmailItem[]>();
+  for (const item of items) {
+    const k = item.fromEmail.toLowerCase();
+    const list = bySender.get(k) ?? [];
+    list.push(item);
+    bySender.set(k, list);
+  }
+  const out: SenderGroup[] = [];
+  const emitted = new Set<string>();
+  for (const item of items) {
+    const k = item.fromEmail.toLowerCase();
+    if (emitted.has(k)) continue;
+    emitted.add(k);
+    const list = bySender.get(k) ?? [item];
+    if (list.length >= min) {
+      out.push({
+        kind: "group",
+        key: `g:${k}`,
+        fromEmail: item.fromEmail,
+        fromName: item.fromName,
+        items: list,
+      });
+    } else {
+      for (const single of list) {
+        out.push({ kind: "single", key: single.id, item: single });
+      }
+    }
+  }
+  return out;
+}
+
 export type ReaderMessage = {
   htmlBody: string;
   textBody: string;
@@ -167,6 +255,13 @@ export type ReaderMessage = {
     startsAt: string;
     myStatus?: string;
   };
+  /** Real file attachments — name, type, size, provider attachment id */
+  attachments?: {
+    id: string;
+    filename: string;
+    mimeType: string;
+    size: number;
+  }[];
 };
 
 export function formatMailTime(iso: string) {
@@ -195,6 +290,18 @@ export function ensureRe(subject: string) {
 
 export function ensureFwd(subject: string) {
   return /^(fwd|fw):/i.test(subject) ? subject : `Fwd: ${subject}`;
+}
+
+/**
+ * Which thread id an ACTION should carry. Rows that are only "part of
+ * an active thread" (older siblings of a conversation whose newest turn
+ * still needs the user) act on JUST that message — a thread-wide
+ * archive here would silently sweep away the turn awaiting a reply.
+ */
+export function actionThreadId(item: EmailItem): string | undefined {
+  const ruleId = item.guide?.debug?.ruleId ?? "";
+  if (ruleId === "thread-sibling") return undefined;
+  return item.threadId;
 }
 
 export function primaryMailAction(action: TriageAction): MailAction {

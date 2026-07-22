@@ -1,8 +1,82 @@
 "use client";
 
-import { ChevronDown } from "lucide-react";
+import { ChevronDown, GraduationCap } from "lucide-react";
 import { useState } from "react";
+import { ACTION_META, type TriageAction } from "@/lib/inbox/classify";
 import type { Guide } from "@/lib/inbox/types";
+
+/** The corrections a human actually makes, in one row of chips. */
+const TEACH_ACTIONS: TriageAction[] = [
+  "respond",
+  "act_today",
+  "read_and_archive",
+  "read_and_delete",
+  "delete_now",
+  "unsubscribe",
+  "glance_promo",
+];
+
+export type TeachHandler = (action: TriageAction) => void;
+
+/**
+ * "Wrong? Teach Seer" — one tap corrects the sender FOREVER (taught
+ * override, top of the precedence chain) and applies the fix to this
+ * email right now (unsubscribe actually unsubscribes).
+ */
+function TeachRow({
+  guide,
+  onTeach,
+  onActionable,
+}: {
+  guide: Guide;
+  onTeach: TeachHandler;
+  /** Correct THIS email only: actionable + offer to time-block it. */
+  onActionable?: () => void;
+}) {
+  return (
+    <div className="mt-1.5">
+      {onActionable && guide.action !== "act_today" ? (
+        <div className="mb-1.5">
+          <div className="mb-1 flex items-center gap-1 text-[10px] font-semibold uppercase tracking-wide text-[var(--muted)]">
+            <GraduationCap className="h-3 w-3" />
+            Wrong? Just this email:
+          </div>
+          <button
+            type="button"
+            onClick={(e) => {
+              e.stopPropagation();
+              onActionable();
+            }}
+            className="rounded px-2 py-1 text-[11px] font-bold text-white"
+            style={{ backgroundColor: ACTION_META.act_today.color }}
+          >
+            Actionable — keep &amp; schedule
+          </button>
+        </div>
+      ) : null}
+      <div className="mb-1 flex items-center gap-1 text-[10px] font-semibold uppercase tracking-wide text-[var(--muted)]">
+        <GraduationCap className="h-3 w-3" />
+        Teach Seer — this sender, always:
+      </div>
+      <div className="flex flex-wrap gap-1">
+        {TEACH_ACTIONS.filter((a) => a !== guide.action).map((a) => (
+          <button
+            key={a}
+            type="button"
+            onClick={(e) => {
+              e.stopPropagation();
+              onTeach(a);
+            }}
+            className="rounded px-1.5 py-0.5 text-[10px] font-semibold text-white"
+            style={{ backgroundColor: ACTION_META[a].color }}
+          >
+            {ACTION_META[a].short}
+          </button>
+        ))}
+      </div>
+    </div>
+  );
+}
 
 function sourceLabelFor(guide: Guide): string | null {
   return guide.source === "gemini"
@@ -20,26 +94,40 @@ function sourceLabelFor(guide: Guide): string | null {
 export function LogicExplain({
   guide,
   expanded,
+  onTeach,
+  onActionable,
 }: {
   guide: Guide;
   expanded?: boolean;
+  onTeach?: TeachHandler;
+  onActionable?: () => void;
 }) {
   const d = guide.debug;
   const sourceLabel = sourceLabelFor(guide);
 
   return (
     <div className="mt-1 space-y-1">
-      <div
-        className="truncate text-[11px] font-semibold"
-        style={{ color: guide.color }}
-      >
-        {guide.label}
-        {guide.confidence ? ` · ${guide.confidence}` : ""}
-        {sourceLabel ? ` · ${sourceLabel}` : ""}
+      <div className="flex min-w-0 items-center gap-1.5">
+        {guide.category ? (
+          <span className="shrink-0 rounded bg-[var(--card)] px-1.5 py-0.5 text-[10px] font-semibold text-[var(--muted)]">
+            {guide.category}
+          </span>
+        ) : null}
+        <span
+          className="truncate text-[11px] font-semibold"
+          style={{ color: guide.color }}
+        >
+          {guide.task ?? guide.label}
+          {expanded
+            ? `${guide.confidence ? ` · ${guide.confidence}` : ""}${sourceLabel ? ` · ${sourceLabel}` : ""}`
+            : ""}
+        </span>
       </div>
-      <div className="line-clamp-2 text-[11px] leading-snug text-[var(--muted)]">
-        {guide.reason}
-      </div>
+      {expanded ? (
+        <div className="line-clamp-2 text-[11px] leading-snug text-[var(--muted)]">
+          {guide.reason}
+        </div>
+      ) : null}
       {expanded && guide.who ? (
         <div className="text-[11px] leading-snug text-[var(--fg)]">
           <span className="font-semibold">Who:</span> {guide.who}
@@ -89,6 +177,9 @@ export function LogicExplain({
           </dd>
         </dl>
       ) : null}
+      {expanded && onTeach ? (
+        <TeachRow guide={guide} onTeach={onTeach} onActionable={onActionable} />
+      ) : null}
     </div>
   );
 }
@@ -97,7 +188,15 @@ export function LogicExplain({
  * Reader guide: one calm line — what to do — with the reasoning tucked
  * behind a "Why?" disclosure so the email is visible immediately.
  */
-export function ReaderGuideBar({ guide }: { guide: Guide }) {
+export function ReaderGuideBar({
+  guide,
+  onTeach,
+  onActionable,
+}: {
+  guide: Guide;
+  onTeach?: TeachHandler;
+  onActionable?: () => void;
+}) {
   const [open, setOpen] = useState(false);
   const d = guide.debug;
   const sourceLabel = sourceLabelFor(guide);
@@ -123,7 +222,7 @@ export function ReaderGuideBar({ guide }: { guide: Guide }) {
         />
         <span className="min-w-0 flex-1 truncate text-[13px]">
           <span className="font-bold" style={{ color: guide.color }}>
-            {guide.label}
+            {guide.task ?? guide.label}
           </span>
           <span className="text-[var(--fg)]"> — {guide.instruction}</span>
         </span>
@@ -169,6 +268,13 @@ export function ReaderGuideBar({ guide }: { guide: Guide }) {
                 : ""}
               {d.meeting ? ` · ${d.meeting}` : ""}
             </p>
+          ) : null}
+          {onTeach ? (
+            <TeachRow
+              guide={guide}
+              onTeach={onTeach}
+              onActionable={onActionable}
+            />
           ) : null}
         </div>
       ) : null}

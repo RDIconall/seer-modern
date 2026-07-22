@@ -1,8 +1,10 @@
 "use client";
 
-import DOMPurify from "dompurify";
+import { sanitizeEmailHtml } from "@/lib/inbox/sanitize";
 import {
   Archive,
+  Check,
+  MailOpen,
   ChevronLeft,
   Forward,
   Inbox,
@@ -30,9 +32,15 @@ import {
 } from "react";
 import { useSearchParams } from "next/navigation";
 import { logoutMobile } from "@/app/actions";
-import { ACTION_META, type TriageAction } from "@/lib/inbox/classify";
+import { type TriageAction } from "@/lib/inbox/classify";
 import { CardStack } from "@/components/inbox/CardStack";
 import { ComposePanel } from "@/components/inbox/ComposePanel";
+import { DelegateSheet } from "@/components/inbox/DelegateSheet";
+import { PullToRefresh } from "@/components/inbox/PullToRefresh";
+import { UnsubAgentSheet } from "@/components/inbox/UnsubAgentSheet";
+import { VipSheet } from "@/components/inbox/VipSheet";
+import { BriefView } from "@/components/inbox/BriefView";
+import { ScheduleSheet } from "@/components/inbox/ScheduleSheet";
 import { AssistBar } from "@/components/inbox/AssistBar";
 import {
   LogicExplain,
@@ -42,21 +50,13 @@ import {
 import { SettingsPanel } from "@/components/inbox/SettingsPanel";
 import { useMailbox } from "@/lib/inbox/use-mailbox";
 import {
+  actionThreadId,
   buildDeckCards,
   ensureRe,
   formatMailTime,
-  primaryMailAction,
   type EmailItem,
   type ViewTab,
 } from "@/lib/inbox/types";
-
-const QUICK_ACTIONS: TriageAction[] = [
-  "respond",
-  "read_and_archive",
-  "delete_now",
-  "unsubscribe",
-  "act_today",
-];
 
 const FOLDER_LABEL: Record<ViewTab, string> = {
   inbox: "Inbox",
@@ -94,16 +94,29 @@ export function MobileMailApp() {
     refreshIdentity,
     runAction,
     snooze,
-    delegate,
+    delegateFor,
+    delegating,
+    openDelegate,
+    closeDelegate,
+    confirmDelegate,
+    scheduleFor,
+    scheduling,
+    openSchedule,
+    closeSchedule,
+    confirmSchedule,
     bulkSection,
+    runBulk,
     unsubscribe,
     teachSender,
+    markActionable,
     openReader,
     closeReader,
     startCompose,
     startReply,
     draftReply,
     drafting,
+    nudge,
+    nudging,
     rsvp,
     rsvping,
   } = useMailbox();
@@ -115,6 +128,51 @@ export function MobileMailApp() {
   const [logicMode, setLogicMode] = useState(false);
   const searchRef = useRef<HTMLInputElement>(null);
   const deckCards = useMemo(() => buildDeckCards(triage), [triage]);
+
+  // Density: compact rows fit ~2x more triage on screen (persisted)
+  const [dense, setDense] = useState<boolean>(() => {
+    if (typeof window === "undefined") return false;
+    return window.localStorage.getItem("seer:dense") === "1";
+  });
+  const toggleDense = () => {
+    setDense((d) => {
+      try {
+        window.localStorage.setItem("seer:dense", d ? "0" : "1");
+      } catch {
+        /* ignore */
+      }
+      return !d;
+    });
+  };
+
+  const [unsubAgentOpen, setUnsubAgentOpen] = useState(false);
+  const [vipsOpen, setVipsOpen] = useState(false);
+
+  // Multi-select in mail lists
+  const [selectMode, setSelectMode] = useState(false);
+  const [picked, setPicked] = useState<Set<string>>(new Set());
+  const togglePick = (id: string) => {
+    setPicked((prev) => {
+      const next = new Set(prev);
+      if (next.has(id)) next.delete(id);
+      else next.add(id);
+      return next;
+    });
+  };
+  const exitSelect = () => {
+    setSelectMode(false);
+    setPicked(new Set());
+  };
+  useEffect(() => {
+    exitSelect();
+  }, [tab]);
+  const pickedItems = useMemo(
+    () =>
+      listItems
+        .filter((i) => picked.has(i.id))
+        .map((i) => ({ id: i.id, fromEmail: i.fromEmail, threadId: actionThreadId(i) })),
+    [listItems, picked],
+  );
 
   useEffect(() => {
     if (searchOpen) searchRef.current?.focus();
@@ -130,15 +188,6 @@ export function MobileMailApp() {
     setSearchOpen(false);
   };
 
-  const delegateFromCard = async (id: string) => {
-    const r = await delegate(id);
-    if (r.needsEa) {
-      setToast("Add your EA's email in Settings first");
-      setSettingsOpen(true);
-      return false;
-    }
-    return true;
-  };
 
   const replyFromCard = async (id: string) => {
     try {
@@ -178,6 +227,7 @@ export function MobileMailApp() {
   }
 
   if (compose) {
+    const wasHandoff = compose.archiveOriginal;
     return (
       <ComposePanel
         draft={compose}
@@ -185,8 +235,8 @@ export function MobileMailApp() {
         onSent={() => {
           setCompose(null);
           closeReader();
-          setToast("Message sent");
-          if (tab === "sent") load();
+          setToast(wasHandoff ? "Handed off — original archived" : "Message sent");
+          if (tab === "sent" || wasHandoff) load();
         }}
       />
     );
@@ -194,11 +244,32 @@ export function MobileMailApp() {
 
   if (readerId) {
     const g = reader?.guide;
+    // Sibling of an active thread → act on this message only, never
+    // sweep the conversation turn that's still awaiting a reply.
+    const readerThreadId =
+      g?.debug?.ruleId === "thread-sibling" ? undefined : reader?.threadId;
     const safeHtml = reader?.htmlBody
-      ? DOMPurify.sanitize(reader.htmlBody)
+      ? sanitizeEmailHtml(reader.htmlBody)
       : "";
     return (
       <div className="app-shell fixed inset-0 z-50 flex flex-col bg-[var(--bg)]">
+        {delegateFor ? (
+          <DelegateSheet
+            subject={delegateFor.subject}
+            busy={delegating}
+            onConfirm={confirmDelegate}
+            onClose={closeDelegate}
+          />
+        ) : null}
+        {scheduleFor ? (
+          <ScheduleSheet
+            subject={scheduleFor.subject}
+            ask={scheduleFor.ask}
+            busy={scheduling}
+            onConfirm={confirmSchedule}
+            onClose={closeSchedule}
+          />
+        ) : null}
         <header className="outlook-header flex items-center gap-1 px-1 py-1.5 shadow-sm">
           <IconBtn onClick={closeReader} label="Back" light>
             <ChevronLeft className="h-6 w-6" />
@@ -210,7 +281,9 @@ export function MobileMailApp() {
           </div>
           <IconBtn
             disabled={busyId === readerId}
-            onClick={() => runAction(readerId, "archive", reader?.fromEmail)}
+            onClick={() =>
+              runAction(readerId, "archive", reader?.fromEmail, readerThreadId)
+            }
             label="Archive"
             light
           >
@@ -218,7 +291,9 @@ export function MobileMailApp() {
           </IconBtn>
           <IconBtn
             disabled={busyId === readerId}
-            onClick={() => runAction(readerId, "trash", reader?.fromEmail)}
+            onClick={() =>
+              runAction(readerId, "trash", reader?.fromEmail, readerThreadId)
+            }
             label="Delete"
             light
           >
@@ -242,17 +317,61 @@ export function MobileMailApp() {
                 </div>
               </div>
             </div>
-            {g ? <ReaderGuideBar guide={g} /> : null}
+            {g ? (
+              <ReaderGuideBar
+                guide={g}
+                onTeach={
+                  reader
+                    ? (a) =>
+                        teachSender(
+                          reader.fromEmail,
+                          a,
+                          readerId ?? undefined,
+                          reader.threadId,
+                        )
+                    : undefined
+                }
+                onActionable={
+                  reader && readerId
+                    ? () =>
+                        markActionable(
+                          readerId,
+                          reader.subject,
+                          g?.ask,
+                          reader.fromName,
+                        )
+                    : undefined
+                }
+              />
+            ) : null}
             {reader ? (
               <AssistBar
                 reader={reader}
+                messageId={readerId ?? undefined}
                 drafting={drafting}
                 onDraft={draftReply}
                 rsvping={rsvping}
                 onRsvp={rsvp}
                 onUnsubscribe={
                   readerId
-                    ? () => unsubscribe(readerId, reader?.fromEmail)
+                    ? () =>
+                        unsubscribe(readerId, reader?.fromEmail, reader?.threadId)
+                    : undefined
+                }
+                onDelegate={
+                  readerId
+                    ? () => openDelegate(readerId, reader?.subject)
+                    : undefined
+                }
+                onSchedule={
+                  readerId && reader
+                    ? () =>
+                        openSchedule(
+                          readerId,
+                          reader.subject,
+                          g?.ask,
+                          reader.fromName,
+                        )
                     : undefined
                 }
               />
@@ -300,6 +419,38 @@ export function MobileMailApp() {
 
   return (
     <div className="app-shell mx-auto flex min-h-[100dvh] max-w-lg flex-col bg-[var(--bg)] text-[var(--fg)]">
+      {delegateFor ? (
+        <DelegateSheet
+          subject={delegateFor.subject}
+          busy={delegating}
+          onConfirm={confirmDelegate}
+          onClose={closeDelegate}
+        />
+      ) : null}
+      {scheduleFor ? (
+        <ScheduleSheet
+          subject={scheduleFor.subject}
+          ask={scheduleFor.ask}
+          busy={scheduling}
+          onConfirm={confirmSchedule}
+          onClose={closeSchedule}
+        />
+      ) : null}
+      {vipsOpen ? (
+        <VipSheet
+          onClose={() => setVipsOpen(false)}
+          onChanged={() => load()}
+        />
+      ) : null}
+      {unsubAgentOpen ? (
+        <UnsubAgentSheet
+          onClose={() => setUnsubAgentOpen(false)}
+          onDone={(summary) => {
+            setToast(summary);
+            load();
+          }}
+        />
+      ) : null}
       {drawer ? (
         <div className="fixed inset-0 z-40">
           <button
@@ -468,7 +619,8 @@ export function MobileMailApp() {
         )}
       </header>
 
-      <main
+      <PullToRefresh
+        onRefresh={load}
         className={`flex flex-1 flex-col overflow-auto pb-24 ${
           tab === "cards" ? "seer-deck-bg" : ""
         }`}
@@ -496,7 +648,8 @@ export function MobileMailApp() {
             onBulk={bulkSection}
             onReply={replyFromCard}
             onSnooze={snooze}
-            onDelegate={delegateFromCard}
+            onDelegate={openDelegate}
+            onSchedule={openSchedule}
             onEmptyRefresh={load}
           />
         ) : null}
@@ -513,39 +666,130 @@ export function MobileMailApp() {
               }
             />
           ) : (
-            <ul>
-              {listItems.map((item) => (
-                <SwipeMailRow
-                  key={item.id}
-                  item={item}
-                  showGuide={tab === "inbox" || Boolean(query)}
-                  logicMode={logicMode}
-                  busy={busyId === item.id}
-                  onOpen={() => openReader(item.id)}
-                  onArchive={
-                    tab === "inbox"
-                      ? () => runAction(item.id, "archive", item.fromEmail)
-                      : undefined
-                  }
-                  onDelete={() => runAction(item.id, "trash", item.fromEmail)}
-                />
-              ))}
-            </ul>
+            <>
+              <div className="flex items-center justify-between border-b border-[var(--border)] bg-[var(--card)] px-4 py-1.5">
+                <span className="text-[12px] text-[var(--muted)]">
+                  {selectMode
+                    ? `${picked.size} selected`
+                    : `${listItems.length} messages`}
+                </span>
+                <button
+                  type="button"
+                  onClick={() => (selectMode ? exitSelect() : setSelectMode(true))}
+                  className="text-[12px] font-semibold text-[var(--primary)]"
+                >
+                  {selectMode ? "Cancel" : "Select"}
+                </button>
+              </div>
+              <ul className={picked.size > 0 ? "pb-16" : ""}>
+                {listItems.map((item) => (
+                  <SwipeMailRow
+                    key={item.id}
+                    item={item}
+                    showGuide={tab === "inbox" || Boolean(query)}
+                    logicMode={logicMode}
+                    onTeach={(a) => teachSender(item.fromEmail, a, item.id, item.threadId)}
+                    busy={busyId === item.id}
+                    selectMode={selectMode}
+                    checked={picked.has(item.id)}
+                    onToggleSelect={() => togglePick(item.id)}
+                    onOpen={() => openReader(item.id)}
+                    onArchive={
+                      tab === "inbox"
+                        ? () =>
+                            runAction(
+                              item.id,
+                              "archive",
+                              item.fromEmail,
+                              actionThreadId(item),
+                            )
+                        : undefined
+                    }
+                    onDelete={() =>
+                      runAction(item.id, "trash", item.fromEmail, actionThreadId(item))
+                    }
+                  />
+                ))}
+              </ul>
+              {selectMode && picked.size > 0 ? (
+                <div className="fixed inset-x-0 bottom-[calc(3.5rem+var(--safe-bottom))] z-40 mx-auto flex max-w-lg items-center justify-around border-t border-[var(--border)] bg-[var(--bg)] px-2 py-2 shadow-[0_-4px_16px_rgba(0,0,0,0.12)]">
+                  <button
+                    type="button"
+                    onClick={() => {
+                      runBulk(pickedItems, "archive");
+                      exitSelect();
+                    }}
+                    className="flex flex-col items-center gap-0.5 px-3 text-[11px] font-medium text-[#76ab19]"
+                  >
+                    <Archive className="h-5 w-5" />
+                    Archive
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      runBulk(pickedItems, "trash");
+                      exitSelect();
+                    }}
+                    className="flex flex-col items-center gap-0.5 px-3 text-[11px] font-medium text-[#d63b2f]"
+                  >
+                    <Trash2 className="h-5 w-5" />
+                    Delete
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      runBulk(pickedItems, "read");
+                      exitSelect();
+                    }}
+                    className="flex flex-col items-center gap-0.5 px-3 text-[11px] font-medium text-[var(--primary)]"
+                  >
+                    <MailOpen className="h-5 w-5" />
+                    Mark read
+                  </button>
+                </div>
+              ) : null}
+            </>
           )
         ) : null}
 
         {tab === "triage" && triage ? (
           <div className="border-b border-[var(--border)] bg-[var(--card)] px-4 py-2">
-            <p className="text-[12px] text-[var(--muted)]">
-              {triage.assistant
-                ? `Gemini ${triage.assistant.gemini} · rules ${triage.assistant.rules}${triage.assistant.learned ? ` · learned ${triage.assistant.learned}` : ""} · taught ${triage.assistant.override}${triage.assistant.cached ? ` · cached ${triage.assistant.cached}` : ""} · your call ${triage.assistant.needsReview}`
-                : triage.history
-                  ? `${triage.history.engagedCount} people you email · ${triage.history.contactCount} contacts`
-                  : "Gemini-first triage — you are last resort"}
-            </p>
+            <div className="flex items-start justify-between gap-2">
+              <p className="min-w-0 text-[12px] text-[var(--muted)]">
+                {logicMode && triage.assistant
+                  ? `Gemini ${triage.assistant.gemini} · rules ${triage.assistant.rules}${triage.assistant.learned ? ` · learned ${triage.assistant.learned}` : ""} · taught ${triage.assistant.override}${triage.assistant.cached ? ` · cached ${triage.assistant.cached}` : ""} · your call ${triage.assistant.needsReview}`
+                  : `${triage.count} triaged · ${triage.assistant?.needsReview ?? triage.needsReview.length} need you`}
+              </p>
+              <span className="flex shrink-0 gap-1.5">
+                <button
+                  type="button"
+                  onClick={() => setVipsOpen(true)}
+                  className="rounded-full border border-[#eab308] px-2.5 py-1 text-[11px] font-semibold text-[#b45309]"
+                >
+                  VIPs
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setUnsubAgentOpen(true)}
+                  className="rounded-full border border-[#a855f7] px-2.5 py-1 text-[11px] font-semibold text-[#a855f7]"
+                >
+                  Unsub agent
+                </button>
+                <button
+                  type="button"
+                  onClick={toggleDense}
+                  className="rounded-full border border-[var(--border)] px-2.5 py-1 text-[11px] font-semibold text-[var(--primary)]"
+                >
+                  {dense ? "Cozy" : "Compact"}
+                </button>
+              </span>
+            </div>
             {triage.assistant?.error ? (
-              <p className="mt-0.5 text-[11px] font-medium text-[#d63b2f]">
-                Gemini offline — rules only: {triage.assistant.error.slice(0, 120)}
+              <p className="mt-0.5 text-[11px] font-medium text-[#b45309]">
+                {(triage.assistant.gemini ?? 0) + (triage.assistant.cached ?? 0) > 0
+                  ? "Some new mail used rules this load — "
+                  : "Gemini offline — rules only: "}
+                {triage.assistant.error.slice(0, 110)}
               </p>
             ) : null}
           </div>
@@ -555,75 +799,23 @@ export function MobileMailApp() {
           <EmptyState text="Nothing to triage" />
         ) : null}
 
-        {tab === "triage" && triage && triage.needsReview.length > 0 ? (
-          <section>
-            <SectionHeader
-              label={`Needs your call · ${triage.needsReview.length}`}
-            />
-            <ul>
-              {triage.needsReview.map((item) => (
-                <SwipeMailRow
-                  key={item.id}
-                  item={item}
-                  showGuide
-                  logicMode={logicMode}
-                  busy={busyId === item.id}
-                  onOpen={() => openReader(item.id)}
-                  onArchive={() => runAction(item.id, "archive", item.fromEmail)}
-                  onDelete={() => runAction(item.id, "trash", item.fromEmail)}
-                  chips={
-                    <div className="mt-1.5 flex flex-wrap gap-1">
-                      {QUICK_ACTIONS.map((a) => (
-                        <button
-                          key={a}
-                          type="button"
-                          onClick={(e) => {
-                            e.stopPropagation();
-                            teachSender(item.fromEmail, a);
-                          }}
-                          className="rounded px-1.5 py-0.5 text-[10px] font-medium text-white"
-                          style={{ backgroundColor: ACTION_META[a].color }}
-                        >
-                          {ACTION_META[a].short}
-                        </button>
-                      ))}
-                    </div>
-                  }
-                />
-              ))}
-            </ul>
-          </section>
+        {tab === "triage" && triage && triage.count > 0 ? (
+          <BriefView
+            triage={triage}
+            h={{
+              openReader,
+              runAction,
+              bulkSection,
+              unsubscribe,
+              teachSender,
+              nudge,
+              nudging,
+              logicMode,
+              busyId,
+            }}
+          />
         ) : null}
-
-        {tab === "triage"
-          ? triage?.sections.map((section) => (
-              <section key={section.action}>
-                <SectionHeader
-                  label={`${section.label} · ${section.items.length}`}
-                  color={section.color}
-                  actionLabel={section.bulkLabel}
-                  onAction={() =>
-                    bulkSection(section, primaryMailAction(section.action))
-                  }
-                />
-                <ul>
-                  {section.items.map((item) => (
-                    <SwipeMailRow
-                      key={item.id}
-                      item={item}
-                      showGuide
-                      logicMode={logicMode}
-                      busy={busyId === item.id}
-                      onOpen={() => openReader(item.id)}
-                      onArchive={() => runAction(item.id, "archive", item.fromEmail)}
-                      onDelete={() => runAction(item.id, "trash", item.fromEmail)}
-                    />
-                  ))}
-                </ul>
-              </section>
-            ))
-          : null}
-      </main>
+      </PullToRefresh>
 
       <nav className="fixed bottom-0 left-0 right-0 z-20 mx-auto max-w-lg border-t border-[var(--border)] bg-[var(--bg)] bottom-nav">
         <div className="grid grid-cols-4">
@@ -777,45 +969,6 @@ function FooterAction({
   );
 }
 
-function SectionHeader({
-  label,
-  color,
-  actionLabel,
-  onAction,
-}: {
-  label: string;
-  color?: string;
-  actionLabel?: string;
-  onAction?: () => void;
-}) {
-  return (
-    <div className="sticky top-0 z-[1] flex items-center justify-between border-b border-[var(--border)] bg-[var(--brand-soft)] px-4 py-2.5">
-      <h2
-        className="flex items-center gap-1.5 text-[13px] font-semibold"
-        style={{ color: color ?? "var(--fg-strong)" }}
-      >
-        {color ? (
-          <span
-            className="h-1.5 w-1.5 rounded-full"
-            style={{ backgroundColor: color }}
-            aria-hidden
-          />
-        ) : null}
-        {label}
-      </h2>
-      {actionLabel && onAction ? (
-        <button
-          type="button"
-          onClick={onAction}
-          className="text-[12px] font-semibold text-[var(--primary)]"
-        >
-          {actionLabel}
-        </button>
-      ) : null}
-    </div>
-  );
-}
-
 function EmptyState({ text }: { text: string }) {
   return (
     <p className="py-20 text-center text-sm text-[var(--muted)]">{text}</p>
@@ -839,6 +992,12 @@ function SwipeMailRow({
   chips,
   showGuide,
   logicMode,
+  selectMode,
+  checked,
+  onToggleSelect,
+  onTeach,
+  dense,
+  indented,
 }: {
   item: EmailItem;
   onOpen: () => void;
@@ -848,24 +1007,49 @@ function SwipeMailRow({
   chips?: ReactNode;
   showGuide: boolean;
   logicMode?: boolean;
+  selectMode?: boolean;
+  checked?: boolean;
+  onToggleSelect?: () => void;
+  onTeach?: (action: TriageAction) => void;
+  /** Compact: two lines max — sender/time, task+subject. */
+  dense?: boolean;
+  /** Rendered inside an expanded sender group. */
+  indented?: boolean;
 }) {
   const g = item.guide;
   const startX = useRef<number | null>(null);
+  const startY = useRef<number | null>(null);
+  /** null = undecided · true = horizontal swipe · false = vertical scroll */
+  const horizontal = useRef<boolean | null>(null);
   const [offset, setOffset] = useState(0);
 
   const onTouchStart = (e: TouchEvent) => {
     startX.current = e.touches[0]?.clientX ?? null;
+    startY.current = e.touches[0]?.clientY ?? null;
+    horizontal.current = null;
   };
   const onTouchMove = (e: TouchEvent) => {
-    if (startX.current == null) return;
+    if (startX.current == null || startY.current == null || selectMode) return;
     const dx = (e.touches[0]?.clientX ?? startX.current) - startX.current;
-    setOffset(Math.max(-96, Math.min(96, dx)));
+    const dy = (e.touches[0]?.clientY ?? startY.current) - startY.current;
+    // Direction lock: a swipe must be deliberately sideways. Scrolling
+    // with slight drift must never arm archive/delete.
+    if (horizontal.current == null) {
+      if (Math.abs(dx) < 14 && Math.abs(dy) < 14) return;
+      horizontal.current = Math.abs(dx) > Math.abs(dy) * 1.6;
+    }
+    if (!horizontal.current) return;
+    setOffset(Math.max(-120, Math.min(120, dx)));
   };
   const onTouchEnd = () => {
-    if (offset <= -64) onDelete();
-    else if (offset >= 64 && onArchive) onArchive();
+    if (horizontal.current) {
+      if (offset <= -96) onDelete();
+      else if (offset >= 96 && onArchive) onArchive();
+    }
     setOffset(0);
     startX.current = null;
+    startY.current = null;
+    horizontal.current = null;
   };
 
   return (
@@ -880,38 +1064,92 @@ function SwipeMailRow({
         role="button"
         tabIndex={0}
         onClick={() => {
+          if (selectMode) {
+            onToggleSelect?.();
+            return;
+          }
           if (Math.abs(offset) < 8) onOpen();
         }}
-        onKeyDown={(e) => e.key === "Enter" && onOpen()}
+        onKeyDown={(e) =>
+          e.key === "Enter" && (selectMode ? onToggleSelect?.() : onOpen())
+        }
         onTouchStart={onTouchStart}
         onTouchMove={onTouchMove}
         onTouchEnd={onTouchEnd}
         className={`mail-row ${item.isUnread ? "unread" : ""} ${
           busy ? "opacity-50" : ""
-        }`}
+        } ${checked ? "bg-[var(--primary-soft,rgba(52,152,217,0.1))]" : ""} ${
+          dense ? "!py-1.5" : ""
+        } ${indented ? "pl-8 bg-[var(--card)]" : ""}`}
         style={{ transform: `translateX(${offset}px)` }}
       >
-        <span
-          className={`mail-unread-dot ${item.isUnread ? "" : "empty"}`}
-          aria-hidden
-        />
+        {selectMode ? (
+          <span
+            aria-hidden
+            className={`mr-2 flex h-5 w-5 shrink-0 items-center justify-center self-center rounded-full border-2 ${
+              checked
+                ? "border-[var(--primary)] bg-[var(--primary)] text-white"
+                : "border-[var(--border)]"
+            }`}
+          >
+            {checked ? <Check className="h-3 w-3" /> : null}
+          </span>
+        ) : (
+          <span
+            className={`mail-unread-dot ${item.isUnread ? "" : "empty"}`}
+            aria-hidden
+          />
+        )}
         <div className="min-w-0 flex-1">
           <div className="flex items-baseline justify-between gap-2">
-            <span className="mail-from truncate text-[15px] text-[var(--fg-strong)]">
-              {item.fromName || item.fromEmail}
+            <span
+              className={`mail-from truncate text-[var(--fg-strong)] ${dense ? "text-[14px]" : "text-[15px]"}`}
+            >
+              {item.threadSenders?.length
+                ? item.threadSenders.join(", ")
+                : item.fromName || item.fromEmail}
+              {(item.threadCount ?? 1) > 1 ? (
+                <span className="ml-1 font-normal text-[var(--muted)]">
+                  · {item.threadCount}
+                </span>
+              ) : null}
             </span>
             <span className="shrink-0 text-[12px] text-[var(--muted)]">
               {formatMailTime(item.receivedAt)}
             </span>
           </div>
-          <div className="mail-subject truncate text-[14px] leading-snug text-[var(--fg)]">
-            {item.subject}
-          </div>
-          <div className="truncate text-[13px] leading-snug text-[var(--muted)]">
-            {item.snippet}
-          </div>
-          {showGuide && g ? (
-            <LogicExplain guide={g} expanded={logicMode} />
+          {dense ? (
+            // Compact: one line — category, the implied action, subject
+            <div className="flex items-baseline gap-1.5 truncate text-[13px] leading-snug">
+              {g?.category ? (
+                <span className="shrink-0 rounded bg-[var(--card)] px-1 text-[10px] font-semibold text-[var(--muted)]">
+                  {g.category}
+                </span>
+              ) : null}
+              {g?.task ? (
+                <span
+                  className="shrink-0 font-semibold"
+                  style={{ color: g.color }}
+                >
+                  {g.task}
+                </span>
+              ) : null}
+              <span className="truncate text-[var(--muted)]">
+                {item.subject}
+              </span>
+            </div>
+          ) : (
+            <>
+              <div className="mail-subject truncate text-[14px] leading-snug text-[var(--fg)]">
+                {item.subject}
+              </div>
+              <div className="truncate text-[13px] leading-snug text-[var(--muted)]">
+                {item.snippet}
+              </div>
+            </>
+          )}
+          {showGuide && g && (!dense || logicMode) ? (
+            <LogicExplain guide={g} expanded={logicMode} onTeach={onTeach} />
           ) : null}
           {chips}
         </div>

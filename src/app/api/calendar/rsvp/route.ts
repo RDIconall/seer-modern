@@ -48,9 +48,14 @@ export async function POST(request: Request) {
 
     const getRes = await fetch(base, { headers, cache: "no-store" });
     if (!getRes.ok) {
-      const detail = getRes.status === 403 || getRes.status === 401
-        ? "Sign in again in Settings to grant calendar write access."
-        : `Calendar lookup failed (${getRes.status}).`;
+      const errText = await getRes.text().catch(() => "");
+      const detail = /accessNotConfigured|SERVICE_DISABLED|has not been used in project/i.test(
+        errText,
+      )
+        ? "The app's Google project has the Calendar API disabled — enable it in the Google Cloud console (APIs & Services → Calendar API → Enable)."
+        : getRes.status === 403 || getRes.status === 401
+          ? "Sign in again in Settings to grant calendar write access."
+          : `Calendar lookup failed (${getRes.status}).`;
       return NextResponse.json({ error: detail }, { status: 502 });
     }
     const event = (await getRes.json()) as {
@@ -74,9 +79,14 @@ export async function POST(request: Request) {
       cache: "no-store",
     });
     if (!patch.ok) {
-      const detail = patch.status === 403
-        ? "Sign in again in Settings to grant calendar write access."
-        : `RSVP failed (${patch.status}).`;
+      const errText = await patch.text().catch(() => "");
+      const detail = /accessNotConfigured|SERVICE_DISABLED|has not been used in project/i.test(
+        errText,
+      )
+        ? "The app's Google project has the Calendar API disabled — enable it in the Google Cloud console (APIs & Services → Calendar API → Enable)."
+        : patch.status === 403
+          ? "Sign in again in Settings to grant calendar write access."
+          : `RSVP failed (${patch.status}).`;
       return NextResponse.json({ error: detail }, { status: 502 });
     }
 

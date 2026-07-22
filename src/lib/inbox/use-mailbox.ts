@@ -3,6 +3,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import type { TriageAction } from "@/lib/inbox/classify";
 import type {
+  Guide,
   MailAction,
   MailboxData,
   ReaderMessage,
@@ -11,7 +12,13 @@ import type {
   ViewTab,
 } from "@/lib/inbox/types";
 import type { ComposeDraft } from "@/components/inbox/ComposePanel";
-import { buildCardDeck, ensureFwd, ensureRe } from "@/lib/inbox/types";
+import {
+  actionThreadId,
+  buildCardDeck,
+  ensureFwd,
+  ensureRe,
+  primaryMailAction,
+} from "@/lib/inbox/types";
 
 /**
  * Superhuman-style speed:
@@ -21,7 +28,9 @@ import { buildCardDeck, ensureFwd, ensureRe } from "@/lib/inbox/types";
  * - optimistic actions (already): the UI never waits for the server
  */
 
-const CACHE_PREFIX = "seer:v1:";
+// Bumped on releases that change server-computed text (tasks, asks,
+// categories) so stale local snapshots don't outlive the fix.
+const CACHE_PREFIX = "seer:v3:";
 const CACHE_MAX_AGE_MS = 12 * 60 * 60 * 1000;
 
 type CacheEnvelope<T> = { accountEmail?: string; savedAt: number; data: T };
@@ -63,6 +72,23 @@ function writeViewCache<T>(key: string, data: T, accountEmail?: string) {
 
 const PREFETCH_COUNT = 8;
 const MESSAGE_CACHE_MAX = 30;
+
+/** How long an acted-on message stays scrubbed from fresh list loads. */
+const TOMBSTONE_MS = 3 * 60 * 1000;
+
+// Gmail-style URL state: #inbox, #triage, #inbox/<messageId> … so the
+// browser back/forward buttons navigate the app instead of leaving it,
+// and a reload restores exactly where you were.
+const HASH_TABS: ViewTab[] = ["inbox", "sent", "trash", "triage", "cards"];
+
+function parseHash(): { tab?: ViewTab; id?: string } {
+  if (typeof window === "undefined") return {};
+  const [t, id] = window.location.hash.replace(/^#/, "").split("/");
+  return {
+    tab: HASH_TABS.includes(t as ViewTab) ? (t as ViewTab) : undefined,
+    id: id || undefined,
+  };
+}
 
 type ReaderPayload = {
   message: Record<string, unknown> & {
@@ -135,12 +161,50 @@ export function useMailbox(initialTab: ViewTab = "inbox") {
     identityEmailRef.current = identity?.email;
   }, [identity?.email]);
 
+  // Instant-sync tombstones: Gmail's list API lags a minute behind
+  // modify calls, so a background refresh can resurrect mail you just
+  // archived. Anything acted on recently is scrubbed from fresh loads —
+  // by message id AND by thread id, since actions clear whole threads.
+  const acted = useRef(new Map<string, number>());
+  const actedThreads = useRef(new Map<string, number>());
+  const markActed = useCallback((id: string, threadId?: string) => {
+    acted.current.set(id, Date.now());
+    if (threadId) actedThreads.current.set(threadId, Date.now());
+    if (acted.current.size > 500 || actedThreads.current.size > 500) {
+      const cutoff = Date.now() - TOMBSTONE_MS;
+      for (const [k, t] of acted.current) {
+        if (t < cutoff) acted.current.delete(k);
+      }
+      for (const [k, t] of actedThreads.current) {
+        if (t < cutoff) actedThreads.current.delete(k);
+      }
+    }
+  }, []);
+  const scrub = useCallback(
+    <T extends { id: string; threadId?: string }>(arr: T[]): T[] =>
+      arr.filter((i) => {
+        const t = acted.current.get(i.id);
+        if (t != null && Date.now() - t <= TOMBSTONE_MS) return false;
+        const tt = i.threadId ? actedThreads.current.get(i.threadId) : null;
+        return tt == null || Date.now() - tt > TOMBSTONE_MS;
+      }),
+    [],
+  );
+
   const loadTriage = useCallback(async () => {
     const res = await fetch("/api/today", { cache: "no-store" });
     const json = await res.json();
     if (!res.ok) throw new Error(json.error ?? "Load failed");
-    setTriage(json);
-  }, []);
+    const scrubbed: TodayData = {
+      ...json,
+      inbox: json.inbox ? scrub(json.inbox) : json.inbox,
+      needsReview: scrub(json.needsReview ?? []),
+      sections: (json.sections ?? [])
+        .map((s: Section) => ({ ...s, items: scrub(s.items) }))
+        .filter((s: Section) => s.items.length > 0),
+    };
+    setTriage(scrubbed);
+  }, [scrub]);
 
   const loadMailbox = useCallback(
     async (folder: "inbox" | "sent" | "trash", q?: string) => {
@@ -149,9 +213,12 @@ export function useMailbox(initialTab: ViewTab = "inbox") {
       const res = await fetch(`/api/mailbox?${params}`, { cache: "no-store" });
       const json = await res.json();
       if (!res.ok) throw new Error(json.error ?? "Load failed");
-      setMailbox(json);
+      // Trash may legitimately contain just-trashed mail — don't scrub it
+      setMailbox(
+        folder === "trash" ? json : { ...json, items: scrub(json.items ?? []) },
+      );
     },
-    [],
+    [scrub],
   );
 
   // Persist views (including optimistic removals) for instant next paint
@@ -201,8 +268,14 @@ export function useMailbox(initialTab: ViewTab = "inbox") {
       if (tab === "triage" || tab === "cards") await loadTriage();
       else await loadMailbox(tab, query);
     } catch (e) {
-      // With a cached view on screen, fail silently rather than blanking it
-      if (!hadCache) setError(e instanceof Error ? e.message : "Load failed");
+      const msg = e instanceof Error ? e.message : "Load failed";
+      if (!hadCache) {
+        setError(msg);
+      } else {
+        // Never silently show stale mail — say so, so "out of sync"
+        // is visible instead of mysterious.
+        setToast(`Showing saved view — refresh failed: ${msg.slice(0, 80)}`);
+      }
     } finally {
       setLoading(false);
     }
@@ -255,15 +328,21 @@ export function useMailbox(initialTab: ViewTab = "inbox") {
   }, []);
 
   const runAction = useCallback(
-    async (id: string, action: MailAction, fromEmail?: string) => {
+    async (
+      id: string,
+      action: MailAction,
+      fromEmail?: string,
+      threadId?: string,
+    ) => {
       setBusyId(id);
+      markActed(id, threadId);
       removeFromLists(id);
       if (readerId === id) closeReader();
       try {
         const res = await fetch("/api/action", {
           method: "POST",
           headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ id, action, fromEmail }),
+          body: JSON.stringify({ id, action, fromEmail, threadId }),
         });
         if (!res.ok) {
           const j = await res.json();
@@ -283,7 +362,7 @@ export function useMailbox(initialTab: ViewTab = "inbox") {
         setBusyId(null);
       }
     },
-    [closeReader, load, readerId, removeFromLists],
+    [closeReader, load, markActed, readerId, removeFromLists],
   );
 
   /**
@@ -300,41 +379,64 @@ export function useMailbox(initialTab: ViewTab = "inbox") {
   );
 
   /**
-   * Delegate to EA: forwards to the configured assistant and archives.
-   * Resolves { needsEa: true } when no EA is set so the caller can
-   * open Settings instead of failing silently.
+   * Delegate as a real action: openDelegate(id) pops the "to who?"
+   * sheet; confirmDelegate has the AI write the handoff email
+   * ("wanted to get your help doing …") as a ready-to-send forward.
    */
-  const delegate = useCallback(
-    async (id: string): Promise<{ needsEa?: boolean }> => {
-      setBusyId(id);
+  const [delegateFor, setDelegateFor] = useState<{
+    id: string;
+    subject: string;
+  } | null>(null);
+  const [delegating, setDelegating] = useState(false);
+
+  const openDelegate = useCallback(
+    (id: string, subject?: string) => {
+      setDelegateFor({ id, subject: subject ?? "" });
+    },
+    [],
+  );
+
+  const closeDelegate = useCallback(() => setDelegateFor(null), []);
+
+  const confirmDelegate = useCallback(
+    async (recipient: { to: string; toName?: string; instruction?: string }) => {
+      if (!delegateFor || delegating) return;
+      setDelegating(true);
       try {
-        const res = await fetch("/api/delegate", {
+        const res = await fetch("/api/assist/draft", {
           method: "POST",
           headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ id }),
+          body: JSON.stringify({
+            id: delegateFor.id,
+            intent: "delegate",
+            ...recipient,
+          }),
         });
-        const j = await res.json();
-        if (!res.ok) {
-          if (j.needsEa) return { needsEa: true };
-          throw new Error(j.error ?? "Delegate failed");
-        }
-        removeFromLists(id);
-        if (readerId === id) closeReader();
-        setToast(`Delegated to ${j.ea}`);
-        return {};
+        const json = await res.json();
+        if (!res.ok) throw new Error(json.error ?? "Draft failed");
+        setCompose({
+          mode: "forward",
+          to: json.to || recipient.to,
+          cc: "",
+          subject: json.subject,
+          body: json.body,
+          replyToId: json.replyToId,
+          archiveOriginal: true,
+        });
+        setDelegateFor(null);
       } catch (e) {
         setToast(e instanceof Error ? e.message : "Delegate failed");
-        return {};
       } finally {
-        setBusyId(null);
+        setDelegating(false);
       }
     },
-    [closeReader, readerId, removeFromLists],
+    [delegateFor, delegating],
   );
 
   const bulkSection = useCallback(
     async (section: Section, action: MailAction) => {
       const ids = section.items.map((i) => i.id);
+      for (const i of section.items) markActed(i.id, actionThreadId(i));
       setTriage((prev) => {
         if (!prev) return prev;
         const idSet = new Set(ids);
@@ -364,6 +466,7 @@ export function useMailbox(initialTab: ViewTab = "inbox") {
             body: JSON.stringify({
               items: section.items.map((i) => ({
                 id: i.id,
+                threadId: actionThreadId(i),
                 fromEmail: i.fromEmail,
               })),
             }),
@@ -384,6 +487,7 @@ export function useMailbox(initialTab: ViewTab = "inbox") {
           body: JSON.stringify({
             items: section.items.map((i) => ({
               id: i.id,
+              threadId: actionThreadId(i),
               action,
               fromEmail: i.fromEmail,
             })),
@@ -396,19 +500,60 @@ export function useMailbox(initialTab: ViewTab = "inbox") {
         load();
       }
     },
-    [load],
+    [load, markActed],
+  );
+
+  /** Multi-select: one action over any set of picked emails. */
+  const runBulk = useCallback(
+    async (
+      picked: { id: string; fromEmail?: string; threadId?: string }[],
+      action: MailAction,
+    ) => {
+      if (picked.length === 0) return;
+      for (const p of picked) {
+        markActed(p.id, p.threadId);
+        removeFromLists(p.id);
+      }
+      try {
+        const res = await fetch("/api/action/bulk", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            items: picked.map((p) => ({
+              id: p.id,
+              threadId: p.threadId,
+              action,
+              fromEmail: p.fromEmail,
+            })),
+          }),
+        });
+        if (!res.ok) throw new Error("Bulk failed");
+        setToast(
+          action === "trash"
+            ? `Deleted ${picked.length}`
+            : action === "archive"
+              ? `Archived ${picked.length}`
+              : `Marked ${picked.length} read`,
+        );
+      } catch {
+        setToast("Bulk action failed — refreshing");
+        load();
+      }
+    },
+    [load, markActed, removeFromLists],
   );
 
   /** Unsubscribe a single message for real, then trash + mute sender. */
   const unsubscribe = useCallback(
-    async (id: string, fromEmail?: string) => {
+    async (id: string, fromEmail?: string, threadId?: string) => {
+      markActed(id, threadId);
       removeFromLists(id);
       if (readerId === id) closeReader();
       try {
         const res = await fetch("/api/unsubscribe", {
           method: "POST",
           headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ id, fromEmail }),
+          body: JSON.stringify({ id, fromEmail, threadId }),
         });
         const json = await res.json();
         if (!res.ok) throw new Error(json.error ?? "Unsubscribe failed");
@@ -426,19 +571,105 @@ export function useMailbox(initialTab: ViewTab = "inbox") {
         load();
       }
     },
-    [closeReader, load, readerId, removeFromLists],
+    [closeReader, load, markActed, readerId, removeFromLists],
   );
 
+  /**
+   * Correct ONE email (not the sender): "this presale IS actionable".
+   * Updates the guide in place, keeps the email in Needs You, and
+   * offers to time-block it immediately.
+   */
+  const markActionable = useCallback(
+    async (id: string, subject?: string, ask?: string, fromName?: string) => {
+      const patch = (g: Guide): Guide => ({
+        ...g,
+        action: "act_today",
+        label: "Act today",
+        color: "#e8710a",
+        confidence: "HIGH",
+        reason: "You corrected this email yourself",
+        source: "override" as const,
+        task:
+          g.task && g.task !== "none" ? g.task : "Act on this — you flagged it",
+      });
+      const apply = <T extends { id: string; guide?: Guide }>(
+        arr: T[],
+      ): T[] =>
+        arr.map((i) =>
+          i.id === id && i.guide ? { ...i, guide: patch(i.guide) } : i,
+        );
+      setMailbox((prev) =>
+        prev ? { ...prev, items: apply(prev.items) } : prev,
+      );
+      setTriage((prev) => {
+        if (!prev) return prev;
+        return {
+          ...prev,
+          inbox: prev.inbox ? apply(prev.inbox) : prev.inbox,
+          needsReview: apply(prev.needsReview),
+          sections: prev.sections.map((s) => ({ ...s, items: apply(s.items) })),
+        };
+      });
+      setReader((prev) =>
+        prev && readerId === id && prev.guide
+          ? { ...prev, guide: patch(prev.guide) }
+          : prev,
+      );
+      messageCache.current.delete(id);
+      try {
+        const res = await fetch("/api/correct", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ id, action: "act_today" }),
+        });
+        if (!res.ok) throw new Error((await res.json()).error);
+        setToast("Marked actionable — staying in Needs you");
+        openSchedule(id, subject ?? "", ask, fromName);
+      } catch (e) {
+        setToast(e instanceof Error ? e.message : "Correction failed");
+      }
+    },
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [readerId],
+  );
+
+  /**
+   * Correct / train Seer: saves a taught override (top of the
+   * precedence chain — beats Gemini, labels, everything, forever) and
+   * applies the correction to THIS email right now. Teaching
+   * "unsubscribe" actually unsubscribes.
+   */
   const teachSender = useCallback(
-    async (fromEmail: string, action: TriageAction) => {
+    async (
+      fromEmail: string,
+      action: TriageAction,
+      messageId?: string,
+      threadId?: string,
+    ) => {
       await fetch("/api/reclassify", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ fromEmail, action }),
-      });
+      }).catch(() => {});
+
+      if (messageId && action === "unsubscribe") {
+        await unsubscribe(messageId, fromEmail, threadId);
+        return;
+      }
+      if (messageId) {
+        const apply = primaryMailAction(action);
+        if (apply === "trash" || apply === "archive") {
+          await runAction(messageId, apply, fromEmail, threadId);
+          setToast(
+            `Taught — "${fromEmail.split("@")[1] ?? fromEmail}" is always ${apply === "trash" ? "deleted" : "archived"} now`,
+          );
+          return;
+        }
+      }
+      setToast(`Taught — that sender is corrected from now on`);
       load();
     },
-    [load],
+    [load, runAction, unsubscribe],
   );
 
   // ---- Superhuman-style prefetch: bodies are ready before you tap ----
@@ -460,6 +691,9 @@ export function useMailbox(initialTab: ViewTab = "inbox") {
     guide: json.guide,
     keyActions: json.keyActions,
     calendarEvent: json.calendarEvent,
+    attachments: (json.message.attachments ?? undefined) as
+      | ReaderMessage["attachments"]
+      | undefined,
   });
 
   const fetchMessage = useCallback(
@@ -541,6 +775,97 @@ export function useMailbox(initialTab: ViewTab = "inbox") {
     [fetchMessage],
   );
 
+  // ---- "Schedule it": time-block the email's task on the calendar ----
+  const [scheduleFor, setScheduleFor] = useState<{
+    id: string;
+    subject: string;
+    ask?: string;
+    fromName?: string;
+  } | null>(null);
+  const [scheduling, setScheduling] = useState(false);
+
+  const openSchedule = useCallback(
+    (id: string, subject: string, ask?: string, fromName?: string) => {
+      setScheduleFor({ id, subject, ask, fromName });
+    },
+    [],
+  );
+  const closeSchedule = useCallback(() => setScheduleFor(null), []);
+
+  const confirmSchedule = useCallback(
+    async (payload: {
+      title: string;
+      startsAt: string;
+      durationMins: number;
+    }) => {
+      if (!scheduleFor || scheduling) return;
+      setScheduling(true);
+      try {
+        const res = await fetch("/api/calendar/schedule", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            messageId: scheduleFor.id,
+            ask: scheduleFor.ask,
+            subject: scheduleFor.subject,
+            fromName: scheduleFor.fromName,
+            ...payload,
+          }),
+        });
+        const json = await res.json();
+        if (!res.ok) throw new Error(json.error ?? "Schedule failed");
+        markActed(scheduleFor.id);
+        removeFromLists(scheduleFor.id);
+        if (readerId === scheduleFor.id) closeReader();
+        setScheduleFor(null);
+        setToast(
+          `Time blocked ${new Date(payload.startsAt).toLocaleString([], {
+            weekday: "short",
+            hour: "numeric",
+            minute: "2-digit",
+          })} — email archived`,
+        );
+      } catch (e) {
+        setToast(e instanceof Error ? e.message : "Schedule failed");
+      } finally {
+        setScheduling(false);
+      }
+    },
+    [scheduleFor, scheduling, markActed, removeFromLists, readerId, closeReader],
+  );
+
+  // ---- Gmail-style history: #inbox, #triage, #inbox/<id> ----
+  // Back/forward navigate the app (close reader, previous tab) instead
+  // of leaving it, and a reload restores exactly where you were.
+  const hashReady = useRef(false);
+
+  useEffect(() => {
+    const { tab: hTab, id } = parseHash();
+    if (hTab) setTab(hTab);
+    if (id) openReader(id);
+    hashReady.current = true;
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+  useEffect(() => {
+    if (!hashReady.current || typeof window === "undefined") return;
+    const desired = readerId ? `${tab}/${readerId}` : tab;
+    if (window.location.hash.replace(/^#/, "") !== desired) {
+      window.location.hash = desired;
+    }
+  }, [tab, readerId]);
+
+  useEffect(() => {
+    const onHashChange = () => {
+      const { tab: hTab, id } = parseHash();
+      if (hTab && hTab !== tab) setTab(hTab);
+      if (id && id !== readerId) openReader(id);
+      else if (!id && readerId) closeReader();
+    };
+    window.addEventListener("hashchange", onHashChange);
+    return () => window.removeEventListener("hashchange", onHashChange);
+  }, [tab, readerId, openReader, closeReader]);
+
   const startCompose = useCallback(() => {
     setCompose({
       mode: "compose",
@@ -604,6 +929,7 @@ export function useMailbox(initialTab: ViewTab = "inbox") {
         const json = await res.json();
         if (!res.ok) throw new Error(json.error ?? "RSVP failed");
         messageCache.current.delete(readerId);
+        markActed(readerId);
         removeFromLists(readerId);
         closeReader();
         setToast(
@@ -619,7 +945,38 @@ export function useMailbox(initialTab: ViewTab = "inbox") {
         setRsvping(false);
       }
     },
-    [reader, readerId, rsvping, removeFromLists, closeReader],
+    [reader, readerId, rsvping, markActed, removeFromLists, closeReader],
+  );
+
+  /** EA follow-up: AI drafts a nudge on a thread you're waiting on. */
+  const [nudging, setNudging] = useState<string | null>(null);
+  const nudge = useCallback(
+    async (messageId: string) => {
+      if (nudging) return;
+      setNudging(messageId);
+      try {
+        const res = await fetch("/api/assist/draft", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ id: messageId, intent: "nudge" }),
+        });
+        const json = await res.json();
+        if (!res.ok) throw new Error(json.error ?? "Draft failed");
+        setCompose({
+          mode: "reply",
+          to: json.to,
+          cc: "",
+          subject: json.subject,
+          body: json.body,
+          replyToId: json.replyToId,
+        });
+      } catch (e) {
+        setToast(e instanceof Error ? e.message : "Nudge failed");
+      } finally {
+        setNudging(null);
+      }
+    },
+    [nudging],
   );
 
   const startReply = useCallback(
@@ -687,16 +1044,29 @@ export function useMailbox(initialTab: ViewTab = "inbox") {
     load,
     runAction,
     snooze,
-    delegate,
+    delegateFor,
+    delegating,
+    openDelegate,
+    closeDelegate,
+    confirmDelegate,
+    scheduleFor,
+    scheduling,
+    openSchedule,
+    closeSchedule,
+    confirmSchedule,
     bulkSection,
+    runBulk,
     unsubscribe,
     teachSender,
+    markActionable,
     openReader,
     closeReader,
     startCompose,
     startReply,
     draftReply,
     drafting,
+    nudge,
+    nudging,
     rsvp,
     rsvping,
   };

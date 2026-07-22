@@ -2,13 +2,24 @@ import { buildActionGuideQuick } from "@/lib/inbox/action-guide";
 import { classifyMessage } from "@/lib/inbox/classify";
 import { classifyInboxWithAssistant } from "@/lib/inbox/gemini-triage";
 import { getOrBuildMailHistory } from "@/lib/inbox/mail-history-store";
+import { getInboxSnapshot } from "@/lib/mail/inbox-snapshot";
+import { collapseThreads } from "@/lib/inbox/thread-collapse";
 import { getPersonalContext } from "@/lib/inbox/personal-context";
 import { loadActionMemory } from "@/lib/store/action-memory";
 import { loadRepliedThreads } from "@/lib/store/replied-threads";
 import { loadUserProfile } from "@/lib/store/user-profile";
 import type { EmailItem } from "@/lib/inbox/types";
-import { listGmailFolder, searchGmail } from "@/lib/mail/gmail";
-import { listGraphFolder, searchGraph } from "@/lib/mail/graph";
+import {
+  getGmailMessage,
+  getGmailThreadLast,
+  listGmailFolder,
+  searchGmail,
+} from "@/lib/mail/gmail";
+import {
+  getGraphMessage,
+  listGraphFolder,
+  searchGraph,
+} from "@/lib/mail/graph";
 import { makeGmailLabelStore } from "@/lib/mail/seer-labels";
 import { requireMailSession } from "@/lib/mail/session";
 import type { MailFolder, MailMessageListItem } from "@/lib/mail/types";
@@ -39,15 +50,23 @@ export async function GET(request: Request) {
 
     const depth = folder === "inbox" ? SCAN : 100;
     let items: MailMessageListItem[];
-    if (session.provider === "google") {
-      items = q?.trim()
-        ? await searchGmail(session.accessToken, q, 60)
-        : await listGmailFolder(session.accessToken, folder, depth, q);
+    if (q?.trim()) {
+      items =
+        session.provider === "google"
+          ? await searchGmail(session.accessToken, q, 60)
+          : await searchGraph(session.accessToken, q, 60);
+    } else if (folder === "inbox") {
+      // Same snapshot the triage tab uses — one hydration per minute
+      items = await getInboxSnapshot(session.email, () =>
+        session.provider === "google"
+          ? listGmailFolder(session.accessToken, "inbox", depth)
+          : listGraphFolder(session.accessToken, "inbox", depth),
+      );
     } else {
       items =
-        q?.trim() && !searchParams.get("folder")
-          ? await searchGraph(session.accessToken, q, 60)
-          : await listGraphFolder(session.accessToken, folder, depth, q);
+        session.provider === "google"
+          ? await listGmailFolder(session.accessToken, folder, depth)
+          : await listGraphFolder(session.accessToken, folder, depth);
     }
 
     const shouldClassify = folder === "inbox" || Boolean(q?.trim());
@@ -73,6 +92,15 @@ export async function GET(request: Request) {
                 session.provider === "google"
                   ? listGmailFolder(token, f, max)
                   : listGraphFolder(token, f, max),
+              listArchive:
+                session.provider === "google"
+                  ? (token, max) =>
+                      searchGmail(
+                        token,
+                        "-in:inbox -in:sent -in:trash -in:spam is:read",
+                        max,
+                      )
+                  : undefined,
             },
             folder === "inbox" && !q?.trim() ? items : undefined,
           ),
@@ -104,7 +132,27 @@ export async function GET(request: Request) {
         history,
         (email) => getSenderOverride(email),
         classifyMessage,
-        { personal, actionMemory, labels, profile, replied },
+        {
+          personal,
+          actionMemory,
+          labels,
+          profile,
+          replied,
+          threadLast:
+          session.provider === "google"
+            ? (threadId) => getGmailThreadLast(session.accessToken, threadId)
+            : undefined,
+        fetchBody: async (id) => {
+            const msg =
+              session.provider === "google"
+                ? await getGmailMessage(session.accessToken, id)
+                : await getGraphMessage(session.accessToken, id);
+            return (
+              msg.textBody ||
+              msg.htmlBody.replace(/<[^>]+>/g, " ").replace(/\s+/g, " ")
+            );
+          },
+        },
       );
 
       annotated = [];
@@ -126,10 +174,20 @@ export async function GET(request: Request) {
         if (result.cached) cached += 1;
         annotated.push({
           ...m,
+          fromName:
+            m.fromEmail.toLowerCase() === session.email.toLowerCase()
+              ? "You"
+              : m.fromName,
           guide: buildActionGuideQuick(result, m.subject, m.fromName, m.snippet),
         });
       }
       assistant = { gemini, rules, override, learned, cached };
+    }
+
+    // Threads, not messages — the inbox shows one row per conversation
+    // (Gmail-style), unless the recipient group changed mid-thread.
+    if (folder === "inbox" && !q?.trim()) {
+      annotated = collapseThreads(annotated);
     }
 
     return NextResponse.json({

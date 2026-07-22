@@ -20,14 +20,23 @@ export type CalendarEventLite = {
 
 export type PersonalContext = {
   builtAt: string;
+  /** SAVED contacts only — the user's hand-curated address book. */
   contacts: string[];
+  /** Google's auto-collected "other contacts" (anyone ever emailed).
+   *  NOT a relationship — only counts alongside real mail history. */
+  autoContacts?: string[];
   events: CalendarEventLite[];
   /** Events refresh on a much shorter clock than contacts */
   eventsBuiltAt?: string;
+  /** Per-API status from the last fetch — silent failures are banned. */
+  health?: { people: string; calendar: string };
 };
 
 export type ContextSignals = {
+  /** True only for the user's SAVED address book. */
   inContacts: boolean;
+  /** Google auto-collected this address — weak signal, verify strength. */
+  autoContact: boolean;
   /** Next upcoming event this sender is attending, if any. */
   meeting: { subject: string; startsAt: string } | null;
 };
@@ -61,35 +70,71 @@ async function safeJson(res: Response): Promise<Record<string, unknown>> {
 
 // ---------- Google (People + Calendar APIs) ----------
 
-async function googleContacts(token: string): Promise<string[]> {
-  const out = new Set<string>();
-  const urls = [
-    "https://people.googleapis.com/v1/people/me/connections?personFields=emailAddresses&pageSize=500",
-    "https://people.googleapis.com/v1/otherContacts?readMask=emailAddresses&pageSize=500",
-  ];
-  for (const url of urls) {
+/** Names the failure instead of hiding it — "disabled" vs "no scope". */
+async function apiStatus(res: Response): Promise<string> {
+  if (res.ok) return "ok";
+  const body = await res.text().catch(() => "");
+  if (/accessNotConfigured|SERVICE_DISABLED|has not been used in project/i.test(body)) {
+    return "API disabled in the app's Google Cloud project";
+  }
+  if (res.status === 401 || res.status === 403) {
+    return "permission missing — reconnect the account";
+  }
+  return `http ${res.status}`;
+}
+
+async function googleContacts(token: string): Promise<{
+  saved: string[];
+  auto: string[];
+  status: string;
+}> {
+  const pull = async (url: string, field: string): Promise<{ emails: string[]; status: string }> => {
     const res = await fetch(url, {
       headers: { Authorization: `Bearer ${token}` },
     });
-    if (!res.ok) continue; // scope not granted yet — skip quietly
+    const status = await apiStatus(res);
+    if (status !== "ok") return { emails: [], status };
     const json = await safeJson(res);
-    const people = (json.connections ?? json.otherContacts ?? []) as Array<{
+    const people = (json[field] ?? []) as Array<{
       emailAddresses?: { value?: string }[];
     }>;
+    const out = new Set<string>();
     for (const p of people) {
       for (const e of p.emailAddresses ?? []) {
         if (e.value) out.add(e.value.toLowerCase().trim());
       }
     }
-  }
-  return [...out];
+    return { emails: [...out], status };
+  };
+
+  // SAVED contacts (real address book) and Google's auto-collected
+  // "other contacts" are different animals — kept separate on purpose.
+  const [saved, auto] = await Promise.all([
+    pull(
+      "https://people.googleapis.com/v1/people/me/connections?personFields=emailAddresses&pageSize=500",
+      "connections",
+    ),
+    pull(
+      "https://people.googleapis.com/v1/otherContacts?readMask=emailAddresses&pageSize=500",
+      "otherContacts",
+    ),
+  ]);
+  const savedSet = new Set(saved.emails);
+  return {
+    saved: saved.emails,
+    auto: auto.emails.filter((e) => !savedSet.has(e)),
+    status: saved.status,
+  };
 }
 
-async function googleEvents(token: string): Promise<CalendarEventLite[]> {
+async function googleEvents(
+  token: string,
+): Promise<{ events: CalendarEventLite[]; status: string }> {
   const now = new Date();
   const max = new Date(now.getTime() + LOOKAHEAD_DAYS * 24 * 60 * 60 * 1000);
   const out: CalendarEventLite[] = [];
   let pageToken: string | undefined;
+  let status = "ok";
 
   while (out.length < MAX_EVENTS) {
     const url =
@@ -105,7 +150,10 @@ async function googleEvents(token: string): Promise<CalendarEventLite[]> {
     const res = await fetch(url, {
       headers: { Authorization: `Bearer ${token}` },
     });
-    if (!res.ok) break;
+    if (!res.ok) {
+      status = await apiStatus(res);
+      break;
+    }
     const json = await safeJson(res);
     const items = (json.items ?? []) as Array<{
       id?: string;
@@ -129,7 +177,7 @@ async function googleEvents(token: string): Promise<CalendarEventLite[]> {
     pageToken = json.nextPageToken as string | undefined;
     if (!pageToken || items.length === 0) break;
   }
-  return out.slice(0, MAX_EVENTS);
+  return { events: out.slice(0, MAX_EVENTS), status };
 }
 
 // ---------- Microsoft Graph ----------
@@ -227,17 +275,31 @@ export async function getPersonalContext(session: {
   if (cached && contactsFresh && eventsFresh) return cached;
 
   try {
-    const [contacts, events] = await Promise.all([
+    const [c, ev] = await Promise.all([
       contactsFresh && cached
-        ? Promise.resolve(cached.contacts)
+        ? Promise.resolve({
+            saved: cached.contacts,
+            auto: cached.autoContacts ?? [],
+            status: cached.health?.people ?? "ok",
+          })
         : session.provider === "google"
           ? googleContacts(session.accessToken)
-          : graphContacts(session.accessToken),
+          : graphContacts(session.accessToken).then((saved) => ({
+              saved,
+              auto: [],
+              status: "ok",
+            })),
       eventsFresh && cached
-        ? Promise.resolve(cached.events)
+        ? Promise.resolve({
+            events: cached.events,
+            status: cached.health?.calendar ?? "ok",
+          })
         : session.provider === "google"
           ? googleEvents(session.accessToken)
-          : graphEvents(session.accessToken),
+          : graphEvents(session.accessToken).then((events) => ({
+              events,
+              status: "ok",
+            })),
     ]);
 
     const nowIso = new Date().toISOString();
@@ -247,8 +309,10 @@ export async function getPersonalContext(session: {
         eventsFresh && cached
           ? (cached.eventsBuiltAt ?? cached.builtAt)
           : nowIso,
-      contacts,
-      events,
+      contacts: c.saved,
+      autoContacts: c.auto,
+      events: ev.events,
+      health: { people: c.status, calendar: ev.status },
     };
     await kvSet(keyFor(session.accountEmail), ctx);
     return ctx;
@@ -262,9 +326,11 @@ export function contextSignals(
   fromEmail: string,
 ): ContextSignals {
   const email = fromEmail.toLowerCase().trim();
-  if (!ctx) return { inContacts: false, meeting: null };
+  if (!ctx) return { inContacts: false, autoContact: false, meeting: null };
 
   const inContacts = ctx.contacts.includes(email);
+  const autoContact =
+    !inContacts && Boolean(ctx.autoContacts?.includes(email));
 
   let meeting: ContextSignals["meeting"] = null;
   for (const e of ctx.events) {
@@ -273,7 +339,7 @@ export function contextSignals(
       meeting = { subject: e.subject, startsAt: e.startsAt };
     }
   }
-  return { inContacts, meeting };
+  return { inContacts, autoContact, meeting };
 }
 
 // ---------- Calendar invites (Google actions inside the email) ----------

@@ -1,5 +1,5 @@
-import { gmailAction } from "@/lib/mail/gmail";
-import { graphAction } from "@/lib/mail/graph";
+import { gmailAction, gmailThreadAction } from "@/lib/mail/gmail";
+import { graphAction, graphThreadAction } from "@/lib/mail/graph";
 import { requireMailSession } from "@/lib/mail/session";
 import { recordSenderAction } from "@/lib/store/action-memory";
 import { NextResponse } from "next/server";
@@ -13,6 +13,7 @@ export async function POST(request: Request) {
 
     const body = (await request.json()) as {
       id?: string;
+      threadId?: string;
       action?: "archive" | "trash" | "read";
       fromEmail?: string;
     };
@@ -23,7 +24,15 @@ export async function POST(request: Request) {
       );
     }
 
-    if (session.provider === "google") {
+    // Threads, not messages: archive/trash clears the WHOLE
+    // conversation, exactly like Gmail's own archive button.
+    if (body.threadId) {
+      if (session.provider === "google") {
+        await gmailThreadAction(session.accessToken, body.threadId, body.action);
+      } else {
+        await graphThreadAction(session.accessToken, body.threadId, body.action);
+      }
+    } else if (session.provider === "google") {
       await gmailAction(session.accessToken, body.id, body.action);
     } else {
       await graphAction(session.accessToken, body.id, body.action);

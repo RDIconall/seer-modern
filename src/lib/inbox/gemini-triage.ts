@@ -1,5 +1,8 @@
 import {
   ACTION_META,
+  APPOINTMENT_HOLD,
+  REFUND_CHECK,
+  needsYouEscape,
   type ClassifyDebug,
   type ClassifyExtras,
   type ClassifyResult,
@@ -27,6 +30,21 @@ import {
 } from "@/lib/store/decision-cache";
 import { kvGet, kvSet } from "@/lib/store/kv";
 import {
+  extractAmount,
+  isAnomalousCharge,
+  loadMerchants,
+  recordCharge,
+  saveMerchants,
+  usualLabel,
+} from "@/lib/store/merchants";
+import {
+  loadPeople,
+  savePeople,
+  tierFromEvidence,
+  type PeopleDb,
+  type PersonTier,
+} from "@/lib/store/people";
+import {
   profilePromptBlock,
   type UserProfile,
 } from "@/lib/store/user-profile";
@@ -38,7 +56,7 @@ import { z } from "zod";
  * Bump when the prompt/actions change so stale cached decisions
  * are ignored and re-classified.
  */
-export const PROMPT_VERSION = 11;
+export const PROMPT_VERSION = 23;
 
 const ACTIONS = [
   "respond",
@@ -52,6 +70,21 @@ const ACTIONS = [
   "needs_review",
 ] as const;
 
+/**
+ * Verdicts that make an email disappear without the user's eyes.
+ * EVERY memory layer (taught, learned, decision cache, Gmail labels,
+ * rules) must clear the same needs-you bar before one of these sticks —
+ * a saved "ignore" from last week must never outrank what THIS email
+ * says today.
+ */
+const DISMISSIVE = new Set<TriageAction>([
+  "delete_now",
+  "unsubscribe",
+  "read_and_delete",
+  "glance_promo",
+  "read_and_archive",
+]);
+
 const batchSchema = z.object({
   items: z.array(
     z.object({
@@ -60,6 +93,18 @@ const batchSchema = z.object({
       confidence: z.number().min(0).max(1),
       reason: z.string(),
       instruction: z.string(),
+      /** The implied action / specific fact headline — or "none" */
+      task: z.string().optional(),
+      /** Life bucket in the user's language, staleness-aware */
+      category: z.string().optional(),
+      /** THE MAIN FILTER: human writing personally, or a machine? */
+      sender: z.enum(["person", "machine"]).optional(),
+      /** For unknown people only: a real, credible person worth attention? */
+      credible: z.boolean().optional(),
+      /** 0 noise · 1 marginal · 2 relevant · 3 critical */
+      importance: z.number().min(0).max(3).optional(),
+      /** The specific thing only the user can do, or "none" */
+      deed: z.string().optional(),
     }),
   ),
 });
@@ -82,6 +127,17 @@ export type DecisionSource = "gemini" | "rules" | "override" | "learned";
 export type AssistantClassifyResult = ClassifyResult & {
   source: DecisionSource;
   instruction?: string;
+  /** The implied action — imperative ("Fix the autopay payment") or "Be aware: …" */
+  task?: string;
+  /** Life bucket in the user's language ("Old trip", "Groceries — delivered") */
+  category?: string;
+  /** Main-filter verdict from the AI's full-text read */
+  senderKind?: "person" | "machine";
+  credible?: boolean;
+  /** 0 noise · 1 marginal · 2 relevant · 3 critical */
+  importance?: number;
+  /** The specific deed, or "none" */
+  deed?: string;
   /** True when served from the persistent decision cache (no API call). */
   cached?: boolean;
 };
@@ -115,12 +171,20 @@ function applyUrgencyDecay(
   history: MailHistory | null | undefined,
 ): AssistantClassifyResult {
   if (result.action !== "act_today") return result;
+  // The user's own call is never decayed away — they said actionable.
+  if (result.source === "override") return result;
   const age = ageInDays(item.receivedAt);
   if (age < 1) return result;
   const hay = `${item.subject} ${item.snippet}`;
   const expiring = EXPIRING_URGENCY.test(hay);
   const fast = FAST_EXPIRE.test(hay);
-  if (!(fast && age >= 1) && !(expiring && age >= 2)) return result;
+  // Appointment reminders arrive days before the visit — an email 8+
+  // days old is about a visit that already happened (May's allergy
+  // reminder must not scream in July).
+  const staleAppointment = APPOINTMENT_HOLD.test(hay) && age >= 8;
+  if (!(fast && age >= 1) && !(expiring && age >= 2) && !staleAppointment) {
+    return result;
+  }
   return {
     action: "delete_now",
     confidence: "HIGH",
@@ -128,6 +192,7 @@ function applyUrgencyDecay(
     debug: { ...debugFor(item, history, "urgency-expired"), ruleId: "urgency-expired" },
     source: result.source,
     instruction: "This expired on its own. Safe to delete without opening.",
+    task: "Nothing — it expired",
   };
 }
 
@@ -143,6 +208,15 @@ const BATCH = Math.max(
 );
 
 /**
+ * Whole-email reads are ~10x the tokens of snippets — smaller chunks
+ * keep each call fast enough to live inside the serverless budget.
+ */
+const DEEP_BATCH = Math.max(
+  4,
+  Math.min(15, Number(process.env.SEER_GEMINI_DEEP_BATCH ?? "10") || 10),
+);
+
+/**
  * Cap Gemini calls per inbox load. With a 200-deep scan a cold cache
  * could mean 8 calls in seconds — enough to trip free-tier per-minute
  * limits. Overflow falls back to rules UNCACHED, so the next refresh
@@ -154,23 +228,14 @@ const MAX_BATCHES_PER_LOAD = Math.max(
 );
 
 /**
- * Rules the heuristic engine gets right with near-certainty and where a
- * wrong call is harmless (junk that was getting deleted/unsubscribed
- * anyway). These skip Gemini entirely — zero tokens spent.
+ * Hard TIME budget for Gemini within one load. The serverless function
+ * dies at 60s — a slow model must never take the whole inbox load down
+ * with it (the client would silently show its stale cache forever).
  */
-const PREFILTER_RULE_IDS = new Set([
-  "bulk-delete",
-  "bulk-unsubscribe",
-  "marketing-cold-delete",
-  "marketing-unsubscribe",
-  "noreply-cold-delete",
-  "shopping-domain",
-  "product-notify-promo",
-  "product-passive-delete",
-  "finance-record-archive",
-  "urgency-bait-delete",
-  "shipper-status-delete",
-]);
+const GEMINI_TIME_BUDGET_MS = Math.max(
+  10_000,
+  Math.min(45_000, Number(process.env.SEER_GEMINI_TIME_BUDGET_MS ?? "30000") || 30_000),
+);
 
 /**
  * Model discovery: Google retires model ids (gemini-2.5-flash died for
@@ -355,6 +420,7 @@ function debugFor(
     staleEngagement: signals.staleEngagement,
     actionable: intelContainsAny(text) || intel.request > 0 || intel.schedule > 0,
     intel,
+    keptFrom: signals.keptFrom,
   };
 }
 
@@ -363,43 +429,62 @@ function debugFor(
  * implicit prompt caching can reuse the prefix. All per-request data goes
  * in the user message (dynamic tail).
  */
-const SYSTEM_PROMPT = `You are Seer, an elite email copilot. The user's TIME is more valuable than tokens.
+const SYSTEM_PROMPT = `You are Seer, the user's email triage engine. Read the FULL text of every email, then judge it in four steps.
 
-Philosophy: the user's own behavior predicts their next action. Who they email, who is in their contacts, who they are about to meet, and what they did with past mail from a sender all outrank the email's content.
+STEP 1 — WHO WROTE IT: person or machine?
+person = a human wrote this to the user personally. The tier field is the personal database's view: vip (the user PINNED them — board, family, key colleagues; their mail is never below respond/read and always surfaces), inner (proven — they exchange mail, contacts, meetings), known (writes repeatedly), new (no history — YOU judge credibility from the words: a specific ask about a real project, company, or personal matter, mutual names, a reply to something the user did = credible; a template wearing a first name = not). Set sender and credible.
+For person mail the question is WHAT ARE THEY ASKING — put it in task, verbatim-short ("send the signed LMA paperwork"). Action = respond (act_today if deadline-bound). A credible person is NEVER deleted.
+PERSON MAIL RARELY FILES: an explicit ask is not required. When a person shares work-product or context on a matter that is STILL OPEN — "we are now trying…", "this doesn't work anymore", an ongoing lease/permit/dispute/deal — that is a collaboration turn: they expect engagement. Action = respond, task names the matter ("Discuss the zoning workaround with Anthony"). read_and_archive is only for person mail that closes a loop (pure thanks, confirmed logistics, "sounds good").
 
-Decide an ACTION for every email. Make the call yourself. Do NOT defer to the user unless something is truly ambiguous AND high-stakes.
+STEP 2 — IMPORTANCE (score 0-3): THE CONSEQUENCE TEST.
+Importance is NOT "is this about the user's stuff". It is: would knowing this CHANGE anything the user does or decides? Ask concretely: after reading it, what would they do differently? If the honest answer is "nothing", it is noise — whoever sent it.
+3 = critical: money at risk, a real person waiting on them, a deadline that costs something if missed
+2 = decision-relevant: this would plausibly change an action or a choice — a price increase on something they pay for (keep or cancel?), a schedule change for something they attend, a delivery needing a signature
+1 = record: changes nothing today but has lookup value later (receipt, confirmation number) — file, don't read
+0 = no consequence: knowing it changes NOTHING. Marketing. And also the "legitimate but inert" trap: terms-of-service updates, privacy-policy notices, "we've updated our app", data-sharing disclosures, annual notices — the user cannot negotiate them, they apply regardless, reading them changes nothing → delete_now. Do NOT give these importance for being official-looking. The exception: the notice announces a price change, removes a feature they use, or requires consent to keep the service — then it's a 2 with the consequence named in the task.
 
-Actions:
-- respond: a real person is waiting on an answer / decision
-- act_today: the user must personally DO something today or lose something — sign, pay, pick up, board, reschedule, enter a code. Time-sensitive is NOT enough: a package "arriving tomorrow" arrives without the user; that is NOT act_today.
-- read_and_archive: a RECORD the user would realistically SEARCH FOR later — receipt, invoice, statement, confirmation/reference number, ticket, itinerary, tax/legal — or a real FYI from a person they engage with. Archive is for retrieval, not politeness.
-- read_and_delete: a 10-second skim tells them something they'd actually want to know — a human note, a specific fact (appointment moved, who RSVP'd, what changed). If the SUBJECT LINE alone says it all, that is delete_now, not read_and_delete.
-- delete_now: safe to trash without opening (cold promo, bulk noreply junk)
-- unsubscribe: mailing list they clearly don't engage with
-- review_subscription: billing anomaly / price change / failed charge
-- glance_promo: shopping/deals they might want — glance subject only
-- needs_review: LAST RESORT (<5% of mail). Only if a wrong auto-action could hurt a real relationship or money and you truly cannot tell.
+STEP 3 — ACTIONABILITY: name the deed.
+act = a specific thing only they can do — pay X, sign Y, reply to Z, deposit the check, RSVP. Name it in deed.
+read = one-time information genuinely worth their eyes
+file = a record they'd realistically SEARCH for later (receipt, confirmation number, statement, tax/legal)
+none = no deed, no info worth their time. deed = "none" unless act.
 
-Input is a JSON array. Item fields: id, from (display name), email, subject, snippet.
-Optional predictor fields (omitted when zero/default):
-- age: how many DAYS ago the email arrived (omitted when <2)
-- rel: engaged (user emails them) | known (frequent inbound only) | bulk (automated); sent/recv = message counts; stale = engagement quiet >30d
-- contact: true = in the user's address book — a real relationship, never delete_now
-- meeting: an upcoming calendar event with this sender (e.g. "Standup · in 2d") — strong signal to respond/act_today
-- past: what the user did with recent mail from this sender (e.g. "trashed 2/3") — lean toward repeating their pattern
+STEP 4 — ACTION from the two axes:
+- deed named → act_today (or respond when it's answering a person)
+- importance 3 → never below read_and_archive; person waiting → respond
+- importance 2: read → read_and_delete · file → read_and_archive
+- importance 1: file → read_and_archive · otherwise read_and_delete or delete_now
+- importance 0 → delete_now, or unsubscribe when it's a mailing list
+- glance_promo is EXCEPTIONAL: only for a brand the user demonstrably buys from (their receipts show it) AND a deal they'd plausibly want. Default for promos is delete_now/unsubscribe — a promo is not worth a glance.
+- needs_review: LAST RESORT (<5%), only when a wrong call could hurt a relationship or money.
 
-Priority when signals conflict: meeting > contact > engaged rel > past behavior > content.
-USE WORLD KNOWLEDGE of the company behind the email. Airlines = travel. Banks/brokerages = money. Pharmacies/clinics = health. Schools/government = obligations. Judge WHO the company is and WHAT the message means for the user's day — no sent-history is NOT a reason to defer on a recognizable transactional sender.
-THE RAZOR — apply to every email: does the user personally have to DO anything? PASSIVE "it happened" mail needs nothing: package shipped/arriving/delivered, order confirmed, ride completed, build passed, PR merged, someone starred/liked/followed, weekly digest, statement ready → delete_now or read_and_delete. The event happens whether they read it or not. NEEDS-THEM mail is the exception: failed delivery/signature/pickup/customs, build FAILED, review requested, mentioned/assigned, security alert, payment failed/fraud/overdue, RSVP/invitation → act_today or respond. Records with future lookup value (receipts, invoices, confirmations with reference numbers) → read_and_archive, never delete.
-DELETE BEATS ARCHIVE: when torn between read_and_archive and read_and_delete, pick delete — the user keeps records, not reading material. Newsletters, product updates, community digests, "your weekly summary", social/forum notifications: read_and_delete even from recognizable brands.
-URGENCY DECAYS: act_today means today — judge it against age. A flight check-in, boarding pass, verification code, delivery window, event reminder, or "expires tonight" that is days old is DEAD: the moment passed, delete_now. Only obligations that persist stay urgent as they age: unpaid bill, unsigned document, unanswered person, overdue anything. When age is high, ask "is this STILL actionable, or is it a fossil of an urgency that expired?"
-FAKE URGENCY is the #1 trick: "expires today", "last chance", "action required", "final notice", "reminder:" from bulk/noreply/marketing senders is promo bait — delete_now or glance_promo, NEVER act_today. Urgency is real only from contacts, engaged/known senders, or genuine transactional mail (2FA codes, password resets, security alerts, boarding passes, deliveries, appointments).
-Cold noreply marketing → delete_now or unsubscribe.
-Product/CI (GitHub, Vercel, Figma, etc.) → usually read_and_archive unless promo.
-Be decisive. Prefer a confident archive/delete over needs_review.
-DELEGATION: if the user's profile mentions an assistant/EA and the task does not need the user personally — calling a company/bank/vendor, scheduling, chasing a status, purchases/returns, form-filling, research, screening — keep the action (respond/act_today) but START the instruction with "Delegate: " followed by the exact ask, e.g. "Delegate: have your EA call Bank of America about the disputed charge, then reply to Rebecca." The user's time goes only where only THEY can act (decisions, relationships, money authority).
+HARD RULES (override everything above):
+- Money at risk (payment failed/declined, fraud, past due, account locked) → act_today, any sender, any history.
+- Money owed TO the user (refund/rebate/settlement check) → act_today "Deposit the check" — never expires.
+- An unpaid bill (amount due, no autopay mention) → act_today "Pay the <biller> bill". A PAID invoice or autopay "bill ready" → file. A statement is a record; an unpaid bill is a task; an uncashed check is cash on the table.
+- URGENCY DECAYS with age: expired check-ins, delivery windows, event reminders, verification codes are DEAD → delete_now. Bills and checks never decay.
+- Fake urgency ("expires tonight!", "action required") from marketing = importance 0.
+- Passive status updates (shipped/delivered/completed/liked) need nothing — the event happens whether they read it or not.
+- Sender history never mutes risk: judge THIS message's intent first.
+- A REAL PERSON in the user's life (family, school, colleagues — anyone writing personally, whatever their tier) is NEVER delete_now/read_and_delete. "Someone else already handled it" makes it a record (read_and_archive), not trash — family and money threads get filed, never burned.
+- MEMBERSHIP LANGUAGE IN THE BODY beats missing history: "you're already registered", "your entry is confirmed", "your account/membership/reservation" = the user SIGNED UP for this. A dated opportunity from a signed-up service (ticket window, presale, renewal deadline, race entry) is decision-relevant — act_today or read_and_delete with the date in the task, never delete_now unread.
+- A confirmed appointment/service visit ("scheduled", "arriving between 9-1") holds the user's time → act_today while upcoming.
 
-Return one item per input id. reason = short why. instruction = what the user should do in one sentence.`;
+Input fields: id, from, email, subject, snippet (full text), and optional predictors:
+- tier: personal-database view — vip (user PINNED them: never below respond/read) | inner | known | new | machine-shaped
+- age: days since arrival · rel/sent/recv/stale: relationship graph · contact/meeting: address book & calendar · past: what they did with this sender's mail
+- amount: largest dollar figure in the email. IMPORTANCE SCALES WITH DOLLARS — a $9 receipt is a record; a $2,000 unpaid invoice or an unfamiliar $500 charge deserves eyes.
+- kept: how many emails from this sender the user READ and deliberately KEPT in their archive. kept > 0 = a service they signed up for (registrations, teams, memberships) — an announcement with dates/windows from a kept sender is decision-relevant to them, not marketing noise. Never delete_now a kept sender's dated opportunity unread.
+- usual: this biller's baseline from the user's own charge history ("usually ~$140 (6 charges)"). An amount far above usual → review_subscription, name the deviation in the task.
+- replyMins: median minutes the user takes to answer this sender. Under 60 = someone they drop everything for — weight like a VIP.
+Priority when signals conflict: vip/meeting > contact > engaged rel > replyMins > past behavior > content.
+
+OUTPUT one item per input id:
+- importance: 0-3 as scored
+- deed: the specific thing to do, or "none"
+- task: for a deed → a 2-6 word imperative WITH its particulars ("Pay the $140 pool invoice", "Deposit the State Farm check"). For no-deed mail → the ONE specific fact worth knowing, written like a sharp lock-screen notification with names/amounts/dates from the body: "Hilary's groceries land June 27", "Ubiquiti login code — was it you?", "Play terms change Aug 28", "$89 Netflix renewal on the 1st". FORBIDDEN: restating the subject line, generic labels ("statement ready", "order update", "payment receipt"), and filler prefixes ("Be aware:", "FYI:", "Note:"). If you cannot state a specific fact worth the user's eyes, importance is 0 and the action is delete_now with task "none".
+- category: 1-3 word life bucket in the user's terms (use their profile: Groceries, Travel, Kids & school, Golf, Money & bills, Payroll, Recruiting, Health, Home, Work, Receipts, Deliveries, Security). STALENESS in the name when the event passed: "Old trip", "Groceries — delivered". Same word every time.
+- action, confidence, reason (short why), instruction (one sentence), sender, credible.`;
 
 type CompactItem = {
   id: string;
@@ -407,8 +492,16 @@ type CompactItem = {
   email: string;
   subject: string;
   snippet: string;
+  /** Personal-database tier for the main filter */
+  tier?: string;
   /** Days since the email arrived (omitted when fresh) */
   age?: number;
+  /** Largest dollar figure in the email — money in motion */
+  amount?: number;
+  /** This biller's baseline from the merchant graph */
+  usual?: string;
+  /** Median minutes the user takes to reply to this sender */
+  replyMins?: number;
   rel?: string;
   sent?: number;
   recv?: number;
@@ -416,6 +509,8 @@ type CompactItem = {
   contact?: boolean;
   meeting?: string;
   past?: string;
+  /** Read-and-kept archive mail from this sender — opted-in service */
+  kept?: number;
 };
 
 export type TriageExtras = {
@@ -437,12 +532,67 @@ export type TriageExtras = {
   geminiEnabled?: boolean;
   /** Threads replied to from inside Seer (threadId → ISO time). */
   replied?: Record<string, string> | null;
+  /** Audits: skip the local junk pre-filter so every email is AI-judged. */
+  forceGemini?: boolean;
+  /**
+   * Who spoke LAST in a thread — conversations are threads, not
+   * messages. Decides "you already replied" vs "back to you", even
+   * when their newest turn was accidentally archived out of the inbox.
+   */
+  threadLast?: (
+    threadId: string,
+  ) => Promise<{
+    fromEmail: string;
+    fromName?: string;
+    receivedAt: string;
+  } | null>;
+  /**
+   * Deep read: fetch the FULL body text for a message about to be sent
+   * to Gemini. Each email is read once (decision cached + labeled), so
+   * the whole inbox costs pennies — snippets are only the fallback.
+   */
+  fetchBody?: (id: string) => Promise<string | null>;
 };
+
+/**
+ * "It really has to read every word": 12k chars covers essentially any
+ * human-written email whole (~3k tokens); machine blasts truncate fine.
+ */
+const DEEP_BODY_CHARS = 12_000;
+/** Max time spent fetching bodies per load — degrade to snippets after. */
+const BODY_FETCH_BUDGET_MS = 10_000;
+const BODY_FETCH_CONCURRENCY = 8;
+
+async function deepenChunk(
+  chunk: GeminiTriageItem[],
+  fetchBody: (id: string) => Promise<string | null>,
+  deadline: number,
+): Promise<GeminiTriageItem[]> {
+  const out = [...chunk];
+  for (let i = 0; i < out.length; i += BODY_FETCH_CONCURRENCY) {
+    if (Date.now() > deadline) break;
+    const wave = out.slice(i, i + BODY_FETCH_CONCURRENCY);
+    const bodies = await Promise.allSettled(
+      wave.map((m) => fetchBody(m.id)),
+    );
+    bodies.forEach((r, j) => {
+      if (r.status === "fulfilled" && r.value && r.value.length > 50) {
+        out[i + j] = {
+          ...out[i + j],
+          snippet: r.value.slice(0, DEEP_BODY_CHARS),
+        };
+      }
+    });
+  }
+  return out;
+}
 
 function compactPayload(
   batch: GeminiTriageItem[],
   history: MailHistory | null | undefined,
   extras?: TriageExtras,
+  tiers?: Map<string, string>,
+  merchants?: Awaited<ReturnType<typeof loadMerchants>>,
 ): CompactItem[] {
   return batch.map((m) => {
     const sig = historySignals(history, m.fromEmail);
@@ -453,18 +603,36 @@ function compactPayload(
       subject: m.subject.slice(0, 140),
       // Strip html-to-text residue (image alts, bare <url> refs) that
       // wastes tokens and poisons Gemini's instructions
+      // Deep-read bodies arrive pre-sliced at DEEP_BODY_CHARS; plain
+      // list snippets are ~200 chars — this cap protects tokens either way
       snippet: m.snippet
         .replace(/\[image:[^\]]*\]/gi, " ")
         .replace(/<https?:\/\/[^>\s]+>/g, " ")
         .replace(/\s+/g, " ")
-        .slice(0, 400),
+        .slice(0, DEEP_BODY_CHARS),
     };
+    const tier = tiers?.get(m.fromEmail.toLowerCase());
+    if (tier) item.tier = tier;
     const age = ageInDays(m.receivedAt);
     if (age >= 2) item.age = age;
+    // Money in motion + this biller's baseline
+    const amount = extractAmount(`${m.subject}\n${m.snippet}`);
+    if (amount != null && amount >= 1) item.amount = amount;
+    if (merchants) {
+      const usual = usualLabel(merchants, m.fromEmail);
+      if (usual) item.usual = usual;
+    }
+    // Revealed priority: how fast the user answers this sender
+    if (sig.medianReplyMins != null && sig.medianReplyMins < 7 * 24 * 60) {
+      item.replyMins = sig.medianReplyMins;
+    }
     if (sig.relationship !== "cold") item.rel = sig.relationship;
     if (sig.sentTo > 0) item.sent = sig.sentTo;
     if (sig.receivedFrom > 0) item.recv = sig.receivedFrom;
     if (sig.staleEngagement) item.stale = true;
+    // "I signed up for it and there is history for that" — read-and-kept
+    // archive mail from this sender is opted-in evidence
+    if ((sig.keptFrom ?? 0) > 0) item.kept = sig.keptFrom;
 
     const ctx = contextSignals(extras?.personal, m.fromEmail);
     if (ctx.inContacts) item.contact = true;
@@ -488,11 +656,13 @@ async function geminiBatch(
   history: MailHistory | null | undefined,
   extras?: TriageExtras,
   via?: { model: LanguageModel | string; label: string },
+  tiers?: Map<string, string>,
+  merchants?: Awaited<ReturnType<typeof loadMerchants>>,
 ): Promise<Map<string, AssistantClassifyResult>> {
   const out = new Map<string, AssistantClassifyResult>();
   if (batch.length === 0) return out;
 
-  const payload = compactPayload(batch, history, extras);
+  const payload = compactPayload(batch, history, extras, tiers, merchants);
   const { model, label } = via ?? (await resolveModel());
   // Static prompt first (implicit-cache prefix), then the user's own
   // "about me" memory — identical bytes call to call until they edit it.
@@ -504,6 +674,9 @@ async function geminiBatch(
     model,
     temperature: 0,
     maxRetries: 0, // a retry against an exhausted quota is a wasted request
+    // A hung upstream call must never eat the function's 60s budget —
+    // that kills the whole inbox load and strands users on stale cache.
+    abortSignal: AbortSignal.timeout(30_000),
     output: Output.object({ schema: batchSchema }),
     system,
     prompt: JSON.stringify(payload),
@@ -531,6 +704,15 @@ async function geminiBatch(
       debug: debugFor(src, history, `gemini:${label}`),
       source: "gemini",
       instruction: row.instruction.slice(0, 200),
+      task:
+        row.task && !/^(none|n\/a)$/i.test(row.task.trim())
+          ? row.task.trim().slice(0, 80)
+          : undefined,
+      category: row.category?.trim().slice(0, 40) || undefined,
+      senderKind: row.sender,
+      credible: row.credible,
+      importance: row.importance,
+      deed: row.deed?.trim().slice(0, 100) || undefined,
     });
   }
   return out;
@@ -542,6 +724,10 @@ function toCached(r: AssistantClassifyResult): CachedDecision {
     confidence: r.confidence,
     reason: r.reason,
     instruction: r.instruction,
+    task: r.task,
+    category: r.category,
+    importance: r.importance,
+    deed: r.deed,
     source: r.source,
     ruleId: r.debug.ruleId,
     ts: Date.now(),
@@ -586,6 +772,47 @@ export async function classifyInboxWithAssistant(
   const results = new Map<string, AssistantClassifyResult>();
   const candidates: GeminiTriageItem[] = [];
 
+  // THE PERSONAL DATABASE — resolve every sender's tier first.
+  // Local evidence (sent history, contacts, meetings, shape) decides
+  // most for free; genuinely unknown senders go to the AI's full read.
+  const people: PeopleDb = await loadPeople(accountEmail).catch(() => ({}));
+  const merchants = await loadMerchants(accountEmail).catch(() => ({}));
+  let merchantsDirty = false;
+  const tiers = new Map<string, string>();
+  let peopleDirty = false;
+  for (const item of items) {
+    const key = item.fromEmail.toLowerCase();
+    if (tiers.has(key)) continue;
+    const stored = people[key];
+    if (stored) {
+      tiers.set(key, stored.vip ? "vip" : stored.tier);
+      continue;
+    }
+    const sig = historySignals(history, item.fromEmail);
+    const ctx = contextSignals(extras?.personal, item.fromEmail);
+    const evidence = tierFromEvidence({
+      fromEmail: item.fromEmail,
+      sentTo: sig.sentTo,
+      receivedFrom: sig.receivedFrom,
+      inContacts: ctx.inContacts,
+      hasMeeting: Boolean(ctx.meeting),
+    });
+    if (evidence) {
+      tiers.set(key, evidence.tier);
+      people[key] = {
+        email: key,
+        name: item.fromName,
+        tier: evidence.tier,
+        reason: evidence.reason,
+        by: "evidence",
+        judgedAt: new Date().toISOString(),
+      };
+      peopleDirty = true;
+    } else {
+      tiers.set(key, "new"); // the AI judges credibility from the words
+    }
+  }
+
   // 0. Already replied — the strongest "handled" signal there is. If the
   // user's last reply on this thread is NEWER than this message, the ball
   // is in the other court; a follow-up that arrived after their reply
@@ -599,9 +826,123 @@ export async function classifyInboxWithAssistant(
   };
 
   // 1. Taught overrides + 2. learned priors from the user's own actions
+  const me = accountEmail.toLowerCase().trim();
+  // Conversations are THREADS: who spoke last decides everything.
+  // Memoized — one lookup per thread, only when it changes the verdict.
+  const threadLastMemo = new Map<
+    string,
+    { fromEmail: string; fromName?: string; receivedAt: string } | null
+  >();
+  const lastTurn = async (threadId?: string) => {
+    if (!threadId || !extras?.threadLast) return null;
+    if (!threadLastMemo.has(threadId)) {
+      threadLastMemo.set(
+        threadId,
+        await extras.threadLast(threadId).catch(() => null),
+      );
+    }
+    return threadLastMemo.get(threadId) ?? null;
+  };
+  // Thread bookkeeping: one respond per thread (its newest row), and
+  // tasks must name the COUNTERPARTY, never the user.
+  const newestOfThread = new Map<string, string>();
+  const counterpartOfThread = new Map<string, string>();
   for (const item of items) {
+    if (!item.threadId) continue;
+    const cur = newestOfThread.get(item.threadId);
+    const curItem = items.find((i) => i.id === cur);
+    if (!curItem || item.receivedAt! > curItem.receivedAt!) {
+      newestOfThread.set(item.threadId, item.id);
+    }
+    if (item.fromEmail.toLowerCase().trim() !== me) {
+      counterpartOfThread.set(
+        item.threadId,
+        item.fromName || item.fromEmail,
+      );
+    }
+  }
+
+  const backToYou = (
+    item: GeminiTriageItem,
+    turn: { fromEmail: string; fromName?: string; receivedAt: string },
+  ): AssistantClassifyResult => {
+    // Best name wins: the thread's own From header, then the Person
+    // Graph, then whatever the inbox rows knew, then the address stem.
+    const who =
+      turn.fromName ||
+      people[turn.fromEmail]?.name ||
+      (item.fromEmail.toLowerCase().trim() === me
+        ? counterpartOfThread.get(item.threadId ?? "")
+        : item.fromName) ||
+      turn.fromEmail.split("@")[0];
+    return {
+      action: "respond",
+      confidence: "HIGH",
+      reason: "Their reply is the newest turn in this thread — back to you",
+      debug: debugFor(item, history, "thread-back-to-you"),
+      source: "rules",
+      instruction: "They answered after your last reply — open the thread.",
+      task: `Reply to ${who}`.slice(0, 60),
+      category: "People",
+    };
+  };
+
+  /** Older rows of an already-surfaced thread file quietly. */
+  const threadSibling = (item: GeminiTriageItem): AssistantClassifyResult => ({
+    action: "read_and_archive",
+    confidence: "HIGH",
+    reason: "Older message in a thread that's already surfaced above",
+    debug: debugFor(item, history, "thread-sibling"),
+    source: "rules",
+    instruction: "The newest turn of this thread carries the action.",
+    task: "Part of an active thread",
+    category: "People",
+  });
+
+  for (const item of items) {
+    // 0a. THE USER'S OWN MESSAGE — Gmail lists your replies inside
+    // inboxed threads. Never judge yourself as a sender. But check the
+    // THREAD: if they spoke after you (even if their message was
+    // archived out of the inbox), the ball is in YOUR court.
+    if (item.fromEmail.toLowerCase().trim() === me) {
+      const turn = await lastTurn(item.threadId);
+      if (turn && turn.fromEmail !== me) {
+        results.set(
+          item.id,
+          newestOfThread.get(item.threadId ?? "") === item.id
+            ? backToYou(item, turn)
+            : threadSibling(item),
+        );
+        continue;
+      }
+      results.set(item.id, {
+        action: "read_and_archive",
+        confidence: "HIGH",
+        reason: "This is your own message — no reply yet",
+        debug: debugFor(item, history, "self-sent"),
+        source: "rules",
+        instruction: "You wrote this — nothing to triage.",
+        task: "Your message — awaiting their reply",
+        category: "Sent",
+      });
+      continue;
+    }
+
     const answered = repliedAt(item.threadId);
     if (answered && item.receivedAt && answered > item.receivedAt) {
+      // Per-message it looks handled — but verify per-THREAD before
+      // dismissing a person: their newest turn may live outside the
+      // inbox (archived), making "you already replied" a lie.
+      const turn = await lastTurn(item.threadId);
+      if (turn && turn.fromEmail !== me && turn.receivedAt > answered) {
+        results.set(
+          item.id,
+          newestOfThread.get(item.threadId ?? "") === item.id
+            ? backToYou(item, turn)
+            : threadSibling(item),
+        );
+        continue;
+      }
       results.set(item.id, {
         action: "read_and_archive",
         confidence: "HIGH",
@@ -609,6 +950,7 @@ export async function classifyInboxWithAssistant(
         debug: debugFor(item, history, "already-replied"),
         source: "rules",
         instruction: "Handled — you replied. Archive it.",
+        task: "You already replied",
       });
       continue;
     }
@@ -632,6 +974,7 @@ export async function classifyInboxWithAssistant(
           debug: debugFor(item, history, "invite-answered"),
           source: "rules",
           instruction: "Handled — RSVP is on your calendar. Archive it.",
+          task: "RSVP already on your calendar",
         });
       } else {
         results.set(item.id, {
@@ -641,6 +984,7 @@ export async function classifyInboxWithAssistant(
           debug: debugFor(item, history, "invite-needs-rsvp"),
           source: "rules",
           instruction: "Accept, decline, or maybe — one tap in Seer.",
+          task: "RSVP yes or no",
         });
       }
       continue;
@@ -655,12 +999,20 @@ export async function classifyInboxWithAssistant(
         debug: debugFor(item, history, "rsvp-receipt-delete"),
         source: "rules",
         instruction: "Someone answered your invite. Nothing to do — delete.",
+        task: "They answered your invite",
       });
       continue;
     }
 
+    // INTENT pierces sender history: a sender you taught/learned to
+    // dismiss can still send the ONE message that needs you — the 347th
+    // autopay email that says "autopay FAILED". Strict needs-you
+    // signals (payment failed, fraud, signature required, unpaid bill)
+    // bypass the mute and demand action.
+    const escape = needsYouEscape(item.subject, item.snippet);
+
     const override = await getOverride(item.fromEmail);
-    if (override) {
+    if (override && !(DISMISSIVE.has(override) && escape)) {
       results.set(item.id, {
         action: override,
         confidence: "HIGH",
@@ -671,9 +1023,45 @@ export async function classifyInboxWithAssistant(
       });
       continue;
     }
+    if (override && escape) {
+      results.set(item.id, {
+        action: "act_today",
+        confidence: "HIGH",
+        reason:
+          "Muted sender, but THIS one needs you — payment/security/delivery language",
+        debug: debugFor(item, history, "muted-sender-needs-you"),
+        source: "rules",
+        instruction:
+          "You normally ignore this sender, but this message says something failed or needs action — open it.",
+        task: "Open it — something failed",
+      });
+      continue;
+    }
 
     const learned = learnedPrior(extras?.actionMemory, item.fromEmail);
-    if (learned) {
+    if (learned && escape) {
+      results.set(item.id, {
+        action: "act_today",
+        confidence: "HIGH",
+        reason:
+          "You usually dismiss this sender, but THIS one has needs-you language",
+        debug: debugFor(item, history, "muted-sender-needs-you"),
+        source: "rules",
+        instruction:
+          "Break in pattern: something failed or needs action — open it.",
+        task: "Open it — something failed",
+      });
+      continue;
+    }
+    // A learned mute is SENDER-level; records are MESSAGE-level. The
+    // same airline that spams you also sends the receipt you'll search
+    // for at tax time — "learned delete" never swallows a record; the
+    // AI reads it and files it properly instead.
+    const learnedRecord =
+      learned &&
+      learned.action === "delete_now" &&
+      /(receipt|itinerary|invoice|statement|confirmation)/i.test(item.subject);
+    if (learned && !learnedRecord) {
       const verb = learned.dominant === "trash" ? "deleted" : "archived";
       results.set(item.id, {
         action: learned.action,
@@ -699,17 +1087,50 @@ export async function classifyInboxWithAssistant(
     PROMPT_VERSION,
   ).catch(() => new Map<string, CachedDecision>());
 
+  // Gmail labels carry no version — after a prompt bump, every label is
+  // a previous era's opinion. Until one full load re-grades cleanly
+  // under the current version, label lookups are ignored (the LA28
+  // presale sat on a stale read_and_delete label this way).
+  const eraKey = `labels-era:${accountEmail.toLowerCase()}`;
+  const labelsTrusted = extras?.labels
+    ? (await kvGet<number>(eraKey).catch(() => null)) === PROMPT_VERSION
+    : false;
+
   const forGemini: GeminiTriageItem[] = [];
   const toSave = new Map<string, CachedDecision>();
 
   for (const item of candidates) {
+    // The SAME needs-you bar guards every stored verdict below: a saved
+    // "ignore" (cache or label) is a memory of an older read — the text
+    // in front of us wins when it says money/action/unpaid bill.
+    const escape = needsYouEscape(item.subject, item.snippet);
+    const tier = tiers.get(item.fromEmail.toLowerCase());
+    const personTier =
+      tier === "vip" ||
+      tier === "inner" ||
+      tier === "known" ||
+      tier === "new-credible";
+
     const hit = cachedHits.get(item.id);
-    if (hit) {
+    // A cached dismissal that came from RULES (a snippet-level shortcut,
+    // never a full read) must survive the same challenges a Gmail label
+    // does: needs-you language or person mail → send to the AI instead.
+    // Gemini's own current-version verdicts are the trusted AI memory.
+    const staleCachedDismissal =
+      hit &&
+      hit.source === "rules" &&
+      DISMISSIVE.has(hit.action) &&
+      (escape || personTier);
+    if (hit && !staleCachedDismissal) {
       results.set(item.id, {
         action: hit.action,
         confidence: hit.confidence,
         reason: hit.reason,
         instruction: hit.instruction,
+        task: hit.task,
+        category: hit.category,
+        importance: hit.importance,
+        deed: hit.deed,
         debug: debugFor(item, history, hit.ruleId),
         source: hit.source,
         cached: true,
@@ -718,10 +1139,6 @@ export async function classifyInboxWithAssistant(
     }
 
     const ctx = contextSignals(extras?.personal, item.fromEmail);
-    const classifyExtras: ClassifyExtras = {
-      inContacts: ctx.inContacts,
-      meeting: meetingLabel(ctx.meeting),
-    };
 
     // 4. Native Gmail label: reviewed once earlier, call saved on the message.
     // Exception: an "urgent" label on a non-person sender (bulk/known robot,
@@ -732,7 +1149,8 @@ export async function classifyInboxWithAssistant(
       extras?.profile &&
       Date.now() - new Date(extras.profile.updatedAt).getTime() <
         30 * 60 * 1000;
-    const labeled = profileFresh ? null : extras?.labels?.lookup(item);
+    const labeled =
+      profileFresh || !labelsTrusted ? null : extras?.labels?.lookup(item);
     if (labeled) {
       const rel = historySignals(history, item.fromEmail).relationship;
       const suspiciousUrgent =
@@ -748,7 +1166,23 @@ export async function classifyInboxWithAssistant(
         !ctx.meeting &&
         rel !== "engaged" &&
         !RECORD_HINT.test(`${item.subject} ${item.snippet}`);
-      if (!suspiciousUrgent && !suspiciousArchive) {
+      // A PERSON's mail never trusts a dismissive label: an old prompt
+      // filing Rebecca's follow-up as "archive" must not stick — real
+      // people always get a current judgment.
+      const personDismissed = personTier && DISMISSIVE.has(labeled);
+      // Labels aren't versioned — an old prompt's "ignore" lives on the
+      // message forever. When the TEXT says needs-you (unpaid bill,
+      // payment failed, signature required), the label loses and the
+      // email gets a fresh full read. This is how the $140 pool invoice
+      // sat filed as a "record" for 3 weeks: "invoice" matched
+      // RECORD_HINT, and the escape hatch never challenged labels.
+      const labelDismissedNeedsYou = DISMISSIVE.has(labeled) && escape;
+      if (
+        !suspiciousUrgent &&
+        !suspiciousArchive &&
+        !personDismissed &&
+        !labelDismissedNeedsYou
+      ) {
         results.set(item.id, {
           action: labeled,
           confidence: "HIGH",
@@ -761,32 +1195,10 @@ export async function classifyInboxWithAssistant(
       }
     }
 
-    // 5. Rules pre-filter: obvious junk never reaches Gemini — but a
-    // contact or someone you're meeting soon is never junk.
-    if (!ctx.inContacts && !ctx.meeting) {
-      const ruled = rulesFallback(
-        {
-          fromEmail: item.fromEmail,
-          fromName: item.fromName,
-          subject: item.subject,
-          snippet: item.snippet,
-        },
-        null,
-        history,
-        classifyExtras,
-      );
-      if (PREFILTER_RULE_IDS.has(ruled.debug.ruleId)) {
-        const r: AssistantClassifyResult = {
-          ...ruled,
-          source: "rules",
-          debug: { ...ruled.debug, ruleId: `rules:${ruled.debug.ruleId}` },
-        };
-        results.set(item.id, r);
-        toSave.set(item.id, toCached(r));
-        continue;
-      }
-    }
-
+    // 5. Everything ungraded gets the full AI read. (The old rules
+    // pre-filter that skipped Gemini for "obvious junk" is gone — it
+    // judged by sender shape and binned a plumber's "arriving 9am-1pm
+    // TODAY" as bulk noise. Paid gateway: content decides, not cost.)
     forGemini.push(item);
   }
 
@@ -796,6 +1208,10 @@ export async function classifyInboxWithAssistant(
     isGeminiConfigured() &&
     extras?.geminiEnabled !== false
   ) {
+    // Fresh load, fresh status — a stale error from an hour ago must
+    // not paint "offline" over a load that worked fine.
+    lastGeminiError = null;
+
     // Direct Google key first; if it's in quota cooldown, fail over to
     // the Vercel AI Gateway (separate monthly credit pool) before ever
     // degrading to rules.
@@ -807,19 +1223,54 @@ export async function classifyInboxWithAssistant(
       const mins = Math.ceil((cooldown.until - Date.now()) / 60000);
       lastGeminiError = `${cooldown.reason} (~${mins}m). Decisions fall back to rules meanwhile.`;
     } else {
+      const geminiStarted = Date.now();
+      const bodyDeadline = geminiStarted + BODY_FETCH_BUDGET_MS;
+      // Whole-email reads → smaller chunks, same email budget per load
+      const step = extras?.fetchBody ? DEEP_BATCH : BATCH;
       const limit = Math.min(forGemini.length, MAX_BATCHES_PER_LOAD * BATCH);
-      for (let i = 0; i < limit; i += BATCH) {
-        const chunk = forGemini.slice(i, i + BATCH);
+      for (let i = 0; i < limit; i += step) {
+        if (Date.now() - geminiStarted > GEMINI_TIME_BUDGET_MS) {
+          lastGeminiError = `Time budget hit — ${limit - i} emails deferred to the next refresh`;
+          break;
+        }
+        let chunk = forGemini.slice(i, i + step);
+        // Read the WHOLE email, not the preview — once per message,
+        // then the verdict is cached and labeled forever.
+        if (extras?.fetchBody) {
+          chunk = await deepenChunk(chunk, extras.fetchBody, bodyDeadline);
+        }
         try {
           const mapped = await geminiBatch(
             chunk,
             history,
             extras,
             useGateway ? gatewayModel() : undefined,
+            tiers,
+            merchants,
           );
           for (const [id, r] of mapped) {
             results.set(id, r);
             toSave.set(id, toCached(r));
+            // Grow the personal database: AI verdicts on unknown
+            // senders are stored forever (outbound mail later promotes)
+            const src = chunk.find((c) => c.id === id);
+            const key = src?.fromEmail.toLowerCase();
+            if (key && tiers.get(key) === "new" && r.senderKind) {
+              const tier: PersonTier =
+                r.senderKind === "person" && r.credible
+                  ? "new-credible"
+                  : "machine";
+              people[key] = {
+                email: key,
+                name: src?.fromName,
+                tier,
+                reason: r.reason.slice(0, 120),
+                by: "ai",
+                judgedAt: new Date().toISOString(),
+              };
+              tiers.set(key, tier);
+              peopleDirty = true;
+            }
           }
         } catch (e) {
           const msg = e instanceof Error ? e.message : String(e);
@@ -835,17 +1286,27 @@ export async function classifyInboxWithAssistant(
             msg,
           );
           const cd = cooldownFromError(msg);
+          // Overloaded model / hung call — transient, not quota
+          const transient =
+            /high demand|overloaded|unavailable|503|timed? ?out|abort/i.test(
+              msg,
+            );
           if (cd && !useGateway) {
             // Direct key is out — remember it, then retry THIS chunk
             // through the gateway credit pool.
             await kvSet(COOLDOWN_KEY, cd).catch(() => {});
             if (gatewayAvailable()) {
               useGateway = true;
-              i -= BATCH;
+              i -= step;
               continue;
             }
             const mins = Math.ceil((cd.until - Date.now()) / 60000);
             lastGeminiError = `${cd.reason} (~${mins}m). Decisions fall back to rules meanwhile.`;
+          } else if (transient && !useGateway && gatewayAvailable()) {
+            // Google's model is busy — same batch, different pipe
+            useGateway = true;
+            i -= step;
+            continue;
           }
           break;
         }
@@ -855,6 +1316,7 @@ export async function classifyInboxWithAssistant(
 
   // 7. Rules fallback for anything Gemini missed (not cached, so Gemini
   //    gets another shot on the next load)
+  let uncachedRulesLeftovers = 0;
   for (const item of forGemini) {
     if (results.has(item.id)) continue;
     const ctx = contextSignals(extras?.personal, item.fromEmail);
@@ -869,6 +1331,31 @@ export async function classifyInboxWithAssistant(
       history,
       { inContacts: ctx.inContacts, meeting: meetingLabel(ctx.meeting) },
     );
+    // THE PERSON FLOOR: when the AI couldn't grade it, a real person's
+    // mail surfaces — rules must never quietly bin a human. ("How are
+    // you?" from a friend is a respond, not a skim-and-delete.)
+    const tier = tiers.get(item.fromEmail.toLowerCase());
+    const personTier =
+      tier === "vip" || tier === "inner" || tier === "new-credible";
+    const dismissive =
+      r.action === "delete_now" ||
+      r.action === "unsubscribe" ||
+      r.action === "read_and_delete" ||
+      r.action === "glance_promo" ||
+      r.action === "read_and_archive";
+    if (personTier && dismissive) {
+      results.set(item.id, {
+        action: "respond",
+        confidence: "LOW",
+        reason: "Real person — surfaced until the AI reads it properly",
+        debug: { ...r.debug, ruleId: "person-floor" },
+        source: "rules",
+        instruction: "A person wrote this — worth your eyes.",
+        task: "See what they want",
+      });
+      continue;
+    }
+    uncachedRulesLeftovers += 1;
     results.set(item.id, {
       ...r,
       source: "rules",
@@ -883,6 +1370,133 @@ export async function classifyInboxWithAssistant(
     if (r) results.set(item.id, applyUrgencyDecay(item, r, history));
   }
 
+  // Appointment floor: a CONFIRMED visit ("arriving between 9-1",
+  // "your appointment is scheduled") holds the user's time — no layer
+  // may file it below act_today while it's fresh. Once the day passes,
+  // it ages out naturally (guard only applies to recent mail).
+  for (const item of items) {
+    const r = results.get(item.id);
+    if (!r || r.action === "act_today" || r.action === "respond") continue;
+    if (r.source === "override") continue;
+    if (ageInDays(item.receivedAt) > 5) continue;
+    if (!APPOINTMENT_HOLD.test(`${item.subject}\n${item.snippet}`)) continue;
+    results.set(item.id, {
+      ...r,
+      action: "act_today",
+      confidence: "HIGH",
+      reason: "Confirmed appointment — you may need to be there",
+      debug: { ...r.debug, ruleId: "appointment-floor" },
+      task: r.task && r.task !== "none" ? r.task : "Be there — visit scheduled",
+      instruction:
+        "Someone is coming (or you're expected somewhere). Check the time window.",
+    });
+  }
+
+  // Person-protect: a real person in the user's life is never silently
+  // trashed, whatever any layer decided — including a fresh Gemini
+  // verdict. "Hilary already handled it" may be true, but a family
+  // thread about a refund check files as a record, it doesn't burn.
+  // (Taught overrides still win — teaching a sender delete IS an
+  // explicit decision about a person.)
+  const DELETEY = new Set<TriageAction>([
+    "delete_now",
+    "read_and_delete",
+    "unsubscribe",
+    "glance_promo",
+  ]);
+  for (const item of items) {
+    const r = results.get(item.id);
+    if (!r || r.source === "override") continue;
+    const tier = tiers.get(item.fromEmail.toLowerCase());
+    const ctx = contextSignals(extras?.personal, item.fromEmail);
+    // Google auto-collects "other contacts" from every interaction —
+    // that list is NOT a relationship. An auto-contact only earns
+    // person protection when the mail graph shows real strength
+    // (the user has actually written to them).
+    const rel = historySignals(history, item.fromEmail);
+    const personish =
+      tier === "inner" ||
+      tier === "known" ||
+      tier === "new-credible" ||
+      ctx.inContacts ||
+      (ctx.autoContact && (rel.sentTo > 0 || rel.relationship === "engaged"));
+    if (personish && DELETEY.has(r.action)) {
+      results.set(item.id, {
+        ...r,
+        action: "read_and_archive",
+        reason: `A person in your life — filed, never deleted (${r.reason.slice(0, 80)})`,
+        debug: { ...r.debug, ruleId: "person-protect" },
+      });
+    }
+    // Money coming TO you (refund/reimbursement/check in the mail) is
+    // kept until it clears — a fresh AI "no action needed" may be right
+    // about the deed, but the record floor still applies.
+    if (
+      DELETEY.has(r.action) &&
+      r.source !== "learned" &&
+      REFUND_CHECK.test(`${item.subject}\n${item.snippet}`)
+    ) {
+      const cur = results.get(item.id)!;
+      results.set(item.id, {
+        ...cur,
+        action: "read_and_archive",
+        reason: "Money coming to you — keep until the check clears",
+        debug: { ...cur.debug, ruleId: "refund-record-floor" },
+      });
+    }
+    // VIPs sit above everything: their mail never drops below "read"
+    if (
+      tier === "vip" &&
+      (r.action === "delete_now" ||
+        r.action === "unsubscribe" ||
+        r.action === "read_and_delete" ||
+        r.action === "glance_promo")
+    ) {
+      results.set(item.id, {
+        ...r,
+        action: "read_and_archive",
+        confidence: "HIGH",
+        reason: "VIP — you pinned this person; nothing of theirs is junk",
+        debug: { ...r.debug, ruleId: "vip-protect" },
+      });
+    }
+  }
+
+  // Merchant graph: learn every fresh charge; scream on anomalies.
+  // toSave gates dedupe — cached decisions were recorded when fresh.
+  for (const item of items) {
+    if (!toSave.has(item.id)) continue;
+    const r = results.get(item.id);
+    if (!r) continue;
+    const moneyish =
+      /finance|bill|autopay|receipt|money|subscription/i.test(
+        `${r.debug.ruleId} ${r.category ?? ""}`,
+      ) || /receipt|invoice|bill|statement|payment/i.test(item.subject);
+    if (!moneyish) continue;
+    const amount = extractAmount(`${item.subject}\n${item.snippet}`);
+    if (amount == null || amount < 1) continue;
+    if (
+      isAnomalousCharge(merchants, item.fromEmail, amount) &&
+      r.action !== "act_today"
+    ) {
+      const usual = usualLabel(merchants, item.fromEmail);
+      results.set(item.id, {
+        ...r,
+        action: "review_subscription",
+        confidence: "HIGH",
+        reason: `Unusual amount: $${amount}${usual ? ` — ${usual}` : ""}`,
+        task: `Check the $${amount} ${item.fromName || "charge"}`.slice(0, 80),
+        debug: { ...r.debug, ruleId: "merchant-anomaly" },
+      });
+    }
+    recordCharge(merchants, item.fromEmail, item.fromName, amount);
+    merchantsDirty = true;
+  }
+  if (merchantsDirty) {
+    await saveMerchants(accountEmail, merchants).catch(() => {});
+  }
+
+  if (peopleDirty) await savePeople(accountEmail, people).catch(() => {});
   await saveDecisions(accountEmail, toSave).catch(() => {});
 
   // Save fresh calls as native Gmail labels — reviewed once, never re-paid
@@ -892,6 +1506,12 @@ export async function classifyInboxWithAssistant(
       action: d.action,
     }));
     await extras.labels.persist(labelWrites).catch(() => {});
+  }
+
+  // A clean load under the current prompt version (nothing left on
+  // uncached rules fallbacks) re-earns label trust for this era.
+  if (extras?.labels && !labelsTrusted && uncachedRulesLeftovers === 0) {
+    await kvSet(eraKey, PROMPT_VERSION).catch(() => {});
   }
 
   return results;

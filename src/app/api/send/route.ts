@@ -33,11 +33,15 @@ export async function POST(request: Request) {
       subject?: string;
       body?: string;
       replyToId?: string;
+      /** Delegation: the forward hands it off, the original leaves the inbox */
+      archiveOriginal?: boolean;
     };
 
     const mode: Mode = body.mode ?? "compose";
     const text = (body.body ?? "").trim();
-    if (!text) {
+    // A forward's body IS the original message — a note on top is
+    // optional. Compose/reply with nothing to say is still an error.
+    if (!text && mode !== "forward") {
       return NextResponse.json({ error: "Message body required" }, { status: 400 });
     }
 
@@ -66,17 +70,30 @@ export async function POST(request: Request) {
         body.replyToId,
       );
 
+      const originalText = (
+        original.textBody ||
+        original.htmlBody.replace(/<[^>]+>/g, " ").replace(/\s+/g, " ") ||
+        original.snippet
+      ).slice(0, 20_000);
+
       if (mode === "forward") {
         if (!body.to?.trim()) {
           return NextResponse.json({ error: "To required" }, { status: 400 });
         }
-        const quoted = `${text}\n\n---------- Forwarded message ----------\nFrom: ${original.fromName} <${original.fromEmail}>\nSubject: ${original.subject}\n\n${original.textBody || original.snippet}`;
+        const quoted = `${text ? `${text}\n\n` : ""}---------- Forwarded message ----------\nFrom: ${original.fromName} <${original.fromEmail}>\nDate: ${new Date(original.receivedAt).toLocaleString()}\nSubject: ${original.subject}\nTo: ${original.toEmail}\n\n${originalText}`;
         const sent = await sendGmailMessage(session.accessToken, {
           to: body.to.trim(),
           cc: body.cc,
           subject: ensureFwd(body.subject?.trim() || original.subject),
           body: quoted,
         });
+        if (body.archiveOriginal) {
+          await gmailAction(
+            session.accessToken,
+            body.replyToId,
+            "archive",
+          ).catch(() => {});
+        }
         return NextResponse.json({ ok: true, ...sent });
       }
 
@@ -99,6 +116,15 @@ export async function POST(request: Request) {
               .join(", ") || original.fromEmail
           : original.fromEmail;
 
+      // Quote the original under the reply, the way every mail client
+      // does — the recipient sees what's being answered.
+      const quotedReply = `${text}\n\nOn ${new Date(
+        original.receivedAt,
+      ).toLocaleString()}, ${original.fromName} <${original.fromEmail}> wrote:\n${originalText
+        .split("\n")
+        .map((l) => `> ${l}`)
+        .join("\n")}`;
+
       const sent = await sendGmailMessage(session.accessToken, {
         to: body.to?.trim() || to,
         cc:
@@ -106,7 +132,7 @@ export async function POST(request: Request) {
             ? body.cc?.trim() || original.ccEmail
             : body.cc,
         subject: ensureRe(body.subject?.trim() || original.subject),
-        body: text,
+        body: quotedReply,
         threadId: original.threadId,
         inReplyTo: original.messageIdHeader || undefined,
         references: original.messageIdHeader || undefined,
@@ -160,13 +186,20 @@ export async function POST(request: Request) {
         session.accessToken,
         body.replyToId,
       );
-      const quoted = `${text}\n\n---------- Forwarded message ----------\nFrom: ${original.fromName} <${original.fromEmail}>\nSubject: ${original.subject}\n\n${original.textBody || original.snippet}`;
+      const quoted = `${text ? `${text}\n\n` : ""}---------- Forwarded message ----------\nFrom: ${original.fromName} <${original.fromEmail}>\nSubject: ${original.subject}\n\n${original.textBody || original.snippet}`;
       await sendGraphMessage(session.accessToken, {
         to: body.to.trim(),
         cc: body.cc,
         subject: ensureFwd(body.subject?.trim() || original.subject),
         body: quoted,
       });
+      if (body.archiveOriginal) {
+        await graphAction(
+          session.accessToken,
+          body.replyToId,
+          "archive",
+        ).catch(() => {});
+      }
       return NextResponse.json({ ok: true });
     }
 

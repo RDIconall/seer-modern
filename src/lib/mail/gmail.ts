@@ -35,12 +35,31 @@ function extractBodies(payload: GmailPayload): {
   text: string;
   html: string;
   icalUid?: string;
+  attachments: {
+    id: string;
+    filename: string;
+    mimeType: string;
+    size: number;
+  }[];
 } {
   let text = "";
   let html = "";
   let icalUid: string | undefined;
+  const attachments: {
+    id: string;
+    filename: string;
+    mimeType: string;
+    size: number;
+  }[] = [];
   function walk(part: GmailPayload) {
-    if (part.mimeType === "text/plain" && part.body?.data) {
+    if (part.filename && part.body?.attachmentId) {
+      attachments.push({
+        id: part.body.attachmentId,
+        filename: part.filename,
+        mimeType: part.mimeType ?? "application/octet-stream",
+        size: part.body.size ?? 0,
+      });
+    } else if (part.mimeType === "text/plain" && part.body?.data) {
       text += decodeBase64Url(part.body.data);
     } else if (part.mimeType === "text/html" && part.body?.data) {
       html += decodeBase64Url(part.body.data);
@@ -58,12 +77,13 @@ function extractBodies(payload: GmailPayload): {
       html = decodeBase64Url(payload.body.data);
   }
   walk(payload);
-  return { text, html, icalUid };
+  return { text, html, icalUid, attachments };
 }
 
 type GmailPayload = {
   mimeType?: string;
-  body?: { data?: string; size?: number };
+  filename?: string;
+  body?: { data?: string; size?: number; attachmentId?: string };
   parts?: GmailPayload[];
   headers?: { name: string; value: string }[];
 };
@@ -73,29 +93,43 @@ async function gmailFetch(
   path: string,
   init?: RequestInit,
 ) {
-  const res = await fetch(`https://gmail.googleapis.com/gmail/v1${path}`, {
-    ...init,
-    headers: {
-      Authorization: `Bearer ${accessToken}`,
-      "Content-Type": "application/json",
-      ...init?.headers,
-    },
-    cache: "no-store",
-  });
-  if (!res.ok) {
+  // Inbox loads fire ~100 calls in a burst — Gmail will occasionally
+  // 429/5xx one of them. Transient failures retry with backoff instead
+  // of taking the whole refresh down.
+  let lastErr = "";
+  for (let attempt = 0; attempt < 4; attempt++) {
+    if (attempt > 0) {
+      await new Promise((r) => setTimeout(r, 500 * 2 ** attempt));
+    }
+    const res = await fetch(`https://gmail.googleapis.com/gmail/v1${path}`, {
+      ...init,
+      headers: {
+        Authorization: `Bearer ${accessToken}`,
+        "Content-Type": "application/json",
+        ...init?.headers,
+      },
+      cache: "no-store",
+    });
+    if (res.ok) {
+      if (res.status === 204) return null;
+      return res.json();
+    }
     const err = await res.text();
-    if (
-      res.status === 403 &&
-      /insufficient|ACCESS_TOKEN_SCOPE/i.test(err)
-    ) {
+    if (res.status === 403 && /insufficient|ACCESS_TOKEN_SCOPE/i.test(err)) {
       throw new Error(
         "Gmail permissions are incomplete — open Settings and tap Reconnect on this account, then approve all access on Google's screen.",
       );
     }
-    throw new Error(`Gmail ${path}: ${res.status} ${err.slice(0, 300)}`);
+    lastErr = `Gmail ${path}: ${res.status} ${err.slice(0, 300)}`;
+    // Gmail reports per-minute quota exhaustion as 403 "Quota exceeded"
+    // — transient by definition (the window resets in seconds).
+    const transient =
+      res.status === 429 ||
+      res.status >= 500 ||
+      (res.status === 403 && /quota exceeded|rate ?limit/i.test(err));
+    if (!transient) break;
   }
-  if (res.status === 204) return null;
-  return res.json();
+  throw new Error(lastErr);
 }
 
 function folderToQuery(folder: MailFolder, q?: string): string {
@@ -118,7 +152,7 @@ async function hydrateOne(
 ): Promise<MailMessageListItem> {
   const msg = (await gmailFetch(
     accessToken,
-    `/users/me/messages/${m.id}?format=metadata&metadataHeaders=From&metadataHeaders=Subject&metadataHeaders=To`,
+    `/users/me/messages/${m.id}?format=metadata&metadataHeaders=From&metadataHeaders=Subject&metadataHeaders=To&metadataHeaders=Cc`,
   )) as {
     id: string;
     threadId: string;
@@ -130,15 +164,30 @@ async function hydrateOne(
   const headers = msg.payload?.headers ?? [];
   const fromRaw = headers.find((h) => h.name === "From")?.value ?? "";
   const toRaw = headers.find((h) => h.name === "To")?.value ?? "";
+  const ccRaw = headers.find((h) => h.name === "Cc")?.value ?? "";
   const { name, email } = parseAddress(fromRaw);
   const firstTo = toRaw.split(",")[0]?.trim() ?? "";
   const peer = firstTo ? parseAddress(firstTo).email : undefined;
+  // The recipient group: everyone on the message. When this set changes
+  // mid-thread (someone drops the group and writes just to you), that
+  // message stops collapsing into the thread row.
+  const participants = [
+    email,
+    ...`${toRaw},${ccRaw}`
+      .split(",")
+      .map((s) => s.trim())
+      .filter(Boolean)
+      .map((s) => parseAddress(s).email),
+  ]
+    .map((e) => e.toLowerCase())
+    .filter((e, i, arr) => e.includes("@") && arr.indexOf(e) === i);
   return {
     id: msg.id,
     threadId: msg.threadId,
     fromEmail: email,
     fromName: name,
     peerEmail: peer,
+    participants,
     subject:
       headers.find((h) => h.name === "Subject")?.value ?? "(no subject)",
     snippet: msg.snippet ?? "",
@@ -157,10 +206,21 @@ async function hydrateList(
   const items: MailMessageListItem[] = [];
   for (let i = 0; i < messages.length; i += HYDRATE_CONCURRENCY) {
     const chunk = messages.slice(i, i + HYDRATE_CONCURRENCY);
-    const hydrated = await Promise.all(
+    // One vanished/throttled message must not sink the other 89 — a
+    // message that won't hydrate is dropped from THIS load and comes
+    // back on the next one.
+    const hydrated = await Promise.allSettled(
       chunk.map((m) => hydrateOne(accessToken, m)),
     );
-    items.push(...hydrated);
+    for (const h of hydrated) {
+      if (h.status === "fulfilled") items.push(h.value);
+      else {
+        console.warn(
+          "[seer] hydrate skipped:",
+          h.reason instanceof Error ? h.reason.message.slice(0, 160) : h.reason,
+        );
+      }
+    }
   }
   return items;
 }
@@ -215,6 +275,52 @@ export async function searchGmail(
   return hydrateList(accessToken, list.messages ?? []);
 }
 
+/** Who spoke LAST in a thread — the fact that decides "answered or not". */
+export async function getGmailThreadLast(
+  accessToken: string,
+  threadId: string,
+): Promise<{
+  fromEmail: string;
+  fromName: string;
+  receivedAt: string;
+  id: string;
+} | null> {
+  try {
+    const t = (await gmailFetch(
+      accessToken,
+      `/users/me/threads/${threadId}?format=metadata&metadataHeaders=From`,
+    )) as {
+      messages?: {
+        id: string;
+        internalDate?: string;
+        labelIds?: string[];
+        payload?: { headers?: { name: string; value: string }[] };
+      }[];
+    };
+    // Drafts are not turns — an abandoned half-reply must never count
+    // as "you spoke last". (Trashed messages DO count: a wrongly-swept
+    // reply from a person still means the ball is in the user's court.)
+    const msgs = (t.messages ?? []).filter(
+      (m) => !(m.labelIds ?? []).includes("DRAFT"),
+    );
+    const last = msgs[msgs.length - 1];
+    if (!last) return null;
+    const fromRaw =
+      last.payload?.headers?.find((h) => h.name === "From")?.value ?? "";
+    const { name, email } = parseAddress(fromRaw);
+    return {
+      id: last.id,
+      fromEmail: email.toLowerCase(),
+      fromName: name && name !== email ? name : "",
+      receivedAt: last.internalDate
+        ? new Date(Number(last.internalDate)).toISOString()
+        : new Date().toISOString(),
+    };
+  } catch {
+    return null;
+  }
+}
+
 export async function getGmailMessage(
   accessToken: string,
   id: string,
@@ -236,9 +342,10 @@ export async function getGmailMessage(
     "";
   const fromRaw = header("From");
   const { name, email } = parseAddress(fromRaw);
-  const { text, html, icalUid } = extractBodies(msg.payload);
+  const { text, html, icalUid, attachments } = extractBodies(msg.payload);
   return {
     icalUid,
+    attachments,
     id: msg.id,
     threadId: msg.threadId,
     fromEmail: email,
@@ -273,6 +380,20 @@ function buildMime(input: SendMailInput): string {
   return lines.join("\r\n");
 }
 
+/** Raw attachment bytes for download/preview. */
+export async function getGmailAttachment(
+  accessToken: string,
+  messageId: string,
+  attachmentId: string,
+): Promise<Buffer> {
+  const res = (await gmailFetch(
+    accessToken,
+    `/users/me/messages/${messageId}/attachments/${attachmentId}`,
+  )) as { data?: string };
+  const padded = (res.data ?? "").replace(/-/g, "+").replace(/_/g, "/");
+  return Buffer.from(padded, "base64");
+}
+
 export async function sendGmailMessage(
   accessToken: string,
   input: SendMailInput,
@@ -302,6 +423,30 @@ export async function gmailAction(
   if (action === "archive") body.removeLabelIds = ["INBOX"];
   if (action === "read") body.removeLabelIds = ["UNREAD"];
   await gmailFetch(accessToken, `/users/me/messages/${id}/modify`, {
+    method: "POST",
+    body: JSON.stringify(body),
+  });
+}
+
+/**
+ * Act on the WHOLE conversation the way Gmail itself does — its native
+ * thread endpoints trash/archive every message in one call.
+ */
+export async function gmailThreadAction(
+  accessToken: string,
+  threadId: string,
+  action: "archive" | "trash" | "read",
+) {
+  if (action === "trash") {
+    await gmailFetch(accessToken, `/users/me/threads/${threadId}/trash`, {
+      method: "POST",
+    });
+    return;
+  }
+  const body: { removeLabelIds?: string[] } = {};
+  if (action === "archive") body.removeLabelIds = ["INBOX"];
+  if (action === "read") body.removeLabelIds = ["UNREAD"];
+  await gmailFetch(accessToken, `/users/me/threads/${threadId}/modify`, {
     method: "POST",
     body: JSON.stringify(body),
   });

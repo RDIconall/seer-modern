@@ -35,6 +35,8 @@ export type ClassifyDebug = {
   /** Address-book / calendar signals when available */
   inContacts?: boolean;
   meeting?: string | null;
+  /** Read-and-kept archive mail from this sender — opted-in evidence */
+  keptFrom?: number;
 };
 
 /** Contact + calendar context, threaded in from personal-context. */
@@ -166,6 +168,56 @@ const PRODUCT_NEEDS_YOU =
 const FINANCE_RISK =
   /\b(payment (failed|declined|overdue|past due)|card (was )?declined|insufficient funds|overdraft|fraud|unusual activity|suspicious (charge|transaction)|dispute|due (today|tomorrow)|final notice|account (suspended|locked|on hold))\b/i;
 
+/** A bill the user must PAY BY HAND — amount due + no autopay.
+ *  Covers real-world shapes: "DUE 07/31/2026", "Invoice 9905",
+ *  "Here&#39;s your invoice" (HTML-entity apostrophes). */
+const BILL_DUE =
+  /\b(amount due|payment (is )?due|due (by|on) [a-z0-9]|due:? \d{1,2}[/-]\d{1,2}|pay by [a-z0-9]|balance due|minimum payment|total (amount )?due|invoice (is )?(due|attached|enclosed)|here('s|&#39;s|’s| is) your invoice|your invoice!|new invoice|invoice #?\s?\d|invoice from|please pay|view (and|&) pay|remit(tance)? by)\b/i;
+
+/** Already settled — a receipt, not a bill. */
+const PAID_MARKER =
+  /\b(paid|payment (received|confirmed|successful|processed)|thank you for your payment|this is a receipt|no (payment|action) (is )?(due|needed|required))\b/i;
+
+/**
+ * A CONFIRMED appointment/service visit — someone is coming, or the
+ * user must show up. Confirmation phrasing only ("has been scheduled",
+ * "arriving between"), never marketing invitations ("schedule your
+ * appointment today!").
+ */
+export const APPOINTMENT_HOLD =
+  /\b(has been scheduled|is scheduled for|job scheduled|appointment (is )?(confirmed|scheduled|booked)|your (appointment|visit|service|installation|delivery window) (is|on|at)\b|arriv(e|es|ing) between|arrival window|technician (is |will )|(we|our team)('ll| will) (arrive|be there|see you)|on (his|her|their|our) way|upcoming appointment|appointment reminder|reminder: your appointment)\b/i;
+
+/** Money coming TO the user — checks never expire, always surface. */
+export const REFUND_CHECK =
+  /\b(refund (check|checks|issued|processed|on its way)|tuition refund|rebate check|reimbursement (check|issued|sent)|check (is )?(enclosed|attached|mailed|in the mail|on its way)|cash (your|this) check|deposit (your|this) check|settlement (check|payment)|you('| a)re owed)\b/i;
+
+/** Enrolled autopay: the bill handles itself. */
+const AUTOPAY_BLOB =
+  /\b(auto-?pay|autopay|automatic(ally)? (paid|payment|deducted|withdrawn|drafted)|will be (automatically )?(charged|deducted|drafted|debited)|scheduled payment)\b/i;
+
+const BILL_READY_BLOB =
+  /\b(bill (is )?(now )?(ready|available)|statement (is )?(now )?(ready|available)|view your (bill|statement)|your (monthly |new )?(bill|statement)|bill from)\b/i;
+
+/**
+ * INTENT beats sender history: strictly-worded needs-you signals that
+ * pierce every sender-level shortcut (taught override, learned prior,
+ * autopay). A sender you always delete can still send the ONE message
+ * that matters — "autopay failed", "signature required", "fraud alert".
+ * Deliberately excludes marketing urgency-bait phrasing.
+ */
+export function needsYouEscape(subject: string, snippet: string): boolean {
+  const hay = `${subject}\n${snippet}`;
+  return (
+    FINANCE_RISK.test(hay) ||
+    DELIVERY_NEEDS_YOU.test(hay) ||
+    PRODUCT_NEEDS_YOU.test(hay) ||
+    TRANSACTIONAL_URGENT.test(hay) ||
+    REFUND_CHECK.test(hay) ||
+    APPOINTMENT_HOLD.test(hay) ||
+    (BILL_DUE.test(hay) && !AUTOPAY_BLOB.test(hay) && !PAID_MARKER.test(hay))
+  );
+}
+
 /**
  * Urgency bait — marketing's favorite trick. Only counts as urgent when
  * the sender is trusted (contact / engaged / known); from bulk or cold
@@ -250,6 +302,7 @@ function hit(
       intel: ctx.intel,
       inContacts: ctx.extras?.inContacts,
       meeting: ctx.extras?.meeting ?? null,
+      keptFrom: ctx.signals.keptFrom,
     },
   };
 }
@@ -370,6 +423,61 @@ function classifyCore(
     );
   }
 
+  // Money at risk from ANY sender: failed/declined payment, fraud,
+  // past due, account locked — act, regardless of domain lists.
+  if (FINANCE_RISK.test(blob) || FINANCE_RISK.test(input.subject)) {
+    return hit(
+      "act_today",
+      "HIGH",
+      "Money at risk — failed/declined/past-due/fraud language",
+      "money-risk-act",
+      ctx,
+    );
+  }
+
+  // Money coming TO you: a refund/rebate/settlement check must be
+  // cashed — it never expires and never files itself.
+  if (REFUND_CHECK.test(blob) || REFUND_CHECK.test(input.subject)) {
+    return hit(
+      "act_today",
+      "HIGH",
+      "Money coming to you — a check needs depositing",
+      "refund-check-cash",
+      ctx,
+    );
+  }
+
+  // A bill with an amount due and NO autopay is a task, not a record.
+  if (
+    (BILL_DUE.test(blob) || BILL_DUE.test(input.subject)) &&
+    !AUTOPAY_BLOB.test(blob) &&
+    !PAID_MARKER.test(blob)
+  ) {
+    return hit(
+      "act_today",
+      "HIGH",
+      "Bill due — no autopay mentioned, you pay this one by hand",
+      "bill-due-pay",
+      ctx,
+    );
+  }
+
+  // Autopay: the bill pays itself. "Your bill is ready" is a record to
+  // file, not a task — unless the payment FAILED / is past due.
+  if (
+    AUTOPAY_BLOB.test(blob) &&
+    BILL_READY_BLOB.test(blob) &&
+    !FINANCE_RISK.test(blob)
+  ) {
+    return hit(
+      "read_and_archive",
+      "HIGH",
+      "On autopay — it pays itself; keep the statement for records",
+      "autopay-record-archive",
+      ctx,
+    );
+  }
+
   // Real transactional urgency — genuine even from noreply robots
   if (
     TRANSACTIONAL_URGENT.test(blob) ||
@@ -380,6 +488,19 @@ function classifyCore(
       "MED",
       "Transactional time-sensitive (code / security / travel / delivery)",
       "transactional-urgent",
+      ctx,
+    );
+  }
+
+  // A confirmed appointment holds YOUR time — the plumber arriving
+  // 9am-1pm needs you home. Robots send these, but they're commitments,
+  // not noise; never bulk-delete them off the sender's shape.
+  if (APPOINTMENT_HOLD.test(blob) || APPOINTMENT_HOLD.test(input.subject)) {
+    return hit(
+      "act_today",
+      "HIGH",
+      "Confirmed appointment — you may need to be there",
+      "appointment-hold",
       ctx,
     );
   }
@@ -419,8 +540,9 @@ function classifyCore(
   // Known product / finance / shopping before bulk-noreply relationship,
   // so GitHub/Vercel/etc. aren't hard-deleted just because local is noreply.
   if (SHOPPING_DOMAINS.test(dom) || SHOPPING_DOMAINS.test(fromBlob)) {
+    // Deals mail is noise unless the user buys from them (engaged/taught)
     return hit(
-      "glance_promo",
+      signals.relationship === "engaged" ? "glance_promo" : "delete_now",
       "MED",
       "Shopping / deals mail",
       "shopping-domain",
@@ -431,9 +553,9 @@ function classifyCore(
   if (PRODUCT_NOTIFY_DOMAINS.test(dom) || PRODUCT_NOTIFY_DOMAINS.test(fromBlob)) {
     if (PROMO_BLOB.test(blob)) {
       return hit(
-        "glance_promo",
+        signals.relationship === "engaged" ? "glance_promo" : "delete_now",
         "MED",
-        "Product promo",
+        "Product promo — junk unless you buy from them",
         "product-notify-promo",
         ctx,
       );
@@ -522,9 +644,9 @@ function classifyCore(
       );
     }
     return hit(
-      "glance_promo",
+      "delete_now",
       "MED",
-      "Marketing pattern",
+      "Marketing pattern — noise",
       "marketing-glance",
       ctx,
     );
@@ -574,7 +696,7 @@ function classifyCore(
   if (PERSONAL_PROVIDERS.test(email)) {
     if (PROMO_BLOB.test(blob) || /\bunsubscribe\b/i.test(blob)) {
       return hit(
-        "glance_promo",
+        "read_and_delete",
         "MED",
         "Personal provider but promotional content",
         "personal-promo",
@@ -601,9 +723,9 @@ function classifyCore(
 
   if (PROMO_BLOB.test(blob)) {
     return hit(
-      "glance_promo",
+      "delete_now",
       "MED",
-      "Promotional content",
+      "Promotional content — noise",
       "promo-blob",
       ctx,
     );

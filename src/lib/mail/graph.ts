@@ -160,8 +160,24 @@ export async function getGraphMessage(
 ): Promise<MailMessageDetail> {
   const m = (await graphFetch(
     accessToken,
-    `/me/messages/${id}?$select=id,conversationId,subject,body,bodyPreview,receivedDateTime,isRead,from,toRecipients,ccRecipients,internetMessageId`,
-  )) as GraphMessage;
+    `/me/messages/${id}?$select=id,conversationId,subject,body,bodyPreview,receivedDateTime,isRead,from,toRecipients,ccRecipients,internetMessageId,hasAttachments`,
+  )) as GraphMessage & { hasAttachments?: boolean };
+
+  let attachments: MailMessageDetail["attachments"];
+  if (m.hasAttachments) {
+    const list = (await graphFetch(
+      accessToken,
+      `/me/messages/${id}/attachments?$select=id,name,contentType,size`,
+    ).catch(() => null)) as {
+      value?: { id: string; name?: string; contentType?: string; size?: number }[];
+    } | null;
+    attachments = (list?.value ?? []).map((a) => ({
+      id: a.id,
+      filename: a.name ?? "attachment",
+      mimeType: a.contentType ?? "application/octet-stream",
+      size: a.size ?? 0,
+    }));
+  }
   const html = m.body?.contentType === "html" ? (m.body.content ?? "") : "";
   const text =
     m.body?.contentType === "text"
@@ -181,7 +197,22 @@ export async function getGraphMessage(
     toEmail: recipientsToString(m.toRecipients),
     ccEmail: recipientsToString(m.ccRecipients),
     messageIdHeader: m.internetMessageId ?? "",
+    attachments,
   };
+}
+
+/** Raw attachment bytes (fileAttachment contentBytes). */
+export async function getGraphAttachment(
+  accessToken: string,
+  messageId: string,
+  attachmentId: string,
+): Promise<Buffer> {
+  const res = await fetch(
+    `https://graph.microsoft.com/v1.0/me/messages/${messageId}/attachments/${attachmentId}/$value`,
+    { headers: { Authorization: `Bearer ${accessToken}` }, cache: "no-store" },
+  );
+  if (!res.ok) throw new Error(`Graph attachment: ${res.status}`);
+  return Buffer.from(await res.arrayBuffer());
 }
 
 function parseAddresses(raw: string): { emailAddress: { address: string } }[] {
@@ -263,4 +294,32 @@ export async function graphAction(
     method: "POST",
     body: JSON.stringify({ destinationId: archiveId }),
   });
+}
+
+/**
+ * Outlook has no thread endpoint — find every inbox message in the
+ * conversation and act on each, so the whole thread clears at once.
+ */
+export async function graphThreadAction(
+  accessToken: string,
+  conversationId: string,
+  action: "archive" | "trash" | "read",
+) {
+  const url = new URL(
+    "https://graph.microsoft.com/v1.0/me/mailFolders/inbox/messages",
+  );
+  url.searchParams.set(
+    "$filter",
+    `conversationId eq '${conversationId.replace(/'/g, "''")}'`,
+  );
+  url.searchParams.set("$select", "id");
+  url.searchParams.set("$top", "50");
+  const res = await fetch(url.toString(), {
+    headers: { Authorization: `Bearer ${accessToken}` },
+    cache: "no-store",
+  });
+  if (!res.ok) throw new Error(`Graph thread lookup: ${res.status}`);
+  const data = (await res.json()) as { value?: { id: string }[] };
+  const ids = (data.value ?? []).map((m) => m.id);
+  await Promise.allSettled(ids.map((id) => graphAction(accessToken, id, action)));
 }

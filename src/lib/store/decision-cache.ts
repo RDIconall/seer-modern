@@ -11,6 +11,14 @@ export type CachedDecision = {
   confidence: Confidence;
   reason: string;
   instruction?: string;
+  /** The implied action ("Fix the autopay payment" / "Be aware: …") */
+  task?: string;
+  /** Life bucket ("Old trip", "Groceries — delivered") */
+  category?: string;
+  /** 0 noise · 1 marginal · 2 relevant · 3 critical */
+  importance?: number;
+  /** The specific deed, or "none" */
+  deed?: string;
   source: "gemini" | "rules" | "override" | "learned";
   ruleId: string;
   ts: number;

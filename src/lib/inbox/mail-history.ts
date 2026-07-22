@@ -17,6 +17,13 @@ export type ContactStat = {
   receivedFrom: number;
   lastSentAt?: string;
   lastReceivedAt?: string;
+  /** Threads the user STARTED with this person — the strongest VIP vote */
+  initiated?: number;
+  /** Median minutes the user takes to reply to them — revealed priority */
+  medianReplyMins?: number;
+  /** Emails from this sender the user READ and ARCHIVED — deliberate
+   *  keeping. "I signed up for this" leaves exactly this trail. */
+  keptFrom?: number;
 };
 
 export type MailHistory = {
@@ -36,6 +43,12 @@ export type HistorySignals = {
   daysSinceLastSent: number | null;
   /** Classic Seer: downgrade if you haven't written them in ~30 days */
   staleEngagement: boolean;
+  /** Median minutes the user takes to reply to this sender */
+  medianReplyMins?: number;
+  /** Threads the user started with them */
+  initiated?: number;
+  /** Read-and-kept mail from this sender in the archive */
+  keptFrom?: number;
 };
 
 const STALE_DAYS = 30;
@@ -62,6 +75,7 @@ export function buildMailHistory(
   accountEmail: string,
   inbox: MailMessageListItem[],
   sent: MailMessageListItem[],
+  archived?: Pick<MailMessageListItem, "fromEmail" | "isUnread" | "receivedAt">[],
 ): MailHistory {
   const me = norm(accountEmail);
   const contacts: Record<string, ContactStat> = {};
@@ -75,6 +89,20 @@ export function buildMailHistory(
     return contacts[key];
   };
 
+  // Earliest inbound per thread — the message the user was replying to
+  const inboundByThread = new Map<string, { from: string; at: number }>();
+  for (const m of inbox) {
+    const t = new Date(m.receivedAt).getTime();
+    const prev = inboundByThread.get(m.threadId);
+    if (!prev || t < prev.at) {
+      inboundByThread.set(m.threadId, {
+        from: norm(m.fromEmail),
+        at: t,
+      });
+    }
+  }
+
+  const replySamples = new Map<string, number[]>();
   const repliedThreads: Record<string, string> = {};
   for (const m of sent) {
     if (m.threadId) {
@@ -86,12 +114,47 @@ export function buildMailHistory(
     if (!c) continue;
     c.sentTo += 1;
     if (!c.lastSentAt || m.receivedAt > c.lastSentAt) c.lastSentAt = m.receivedAt;
+
+    // Reply telemetry: how fast does the user answer this person?
+    const inbound = inboundByThread.get(m.threadId);
+    const sentAt = new Date(m.receivedAt).getTime();
+    if (inbound && inbound.from === norm(peer) && sentAt > inbound.at) {
+      const mins = (sentAt - inbound.at) / 60_000;
+      if (mins < 14 * 24 * 60) {
+        const list = replySamples.get(norm(peer)) ?? [];
+        list.push(mins);
+        replySamples.set(norm(peer), list);
+      }
+    } else if (!inbound) {
+      // No inbound in this thread — the user STARTED the conversation
+      c.initiated = (c.initiated ?? 0) + 1;
+    }
+  }
+
+  for (const [email, samples] of replySamples) {
+    const c = contacts[email];
+    if (!c) continue;
+    samples.sort((a, b) => a - b);
+    c.medianReplyMins = Math.round(samples[Math.floor(samples.length / 2)]);
   }
 
   for (const m of inbox) {
     const c = touch(m.fromEmail);
     if (!c) continue;
     c.receivedFrom += 1;
+    if (!c.lastReceivedAt || m.receivedAt > c.lastReceivedAt) {
+      c.lastReceivedAt = m.receivedAt;
+    }
+  }
+
+  // The archive is testimony: mail the user READ and then KEPT is a
+  // relationship they opted into (registrations, services, teams).
+  // Unread-but-archived is excluded — that's a bulk sweep, not a choice.
+  for (const m of archived ?? []) {
+    if (m.isUnread) continue;
+    const c = touch(m.fromEmail);
+    if (!c) continue;
+    c.keptFrom = (c.keptFrom ?? 0) + 1;
     if (!c.lastReceivedAt || m.receivedAt > c.lastReceivedAt) {
       c.lastReceivedAt = m.receivedAt;
     }
@@ -123,11 +186,16 @@ export function historySignals(
     sentTo > 0 &&
     (daysSinceLastSent == null || daysSinceLastSent > STALE_DAYS);
 
+  const keptFrom = c?.keptFrom ?? 0;
+
   let relationship: Relationship;
-  if (looksBulkAddress(email) && sentTo === 0) relationship = "bulk";
-  else if (sentTo > 0) relationship = "engaged";
-  else if (receivedFrom >= 3) relationship = "known";
+  if (sentTo > 0) relationship = "engaged";
+  // Deliberately-kept mail beats address shape: a noreply@ sender whose
+  // messages the user reads and files is a signed-up-for service, not
+  // bulk ("I signed up for it and there is history for that").
+  else if (keptFrom >= 2) relationship = "known";
   else if (looksBulkAddress(email)) relationship = "bulk";
+  else if (receivedFrom >= 3) relationship = "known";
   else relationship = "cold";
 
   return {
@@ -136,5 +204,8 @@ export function historySignals(
     receivedFrom,
     daysSinceLastSent,
     staleEngagement,
+    medianReplyMins: c?.medianReplyMins,
+    initiated: c?.initiated,
+    keptFrom,
   };
 }

@@ -10,12 +10,24 @@ import {
   getAssistantStatus,
 } from "@/lib/inbox/gemini-triage";
 import { getOrBuildMailHistory } from "@/lib/inbox/mail-history-store";
+import { collapseThreads } from "@/lib/inbox/thread-collapse";
 import { getPersonalContext } from "@/lib/inbox/personal-context";
 import { loadActionMemory } from "@/lib/store/action-memory";
 import { loadRepliedThreads } from "@/lib/store/replied-threads";
 import { loadUserProfile } from "@/lib/store/user-profile";
-import { listGmailFolder, listGmailInbox } from "@/lib/mail/gmail";
-import { listGraphFolder, listGraphInbox } from "@/lib/mail/graph";
+import {
+  getGmailMessage,
+  getGmailThreadLast,
+  listGmailFolder,
+  listGmailInbox,
+  searchGmail,
+} from "@/lib/mail/gmail";
+import {
+  getGraphMessage,
+  listGraphFolder,
+  listGraphInbox,
+} from "@/lib/mail/graph";
+import { getInboxSnapshot } from "@/lib/mail/inbox-snapshot";
 import { makeGmailLabelStore } from "@/lib/mail/seer-labels";
 import { requireMailSession } from "@/lib/mail/session";
 import { getSenderOverride } from "@/lib/store/senders";
@@ -43,6 +55,9 @@ export type TodayEmail = {
   receivedAt: string;
   isUnread: boolean;
   guide: ReturnType<typeof buildActionGuideQuick>;
+  participants?: string[];
+  threadCount?: number;
+  threadSenders?: string[];
 };
 
 export type TodaySection = {
@@ -54,16 +69,18 @@ export type TodaySection = {
 };
 
 export async function GET() {
+  const started = Date.now();
   try {
     const session = await requireMailSession();
     if (!session) {
       return NextResponse.json({ error: "Not signed in" }, { status: 401 });
     }
 
-    const raw =
+    const raw = await getInboxSnapshot(session.email, () =>
       session.provider === "google"
-        ? await listGmailInbox(session.accessToken, SCAN)
-        : await listGraphInbox(session.accessToken, SCAN);
+        ? listGmailInbox(session.accessToken, SCAN)
+        : listGraphInbox(session.accessToken, SCAN),
+    );
 
     const [history, personal, actionMemory, labels, profile, replied] =
       await Promise.all([
@@ -75,6 +92,15 @@ export async function GET() {
               session.provider === "google"
                 ? listGmailFolder(token, folder, max)
                 : listGraphFolder(token, folder, max),
+            listArchive:
+              session.provider === "google"
+                ? (token, max) =>
+                    searchGmail(
+                      token,
+                      "-in:inbox -in:sent -in:trash -in:spam is:read",
+                      max,
+                    )
+                : undefined,
           },
           raw,
         ),
@@ -106,7 +132,27 @@ export async function GET() {
       history,
       (email) => getSenderOverride(email),
       classifyMessage,
-      { personal, actionMemory, labels, profile, replied },
+      {
+        personal,
+        actionMemory,
+        labels,
+        profile,
+        replied,
+        threadLast:
+          session.provider === "google"
+            ? (threadId) => getGmailThreadLast(session.accessToken, threadId)
+            : undefined,
+        fetchBody: async (id) => {
+          const msg =
+            session.provider === "google"
+              ? await getGmailMessage(session.accessToken, id)
+              : await getGraphMessage(session.accessToken, id);
+          return (
+            msg.textBody ||
+            msg.htmlBody.replace(/<[^>]+>/g, " ").replace(/\s+/g, " ")
+          );
+        },
+      },
     );
 
     const classified: TodayEmail[] = [];
@@ -129,14 +175,30 @@ export async function GET() {
         m.fromName,
         m.snippet,
       );
-      classified.push({ ...m, guide });
+      // Your own turns in inboxed threads display as "You" — the row's
+      // task says what to do; the name says who wrote what you're seeing.
+      const fromName =
+        m.fromEmail.toLowerCase() === session.email.toLowerCase()
+          ? "You"
+          : m.fromName;
+      classified.push({ ...m, fromName, guide });
     }
 
-    const needsReview = classified.filter(
+    // Threads, not messages: one row per conversation (same recipient
+    // group), represented by its newest message — like Gmail renders it.
+    const collapsed = collapseThreads(classified);
+
+    const needsReview = collapsed.filter(
       (e) => e.guide.action === "needs_review",
     );
-    const processed = classified.filter(
-      (e) => e.guide.action !== "needs_review",
+    // Sibling rows of an active thread ("Part of an active thread")
+    // stay OUT of the triage sections — the thread's live row carries
+    // the action, and acting on it clears the whole conversation
+    // thread-wide anyway. They remain in the inbox list.
+    const processed = collapsed.filter(
+      (e) =>
+        e.guide.action !== "needs_review" &&
+        e.guide.debug?.ruleId !== "thread-sibling",
     );
 
     const byAction = new Map<TriageAction, TodayEmail[]>();
@@ -156,11 +218,14 @@ export async function GET() {
       items: byAction.get(action) ?? [],
     }));
 
-    const inbox = [...classified].sort(
+    const inbox = [...collapsed].sort(
       (a, b) =>
         new Date(b.receivedAt).getTime() - new Date(a.receivedAt).getTime(),
     );
 
+    console.log(
+      `[seer] /api/today ${raw.length} msgs in ${Date.now() - started}ms`,
+    );
     return NextResponse.json({
       accountEmail: session.email,
       provider: session.provider,
@@ -168,7 +233,7 @@ export async function GET() {
       inbox,
       needsReview,
       sections,
-      count: classified.length,
+      count: collapsed.length,
       history: {
         builtAt: history.builtAt,
         contactCount: history.contactCount,

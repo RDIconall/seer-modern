@@ -3,6 +3,7 @@
 import {
   AlarmClock,
   Archive,
+  CalendarClock,
   CheckCircle2,
   Layers,
   MailOpen,
@@ -20,7 +21,7 @@ import {
   type TouchEvent,
 } from "react";
 import {
-  formatMailTime,
+  actionThreadId,
   mailInitial,
   primaryMailAction,
   type DeckCard,
@@ -33,13 +34,25 @@ type Props = {
   deck: DeckCard[];
   busyId: string | null;
   onOpen: (id: string) => void;
-  onAction: (id: string, action: MailAction, fromEmail?: string) => void;
+  onAction: (
+    id: string,
+    action: MailAction,
+    fromEmail?: string,
+    threadId?: string,
+  ) => void;
   onBulk: (section: Section, action: MailAction) => void;
   onReply: (id: string) => void;
   /** Skip for now — card leaves the deck locally, returns next refresh. */
   onSnooze?: (id: string) => void;
-  /** Forward to the EA. Resolves true when it actually went out. */
-  onDelegate?: (id: string) => Promise<boolean>;
+  /** Opens the delegate "to who?" sheet for this email. */
+  onDelegate?: (id: string, subject: string) => void;
+  /** Opens the "Schedule it" time-blocking sheet for this email. */
+  onSchedule?: (
+    id: string,
+    subject: string,
+    ask?: string,
+    fromName?: string,
+  ) => void;
   onEmptyRefresh?: () => void;
 };
 
@@ -61,6 +74,7 @@ export function CardStack({
   onReply,
   onSnooze,
   onDelegate,
+  onSchedule,
   onEmptyRefresh,
 }: Props) {
   // Locally skipped cards (e.g. "decide one by one" on a bulk card).
@@ -88,7 +102,7 @@ export function CardStack({
       if (busyId === card.item.id) return;
       // The optimistic removal in onAction pulls this card out of the
       // deck; also mark skipped so the UI advances even if it lingers.
-      onAction(card.item.id, action, card.item.fromEmail);
+      onAction(card.item.id, action, card.item.fromEmail, actionThreadId(card.item));
     } else {
       onBulk(card.section, action);
     }
@@ -117,39 +131,51 @@ export function CardStack({
     if (card.kind === "email") onSnooze?.(card.item.id);
   };
 
-  const delegateCard = async (card: DeckCard) => {
+  const delegateCard = (card: DeckCard) => {
     if (card.kind !== "email" || !onDelegate) return;
-    const ok = await onDelegate(card.item.id);
-    if (ok) {
-      setSkipped((prev) => new Set(prev).add(card.key));
-      setDragX(0);
-    }
+    // Opens the "to who?" sheet; the card leaves the deck when the
+    // handoff email actually sends (original gets archived).
+    onDelegate(card.item.id, card.item.subject);
   };
+
+  const startY = useRef<number | null>(null);
+  const horizontal = useRef<boolean | null>(null);
 
   const onTouchStart = (e: TouchEvent) => {
     startX.current = e.touches[0]?.clientX ?? null;
+    startY.current = e.touches[0]?.clientY ?? null;
+    horizontal.current = null;
     setDragging(true);
   };
   const onTouchMove = (e: TouchEvent) => {
-    if (startX.current == null) return;
-    setDragX((e.touches[0]?.clientX ?? startX.current) - startX.current);
+    if (startX.current == null || startY.current == null) return;
+    const dx = (e.touches[0]?.clientX ?? startX.current) - startX.current;
+    const dy = (e.touches[0]?.clientY ?? startY.current) - startY.current;
+    // Direction lock — deliberate sideways drag only, never scroll drift
+    if (horizontal.current == null) {
+      if (Math.abs(dx) < 14 && Math.abs(dy) < 14) return;
+      horizontal.current = Math.abs(dx) > Math.abs(dy) * 1.6;
+    }
+    if (!horizontal.current) return;
+    setDragX(dx);
   };
   const onTouchEnd = () => {
     setDragging(false);
-    if (current?.kind === "email") {
-      if (dragX > 110) {
+    const armed = horizontal.current;
+    startX.current = null;
+    startY.current = null;
+    horizontal.current = null;
+    if (armed && current?.kind === "email") {
+      if (dragX > 140) {
         commit(current, "archive");
-        startX.current = null;
         return;
       }
-      if (dragX < -110) {
+      if (dragX < -140) {
         commit(current, "trash");
-        startX.current = null;
         return;
       }
     }
     setDragX(0);
-    startX.current = null;
   };
 
   // ---- Trackpad swipe: two-finger horizontal scrolls arrive as wheel
@@ -387,6 +413,23 @@ export function CardStack({
                 <UserRoundPlus className="h-5 w-5" />
               </CardAction>
             ) : null}
+            {onSchedule ? (
+              <CardAction
+                label="Time block"
+                color="#0e7490"
+                disabled={currentBusy}
+                onClick={() =>
+                  onSchedule(
+                    current.item.id,
+                    current.item.subject,
+                    current.item.guide?.ask,
+                    current.item.fromName,
+                  )
+                }
+              >
+                <CalendarClock className="h-5 w-5" />
+              </CardAction>
+            ) : null}
             <CardAction
               label="Archive"
               color="#76ab19"
@@ -531,11 +574,12 @@ function CardFace({
             }
           : undefined
       }
-      className={`seer-card-face flex min-h-[380px] flex-col rounded-[22px] p-5 ${
+      className={`seer-card-face flex min-h-[380px] flex-col rounded-[22px] p-6 ${
         muted ? "pointer-events-none" : ""
       }`}
     >
-      <div className="flex items-start gap-3">
+      {/* 1. Sender */}
+      <div className="flex items-center gap-3">
         <div
           className="flex h-12 w-12 shrink-0 items-center justify-center rounded-full text-base font-semibold text-white"
           style={{ backgroundColor: accent }}
@@ -543,57 +587,33 @@ function CardFace({
           {mailInitial(item.fromName || item.fromEmail)}
         </div>
         <div className="min-w-0 flex-1">
-          <div className="flex items-baseline justify-between gap-2">
-            <h3 className="truncate text-[17px] font-semibold">
-              {item.fromName || item.fromEmail}
-            </h3>
-            <time className="shrink-0 text-xs text-[var(--muted)]">
-              {formatMailTime(item.receivedAt)}
-            </time>
-          </div>
-          <p className="truncate text-xs text-[var(--muted)]">
-            {item.fromEmail}
-          </p>
+          <h3 className="truncate text-[18px] font-semibold">
+            {item.fromName || item.fromEmail}
+          </h3>
+          {g?.category ? (
+            <span className="text-[12px] font-medium text-[var(--muted)]">
+              {g.category}
+            </span>
+          ) : null}
         </div>
       </div>
 
-      <h2 className="mt-4 text-[18px] font-medium leading-snug">
-        {item.subject}
-      </h2>
-      <p className="mt-2 line-clamp-5 flex-1 text-[14px] leading-relaxed text-[var(--muted)]">
-        {item.snippet || "No preview"}
-      </p>
-
-      {g ? (
-        <div
-          className="mt-4 rounded-xl px-3 py-3"
-          style={{ backgroundColor: `${g.color}16` }}
+      {/* 2. The action phrase */}
+      <div className="flex flex-1 flex-col items-start justify-center py-6">
+        <h2
+          className="text-[26px] font-bold leading-tight"
+          style={{ color: accent }}
         >
-          <div
-            className="text-xs font-bold uppercase tracking-wide"
-            style={{ color: g.color }}
-          >
-            {g.label}
-          </div>
-          {g.ask ? (
-            <div
-              className="mt-1.5 border-l-2 pl-2 text-sm font-medium leading-snug text-[var(--fg-strong)]"
-              style={{ borderColor: g.color }}
-            >
-              “{g.ask}”
-            </div>
-          ) : null}
-          {g.instruction && !g.ask ? (
-            <div className="mt-1 text-sm font-medium text-[var(--fg-strong)]">
-              {g.instruction}
-            </div>
-          ) : null}
-        </div>
-      ) : (
-        <div className="mt-4 rounded-xl bg-[var(--card)] px-3 py-3 text-sm text-[var(--muted)]">
-          Decide what to do with this message
-        </div>
-      )}
+          {g?.task ?? item.subject}
+        </h2>
+        {g?.ask && !(g.task ?? "").includes(g.ask.slice(0, 24)) ? (
+          <p className="mt-3 text-[15px] font-medium leading-snug text-[var(--muted)]">
+            “{g.ask}”
+          </p>
+        ) : null}
+      </div>
+
+      {/* 3. Suggested action lives on the parent (button below) */}
     </article>
   );
 }

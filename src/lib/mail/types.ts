@@ -13,6 +13,16 @@ export type MailMessageListItem = {
   isUnread: boolean;
   /** Provider label ids (Gmail) — carries saved Seer decisions */
   labelIds?: string[];
+  /** Every address on the message (from + to + cc, lowercase) — the
+   *  recipient group that decides whether thread rows collapse */
+  participants?: string[];
+};
+
+export type MailAttachment = {
+  id: string;
+  filename: string;
+  mimeType: string;
+  size: number;
 };
 
 export type MailMessageDetail = MailMessageListItem & {
@@ -23,6 +33,7 @@ export type MailMessageDetail = MailMessageListItem & {
   messageIdHeader: string;
   /** UID from an embedded text/calendar part — exact invite → event link */
   icalUid?: string;
+  attachments?: MailAttachment[];
 };
 
 export type SendMailInput = {
