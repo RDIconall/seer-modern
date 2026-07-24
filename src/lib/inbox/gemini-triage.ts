@@ -899,6 +899,29 @@ export async function classifyInboxWithAssistant(
     category: "People",
   });
 
+  // Thread-turn lookups are Gmail calls — awaiting them one-by-one in
+  // the loop below serialized seconds of latency. Prefetch every thread
+  // that will need a who-spoke-last check, in parallel, into the memo.
+  if (extras?.threadLast) {
+    const needTurn = new Set<string>();
+    for (const item of items) {
+      if (!item.threadId) continue;
+      if (item.fromEmail.toLowerCase().trim() === me) {
+        needTurn.add(item.threadId);
+      } else {
+        const answered = repliedAt(item.threadId);
+        if (answered && item.receivedAt && answered > item.receivedAt) {
+          needTurn.add(item.threadId);
+        }
+      }
+    }
+    const ids = [...needTurn];
+    const CONC = 8;
+    for (let i = 0; i < ids.length; i += CONC) {
+      await Promise.all(ids.slice(i, i + CONC).map((tid) => lastTurn(tid)));
+    }
+  }
+
   for (const item of items) {
     // 0a. THE USER'S OWN MESSAGE — Gmail lists your replies inside
     // inboxed threads. Never judge yourself as a sender. But check the
