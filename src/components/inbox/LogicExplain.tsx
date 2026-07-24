@@ -3,7 +3,7 @@
 import { ChevronDown, GraduationCap } from "lucide-react";
 import { useState } from "react";
 import { ACTION_META, type TriageAction } from "@/lib/inbox/classify";
-import type { Guide } from "@/lib/inbox/types";
+import { stripEmoji, type Guide } from "@/lib/inbox/types";
 
 /** The corrections a human actually makes, in one row of chips. */
 const TEACH_ACTIONS: TriageAction[] = [
@@ -117,7 +117,7 @@ export function LogicExplain({
           className="truncate text-[11px] font-semibold"
           style={{ color: guide.color }}
         >
-          {guide.task ?? guide.label}
+          {stripEmoji(guide.task ?? guide.label)}
           {expanded
             ? `${guide.confidence ? ` · ${guide.confidence}` : ""}${sourceLabel ? ` · ${sourceLabel}` : ""}`
             : ""}
@@ -222,7 +222,7 @@ export function ReaderGuideBar({
         />
         <span className="min-w-0 flex-1 truncate text-[13px]">
           <span className="font-bold" style={{ color: guide.color }}>
-            {guide.task ?? guide.label}
+            {stripEmoji(guide.task ?? guide.label)}
           </span>
           <span className="text-[var(--fg)]"> — {guide.instruction}</span>
         </span>

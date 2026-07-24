@@ -264,6 +264,14 @@ export type ReaderMessage = {
   }[];
 };
 
+/** Marketing subjects drag emoji into tasks and titles — strip them. */
+export function stripEmoji(s: string): string {
+  return s
+    .replace(/[\p{Extended_Pictographic}\u{FE0F}\u{200D}\u{2190}-\u{21FF}\u{2B00}-\u{2BFF}]/gu, "")
+    .replace(/\s{2,}/g, " ")
+    .trim();
+}
+
 export function formatMailTime(iso: string) {
   const d = new Date(iso);
   const now = new Date();

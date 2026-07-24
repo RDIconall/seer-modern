@@ -27,7 +27,7 @@ import { DelegateSheet } from "@/components/inbox/DelegateSheet";
 import { ScheduleSheet } from "@/components/inbox/ScheduleSheet";
 import { UnsubAgentSheet } from "@/components/inbox/UnsubAgentSheet";
 import { VipSheet } from "@/components/inbox/VipSheet";
-import { BriefView } from "@/components/inbox/BriefView";
+import { TriageTable } from "@/components/inbox/TriageTable";
 import { AssistBar } from "@/components/inbox/AssistBar";
 import {
   LogicExplain,
@@ -600,17 +600,16 @@ export function DesktopMailApp() {
           ) : null}
 
           {tab === "triage" && triage && triage.count > 0 ? (
-            <BriefView
+            <TriageTable
               triage={triage}
+              mobile={false}
               h={{
                 openReader,
                 runAction,
                 bulkSection,
                 unsubscribe,
-                teachSender,
                 nudge,
                 nudging,
-                logicMode,
                 busyId,
               }}
             />

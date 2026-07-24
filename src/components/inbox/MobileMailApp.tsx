@@ -39,7 +39,7 @@ import { DelegateSheet } from "@/components/inbox/DelegateSheet";
 import { PullToRefresh } from "@/components/inbox/PullToRefresh";
 import { UnsubAgentSheet } from "@/components/inbox/UnsubAgentSheet";
 import { VipSheet } from "@/components/inbox/VipSheet";
-import { BriefView } from "@/components/inbox/BriefView";
+import { TriageTable } from "@/components/inbox/TriageTable";
 import { ScheduleSheet } from "@/components/inbox/ScheduleSheet";
 import { AssistBar } from "@/components/inbox/AssistBar";
 import {
@@ -800,20 +800,19 @@ export function MobileMailApp() {
         ) : null}
 
         {tab === "triage" && triage && triage.count > 0 ? (
-          <BriefView
-            triage={triage}
-            h={{
-              openReader,
-              runAction,
-              bulkSection,
-              unsubscribe,
-              teachSender,
-              nudge,
-              nudging,
-              logicMode,
-              busyId,
-            }}
-          />
+          <TriageTable
+              triage={triage}
+              mobile={true}
+              h={{
+                openReader,
+                runAction,
+                bulkSection,
+                unsubscribe,
+                nudge,
+                nudging,
+                busyId,
+              }}
+            />
         ) : null}
       </PullToRefresh>
 
