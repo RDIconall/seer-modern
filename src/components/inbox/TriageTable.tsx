@@ -18,9 +18,10 @@ import {
 
 /**
  * TRIAGE AS A TABLE — scannable in one pass, no emoji, no prose walls:
- *   Sender · Subject · Meaning (the AI's read) · Suggested action · Why
- * Desktop renders a real table; mobile stacks the same fields in the
- * same order. Zones (Needs you / FYI / Handled) survive as group rows.
+ *   Sender · Message (the AI's read leads when it adds signal, subject
+ *   rides along) · Action (chip + picker + archive/delete, fixed-width
+ *   so nothing bleeds into neighbors). The "why" lives on hover and in
+ *   the reader. Zones (Needs you / FYI / Handled) survive as group rows.
  */
 
 const NEEDS_YOU: TriageAction[] = [
@@ -208,6 +209,20 @@ function GroupHeader({
 
 const CELL = "border-r border-[var(--border)] px-3 py-1.5 last:border-r-0";
 
+/**
+ * The AI's read earns screen space only when it says something the
+ * subject doesn't ("Pay the $140 pool invoice" yes; a restated
+ * "Exhibitor Confirmation" no).
+ */
+function meaningAddsSignal(meaning: string, subject: string): boolean {
+  if (!meaning) return false;
+  const norm = (s: string) => s.toLowerCase().replace(/[^a-z0-9]+/g, " ").trim();
+  const m = norm(meaning);
+  const s = norm(subject);
+  if (!m || m === s) return false;
+  return !s.includes(m) && !m.includes(s);
+}
+
 /** One email as a table row (desktop) or a stacked block (mobile). */
 function Row({
   item,
@@ -231,6 +246,7 @@ function Row({
   const meaning = stripEmoji(g?.task ?? g?.instruction ?? "");
   const subject = stripEmoji(item.subject);
   const why = stripEmoji(g?.reason ?? "");
+  const showMeaning = meaningAddsSignal(meaning, subject);
 
   if (mobile) {
     return (
@@ -248,8 +264,7 @@ function Row({
             {formatMailTime(item.receivedAt)}
           </span>
         </div>
-        <div className="truncate text-[12px] text-[var(--muted)]">{subject}</div>
-        {meaning ? (
+        {showMeaning ? (
           <div
             className="truncate text-[13px] font-medium"
             style={{ color: g?.color ?? "var(--fg)" }}
@@ -257,11 +272,11 @@ function Row({
             {meaning}
           </div>
         ) : null}
-        <div className="mt-1 flex items-center gap-2">
-          <ActionChip item={item} h={h} />
-          <span className="min-w-0 flex-1 truncate text-[11px] text-[var(--muted)]">
-            {why}
+        <div className="flex items-center gap-2">
+          <span className="min-w-0 flex-1 truncate text-[12px] text-[var(--muted)]">
+            {subject}
           </span>
+          <ActionChip item={item} h={h} />
           <RowActions item={item} h={h} />
         </div>
       </div>
@@ -304,36 +319,31 @@ function Row({
           {formatMailTime(item.receivedAt)}
         </span>
       </td>
+      {/* Message: the AI's read leads WHEN it adds signal; the subject
+          rides along muted. Hover shows the full why. */}
       <td
-        className={`max-w-0 truncate ${CELL} text-[13px] text-[var(--fg)]`}
-        title={subject}
+        className={`max-w-0 truncate ${CELL} text-[13px]`}
+        title={why ? `${meaning ? `${meaning} — ` : ""}${why}` : meaning}
       >
-        {subject}
+        {showMeaning ? (
+          <>
+            <span className="font-medium" style={{ color: g?.color ?? "var(--fg)" }}>
+              {meaning}
+            </span>
+            <span className="ml-2 text-[12px] text-[var(--muted)]">
+              {subject}
+            </span>
+          </>
+        ) : (
+          <span className="text-[var(--fg)]">{subject}</span>
+        )}
       </td>
-      <td
-        className={`max-w-0 truncate ${CELL} text-[13px] font-medium`}
-        style={{ color: g?.color ?? "var(--fg)" }}
-        title={meaning}
-      >
-        {meaning}
-        {g?.category ? (
-          <span className="ml-1.5 rounded bg-[var(--card)] px-1 py-0.5 text-[10px] font-semibold text-[var(--muted)]">
-            {stripEmoji(g.category)}
-          </span>
-        ) : null}
-      </td>
-      <td className={`whitespace-nowrap ${CELL}`}>
-        <span className="flex items-center gap-1">
+      <td className={`overflow-hidden ${CELL}`}>
+        <span className="flex items-center gap-1 whitespace-nowrap">
           <ActionChip item={item} h={h} />
           {h.teach && g ? <CorrectPicker item={item} h={h} /> : null}
           <RowActions item={item} h={h} />
         </span>
-      </td>
-      <td
-        className={`max-w-0 truncate ${CELL} text-[12px] text-[var(--muted)]`}
-        title={why}
-      >
-        {why}
       </td>
     </tr>
   );
@@ -585,7 +595,7 @@ export function TriageTable({
     return () => window.removeEventListener("keydown", onKey);
   }, [mobile]);
 
-  const SPAN = 6;
+  const SPAN = 4;
 
   const groups: ReactNode[] = [];
 
@@ -792,11 +802,9 @@ export function TriageTable({
                   className="h-3.5 w-3.5 accent-[var(--brand)]"
                 />
               </th>
-              <th className={`w-[15%] ${TH}`}>Sender</th>
-              <th className={`w-[21%] ${TH}`}>Subject</th>
-              <th className={`w-[25%] ${TH}`}>Meaning</th>
-              <th className={`w-[13%] ${TH}`}>Action</th>
-              <th className={`w-[22%] ${TH}`}>Why</th>
+              <th className={`w-[22%] ${TH}`}>Sender</th>
+              <th className={TH}>Message</th>
+              <th className={`w-[220px] ${TH}`}>Action</th>
             </tr>
           </thead>
           <tbody>{groups}</tbody>
