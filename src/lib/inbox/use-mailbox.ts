@@ -446,12 +446,10 @@ export function useMailbox(initialTab: ViewTab = "inbox") {
           ...prev,
           inbox: prev.inbox ? filter(prev.inbox) : prev.inbox,
           needsReview: filter(prev.needsReview),
+          // Filter by id — never empty a whole section by action name; the
+          // "section" may be a synthetic subset (checkbox-picked rows).
           sections: prev.sections
-            .map((s) =>
-              s.action === section.action
-                ? { ...s, items: [] }
-                : { ...s, items: s.items.filter((i) => !idSet.has(i.id)) },
-            )
+            .map((s) => ({ ...s, items: s.items.filter((i) => !idSet.has(i.id)) }))
             .filter((s) => s.items.length > 0),
           count: Math.max(0, prev.count - ids.length),
         };

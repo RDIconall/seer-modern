@@ -51,6 +51,18 @@ type Handlers = {
   busyId: string | null;
 };
 
+/**
+ * Rows whose suggestion Seer can execute for you (archive / delete /
+ * unsubscribe). "Respond" and "your call" rows need the human — no
+ * checkbox, confirming them means simply handling them.
+ */
+function confirmable(item: EmailItem): boolean {
+  const a = item.guide?.action;
+  return Boolean(
+    a && a !== "respond" && a !== "act_today" && a !== "needs_review",
+  );
+}
+
 function rankNeedsYou(a: EmailItem, b: EmailItem): number {
   const imp = (x: EmailItem) => x.guide?.importance ?? 1.5;
   if (imp(b) !== imp(a)) return imp(b) - imp(a);
@@ -192,11 +204,15 @@ function Row({
   h,
   mobile,
   emphasize,
+  checked,
+  onToggle,
 }: {
   item: EmailItem;
   h: Handlers;
   mobile?: boolean;
   emphasize?: boolean;
+  checked?: boolean;
+  onToggle?: () => void;
 }) {
   const g = item.guide;
   const meaning = stripEmoji(g?.task ?? g?.instruction ?? "");
@@ -244,6 +260,17 @@ function Row({
       onClick={() => h.openReader(item.id)}
       className="cursor-pointer border-b border-[var(--border)] align-top hover:bg-[var(--card)]"
     >
+      <td className="px-2 py-2.5" onClick={(e) => e.stopPropagation()}>
+        {onToggle ? (
+          <input
+            type="checkbox"
+            checked={checked ?? false}
+            onChange={onToggle}
+            aria-label="Confirm — do as suggested"
+            className="h-3.5 w-3.5 accent-[var(--brand)]"
+          />
+        ) : null}
+      </td>
       <td className="max-w-0 truncate px-3 py-2">
         <span className={`text-[13px] ${emphasize ? "font-bold" : "font-semibold"}`}>
           {senderLabel(item)}
@@ -321,7 +348,78 @@ export function TriageTable({
     return { needs, fyi, handled, handledCount };
   }, [triage]);
 
-  const SPAN = 5;
+  // ---- Checkbox confirm: tick the rows Seer got right, run them all ----
+  const [picked, setPicked] = useState<Set<string>>(new Set());
+  const togglePick = (id: string) =>
+    setPicked((prev) => {
+      const next = new Set(prev);
+      if (next.has(id)) next.delete(id);
+      else next.add(id);
+      return next;
+    });
+
+  const confirmables = useMemo(
+    () =>
+      [
+        ...zones.needs,
+        ...zones.fyi,
+        ...zones.handled.flatMap((s) => s.items),
+      ].filter(confirmable),
+    [zones],
+  );
+
+  const runPicked = () => {
+    const items = confirmables.filter((i) => picked.has(i.id));
+    if (items.length === 0) return;
+    // Group by what "correct" executes: real unsubscribe, trash, archive
+    const unsub = items.filter((i) => i.guide?.action === "unsubscribe");
+    const rest = items.filter((i) => i.guide?.action !== "unsubscribe");
+    const toTrash = rest.filter(
+      (i) => primaryMailAction(i.guide!.action) === "trash",
+    );
+    const toArchive = rest.filter(
+      (i) => primaryMailAction(i.guide!.action) !== "trash",
+    );
+    if (unsub.length > 0) {
+      h.bulkSection(
+        {
+          action: "unsubscribe",
+          label: "Confirmed",
+          color: ACTION_META.unsubscribe.color,
+          bulkLabel: "",
+          items: unsub,
+        },
+        "trash",
+      );
+    }
+    if (toTrash.length > 0) {
+      h.bulkSection(
+        {
+          action: "delete_now",
+          label: "Confirmed",
+          color: ACTION_META.delete_now.color,
+          bulkLabel: "",
+          items: toTrash,
+        },
+        "trash",
+      );
+    }
+    if (toArchive.length > 0) {
+      h.bulkSection(
+        {
+          action: "read_and_archive",
+          label: "Confirmed",
+          color: ACTION_META.read_and_archive.color,
+          bulkLabel: "",
+          items: toArchive,
+        },
+        "archive",
+      );
+    }
+    setPicked(new Set());
+  };
+
+  const SPAN = 6;
 
   const groups: ReactNode[] = [];
 
@@ -358,7 +456,17 @@ export function TriageTable({
       );
     } else {
       for (const item of zones.needs) {
-        groups.push(<Row key={item.id} item={item} h={h} mobile={mobile} emphasize />);
+        groups.push(
+          <Row
+            key={item.id}
+            item={item}
+            h={h}
+            mobile={mobile}
+            emphasize
+            checked={picked.has(item.id)}
+            onToggle={confirmable(item) ? () => togglePick(item.id) : undefined}
+          />,
+        );
       }
     }
   }
@@ -398,7 +506,16 @@ export function TriageTable({
     );
     if (open.has("fyi")) {
       for (const item of zones.fyi) {
-        groups.push(<Row key={item.id} item={item} h={h} mobile={mobile} />);
+        groups.push(
+          <Row
+            key={item.id}
+            item={item}
+            h={h}
+            mobile={mobile}
+            checked={picked.has(item.id)}
+            onToggle={confirmable(item) ? () => togglePick(item.id) : undefined}
+          />,
+        );
       }
     }
   }
@@ -441,7 +558,16 @@ export function TriageTable({
           />,
         );
         for (const item of section.items) {
-          groups.push(<Row key={item.id} item={item} h={h} mobile={mobile} />);
+          groups.push(
+            <Row
+              key={item.id}
+              item={item}
+              h={h}
+              mobile={mobile}
+              checked={picked.has(item.id)}
+              onToggle={confirmable(item) ? () => togglePick(item.id) : undefined}
+            />,
+          );
         }
       }
     }
@@ -459,17 +585,57 @@ export function TriageTable({
         </span>
       </p>
 
+      {!mobile && picked.size > 0 ? (
+        <div className="sticky top-0 z-20 flex items-center gap-3 border-b border-[var(--border)] bg-[var(--brand-soft)] px-3 py-2">
+          <span className="text-[12px] font-semibold text-[var(--fg-strong)]">
+            {picked.size} marked correct
+          </span>
+          <button
+            type="button"
+            onClick={runPicked}
+            className="rounded-md bg-[var(--brand)] px-2.5 py-1 text-[12px] font-semibold text-white hover:bg-[var(--brand-strong)]"
+          >
+            Do as suggested
+          </button>
+          <button
+            type="button"
+            onClick={() => setPicked(new Set())}
+            className="ml-auto text-[12px] text-[var(--muted)] hover:text-[var(--fg)]"
+          >
+            Clear
+          </button>
+        </div>
+      ) : null}
+
       {mobile ? (
         <div>{groups}</div>
       ) : (
         <table className="w-full table-fixed border-collapse">
           <thead>
             <tr className="border-b border-[var(--border)] text-left text-[10px] font-bold uppercase tracking-wide text-[var(--muted)]">
-              <th className="w-[16%] px-3 py-2">Sender</th>
-              <th className="w-[22%] px-3 py-2">Subject</th>
-              <th className="w-[26%] px-3 py-2">Meaning</th>
+              <th className="w-9 px-2 py-2">
+                <input
+                  type="checkbox"
+                  checked={
+                    confirmables.length > 0 &&
+                    picked.size === confirmables.length
+                  }
+                  onChange={() =>
+                    setPicked(
+                      picked.size === confirmables.length
+                        ? new Set()
+                        : new Set(confirmables.map((i) => i.id)),
+                    )
+                  }
+                  aria-label="Select every row Seer can act on"
+                  className="h-3.5 w-3.5 accent-[var(--brand)]"
+                />
+              </th>
+              <th className="w-[15%] px-3 py-2">Sender</th>
+              <th className="w-[21%] px-3 py-2">Subject</th>
+              <th className="w-[25%] px-3 py-2">Meaning</th>
               <th className="w-[13%] px-3 py-2">Action</th>
-              <th className="w-[23%] px-3 py-2">Why</th>
+              <th className="w-[22%] px-3 py-2">Why</th>
             </tr>
           </thead>
           <tbody>{groups}</tbody>

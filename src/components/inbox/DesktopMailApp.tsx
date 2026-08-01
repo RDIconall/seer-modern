@@ -104,7 +104,6 @@ export function DesktopMailApp() {
     runBulk,
     unsubscribe,
     teachSender,
-    markActionable,
     openReader,
     closeReader,
     startCompose,
@@ -716,17 +715,6 @@ export function DesktopMailApp() {
                             readerId ?? undefined,
                             reader.threadId,
                           )
-                        }
-                        onActionable={
-                          readerId
-                            ? () =>
-                                markActionable(
-                                  readerId,
-                                  reader.subject,
-                                  reader.guide?.ask,
-                                  reader.fromName,
-                                )
-                            : undefined
                         }
                       />
                     ) : null}

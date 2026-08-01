@@ -5,75 +5,73 @@ import { useState } from "react";
 import { ACTION_META, type TriageAction } from "@/lib/inbox/classify";
 import { stripEmoji, type Guide } from "@/lib/inbox/types";
 
-/** The corrections a human actually makes, in one row of chips. */
-const TEACH_ACTIONS: TriageAction[] = [
-  "respond",
-  "act_today",
-  "read_and_archive",
-  "read_and_delete",
-  "delete_now",
-  "unsubscribe",
-  "glance_promo",
-];
-
 export type TeachHandler = (action: TriageAction) => void;
 
 /**
- * "Wrong? Teach Seer" — one tap corrects the sender FOREVER (taught
- * override, top of the precedence chain) and applies the fix to this
- * email right now (unsubscribe actually unsubscribes).
+ * The four corrections a human actually makes, in plain words. Each one
+ * fixes this email now AND the sender forever (a taught override, top of
+ * the precedence chain). Seer also learns silently from every archive
+ * and delete — teaching just skips the wait.
  */
+const TEACH_CHOICES: { action: TriageAction; label: string }[] = [
+  { action: "act_today", label: "Needs me" },
+  { action: "read_and_archive", label: "Archive" },
+  { action: "delete_now", label: "Delete" },
+  { action: "unsubscribe", label: "Unsubscribe" },
+];
+
+/** Which teach choice a current verdict belongs to — hidden as redundant. */
+function teachGroup(action: TriageAction): TriageAction {
+  switch (action) {
+    case "respond":
+    case "act_today":
+    case "needs_review":
+      return "act_today";
+    case "delete_now":
+    case "read_and_delete":
+    case "glance_promo":
+      return "delete_now";
+    case "unsubscribe":
+      return "unsubscribe";
+    default:
+      return "read_and_archive";
+  }
+}
+
 function TeachRow({
   guide,
   onTeach,
-  onActionable,
 }: {
   guide: Guide;
   onTeach: TeachHandler;
-  /** Correct THIS email only: actionable + offer to time-block it. */
-  onActionable?: () => void;
 }) {
+  const current = teachGroup(guide.action);
   return (
     <div className="mt-1.5">
-      {onActionable && guide.action !== "act_today" ? (
-        <div className="mb-1.5">
-          <div className="mb-1 flex items-center gap-1 text-[10px] font-semibold uppercase tracking-wide text-[var(--muted)]">
-            <GraduationCap className="h-3 w-3" />
-            Wrong? Just this email:
-          </div>
+      <div className="flex flex-wrap items-center gap-1.5">
+        <span className="flex items-center gap-1 text-[10px] font-semibold uppercase tracking-wide text-[var(--muted)]">
+          <GraduationCap className="h-3 w-3" />
+          Wrong?
+        </span>
+        {TEACH_CHOICES.filter((c) => c.action !== current).map((c) => (
           <button
+            key={c.action}
             type="button"
             onClick={(e) => {
               e.stopPropagation();
-              onActionable();
+              onTeach(c.action);
             }}
-            className="rounded px-2 py-1 text-[11px] font-bold text-white"
-            style={{ backgroundColor: ACTION_META.act_today.color }}
+            className="rounded px-2 py-1 text-[11px] font-semibold text-white"
+            style={{ backgroundColor: ACTION_META[c.action].color }}
           >
-            Actionable — keep &amp; schedule
-          </button>
-        </div>
-      ) : null}
-      <div className="mb-1 flex items-center gap-1 text-[10px] font-semibold uppercase tracking-wide text-[var(--muted)]">
-        <GraduationCap className="h-3 w-3" />
-        Teach Seer — this sender, always:
-      </div>
-      <div className="flex flex-wrap gap-1">
-        {TEACH_ACTIONS.filter((a) => a !== guide.action).map((a) => (
-          <button
-            key={a}
-            type="button"
-            onClick={(e) => {
-              e.stopPropagation();
-              onTeach(a);
-            }}
-            className="rounded px-1.5 py-0.5 text-[10px] font-semibold text-white"
-            style={{ backgroundColor: ACTION_META[a].color }}
-          >
-            {ACTION_META[a].short}
+            {c.label}
           </button>
         ))}
       </div>
+      <p className="mt-1 text-[10px] leading-snug text-[var(--muted)]">
+        Fixes this sender from now on. Seer also learns by itself from what
+        you archive and delete — no teaching required.
+      </p>
     </div>
   );
 }
@@ -95,12 +93,10 @@ export function LogicExplain({
   guide,
   expanded,
   onTeach,
-  onActionable,
 }: {
   guide: Guide;
   expanded?: boolean;
   onTeach?: TeachHandler;
-  onActionable?: () => void;
 }) {
   const d = guide.debug;
   const sourceLabel = sourceLabelFor(guide);
@@ -178,7 +174,7 @@ export function LogicExplain({
         </dl>
       ) : null}
       {expanded && onTeach ? (
-        <TeachRow guide={guide} onTeach={onTeach} onActionable={onActionable} />
+        <TeachRow guide={guide} onTeach={onTeach} />
       ) : null}
     </div>
   );
@@ -191,11 +187,9 @@ export function LogicExplain({
 export function ReaderGuideBar({
   guide,
   onTeach,
-  onActionable,
 }: {
   guide: Guide;
   onTeach?: TeachHandler;
-  onActionable?: () => void;
 }) {
   const [open, setOpen] = useState(false);
   const d = guide.debug;
@@ -270,11 +264,7 @@ export function ReaderGuideBar({
             </p>
           ) : null}
           {onTeach ? (
-            <TeachRow
-              guide={guide}
-              onTeach={onTeach}
-              onActionable={onActionable}
-            />
+            <TeachRow guide={guide} onTeach={onTeach} />
           ) : null}
         </div>
       ) : null}
