@@ -72,6 +72,17 @@ function confirmable(item: EmailItem): boolean {
   );
 }
 
+/** Money mail, by every signal we have — category, rule, task text. */
+function isMoney(item: EmailItem): boolean {
+  const g = item.guide;
+  if (!g) return false;
+  const hay =
+    `${g.category ?? ""} ${g.debug?.ruleId ?? ""} ${g.task ?? ""} ${item.subject}`.toLowerCase();
+  return /money|bill|receipt|financ|invoice|payment|bank|payroll|autopay|auto.?pay|subscription|refund|charge|statement|deposit|wire|ach\b/.test(
+    hay,
+  );
+}
+
 function rankNeedsYou(a: EmailItem, b: EmailItem): number {
   const imp = (x: EmailItem) => x.guide?.importance ?? 1.5;
   if (imp(b) !== imp(a)) return imp(b) - imp(a);
@@ -390,7 +401,7 @@ export function TriageTable({
   mobile?: boolean;
 }) {
   const [open, setOpen] = useState<Set<string>>(
-    new Set(["needs", "fyi", "done"]),
+    new Set(["money-act", "needs", "money-rec", "fyi", "done"]),
   );
   const toggle = (k: string) =>
     setOpen((prev) => {
@@ -403,22 +414,39 @@ export function TriageTable({
   const zones = useMemo(() => {
     const byAction = new Map<TriageAction, Section>();
     for (const s of triage.sections) byAction.set(s.action, s);
-    const needs: EmailItem[] = [
+    const allNeeds: EmailItem[] = [
       ...triage.needsReview,
       ...NEEDS_YOU.flatMap((a) => byAction.get(a)?.items ?? []),
     ].sort(rankNeedsYou);
-    const fyi = FYI.flatMap((a) => byAction.get(a)?.items ?? []);
-    const handled = HANDLED.map((a) => byAction.get(a)).filter(
+
+    // The user's categories, not the engine's: money that needs a hand
+    // (invoices to pay, failed payments, checks) leads; money that's
+    // just a record (receipts, statements, autopay) files together.
+    const moneyAct = allNeeds.filter(isMoney);
+    const needs = allNeeds.filter((i) => !isMoney(i));
+
+    const allFyi = FYI.flatMap((a) => byAction.get(a)?.items ?? []);
+    const handledAll = HANDLED.map((a) => byAction.get(a)).filter(
       (s): s is Section => Boolean(s && s.items.length > 0),
     );
+    const moneyRecords = [
+      ...allFyi.filter(isMoney),
+      ...handledAll.flatMap((s) => s.items.filter(isMoney)),
+    ];
+    const fyi = allFyi.filter((i) => !isMoney(i));
+    const handled = handledAll
+      .map((s) => ({ ...s, items: s.items.filter((i) => !isMoney(i)) }))
+      .filter((s) => s.items.length > 0);
     const handledCount = handled.reduce((n, s) => n + s.items.length, 0);
-    return { needs, fyi, handled, handledCount };
+    return { moneyAct, needs, moneyRecords, fyi, handled, handledCount };
   }, [triage]);
 
   // ---- Spreadsheet plumbing: flat row order, cursor, range select ----
   const visibleRows = useMemo(() => {
     const rows: EmailItem[] = [];
+    if (open.has("money-act")) rows.push(...zones.moneyAct);
     if (open.has("needs")) rows.push(...zones.needs);
+    if (open.has("money-rec")) rows.push(...zones.moneyRecords);
     if (open.has("fyi")) rows.push(...zones.fyi);
     if (open.has("done")) for (const s of zones.handled) rows.push(...s.items);
     return rows;
@@ -623,6 +651,37 @@ export function TriageTable({
 
   const groups: ReactNode[] = [];
 
+  // 0. MONEY — ACTION NEEDED (invoices to pay, failed payments, checks)
+  if (zones.moneyAct.length > 0) {
+    groups.push(
+      <GroupHeader
+        key="h-money-act"
+        label={`Money — action needed · ${zones.moneyAct.length} (invoices to pay, payments, checks)`}
+        color="#b45309"
+        open={open.has("money-act")}
+        onToggle={() => toggle("money-act")}
+        span={SPAN}
+        mobile={mobile}
+      />,
+    );
+    if (open.has("money-act")) {
+      for (const item of zones.moneyAct) {
+        groups.push(
+          <Row
+            key={item.id}
+            item={item}
+            h={h}
+            mobile={mobile}
+            emphasize
+            checked={picked.has(item.id)}
+            onToggle={(r) => togglePick(item.id, r)}
+            active={!mobile && rowIdx.get(item.id) === activeIdx}
+          />,
+        );
+      }
+    }
+  }
+
   // 1. Needs you
   groups.push(
     <GroupHeader
@@ -663,6 +722,56 @@ export function TriageTable({
             h={h}
             mobile={mobile}
             emphasize
+            checked={picked.has(item.id)}
+            onToggle={(r) => togglePick(item.id, r)}
+            active={!mobile && rowIdx.get(item.id) === activeIdx}
+          />,
+        );
+      }
+    }
+  }
+
+  // 1b. MONEY — RECORDS (receipts, statements, autopay bills, bank notices)
+  if (zones.moneyRecords.length > 0) {
+    groups.push(
+      <GroupHeader
+        key="h-money-rec"
+        label={`Money — records · ${zones.moneyRecords.length} (receipts, statements, autopay)`}
+        color="#0f766e"
+        open={open.has("money-rec")}
+        onToggle={() => toggle("money-rec")}
+        span={SPAN}
+        mobile={mobile}
+        action={
+          <button
+            type="button"
+            onClick={() =>
+              h.bulkSection(
+                {
+                  action: "read_and_archive",
+                  label: "Money records",
+                  color: "#0f766e",
+                  bulkLabel: "Archive all",
+                  items: zones.moneyRecords,
+                },
+                "archive",
+              )
+            }
+            className="shrink-0 text-[12px] font-semibold text-[var(--primary)]"
+          >
+            Archive all
+          </button>
+        }
+      />,
+    );
+    if (open.has("money-rec")) {
+      for (const item of zones.moneyRecords) {
+        groups.push(
+          <Row
+            key={item.id}
+            item={item}
+            h={h}
+            mobile={mobile}
             checked={picked.has(item.id)}
             onToggle={(r) => togglePick(item.id, r)}
             active={!mobile && rowIdx.get(item.id) === activeIdx}
@@ -783,10 +892,12 @@ export function TriageTable({
     <div>
       <p className="flex items-baseline gap-2 border-b border-[var(--border)] bg-[var(--card)] px-3 py-2.5 text-[13px] font-medium">
         <span className="font-bold text-[var(--fg-strong)]">
-          {zones.needs.length} need you
+          {zones.moneyAct.length + zones.needs.length} need you
+          {zones.moneyAct.length > 0 ? ` (${zones.moneyAct.length} money)` : ""}
         </span>
         <span className="text-[var(--muted)]">
-          · {zones.fyi.length} to skim · {zones.handledCount} ready to clear
+          · {zones.moneyRecords.length} money records · {zones.fyi.length} to
+          skim · {zones.handledCount} ready to clear
         </span>
         {!mobile ? (
           <span className="ml-auto shrink-0 text-[10px] font-normal text-[var(--nav-muted)]">
