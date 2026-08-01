@@ -24,6 +24,7 @@ import {
   actionThreadId,
   mailInitial,
   primaryMailAction,
+  stripEmoji,
   type DeckCard,
   type EmailItem,
   type MailAction,
@@ -598,17 +599,27 @@ function CardFace({
         </div>
       </div>
 
-      {/* 2. The action phrase */}
+      {/* 2. The action phrase. Only a REAL extraction headlines the card —
+          Gemini's imperative or the sender's own ask. Generic rule phrases
+          ("Your call — decide") say nothing about THIS email, so the
+          subject leads and the email preview carries the context. */}
       <div className="flex flex-1 flex-col items-start justify-center py-6">
         <h2
-          className="text-[26px] font-bold leading-tight"
+          className="line-clamp-3 text-[24px] font-bold leading-tight"
           style={{ color: accent }}
         >
-          {g?.task ?? item.subject}
+          {g?.task && (g.source === "gemini" || g.ask)
+            ? stripEmoji(g.task)
+            : stripEmoji(item.subject)}
         </h2>
         {g?.ask && !(g.task ?? "").includes(g.ask.slice(0, 24)) ? (
-          <p className="mt-3 text-[15px] font-medium leading-snug text-[var(--muted)]">
-            “{g.ask}”
+          <p className="mt-3 line-clamp-2 text-[15px] font-medium leading-snug text-[var(--fg)]">
+            “{stripEmoji(g.ask)}”
+          </p>
+        ) : null}
+        {item.snippet ? (
+          <p className="mt-3 line-clamp-3 text-[13px] leading-snug text-[var(--muted)]">
+            {stripEmoji(item.snippet)}
           </p>
         ) : null}
       </div>

@@ -416,10 +416,18 @@ export function DesktopMailApp() {
         </section>
       ) : null}
 
-      {/* Middle + reading panes (hidden in Cards mode) */}
+      {/* Middle + reading panes (hidden in Cards mode). The triage table
+          needs the full remaining width — its five columns are unreadable
+          in the 360px list pane; the reader docks on the right instead. */}
       {tab !== "cards" ? (
       <>
-      <section className="flex w-[360px] shrink-0 flex-col border-r border-[var(--border)]">
+      <section
+        className={
+          tab === "triage"
+            ? "flex min-w-0 flex-1 flex-col"
+            : "flex w-[360px] shrink-0 flex-col border-r border-[var(--border)]"
+        }
+      >
         <header className="shrink-0 border-b border-[var(--border)]">
           <div className="flex items-center justify-between gap-2 bg-[var(--brand)] px-4 py-3 text-white">
             <h1 className="text-lg font-semibold">{listTitle}</h1>
@@ -617,8 +625,16 @@ export function DesktopMailApp() {
         </div>
       </section>
 
-      {/* Right pane — reading */}
-      <main className="flex min-w-0 flex-1 flex-col overflow-hidden">
+      {/* Right pane — reading. In triage the table owns the width, so the
+          reader appears as a docked panel only while a message is open. */}
+      {tab === "triage" && !readerId ? null : (
+      <main
+        className={
+          tab === "triage"
+            ? "flex w-[32rem] max-w-[44%] shrink-0 flex-col overflow-hidden border-l border-[var(--border)]"
+            : "flex min-w-0 flex-1 flex-col overflow-hidden"
+        }
+      >
         {!readerId ? (
           <div className="flex flex-1 items-center justify-center text-sm text-[var(--muted)]">
             Select a message
@@ -649,6 +665,16 @@ export function DesktopMailApp() {
                     runAction(readerId, "trash", reader?.fromEmail, readerThreadId)
                   }
                 />
+                {tab === "triage" ? (
+                  <button
+                    type="button"
+                    onClick={closeReader}
+                    aria-label="Close message"
+                    className="rounded-md p-1.5 text-[var(--muted)] hover:bg-[var(--row-hover)] hover:text-[var(--fg-strong)]"
+                  >
+                    <X className="h-4 w-4" />
+                  </button>
+                ) : null}
               </div>
             </header>
 
@@ -758,6 +784,7 @@ export function DesktopMailApp() {
           </>
         )}
       </main>
+      )}
       </>
       ) : null}
 
