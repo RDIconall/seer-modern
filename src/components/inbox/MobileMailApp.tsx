@@ -796,6 +796,7 @@ export function MobileMailApp() {
                 runAction,
                 bulkSection,
                 unsubscribe,
+                teach: teachSender,
                 nudge,
                 nudging,
                 busyId,

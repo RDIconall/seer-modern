@@ -13,7 +13,7 @@ export type TeachHandler = (action: TriageAction) => void;
  * the precedence chain). Seer also learns silently from every archive
  * and delete — teaching just skips the wait.
  */
-const TEACH_CHOICES: { action: TriageAction; label: string }[] = [
+export const TEACH_CHOICES: { action: TriageAction; label: string }[] = [
   { action: "act_today", label: "Needs me" },
   { action: "read_and_archive", label: "Archive" },
   { action: "delete_now", label: "Delete" },
@@ -21,7 +21,7 @@ const TEACH_CHOICES: { action: TriageAction; label: string }[] = [
 ];
 
 /** Which teach choice a current verdict belongs to — hidden as redundant. */
-function teachGroup(action: TriageAction): TriageAction {
+export function teachGroup(action: TriageAction): TriageAction {
   switch (action) {
     case "respond":
     case "act_today":

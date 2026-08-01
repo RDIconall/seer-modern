@@ -1,8 +1,9 @@
 "use client";
 
 import { Archive, CheckCircle2, ChevronDown, Trash2 } from "lucide-react";
-import { useMemo, useState, type ReactNode } from "react";
+import { useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import { WaitingSection } from "@/components/inbox/WaitingSection";
+import { TEACH_CHOICES, teachGroup } from "@/components/inbox/LogicExplain";
 import { ACTION_META, type TriageAction } from "@/lib/inbox/classify";
 import {
   actionThreadId,
@@ -46,6 +47,13 @@ type Handlers = {
   ) => void;
   bulkSection: (section: Section, action: MailAction) => void;
   unsubscribe: (id: string, fromEmail?: string, threadId?: string) => void;
+  /** Correct the verdict: teaches the sender + applies to this email. */
+  teach?: (
+    fromEmail: string,
+    action: TriageAction,
+    messageId?: string,
+    threadId?: string,
+  ) => void;
   nudge: (messageId: string) => void;
   nudging: string | null;
   busyId: string | null;
@@ -198,6 +206,8 @@ function GroupHeader({
   );
 }
 
+const CELL = "border-r border-[var(--border)] px-3 py-1.5 last:border-r-0";
+
 /** One email as a table row (desktop) or a stacked block (mobile). */
 function Row({
   item,
@@ -206,13 +216,16 @@ function Row({
   emphasize,
   checked,
   onToggle,
+  active,
 }: {
   item: EmailItem;
   h: Handlers;
   mobile?: boolean;
   emphasize?: boolean;
   checked?: boolean;
-  onToggle?: () => void;
+  onToggle?: (range: boolean) => void;
+  /** Keyboard cursor is on this row — spreadsheet style. */
+  active?: boolean;
 }) {
   const g = item.guide;
   const meaning = stripEmoji(g?.task ?? g?.instruction ?? "");
@@ -257,36 +270,48 @@ function Row({
 
   return (
     <tr
+      ref={(el) => {
+        if (active && el) el.scrollIntoView({ block: "nearest" });
+      }}
       onClick={() => h.openReader(item.id)}
-      className="cursor-pointer border-b border-[var(--border)] align-top hover:bg-[var(--card)]"
+      className={`cursor-pointer border-b border-[var(--border)] align-middle ${
+        active ? "bg-[var(--brand-soft)]" : "hover:bg-[var(--card)]"
+      }`}
     >
-      <td className="px-2 py-2.5" onClick={(e) => e.stopPropagation()}>
+      <td
+        className="border-r border-[var(--border)] px-2 py-1.5 text-center"
+        onClick={(e) => e.stopPropagation()}
+      >
         {onToggle ? (
           <input
             type="checkbox"
             checked={checked ?? false}
-            onChange={onToggle}
+            onClick={(e) => {
+              e.stopPropagation();
+              onToggle(e.shiftKey);
+            }}
+            onChange={() => {}}
             aria-label="Confirm — do as suggested"
             className="h-3.5 w-3.5 accent-[var(--brand)]"
           />
         ) : null}
       </td>
-      <td className="max-w-0 truncate px-3 py-2">
+      <td className={`max-w-0 truncate ${CELL}`}>
         <span className={`text-[13px] ${emphasize ? "font-bold" : "font-semibold"}`}>
           {senderLabel(item)}
         </span>
-        <div className="text-[11px] text-[var(--muted)]">
+        <span className="ml-1.5 text-[11px] text-[var(--muted)]">
           {formatMailTime(item.receivedAt)}
-        </div>
+        </span>
       </td>
       <td
-        className="max-w-0 truncate px-3 py-2 text-[13px] text-[var(--fg)]"
+        className={`max-w-0 truncate ${CELL} text-[13px] text-[var(--fg)]`}
         title={subject}
       >
         {subject}
       </td>
       <td
-        className="max-w-0 truncate px-3 py-2 text-[13px] font-medium"
+        className={`max-w-0 truncate ${CELL} text-[13px] font-medium`}
         style={{ color: g?.color ?? "var(--fg)" }}
         title={meaning}
       >
@@ -297,19 +322,51 @@ function Row({
           </span>
         ) : null}
       </td>
-      <td className="whitespace-nowrap px-3 py-2">
-        <span className="flex items-center gap-1.5">
+      <td className={`whitespace-nowrap ${CELL}`}>
+        <span className="flex items-center gap-1">
           <ActionChip item={item} h={h} />
+          {h.teach && g ? <CorrectPicker item={item} h={h} /> : null}
           <RowActions item={item} h={h} />
         </span>
       </td>
       <td
-        className="max-w-0 truncate px-3 py-2 text-[12px] text-[var(--muted)]"
+        className={`max-w-0 truncate ${CELL} text-[12px] text-[var(--muted)]`}
         title={why}
       >
         {why}
       </td>
     </tr>
+  );
+}
+
+/**
+ * Airtable-style cell picker: change the verdict in place. Picking a
+ * value teaches the sender and applies it to this email immediately.
+ */
+function CorrectPicker({ item, h }: { item: EmailItem; h: Handlers }) {
+  const current = teachGroup(item.guide!.action);
+  return (
+    <span className="relative" onClick={(e) => e.stopPropagation()}>
+      <select
+        value=""
+        onChange={(e) => {
+          const a = e.target.value as TriageAction;
+          if (a) h.teach?.(item.fromEmail, a, item.id, actionThreadId(item));
+        }}
+        aria-label="Correct — teach Seer"
+        title="Correct — teach Seer"
+        className="h-6 w-5 cursor-pointer appearance-none rounded-md border border-[var(--border)] bg-[var(--bg)] pl-1 text-[10px] font-bold text-[var(--muted)] hover:text-[var(--fg)]"
+      >
+        <option value="" hidden>
+          ▾
+        </option>
+        {TEACH_CHOICES.filter((c) => c.action !== current).map((c) => (
+          <option key={c.action} value={c.action}>
+            {c.label}
+          </option>
+        ))}
+      </select>
+    </span>
   );
 }
 
@@ -348,15 +405,48 @@ export function TriageTable({
     return { needs, fyi, handled, handledCount };
   }, [triage]);
 
+  // ---- Spreadsheet plumbing: flat row order, cursor, range select ----
+  const visibleRows = useMemo(() => {
+    const rows: EmailItem[] = [];
+    if (open.has("needs")) rows.push(...zones.needs);
+    if (open.has("fyi")) rows.push(...zones.fyi);
+    if (open.has("done")) for (const s of zones.handled) rows.push(...s.items);
+    return rows;
+  }, [zones, open]);
+  const rowIdx = useMemo(
+    () => new Map(visibleRows.map((r, i) => [r.id, i])),
+    [visibleRows],
+  );
+  const [activeIdx, setActiveIdx] = useState(-1);
+  useEffect(() => {
+    if (activeIdx >= visibleRows.length) {
+      setActiveIdx(visibleRows.length - 1);
+    }
+  }, [activeIdx, visibleRows.length]);
+
   // ---- Checkbox confirm: tick the rows Seer got right, run them all ----
   const [picked, setPicked] = useState<Set<string>>(new Set());
-  const togglePick = (id: string) =>
+  const anchorRef = useRef<number | null>(null);
+  const togglePick = (id: string, range = false) => {
+    const idx = rowIdx.get(id);
     setPicked((prev) => {
       const next = new Set(prev);
+      // Shift-click: everything between the last tick and this one
+      if (range && anchorRef.current != null && idx != null) {
+        const lo = Math.min(anchorRef.current, idx);
+        const hi = Math.max(anchorRef.current, idx);
+        for (let i = lo; i <= hi; i++) {
+          const r = visibleRows[i];
+          if (r && confirmable(r)) next.add(r.id);
+        }
+        return next;
+      }
       if (next.has(id)) next.delete(id);
       else next.add(id);
       return next;
     });
+    if (idx != null) anchorRef.current = idx;
+  };
 
   const confirmables = useMemo(
     () =>
@@ -419,6 +509,82 @@ export function TriageTable({
     setPicked(new Set());
   };
 
+  // ---- Keyboard: work the table without the mouse (desktop only).
+  // ↑↓/jk move · space/x tick · ⏎ open · e archive · d delete ·
+  // a do-suggested · ⌘⏎ run ticked · esc clear ----
+  const kb = useRef({ visibleRows, activeIdx, picked, togglePick, runPicked, h });
+  kb.current = { visibleRows, activeIdx, picked, togglePick, runPicked, h };
+  useEffect(() => {
+    if (mobile) return;
+    const onKey = (e: KeyboardEvent) => {
+      const t = e.target as HTMLElement | null;
+      if (
+        t &&
+        (t.tagName === "INPUT" ||
+          t.tagName === "TEXTAREA" ||
+          t.tagName === "SELECT" ||
+          t.tagName === "BUTTON" ||
+          t.isContentEditable)
+      ) {
+        return;
+      }
+      const { visibleRows: rows, activeIdx: idx, h: hh } = kb.current;
+      if ((e.metaKey || e.ctrlKey) && e.key === "Enter") {
+        e.preventDefault();
+        kb.current.runPicked();
+        return;
+      }
+      if (e.metaKey || e.ctrlKey || e.altKey) return;
+      const item = idx >= 0 ? rows[idx] : undefined;
+      switch (e.key) {
+        case "ArrowDown":
+        case "j":
+          e.preventDefault();
+          setActiveIdx((i) => Math.min(rows.length - 1, i + 1));
+          break;
+        case "ArrowUp":
+        case "k":
+          e.preventDefault();
+          setActiveIdx((i) => Math.max(0, i < 0 ? 0 : i - 1));
+          break;
+        case " ":
+        case "x":
+          if (item && confirmable(item)) {
+            e.preventDefault();
+            kb.current.togglePick(item.id, e.shiftKey);
+          }
+          break;
+        case "Enter":
+          if (item) hh.openReader(item.id);
+          break;
+        case "e":
+          if (item) {
+            hh.runAction(item.id, "archive", item.fromEmail, actionThreadId(item));
+          }
+          break;
+        case "d":
+        case "#":
+          if (item) {
+            if (item.guide?.action === "unsubscribe") {
+              hh.unsubscribe(item.id, item.fromEmail, actionThreadId(item));
+            } else {
+              hh.runAction(item.id, "trash", item.fromEmail, actionThreadId(item));
+            }
+          }
+          break;
+        case "a":
+          if (item) doSuggested(item, hh);
+          break;
+        case "Escape":
+          setPicked(new Set());
+          setActiveIdx(-1);
+          break;
+      }
+    };
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, [mobile]);
+
   const SPAN = 6;
 
   const groups: ReactNode[] = [];
@@ -464,7 +630,10 @@ export function TriageTable({
             mobile={mobile}
             emphasize
             checked={picked.has(item.id)}
-            onToggle={confirmable(item) ? () => togglePick(item.id) : undefined}
+            onToggle={
+              confirmable(item) ? (r) => togglePick(item.id, r) : undefined
+            }
+            active={!mobile && rowIdx.get(item.id) === activeIdx}
           />,
         );
       }
@@ -513,7 +682,10 @@ export function TriageTable({
             h={h}
             mobile={mobile}
             checked={picked.has(item.id)}
-            onToggle={confirmable(item) ? () => togglePick(item.id) : undefined}
+            onToggle={
+              confirmable(item) ? (r) => togglePick(item.id, r) : undefined
+            }
+            active={!mobile && rowIdx.get(item.id) === activeIdx}
           />,
         );
       }
@@ -565,7 +737,10 @@ export function TriageTable({
               h={h}
               mobile={mobile}
               checked={picked.has(item.id)}
-              onToggle={confirmable(item) ? () => togglePick(item.id) : undefined}
+              onToggle={
+                confirmable(item) ? (r) => togglePick(item.id, r) : undefined
+              }
+              active={!mobile && rowIdx.get(item.id) === activeIdx}
             />,
           );
         }
@@ -573,20 +748,63 @@ export function TriageTable({
     }
   }
 
+  const TH =
+    "sticky top-0 z-10 border-r border-[var(--border)] bg-[var(--card)] px-3 py-2 shadow-[inset_0_-1px_0_var(--border)] last:border-r-0";
+
   return (
     <div>
-      <p className="border-b border-[var(--border)] bg-[var(--card)] px-3 py-2.5 text-[13px] font-medium">
+      <p className="flex items-baseline gap-2 border-b border-[var(--border)] bg-[var(--card)] px-3 py-2.5 text-[13px] font-medium">
         <span className="font-bold text-[var(--fg-strong)]">
           {zones.needs.length} need you
         </span>
         <span className="text-[var(--muted)]">
-          {" "}
           · {zones.fyi.length} to skim · {zones.handledCount} handled for you
         </span>
+        {!mobile ? (
+          <span className="ml-auto shrink-0 text-[10px] font-normal text-[var(--nav-muted)]">
+            ↑↓ move · space tick · ⇧ range · ⏎ open · e archive · d delete ·
+            a do suggested · ⌘⏎ run ticked
+          </span>
+        ) : null}
       </p>
 
+      {mobile ? (
+        <div>{groups}</div>
+      ) : (
+        <table className="w-full table-fixed border-collapse">
+          <thead>
+            <tr className="text-left text-[10px] font-bold uppercase tracking-wide text-[var(--muted)]">
+              <th className={`w-9 ${TH} !px-2 text-center`}>
+                <input
+                  type="checkbox"
+                  checked={
+                    confirmables.length > 0 &&
+                    picked.size === confirmables.length
+                  }
+                  onChange={() =>
+                    setPicked(
+                      picked.size === confirmables.length
+                        ? new Set()
+                        : new Set(confirmables.map((i) => i.id)),
+                    )
+                  }
+                  aria-label="Select every row Seer can act on"
+                  className="h-3.5 w-3.5 accent-[var(--brand)]"
+                />
+              </th>
+              <th className={`w-[15%] ${TH}`}>Sender</th>
+              <th className={`w-[21%] ${TH}`}>Subject</th>
+              <th className={`w-[25%] ${TH}`}>Meaning</th>
+              <th className={`w-[13%] ${TH}`}>Action</th>
+              <th className={`w-[22%] ${TH}`}>Why</th>
+            </tr>
+          </thead>
+          <tbody>{groups}</tbody>
+        </table>
+      )}
+
       {!mobile && picked.size > 0 ? (
-        <div className="sticky top-0 z-20 flex items-center gap-3 border-b border-[var(--border)] bg-[var(--brand-soft)] px-3 py-2">
+        <div className="sticky bottom-0 z-20 flex items-center gap-3 border-t border-[var(--border)] bg-[var(--brand-soft)] px-3 py-2 shadow-[0_-2px_8px_rgba(10,45,40,0.08)]">
           <span className="text-[12px] font-semibold text-[var(--fg-strong)]">
             {picked.size} marked correct
           </span>
@@ -606,41 +824,6 @@ export function TriageTable({
           </button>
         </div>
       ) : null}
-
-      {mobile ? (
-        <div>{groups}</div>
-      ) : (
-        <table className="w-full table-fixed border-collapse">
-          <thead>
-            <tr className="border-b border-[var(--border)] text-left text-[10px] font-bold uppercase tracking-wide text-[var(--muted)]">
-              <th className="w-9 px-2 py-2">
-                <input
-                  type="checkbox"
-                  checked={
-                    confirmables.length > 0 &&
-                    picked.size === confirmables.length
-                  }
-                  onChange={() =>
-                    setPicked(
-                      picked.size === confirmables.length
-                        ? new Set()
-                        : new Set(confirmables.map((i) => i.id)),
-                    )
-                  }
-                  aria-label="Select every row Seer can act on"
-                  className="h-3.5 w-3.5 accent-[var(--brand)]"
-                />
-              </th>
-              <th className="w-[15%] px-3 py-2">Sender</th>
-              <th className="w-[21%] px-3 py-2">Subject</th>
-              <th className="w-[25%] px-3 py-2">Meaning</th>
-              <th className="w-[13%] px-3 py-2">Action</th>
-              <th className="w-[22%] px-3 py-2">Why</th>
-            </tr>
-          </thead>
-          <tbody>{groups}</tbody>
-        </table>
-      )}
 
       <WaitingSection nudge={h.nudge} nudging={h.nudging} />
     </div>

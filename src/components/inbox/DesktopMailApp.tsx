@@ -615,6 +615,7 @@ export function DesktopMailApp() {
                 runAction,
                 bulkSection,
                 unsubscribe,
+                teach: teachSender,
                 nudge,
                 nudging,
                 busyId,
