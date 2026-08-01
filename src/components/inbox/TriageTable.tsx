@@ -447,7 +447,7 @@ export function TriageTable({
         const hi = Math.max(anchorRef.current, idx);
         for (let i = lo; i <= hi; i++) {
           const r = visibleRows[i];
-          if (r && confirmable(r)) next.add(r.id);
+          if (r) next.add(r.id);
         }
         return next;
       }
@@ -467,6 +467,30 @@ export function TriageTable({
       ].filter(confirmable),
     [zones],
   );
+
+  /**
+   * YOUR choice beats the suggestion: explicit Archive/Delete applies
+   * to every selected row exactly as stated — Delete means trash, it
+   * NEVER silently unsubscribes.
+   */
+  const runPickedAs = (action: MailAction) => {
+    const items = visibleRows.filter((i) => picked.has(i.id));
+    if (items.length === 0) return;
+    h.bulkSection(
+      {
+        action: action === "trash" ? "delete_now" : "read_and_archive",
+        label: "Selected",
+        color:
+          action === "trash"
+            ? ACTION_META.delete_now.color
+            : ACTION_META.read_and_archive.color,
+        bulkLabel: "",
+        items,
+      },
+      action,
+    );
+    setPicked(new Set());
+  };
 
   const runPicked = () => {
     const items = confirmables.filter((i) => picked.has(i.id));
@@ -559,7 +583,7 @@ export function TriageTable({
           break;
         case " ":
         case "x":
-          if (item && confirmable(item)) {
+          if (item) {
             e.preventDefault();
             kb.current.togglePick(item.id, e.shiftKey);
           }
@@ -640,9 +664,7 @@ export function TriageTable({
             mobile={mobile}
             emphasize
             checked={picked.has(item.id)}
-            onToggle={
-              confirmable(item) ? (r) => togglePick(item.id, r) : undefined
-            }
+            onToggle={(r) => togglePick(item.id, r)}
             active={!mobile && rowIdx.get(item.id) === activeIdx}
           />,
         );
@@ -692,9 +714,7 @@ export function TriageTable({
             h={h}
             mobile={mobile}
             checked={picked.has(item.id)}
-            onToggle={
-              confirmable(item) ? (r) => togglePick(item.id, r) : undefined
-            }
+            onToggle={(r) => togglePick(item.id, r)}
             active={!mobile && rowIdx.get(item.id) === activeIdx}
           />,
         );
@@ -707,7 +727,7 @@ export function TriageTable({
     groups.push(
       <GroupHeader
         key="h-done"
-        label={`Handled for you · ${zones.handledCount}`}
+        label={`Ready to clear · ${zones.handledCount} — Seer\u2019s suggestions, nothing here needs you`}
         color="#64748b"
         open={open.has("done")}
         onToggle={() => toggle("done")}
@@ -747,9 +767,7 @@ export function TriageTable({
               h={h}
               mobile={mobile}
               checked={picked.has(item.id)}
-              onToggle={
-                confirmable(item) ? (r) => togglePick(item.id, r) : undefined
-              }
+              onToggle={(r) => togglePick(item.id, r)}
               active={!mobile && rowIdx.get(item.id) === activeIdx}
             />,
           );
@@ -768,7 +786,7 @@ export function TriageTable({
           {zones.needs.length} need you
         </span>
         <span className="text-[var(--muted)]">
-          · {zones.fyi.length} to skim · {zones.handledCount} handled for you
+          · {zones.fyi.length} to skim · {zones.handledCount} ready to clear
         </span>
         {!mobile ? (
           <span className="ml-auto shrink-0 text-[10px] font-normal text-[var(--nav-muted)]">
@@ -788,17 +806,17 @@ export function TriageTable({
                 <input
                   type="checkbox"
                   checked={
-                    confirmables.length > 0 &&
-                    picked.size === confirmables.length
+                    visibleRows.length > 0 &&
+                    picked.size === visibleRows.length
                   }
                   onChange={() =>
                     setPicked(
-                      picked.size === confirmables.length
+                      picked.size === visibleRows.length
                         ? new Set()
-                        : new Set(confirmables.map((i) => i.id)),
+                        : new Set(visibleRows.map((i) => i.id)),
                     )
                   }
-                  aria-label="Select every row Seer can act on"
+                  aria-label="Select all"
                   className="h-3.5 w-3.5 accent-[var(--brand)]"
                 />
               </th>
@@ -812,17 +830,35 @@ export function TriageTable({
       )}
 
       {!mobile && picked.size > 0 ? (
-        <div className="sticky bottom-0 z-20 flex items-center gap-3 border-t border-[var(--border)] bg-[var(--brand-soft)] px-3 py-2 shadow-[0_-2px_8px_rgba(10,45,40,0.08)]">
+        <div className="sticky bottom-0 z-20 flex items-center gap-2 border-t border-[var(--border)] bg-[var(--brand-soft)] px-3 py-2 shadow-[0_-2px_8px_rgba(10,45,40,0.08)]">
           <span className="text-[12px] font-semibold text-[var(--fg-strong)]">
-            {picked.size} marked correct
+            {picked.size} selected
           </span>
           <button
             type="button"
-            onClick={runPicked}
-            className="rounded-md bg-[var(--brand)] px-2.5 py-1 text-[12px] font-semibold text-white hover:bg-[var(--brand-strong)]"
+            onClick={() => runPickedAs("archive")}
+            className="rounded-md bg-[#0b8043] px-2.5 py-1 text-[12px] font-semibold text-white"
           >
-            Do as suggested
+            Archive
           </button>
+          <button
+            type="button"
+            onClick={() => runPickedAs("trash")}
+            title="Delete only — never unsubscribes"
+            className="rounded-md bg-[#d63b2f] px-2.5 py-1 text-[12px] font-semibold text-white"
+          >
+            Delete
+          </button>
+          {confirmables.some((i) => picked.has(i.id)) ? (
+            <button
+              type="button"
+              onClick={runPicked}
+              title="Runs each row's suggestion — unsubscribe rows DO unsubscribe"
+              className="rounded-md border border-[var(--brand)] px-2.5 py-1 text-[12px] font-semibold text-[var(--brand)]"
+            >
+              Do as suggested
+            </button>
+          ) : null}
           <button
             type="button"
             onClick={() => setPicked(new Set())}
