@@ -5,12 +5,36 @@ import type {
   SendMailInput,
 } from "@/lib/mail/types";
 
+/**
+ * Graph throttles bursts with 429 + Retry-After. One throttled call
+ * must never sink a whole inbox load — honor the header, retry, then
+ * fail only if Graph keeps saying no.
+ */
+export async function graphRawFetch(
+  url: string,
+  init: RequestInit,
+): Promise<Response> {
+  let last: Response | null = null;
+  for (let attempt = 0; attempt < 4; attempt++) {
+    if (attempt > 0) {
+      const retryAfter = Number(last?.headers.get("retry-after") ?? 0);
+      const wait =
+        retryAfter > 0 ? Math.min(retryAfter, 12) * 1000 : 500 * 2 ** attempt;
+      await new Promise((r) => setTimeout(r, wait));
+    }
+    const res = await fetch(url, init);
+    if (res.ok || (res.status !== 429 && res.status < 500)) return res;
+    last = res;
+  }
+  return last as Response;
+}
+
 async function graphFetch(
   accessToken: string,
   path: string,
   init?: RequestInit,
 ) {
-  const res = await fetch(`https://graph.microsoft.com/v1.0${path}`, {
+  const res = await graphRawFetch(`https://graph.microsoft.com/v1.0${path}`, {
     ...init,
     headers: {
       Authorization: `Bearer ${accessToken}`,
@@ -101,11 +125,16 @@ export async function listGraphFolder(
   const out: MailMessageListItem[] = [];
   let next: string | undefined = first.toString();
   while (next && out.length < maxResults) {
-    const res = await fetch(next, {
+    const res = await graphRawFetch(next, {
       headers: { Authorization: `Bearer ${accessToken}` },
       cache: "no-store",
     });
-    if (!res.ok) throw new Error(`Graph folder ${folder}: ${res.status}`);
+    if (!res.ok) {
+      // A page that still won't come after retries: serve what we have
+      // rather than failing the whole load with nothing.
+      if (out.length > 0) break;
+      throw new Error(`Graph folder ${folder}: ${res.status}`);
+    }
     const data = (await res.json()) as {
       value?: GraphMessage[];
       "@odata.nextLink"?: string;
@@ -133,7 +162,7 @@ export async function searchGraph(
     "$select",
     "id,conversationId,subject,bodyPreview,receivedDateTime,sentDateTime,isRead,from,toRecipients",
   );
-  const res = await fetch(url.toString(), {
+  const res = await graphRawFetch(url.toString(), {
     headers: {
       Authorization: `Bearer ${accessToken}`,
       ConsistencyLevel: "eventual",
@@ -207,7 +236,7 @@ export async function getGraphAttachment(
   messageId: string,
   attachmentId: string,
 ): Promise<Buffer> {
-  const res = await fetch(
+  const res = await graphRawFetch(
     `https://graph.microsoft.com/v1.0/me/messages/${messageId}/attachments/${attachmentId}/$value`,
     { headers: { Authorization: `Bearer ${accessToken}` }, cache: "no-store" },
   );
@@ -314,7 +343,7 @@ export async function graphThreadAction(
   );
   url.searchParams.set("$select", "id");
   url.searchParams.set("$top", "50");
-  const res = await fetch(url.toString(), {
+  const res = await graphRawFetch(url.toString(), {
     headers: { Authorization: `Bearer ${accessToken}` },
     cache: "no-store",
   });

@@ -1,3 +1,4 @@
+import { graphRawFetch } from "@/lib/mail/graph";
 import { accountKey, kvGet, kvSet } from "@/lib/store/kv";
 
 /**
@@ -183,7 +184,7 @@ async function googleEvents(
 // ---------- Microsoft Graph ----------
 
 async function graphContacts(token: string): Promise<string[]> {
-  const res = await fetch(
+  const res = await graphRawFetch(
     "https://graph.microsoft.com/v1.0/me/contacts?$select=emailAddresses&$top=500",
     { headers: { Authorization: `Bearer ${token}` } },
   );
@@ -225,7 +226,7 @@ async function graphEvents(token: string): Promise<CalendarEventLite[]> {
   const out: CalendarEventLite[] = [];
   let next: string | undefined = first;
   while (next && out.length < MAX_EVENTS) {
-    const res = await fetch(next, {
+    const res = await graphRawFetch(next, {
       headers: { Authorization: `Bearer ${token}` },
     });
     if (!res.ok) break;
