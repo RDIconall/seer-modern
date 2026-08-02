@@ -38,6 +38,7 @@ import {
   usualLabel,
 } from "@/lib/store/merchants";
 import {
+  MACHINE_LOCALPART,
   loadPeople,
   savePeople,
   tierFromEvidence,
@@ -827,6 +828,9 @@ export async function classifyInboxWithAssistant(
 
   // 1. Taught overrides + 2. learned priors from the user's own actions
   const me = accountEmail.toLowerCase().trim();
+  // Mute-pierced messages: guaranteed to surface, but their meaning
+  // comes from the AI's read — floor applied after all grading.
+  const needsYouFloor = new Set<string>();
   // Conversations are THREADS: who spoke last decides everything.
   // Memoized — one lookup per thread, only when it changes the verdict.
   const threadLastMemo = new Map<
@@ -1029,9 +1033,9 @@ export async function classifyInboxWithAssistant(
 
     // INTENT pierces sender history: a sender you taught/learned to
     // dismiss can still send the ONE message that needs you — the 347th
-    // autopay email that says "autopay FAILED". Strict needs-you
-    // signals (payment failed, fraud, signature required, unpaid bill)
-    // bypass the mute and demand action.
+    // autopay email that says "autopay FAILED". The guard only sets a
+    // FLOOR (this must surface); the MEANING always comes from a real
+    // read of the email — never a canned "Open it — something failed".
     const escape = needsYouEscape(item.subject, item.snippet);
 
     const override = await getOverride(item.fromEmail);
@@ -1047,33 +1051,17 @@ export async function classifyInboxWithAssistant(
       continue;
     }
     if (override && escape) {
-      results.set(item.id, {
-        action: "act_today",
-        confidence: "HIGH",
-        reason:
-          "Muted sender, but THIS one needs you — payment/security/delivery language",
-        debug: debugFor(item, history, "muted-sender-needs-you"),
-        source: "rules",
-        instruction:
-          "You normally ignore this sender, but this message says something failed or needs action — open it.",
-        task: "Open it — something failed",
-      });
+      // Pierced mute: fall through — the AI reads it, the floor
+      // (applied after all reads) guarantees it surfaces.
+      needsYouFloor.add(item.id);
+      candidates.push(item);
       continue;
     }
 
     const learned = learnedPrior(extras?.actionMemory, item.fromEmail);
     if (learned && escape) {
-      results.set(item.id, {
-        action: "act_today",
-        confidence: "HIGH",
-        reason:
-          "You usually dismiss this sender, but THIS one has needs-you language",
-        debug: debugFor(item, history, "muted-sender-needs-you"),
-        source: "rules",
-        instruction:
-          "Break in pattern: something failed or needs action — open it.",
-        task: "Open it — something failed",
-      });
+      needsYouFloor.add(item.id);
+      candidates.push(item);
       continue;
     }
     // A learned mute is SENDER-level; records are MESSAGE-level. The
@@ -1386,6 +1374,29 @@ export async function classifyInboxWithAssistant(
     });
   }
 
+  // Needs-you floor: a muted sender's message with needs-you language
+  // surfaces no matter what the read concluded — but the task/reason
+  // are the AI's actual words about THIS email, not a canned phrase.
+  for (const id of needsYouFloor) {
+    const r = results.get(id);
+    if (!r) continue;
+    if (
+      r.action === "act_today" ||
+      r.action === "respond" ||
+      r.action === "needs_review" ||
+      r.action === "review_subscription"
+    ) {
+      continue;
+    }
+    results.set(id, {
+      ...r,
+      action: "act_today",
+      confidence: "HIGH",
+      reason: `${r.reason} — surfaced past your mute: this one has needs-you language`,
+      debug: { ...r.debug, ruleId: `${r.debug.ruleId}+needs-you-floor` },
+    });
+  }
+
   // Urgency decay pass — covers every source, including decisions that
   // were correct days ago but are saved in caches/labels as act_today.
   for (const item of items) {
@@ -1401,8 +1412,23 @@ export async function classifyInboxWithAssistant(
     const r = results.get(item.id);
     if (!r || r.action === "act_today" || r.action === "respond") continue;
     if (r.source === "override") continue;
+    // Never resurrect what urgency decay already killed ("Urgent" chip
+    // with a "Nothing — it expired" task was these two guards fighting)
+    if (r.debug.ruleId === "urgency-expired") continue;
     if (ageInDays(item.receivedAt) > 5) continue;
-    if (!APPOINTMENT_HOLD.test(`${item.subject}\n${item.snippet}`)) continue;
+    const hay = `${item.subject}\n${item.snippet}`;
+    if (!APPOINTMENT_HOLD.test(hay)) continue;
+    // Passive shipment status ("your shipment is scheduled for delivery
+    // tomorrow") is not an appointment — nobody needs to be home unless
+    // a signature/pickup is required (needsYouEscape catches those).
+    if (
+      /shipment|package|tracking|out for delivery|your (order|delivery) (is|has)/i.test(
+        hay,
+      ) &&
+      !needsYouEscape(item.subject, item.snippet)
+    ) {
+      continue;
+    }
     results.set(item.id, {
       ...r,
       action: "act_today",
@@ -1435,12 +1461,17 @@ export async function classifyInboxWithAssistant(
     // Google auto-collects "other contacts" from every interaction —
     // that list is NOT a relationship. An auto-contact only earns
     // person protection when the mail graph shows real strength
-    // (the user has actually written to them).
+    // (the user has actually written to them). And "known" earned by
+    // volume alone never covers machine-shaped addresses — a tracking
+    // robot that writes daily is not a colleague.
     const rel = historySignals(history, item.fromEmail);
+    const machineShaped = MACHINE_LOCALPART.test(
+      item.fromEmail.split("@")[0] ?? "",
+    );
     const personish =
       tier === "inner" ||
-      tier === "known" ||
       tier === "new-credible" ||
+      (tier === "known" && !machineShaped) ||
       ctx.inContacts ||
       (ctx.autoContact && (rel.sentTo > 0 || rel.relationship === "engaged"));
     if (personish && DELETEY.has(r.action)) {

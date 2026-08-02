@@ -60,7 +60,7 @@ export async function savePeople(
 
 /** Machine-shaped local part — the cheap half of the main filter. */
 export const MACHINE_LOCALPART =
-  /^(no-?reply|donotreply|noreply|notifications?|alerts?|updates?|news(letter)?|marketing|promo(tions)?|deals|offers|info|hello|hi|support|help|billing|receipts?|orders?|shipping|store|shop|sales|team|admin|system|mailer|bounce|digest|community|feedback|survey|invite|calendar-notification|drive-shares|comments)/i;
+  /^(no-?reply|donotreply|noreply|notifications?|alerts?|updates?|news(letter)?|marketing|promo(tions)?|deals|offers|info|hello|hi|support|help|billing|receipts?|orders?|shipping|tracking(updates)?|delivery|auto-?send|messages?\+|mcinfo|store|shop|sales|team|admin|system|mailer|bounce|digest|community|feedback|survey|invite|calendar-notification|drive-shares|comments)/i;
 
 /**
  * Resolve a sender's tier from FREE local evidence. Returns null when
