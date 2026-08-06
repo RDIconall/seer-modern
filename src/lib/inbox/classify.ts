@@ -160,7 +160,7 @@ const DELIVERY_NEEDS_YOU =
  * passive "it happened" notifications that need nothing.
  */
 const PRODUCT_NEEDS_YOU =
-  /\b(build (failed|broken)|failing|deploy(ment)? failed|pipeline failed|tests? failed|review requested|requested changes|changes requested|mentioned you|assigned (to )?you|awaiting your (review|approval|response)|approval (needed|required)|security (alert|vulnerability)|vulnerability|new sign-?in|sign-?in attempt|invited you|invitation to|rsvp|sent you a message|direct message)\b/i;
+  /\b(build (failed|broken)|failing|deploy(ment)? failed|pipeline failed|tests? failed|review requested|requested changes|changes requested|mentioned you|assigned (to )?you|awaiting your (review|approval|response)|approval (needed|required|request(ed)?)|action (needed|required)|needs? your (approval|review|signature)|waiting (on|for) your|please (respond|reply|review|approve|sign)|left a comment|commented on|sent (you )?a message|security (alert|vulnerability)|vulnerability|new sign-?in|sign-?in attempt|invited you|invitation to|rsvp|direct message)\b/i;
 
 /** Money actually at risk — act, don't just file it. */
 const FINANCE_RISK =
@@ -175,7 +175,7 @@ const URGENCY_BAIT =
   /\b(expires? (today|tonight|soon|at midnight)|ends (today|tonight|soon)|last (chance|day|hours)|final (notice|hours|day|reminder)|act now|action required|due today|hurry|don'?t miss|limited time|selling (out|fast)|only \d+ (left|remaining)|reminder:|confirm your (email|account))\b/i;
 
 const PRODUCT_NOTIFY_DOMAINS =
-  /(github\.com|noreply\.github\.com|users\.noreply\.github\.com|gitlab\.com|bitbucket\.org|vercel\.com|netlify\.com|cursor\.com|cursor\.sh|slack\.com|discord\.com|notion\.so|figma\.com|linear\.app|atlassian\.net|jira\.|asana\.com|trello\.com|dropbox\.com|box\.com|zoom\.us|calendly\.com|linkedin\.com|twitter\.com|x\.com|facebookmail\.com|instagram\.com|spotify\.com|apple\.com|accounts\.google\.com|microsoft\.com|office365\.com|google\.com|amazonses\.com|sendgrid\.net|mailchimp\.com|intercom-mail\.com|stripe\.com)/i;
+  /(github\.com|noreply\.github\.com|users\.noreply\.github\.com|gitlab\.com|bitbucket\.org|vercel\.com|netlify\.com|cursor\.com|cursor\.sh|slack\.com|discord\.com|notion\.so|figma\.com|linear\.app|atlassian\.net|jira\.|asana\.com|trello\.com|dropbox\.com|box\.com|zoom\.us|calendly\.com|linkedin\.com|twitter\.com|x\.com|facebookmail\.com|instagram\.com|spotify\.com|apple\.com|accounts\.google\.com|microsoft\.com|office365\.com|sharepointonline\.com|sharepoint\.com|salesforce\.com|docusign\.(com|net)|google\.com|amazonses\.com|sendgrid\.net|mailchimp\.com|intercom-mail\.com|stripe\.com)/i;
 
 const FINANCE_DOMAINS =
   /(bankofamerica|chase\.com|wellsfargo|plaid\.com|stripe\.com|amex|americanexpress|paypal\.com|venmo\.com|citi\.com|schwab|fidelity|coinbase)/i;
@@ -399,11 +399,18 @@ function classifyCore(
         ctx,
       );
     }
-    // Untrusted urgency = marketing costume. Bulk/noreply shape → bin it.
+    // Untrusted urgency is only promo bait when the mail actually LOOKS
+    // like marketing. A noreply local alone is not proof — every
+    // workplace tool (Salesforce, DocuSign, QMS systems) sends genuine
+    // "action required" mail from a robot address.
+    const promoShaped =
+      !PRODUCT_NOTIFY_DOMAINS.test(dom) &&
+      (PROMO_BLOB.test(blob) ||
+        SHOPPING_DOMAINS.test(dom) ||
+        /^(promo|deals|offers|newsletter|marketing)/i.test(local));
     if (
-      signals.relationship === "bulk" ||
-      NOREPLY.test(local) ||
-      isMarketingShape(local, dom, blob)
+      promoShaped &&
+      (signals.relationship === "bulk" || NOREPLY.test(local))
     ) {
       return hit(
         "delete_now",
@@ -413,7 +420,7 @@ function classifyCore(
         ctx,
       );
     }
-    // Cold but not obviously bulk: fall through to the normal rules below
+    // Cold but not obviously promo: fall through to the normal rules below
   }
 
   // Known product / finance / shopping before bulk-noreply relationship,
@@ -700,6 +707,30 @@ function classifyByRelationship(
         "MED",
         "Bulk sender with unsubscribe",
         "bulk-unsubscribe",
+        ctx,
+      );
+    }
+    const dom = domain(email);
+    // Government/school robots carry obligations (DMV renewal, IRS,
+    // registrar) — never blind-delete on sender shape.
+    if (dom.endsWith(".gov") || dom.endsWith(".edu")) {
+      return hit(
+        actionable ? "act_today" : "read_and_archive",
+        "MED",
+        "Government/school notice — keep it, never auto-delete",
+        "bulk-gov-keep",
+        ctx,
+      );
+    }
+    // Workplace robots relay real asks: approval requests, doc comments,
+    // Teams/Slack messages. An automated sender asking you for something
+    // is a decision for Gemini/the user, not an auto-delete.
+    if (PRODUCT_NEEDS_YOU.test(blob) || intel.request > 0) {
+      return hit(
+        "needs_review",
+        "LOW",
+        "Automated sender, but it's asking you for something",
+        "bulk-actionable-review",
         ctx,
       );
     }

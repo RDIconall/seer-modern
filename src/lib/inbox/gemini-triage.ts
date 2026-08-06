@@ -38,7 +38,7 @@ import { z } from "zod";
  * Bump when the prompt/actions change so stale cached decisions
  * are ignored and re-classified.
  */
-export const PROMPT_VERSION = 11;
+export const PROMPT_VERSION = 12;
 
 const ACTIONS = [
   "respond",
@@ -159,7 +159,11 @@ const MAX_BATCHES_PER_LOAD = Math.max(
  * anyway). These skip Gemini entirely — zero tokens spent.
  */
 const PREFILTER_RULE_IDS = new Set([
-  "bulk-delete",
+  // NOT bulk-delete: workplace tools (Teams, SharePoint, Qualio, IRB
+  // systems…) all send from noreply addresses, and blind-deleting an
+  // approval request on sender shape alone is exactly the harmful wrong
+  // call this list must exclude. Gemini reviews bulk-shaped mail once,
+  // then the decision is cached/labeled forever.
   "bulk-unsubscribe",
   "marketing-cold-delete",
   "marketing-unsubscribe",
@@ -394,6 +398,7 @@ THE RAZOR — apply to every email: does the user personally have to DO anything
 DELETE BEATS ARCHIVE: when torn between read_and_archive and read_and_delete, pick delete — the user keeps records, not reading material. Newsletters, product updates, community digests, "your weekly summary", social/forum notifications: read_and_delete even from recognizable brands.
 URGENCY DECAYS: act_today means today — judge it against age. A flight check-in, boarding pass, verification code, delivery window, event reminder, or "expires tonight" that is days old is DEAD: the moment passed, delete_now. Only obligations that persist stay urgent as they age: unpaid bill, unsigned document, unanswered person, overdue anything. When age is high, ask "is this STILL actionable, or is it a fossil of an urgency that expired?"
 FAKE URGENCY is the #1 trick: "expires today", "last chance", "action required", "final notice", "reminder:" from bulk/noreply/marketing senders is promo bait — delete_now or glance_promo, NEVER act_today. Urgency is real only from contacts, engaged/known senders, or genuine transactional mail (2FA codes, password resets, security alerts, boarding passes, deliveries, appointments).
+NOREPLY IS NOT JUNK BY ITSELF: workplace and compliance tools (Teams, SharePoint, Salesforce, DocuSign, QMS/IRB/document-control systems, HR/payroll) relay real work from robot addresses. A document approval request, "left a comment", "sent you a message", admin/security notice, or regulatory review result is the user's JOB → respond/act_today, and completed review/audit records → read_and_archive. Judge the WORKFLOW behind the sender, not the address shape.
 Cold noreply marketing → delete_now or unsubscribe.
 Product/CI (GitHub, Vercel, Figma, etc.) → usually read_and_archive unless promo.
 Be decisive. Prefer a confident archive/delete over needs_review.
