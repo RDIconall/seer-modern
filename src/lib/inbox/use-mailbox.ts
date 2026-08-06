@@ -191,6 +191,27 @@ export function useMailbox(initialTab: ViewTab = "inbox") {
     [],
   );
 
+  // Superhuman model: the server answers instantly with provisional
+  // grades while the AI reads in the background — we quietly refetch
+  // until nothing is pending, so fresh meanings appear on their own.
+  const pendingRetries = useRef(0);
+  const triageReloadRef = useRef<() => Promise<void>>(async () => {});
+  const mailboxReloadRef = useRef<() => Promise<void>>(async () => {});
+
+  const scheduleWhilePending = useCallback((pending: number, which: "triage" | "mailbox") => {
+    if (pending > 0 && pendingRetries.current < 6) {
+      pendingRetries.current += 1;
+      setTimeout(() => {
+        (which === "triage"
+          ? triageReloadRef.current()
+          : mailboxReloadRef.current()
+        ).catch(() => {});
+      }, 7000);
+    } else if (pending === 0) {
+      pendingRetries.current = 0;
+    }
+  }, []);
+
   const loadTriage = useCallback(async () => {
     const res = await fetch("/api/today", { cache: "no-store" });
     const json = await res.json();
@@ -204,7 +225,8 @@ export function useMailbox(initialTab: ViewTab = "inbox") {
         .filter((s: Section) => s.items.length > 0),
     };
     setTriage(scrubbed);
-  }, [scrub]);
+    scheduleWhilePending(json.assistant?.pending ?? 0, "triage");
+  }, [scrub, scheduleWhilePending]);
 
   const loadMailbox = useCallback(
     async (folder: "inbox" | "sent" | "trash", q?: string) => {
@@ -217,8 +239,11 @@ export function useMailbox(initialTab: ViewTab = "inbox") {
       setMailbox(
         folder === "trash" ? json : { ...json, items: scrub(json.items ?? []) },
       );
+      if (folder === "inbox" && !q?.trim()) {
+        scheduleWhilePending(json.assistant?.pending ?? 0, "mailbox");
+      }
     },
-    [scrub],
+    [scrub, scheduleWhilePending],
   );
 
   // Persist views (including optimistic removals) for instant next paint
@@ -284,6 +309,12 @@ export function useMailbox(initialTab: ViewTab = "inbox") {
   useEffect(() => {
     load();
   }, [load]);
+
+  // Keep the silent-refetch refs pointed at the freshest loaders
+  useEffect(() => {
+    triageReloadRef.current = loadTriage;
+    mailboxReloadRef.current = () => loadMailbox("inbox");
+  }, [loadTriage, loadMailbox]);
 
   useEffect(() => {
     if (!toast) return;

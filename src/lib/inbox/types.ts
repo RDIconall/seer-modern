@@ -72,6 +72,8 @@ export type TodayData = {
     learned?: number;
     cached?: number;
     needsReview: number;
+    /** Emails the AI is reading in the background right now */
+    pending?: number;
     /** Model that served this load, e.g. "google:gemini-flash-latest" */
     model?: string | null;
     /** Set when the last Gemini call failed — decisions fell back to rules */

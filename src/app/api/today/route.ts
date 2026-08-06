@@ -31,7 +31,7 @@ import { getInboxSnapshot } from "@/lib/mail/inbox-snapshot";
 import { makeGmailLabelStore } from "@/lib/mail/seer-labels";
 import { requireMailSession } from "@/lib/mail/session";
 import { getSenderOverride } from "@/lib/store/senders";
-import { NextResponse } from "next/server";
+import { NextResponse, after } from "next/server";
 
 export const maxDuration = 60;
 
@@ -152,6 +152,9 @@ export async function GET() {
             msg.htmlBody.replace(/<[^>]+>/g, " ").replace(/\s+/g, " ")
           );
         },
+        // Superhuman rule: respond NOW, read in the background
+        deferAi: true,
+        onDeferred: (run) => after(run),
       },
     );
 
@@ -161,9 +164,11 @@ export async function GET() {
     let overrideCount = 0;
     let learnedCount = 0;
     let cachedCount = 0;
+    let pendingCount = 0;
     for (const m of raw) {
       const result = decisions.get(m.id);
       if (!result) continue;
+      if (result.pending) pendingCount += 1;
       if (result.source === "gemini") geminiCount += 1;
       else if (result.source === "rules") rulesCount += 1;
       else if (result.source === "learned") learnedCount += 1;
@@ -247,6 +252,7 @@ export async function GET() {
         learned: learnedCount,
         cached: cachedCount,
         needsReview: needsReview.length,
+        pending: pendingCount,
         model: getAssistantStatus().model,
         error: getAssistantStatus().error,
       },

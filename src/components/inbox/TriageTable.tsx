@@ -899,6 +899,11 @@ export function TriageTable({
           · {zones.moneyRecords.length} money records · {zones.fyi.length} to
           skim · {zones.handledCount} ready to clear
         </span>
+        {triage.assistant?.pending ? (
+          <span className="animate-pulse text-[11px] font-semibold text-[var(--primary)]">
+            · AI reading {triage.assistant.pending} in background…
+          </span>
+        ) : null}
         {!mobile ? (
           <span className="ml-auto shrink-0 text-[10px] font-normal text-[var(--nav-muted)]">
             ↑↓ move · space tick · ⇧ range · ⏎ open · e archive · d delete ·

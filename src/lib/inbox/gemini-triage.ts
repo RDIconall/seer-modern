@@ -141,6 +141,8 @@ export type AssistantClassifyResult = ClassifyResult & {
   deed?: string;
   /** True when served from the persistent decision cache (no API call). */
   cached?: boolean;
+  /** Provisional: the AI is reading this in the background right now. */
+  pending?: boolean;
 };
 
 function ageInDays(receivedAt?: string): number {
@@ -547,6 +549,14 @@ export type TriageExtras = {
     fromName?: string;
     receivedAt: string;
   } | null>;
+  /**
+   * Superhuman rule: the response never waits for intelligence. When
+   * set, ungraded mail returns provisional rules grades (marked
+   * `pending`) and the Gemini reads run via onDeferred (e.g. Vercel's
+   * after()) — persisted to cache/labels for the next fetch.
+   */
+  deferAi?: boolean;
+  onDeferred?: (run: () => Promise<void>) => void;
   /**
    * Deep read: fetch the FULL body text for a message about to be sent
    * to Gemini. Each email is read once (decision cached + labeled), so
@@ -1213,12 +1223,54 @@ export async function classifyInboxWithAssistant(
     forGemini.push(item);
   }
 
-  // 6. Gemini for the gray zone (batch loads only — see geminiEnabled)
-  if (
-    forGemini.length > 0 &&
-    isGeminiConfigured() &&
-    extras?.geminiEnabled !== false
-  ) {
+  // Merchant learning + anomaly screams — runs over whichever result
+  // set just got fresh grades (inline or deferred background pass).
+  const applyMerchantPass = (
+    itemList: GeminiTriageItem[],
+    resMap: Map<string, AssistantClassifyResult>,
+    saveMap: Map<string, CachedDecision>,
+  ) => {
+    for (const item of itemList) {
+      if (!saveMap.has(item.id)) continue;
+      const r = resMap.get(item.id);
+      if (!r) continue;
+      const moneyish =
+        /finance|bill|autopay|receipt|money|subscription/i.test(
+          `${r.debug.ruleId} ${r.category ?? ""}`,
+        ) || /receipt|invoice|bill|statement|payment/i.test(item.subject);
+      if (!moneyish) continue;
+      const amount = extractAmount(`${item.subject}\n${item.snippet}`);
+      if (amount == null || amount < 1) continue;
+      if (
+        isAnomalousCharge(merchants, item.fromEmail, amount) &&
+        r.action !== "act_today"
+      ) {
+        const usual = usualLabel(merchants, item.fromEmail);
+        const upgraded: AssistantClassifyResult = {
+          ...r,
+          action: "review_subscription",
+          confidence: "HIGH",
+          reason: `Unusual amount: $${amount}${usual ? ` — ${usual}` : ""}`,
+          task: `Check the $${amount} ${item.fromName || "charge"}`.slice(0, 80),
+          debug: { ...r.debug, ruleId: "merchant-anomaly" },
+        };
+        resMap.set(item.id, upgraded);
+        saveMap.set(item.id, toCached(upgraded));
+      }
+      recordCharge(merchants, item.fromEmail, item.fromName, amount);
+      merchantsDirty = true;
+    }
+  };
+
+  // 6. Gemini for the gray zone (batch loads only — see geminiEnabled).
+  // Extracted as a runner so it can execute inline (scripts, small
+  // loads) OR after the response has been sent (deferAi — the
+  // Superhuman rule: the UI never waits for intelligence).
+  const pendingAi = new Set<string>();
+  const geminiRun = async (
+    sinkResults: Map<string, AssistantClassifyResult>,
+    sinkSave: Map<string, CachedDecision>,
+  ) => {
     // Fresh load, fresh status — a stale error from an hour ago must
     // not paint "offline" over a load that worked fine.
     lastGeminiError = null;
@@ -1260,8 +1312,8 @@ export async function classifyInboxWithAssistant(
             merchants,
           );
           for (const [id, r] of mapped) {
-            results.set(id, r);
-            toSave.set(id, toCached(r));
+            sinkResults.set(id, r);
+            sinkSave.set(id, toCached(r));
             // Grow the personal database: AI verdicts on unknown
             // senders are stored forever (outbound mail later promotes)
             const src = chunk.find((c) => c.id === id);
@@ -1323,6 +1375,50 @@ export async function classifyInboxWithAssistant(
         }
       }
     }
+  };
+
+  if (
+    forGemini.length > 0 &&
+    isGeminiConfigured() &&
+    extras?.geminiEnabled !== false
+  ) {
+    if (extras?.deferAi && extras.onDeferred) {
+      // Respond NOW with provisional grades; read in the background and
+      // persist to the decision cache + Gmail labels. The client
+      // silently refetches and the fresh grades appear seconds later.
+      for (const it of forGemini) pendingAi.add(it.id);
+      const labelsRef = extras.labels;
+      extras.onDeferred(async () => {
+        const bgResults = new Map<string, AssistantClassifyResult>();
+        const bgSave = new Map<string, CachedDecision>();
+        try {
+          await geminiRun(bgResults, bgSave);
+        } catch (e) {
+          console.error(
+            "[seer] deferred grading failed:",
+            e instanceof Error ? e.message : e,
+          );
+        }
+        applyMerchantPass(forGemini, bgResults, bgSave);
+        if (bgSave.size > 0) {
+          await saveDecisions(accountEmail, bgSave).catch(() => {});
+          await labelsRef
+            ?.persist(
+              [...bgSave.entries()].map(([id, d]) => ({ id, action: d.action })),
+            )
+            .catch(() => {});
+        }
+        if (peopleDirty) await savePeople(accountEmail, people).catch(() => {});
+        if (merchantsDirty) {
+          await saveMerchants(accountEmail, merchants).catch(() => {});
+        }
+        console.log(
+          `[seer] deferred grading: ${bgSave.size}/${forGemini.length} graded in background`,
+        );
+      });
+    } else {
+      await geminiRun(results, toSave);
+    }
   }
 
   // 7. Rules fallback for anything Gemini missed (not cached, so Gemini
@@ -1363,6 +1459,7 @@ export async function classifyInboxWithAssistant(
         source: "rules",
         instruction: "A person wrote this — worth your eyes.",
         task: "See what they want",
+        pending: pendingAi.has(item.id) || undefined,
       });
       continue;
     }
@@ -1371,6 +1468,7 @@ export async function classifyInboxWithAssistant(
       ...r,
       source: "rules",
       debug: { ...r.debug, ruleId: `rules:${r.debug.ruleId}` },
+      pending: pendingAi.has(item.id) || undefined,
     });
   }
 
@@ -1517,35 +1615,8 @@ export async function classifyInboxWithAssistant(
   }
 
   // Merchant graph: learn every fresh charge; scream on anomalies.
-  // toSave gates dedupe — cached decisions were recorded when fresh.
-  for (const item of items) {
-    if (!toSave.has(item.id)) continue;
-    const r = results.get(item.id);
-    if (!r) continue;
-    const moneyish =
-      /finance|bill|autopay|receipt|money|subscription/i.test(
-        `${r.debug.ruleId} ${r.category ?? ""}`,
-      ) || /receipt|invoice|bill|statement|payment/i.test(item.subject);
-    if (!moneyish) continue;
-    const amount = extractAmount(`${item.subject}\n${item.snippet}`);
-    if (amount == null || amount < 1) continue;
-    if (
-      isAnomalousCharge(merchants, item.fromEmail, amount) &&
-      r.action !== "act_today"
-    ) {
-      const usual = usualLabel(merchants, item.fromEmail);
-      results.set(item.id, {
-        ...r,
-        action: "review_subscription",
-        confidence: "HIGH",
-        reason: `Unusual amount: $${amount}${usual ? ` — ${usual}` : ""}`,
-        task: `Check the $${amount} ${item.fromName || "charge"}`.slice(0, 80),
-        debug: { ...r.debug, ruleId: "merchant-anomaly" },
-      });
-    }
-    recordCharge(merchants, item.fromEmail, item.fromName, amount);
-    merchantsDirty = true;
-  }
+  // The save-map gates dedupe — cached decisions were recorded fresh.
+  applyMerchantPass(items, results, toSave);
   if (merchantsDirty) {
     await saveMerchants(accountEmail, merchants).catch(() => {});
   }

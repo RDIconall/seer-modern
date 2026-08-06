@@ -24,7 +24,7 @@ import { makeGmailLabelStore } from "@/lib/mail/seer-labels";
 import { requireMailSession } from "@/lib/mail/session";
 import type { MailFolder, MailMessageListItem } from "@/lib/mail/types";
 import { getSenderOverride } from "@/lib/store/senders";
-import { NextResponse } from "next/server";
+import { NextResponse, after } from "next/server";
 
 export const maxDuration = 60;
 
@@ -78,6 +78,7 @@ export async function GET(request: Request) {
           override: number;
           learned: number;
           cached: number;
+          pending: number;
         }
       | undefined;
 
@@ -152,6 +153,9 @@ export async function GET(request: Request) {
               msg.htmlBody.replace(/<[^>]+>/g, " ").replace(/\s+/g, " ")
             );
           },
+          // Superhuman rule: respond NOW, read in the background
+          deferAi: true,
+          onDeferred: (run) => after(run),
         },
       );
 
@@ -161,6 +165,7 @@ export async function GET(request: Request) {
       let override = 0;
       let learned = 0;
       let cached = 0;
+      let pending = 0;
       for (const m of items) {
         const result = decisions.get(m.id);
         if (!result) {
@@ -172,6 +177,7 @@ export async function GET(request: Request) {
         else if (result.source === "learned") learned += 1;
         else override += 1;
         if (result.cached) cached += 1;
+        if (result.pending) pending += 1;
         annotated.push({
           ...m,
           fromName:
@@ -181,7 +187,7 @@ export async function GET(request: Request) {
           guide: buildActionGuideQuick(result, m.subject, m.fromName, m.snippet),
         });
       }
-      assistant = { gemini, rules, override, learned, cached };
+      assistant = { gemini, rules, override, learned, cached, pending };
     }
 
     // Threads, not messages — the inbox shows one row per conversation
