@@ -39,6 +39,7 @@ import { DelegateSheet } from "@/components/inbox/DelegateSheet";
 import { PullToRefresh } from "@/components/inbox/PullToRefresh";
 import { UnsubAgentSheet } from "@/components/inbox/UnsubAgentSheet";
 import { VipSheet } from "@/components/inbox/VipSheet";
+import { CatchupCard } from "@/components/inbox/CatchupCard";
 import { TriageTable } from "@/components/inbox/TriageTable";
 import { ScheduleSheet } from "@/components/inbox/ScheduleSheet";
 import { AssistBar } from "@/components/inbox/AssistBar";
@@ -108,6 +109,8 @@ export function MobileMailApp() {
     runBulk,
     unsubscribe,
     teachSender,
+    catchup,
+    dismissCatchup,
     openReader,
     closeReader,
     startCompose,
@@ -788,7 +791,15 @@ export function MobileMailApp() {
         ) : null}
 
         {tab === "triage" && triage && triage.count > 0 ? (
-          <TriageTable
+          <>
+        {catchup ? (
+          <CatchupCard
+            catchup={catchup}
+            onOpen={openReader}
+            onDismiss={dismissCatchup}
+          />
+        ) : null}
+        <TriageTable
               triage={triage}
               mobile={true}
               h={{
@@ -802,6 +813,7 @@ export function MobileMailApp() {
                 busyId,
               }}
             />
+          </>
         ) : null}
       </PullToRefresh>
 

@@ -27,6 +27,7 @@ import { DelegateSheet } from "@/components/inbox/DelegateSheet";
 import { ScheduleSheet } from "@/components/inbox/ScheduleSheet";
 import { UnsubAgentSheet } from "@/components/inbox/UnsubAgentSheet";
 import { VipSheet } from "@/components/inbox/VipSheet";
+import { CatchupCard } from "@/components/inbox/CatchupCard";
 import { TriageTable } from "@/components/inbox/TriageTable";
 import { AssistBar } from "@/components/inbox/AssistBar";
 import {
@@ -104,6 +105,8 @@ export function DesktopMailApp() {
     runBulk,
     unsubscribe,
     teachSender,
+    catchup,
+    dismissCatchup,
     openReader,
     closeReader,
     startCompose,
@@ -607,7 +610,15 @@ export function DesktopMailApp() {
           ) : null}
 
           {tab === "triage" && triage && triage.count > 0 ? (
-            <TriageTable
+            <>
+          {catchup ? (
+            <CatchupCard
+              catchup={catchup}
+              onOpen={openReader}
+              onDismiss={dismissCatchup}
+            />
+          ) : null}
+          <TriageTable
               triage={triage}
               mobile={false}
               h={{
@@ -621,6 +632,7 @@ export function DesktopMailApp() {
                 busyId,
               }}
             />
+            </>
           ) : null}
         </div>
       </section>

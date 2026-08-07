@@ -148,6 +148,27 @@ export function useMailbox(initialTab: ViewTab = "inbox") {
     refreshIdentity();
   }, [refreshIdentity]);
 
+  // "While you were away" — one fetch per app open. The server compares
+  // against your last open, summarizes what arrived, and re-arms.
+  const [catchup, setCatchup] = useState<{
+    since: string;
+    newCount: number;
+    needsYou: number;
+    fyi: number;
+    cleared: number;
+    headlines: { id: string; who: string; line: string }[];
+  } | null>(null);
+  const dismissCatchup = useCallback(() => setCatchup(null), []);
+  useEffect(() => {
+    fetch("/api/catchup", { cache: "no-store" })
+      .then((r) => r.json())
+      .then((j) => {
+        if (j && j.quiet === false) setCatchup(j);
+      })
+      .catch(() => {});
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
   const accountEmail =
     identity?.email ??
     mailbox?.accountEmail ??
@@ -1088,6 +1109,8 @@ export function useMailbox(initialTab: ViewTab = "inbox") {
     unsubscribe,
     teachSender,
     markActionable,
+    catchup,
+    dismissCatchup,
     openReader,
     closeReader,
     startCompose,
