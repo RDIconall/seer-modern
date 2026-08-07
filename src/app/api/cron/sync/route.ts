@@ -52,8 +52,11 @@ export async function GET(request: Request) {
       continue;
     }
     const acct = await withFreshToken(stored);
-    if (!acct?.accessToken) {
-      report.push({ email: stored.email, error: "no usable token" });
+    if (!acct || "error" in acct || !acct.accessToken) {
+      report.push({
+        email: stored.email,
+        error: acct && "error" in acct ? acct.error : "no usable token",
+      });
       continue;
     }
     const token = acct.accessToken;
@@ -146,6 +149,7 @@ export async function GET(request: Request) {
         ? Date.now() - new Date(brief.builtAt).getTime()
         : Infinity;
       let briefRebuilt = false;
+      let briefError: string | undefined;
       if (freshReads > 0 || briefAge > BRIEF_MAX_AGE_MS) {
         const items: EmailItem[] = raw.map((m) => {
           const r = decisions.get(m.id);
@@ -160,8 +164,13 @@ export async function GET(request: Request) {
               : undefined,
           };
         });
-        await buildBrief(acct.email, items, profile);
-        briefRebuilt = true;
+        try {
+          await buildBrief(acct.email, items, profile);
+          briefRebuilt = true;
+        } catch (e) {
+          briefError =
+            e instanceof Error ? e.message.slice(0, 120) : "brief failed";
+        }
       }
 
       report.push({
@@ -170,6 +179,7 @@ export async function GET(request: Request) {
         graded: decisions.size,
         freshReads,
         briefRebuilt,
+        ...(briefError ? { briefError } : {}),
       });
     } catch (e) {
       report.push({

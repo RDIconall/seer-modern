@@ -149,10 +149,16 @@ export async function buildBrief(
     ).slice(0, 90),
   }));
 
-  // Matters get everything else that's still in the inbox
-  const matterCandidates = items.filter(
-    (i) => i.guide?.action !== "read_and_delete",
-  );
+  // Matters get everything else that's still in the inbox — capped by
+  // importance then recency so a 300-email backlog can't blow the call
+  const matterCandidates = items
+    .filter((i) => i.guide?.action !== "read_and_delete")
+    .sort(
+      (a, b) =>
+        (b.guide?.importance ?? 1) - (a.guide?.importance ?? 1) ||
+        (a.receivedAt < b.receivedAt ? 1 : -1),
+    )
+    .slice(0, 180);
 
   const functions = await loadFunctions(accountEmail);
 
@@ -186,7 +192,7 @@ export async function buildBrief(
     model,
     temperature: 0,
     maxRetries: 1,
-    abortSignal: AbortSignal.timeout(45_000),
+    abortSignal: AbortSignal.timeout(90_000),
     output: Output.object({ schema: briefSchema }),
     system: profileBlock ? `${SYSTEM}\n\n${profileBlock}` : SYSTEM,
     prompt: JSON.stringify(payload),

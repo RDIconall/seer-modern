@@ -14,11 +14,11 @@ const SKEW_MS = 5 * 60_000;
 
 export async function withFreshToken(
   account: StoredAccount,
-): Promise<StoredAccount | null> {
+): Promise<StoredAccount | { error: string }> {
   const expMs = (account.expiresAt ?? 0) * 1000;
   const fresh = account.accessToken && expMs && Date.now() < expMs - SKEW_MS;
   if (fresh) return account;
-  if (!account.refreshToken) return null;
+  if (!account.refreshToken) return { error: "no refresh token stored" };
 
   const refreshed = await refreshAccessToken({
     provider: account.provider,
@@ -30,7 +30,7 @@ export async function withFreshToken(
     console.error(
       `[seer] token refresh failed for ${account.email}: ${refreshed.error}`,
     );
-    return null;
+    return { error: refreshed.error ?? "refresh returned no token" };
   }
   return await upsertAccount({
     provider: account.provider,
