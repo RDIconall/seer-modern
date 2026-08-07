@@ -367,6 +367,15 @@ export async function resolveAssistantModel(): Promise<{
   return resolveModel();
 }
 
+/** The triage engine's model choice, reusable by other AI passes
+ *  (matters brief) — direct key first, gateway fallback. */
+export async function getTriageModel(): Promise<{
+  model: LanguageModel | string;
+  label: string;
+}> {
+  return resolveModel();
+}
+
 async function resolveModel(): Promise<{
   model: LanguageModel | string;
   label: string;

@@ -12,6 +12,7 @@ import type {
   ViewTab,
 } from "@/lib/inbox/types";
 import type { ComposeDraft } from "@/components/inbox/ComposePanel";
+import type { Brief } from "@/lib/inbox/matters";
 import {
   actionThreadId,
   buildCardDeck,
@@ -159,28 +160,6 @@ export function useMailbox(initialTab: ViewTab = "inbox") {
     headlines: { id: string; who: string; line: string }[];
   } | null>(null);
   const dismissCatchup = useCallback(() => setCatchup(null), []);
-  useEffect(() => {
-    fetch("/api/catchup", { cache: "no-store" })
-      .then((r) => r.json())
-      .then((j) => {
-        if (j && j.quiet === false) setCatchup(j);
-      })
-      .catch(() => {});
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []);
-
-  const accountEmail =
-    identity?.email ??
-    mailbox?.accountEmail ??
-    triage?.accountEmail ??
-    "Your mailbox";
-  const accountLabel = identity?.label ?? "";
-
-  // Ref so cache reads don't retrigger load() when identity resolves
-  const identityEmailRef = useRef<string | undefined>(undefined);
-  useEffect(() => {
-    identityEmailRef.current = identity?.email;
-  }, [identity?.email]);
 
   // Instant-sync tombstones: Gmail's list API lags a minute behind
   // modify calls, so a background refresh can resurrect mail you just
@@ -211,6 +190,7 @@ export function useMailbox(initialTab: ViewTab = "inbox") {
       }),
     [],
   );
+
 
   // Superhuman model: the server answers instantly with provisional
   // grades while the AI reads in the background — we quietly refetch
@@ -416,6 +396,96 @@ export function useMailbox(initialTab: ViewTab = "inbox") {
     },
     [closeReader, load, markActed, readerId, removeFromLists],
   );
+
+  // THE BRIEF — matters tracked across days + the headline digest
+  const [brief, setBrief] = useState<Brief | null>(null);
+  const [briefBuilding, setBriefBuilding] = useState(false);
+  useEffect(() => {
+    fetch("/api/brief", { cache: "no-store" })
+      .then((r) => r.json())
+      .then((j) => {
+        if (j?.brief) setBrief(j.brief);
+      })
+      .catch(() => {});
+  }, []);
+  const rebuildBrief = useCallback(async () => {
+    setBriefBuilding(true);
+    try {
+      const res = await fetch("/api/brief", { method: "POST" });
+      if (!res.ok) throw new Error((await res.json()).error);
+      // The AI pass runs server-side after the response — poll for it
+      const before = brief?.builtAt;
+      for (let i = 0; i < 15; i++) {
+        await new Promise((r) => setTimeout(r, 4000));
+        const j = await fetch("/api/brief", { cache: "no-store" })
+          .then((r) => r.json())
+          .catch(() => null);
+        if (j?.brief && j.brief.builtAt !== before) {
+          setBrief(j.brief);
+          break;
+        }
+      }
+    } catch (e) {
+      setToast(e instanceof Error ? e.message : "Brief rebuild failed");
+    } finally {
+      setBriefBuilding(false);
+    }
+  }, [brief?.builtAt]);
+
+  /** Headlines glanced → originals archived in one motion. */
+  const clearHeadlines = useCallback(
+    async (ids: { id: string; threadId: string }[]) => {
+      if (ids.length === 0) return;
+      for (const x of ids) {
+        markActed(x.id, x.threadId);
+        removeFromLists(x.id);
+      }
+      setBrief((prev) =>
+        prev ? { ...prev, headlines: [], headlineIds: [] } : prev,
+      );
+      try {
+        await fetch("/api/action/bulk", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            items: ids.map((x) => ({
+              id: x.id,
+              threadId: x.threadId,
+              action: "archive",
+            })),
+          }),
+        });
+        setToast(`Glanced — ${ids.length} filed`);
+      } catch {
+        setToast("Clear failed — refreshing");
+        load();
+      }
+    },
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [markActed, removeFromLists],
+  );
+  useEffect(() => {
+    fetch("/api/catchup", { cache: "no-store" })
+      .then((r) => r.json())
+      .then((j) => {
+        if (j && j.quiet === false) setCatchup(j);
+      })
+      .catch(() => {});
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+  const accountEmail =
+    identity?.email ??
+    mailbox?.accountEmail ??
+    triage?.accountEmail ??
+    "Your mailbox";
+  const accountLabel = identity?.label ?? "";
+
+  // Ref so cache reads don't retrigger load() when identity resolves
+  const identityEmailRef = useRef<string | undefined>(undefined);
+  useEffect(() => {
+    identityEmailRef.current = identity?.email;
+  }, [identity?.email]);
 
   /**
    * Snooze: purely local — the card/row disappears now and comes back
@@ -1111,6 +1181,10 @@ export function useMailbox(initialTab: ViewTab = "inbox") {
     markActionable,
     catchup,
     dismissCatchup,
+    brief,
+    briefBuilding,
+    rebuildBrief,
+    clearHeadlines,
     openReader,
     closeReader,
     startCompose,

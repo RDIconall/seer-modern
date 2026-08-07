@@ -27,6 +27,7 @@ import { DelegateSheet } from "@/components/inbox/DelegateSheet";
 import { ScheduleSheet } from "@/components/inbox/ScheduleSheet";
 import { UnsubAgentSheet } from "@/components/inbox/UnsubAgentSheet";
 import { VipSheet } from "@/components/inbox/VipSheet";
+import { BriefPanel } from "@/components/inbox/BriefPanel";
 import { CatchupCard } from "@/components/inbox/CatchupCard";
 import { TriageTable } from "@/components/inbox/TriageTable";
 import { AssistBar } from "@/components/inbox/AssistBar";
@@ -107,6 +108,10 @@ export function DesktopMailApp() {
     teachSender,
     catchup,
     dismissCatchup,
+    brief,
+    briefBuilding,
+    rebuildBrief,
+    clearHeadlines,
     openReader,
     closeReader,
     startCompose,
@@ -618,6 +623,13 @@ export function DesktopMailApp() {
               onDismiss={dismissCatchup}
             />
           ) : null}
+          <BriefPanel
+            brief={brief}
+            building={briefBuilding}
+            onRebuild={rebuildBrief}
+            onOpen={openReader}
+            onClearHeadlines={clearHeadlines}
+          />
           <TriageTable
               triage={triage}
               mobile={false}
