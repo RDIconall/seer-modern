@@ -1,8 +1,35 @@
 "use client";
 
 import { CheckCheck, ChevronDown, RefreshCw } from "lucide-react";
-import { useState } from "react";
-import type { Brief } from "@/lib/inbox/matters";
+import { useMemo, useState } from "react";
+import type { Brief, Matter } from "@/lib/inbox/matters";
+
+/** Matters stay the unit — grouping is just a different shelf order. */
+type GroupBy = "urgency" | "org" | "relationship";
+
+function groupMatters(
+  matters: Matter[],
+  by: GroupBy,
+): { label: string; matters: Matter[] }[] {
+  if (by === "urgency") return [{ label: "", matters }];
+  const buckets = new Map<string, Matter[]>();
+  for (const m of matters) {
+    const key =
+      by === "org"
+        ? m.orgUnit || "unsorted"
+        : m.people?.[0]?.relationship || "no people";
+    const list = buckets.get(key) ?? [];
+    list.push(m);
+    buckets.set(key, list);
+  }
+  return [...buckets.entries()]
+    .map(([label, list]) => ({ label, matters: list }))
+    .sort(
+      (a, b) =>
+        Math.max(...b.matters.map((m) => m.urgency)) -
+        Math.max(...a.matters.map((m) => m.urgency)),
+    );
+}
 
 const OWNER_BADGE: Record<string, { label: string; cls: string }> = {
   you: { label: "YOU", cls: "bg-[#d97706] text-white" },
@@ -30,6 +57,11 @@ export function BriefPanel({
 }) {
   const [open, setOpen] = useState(true);
   const [showHeadlines, setShowHeadlines] = useState(true);
+  const [groupBy, setGroupBy] = useState<GroupBy>("urgency");
+  const groups = useMemo(
+    () => (brief ? groupMatters(brief.matters, groupBy) : []),
+    [brief, groupBy],
+  );
 
   return (
     <div className="border-b border-[var(--border)] bg-[var(--bg)]">
@@ -75,43 +107,98 @@ export function BriefPanel({
             {brief.summary}
           </p>
 
-          <ul className="mt-2 space-y-2">
-            {brief.matters.map((m) => (
-              <li key={m.id} className="flex items-start gap-2">
-                <span
-                  className={`mt-0.5 shrink-0 rounded px-1.5 py-0.5 text-[9px] font-bold ${OWNER_BADGE[m.owner]?.cls ?? OWNER_BADGE.team.cls}`}
-                >
-                  {OWNER_BADGE[m.owner]?.label ?? "TEAM"}
-                </span>
-                <button
-                  type="button"
-                  onClick={() => m.emailIds[0] && onOpen(m.emailIds[0])}
-                  className="min-w-0 flex-1 text-left"
-                >
-                  <span className="text-[13px] font-semibold text-[var(--fg-strong)]">
-                    {m.title}
-                  </span>
-                  <span className="text-[12px] text-[var(--fg)]">
-                    {" "}
-                    — {m.narrative}
-                  </span>
-                  {m.nextAction && !/^none/i.test(m.nextAction) ? (
-                    <span
-                      className="block truncate text-[12px] font-semibold"
-                      style={{
-                        color: m.urgency >= 2 ? "#d97706" : "var(--primary)",
-                      }}
-                    >
-                      → {m.nextAction}
-                    </span>
-                  ) : null}
-                </button>
-                <span className="shrink-0 text-[10px] text-[var(--nav-muted)]">
-                  {m.emailIds.length}
-                </span>
-              </li>
+          <div className="mt-1.5 flex items-center gap-1">
+            <span className="text-[10px] font-semibold uppercase tracking-wide text-[var(--nav-muted)]">
+              Group
+            </span>
+            {(
+              [
+                ["urgency", "Urgency"],
+                ["org", "Org"],
+                ["relationship", "Relationship"],
+              ] as const
+            ).map(([key, label]) => (
+              <button
+                key={key}
+                type="button"
+                onClick={() => setGroupBy(key)}
+                className={`rounded px-1.5 py-0.5 text-[10px] font-semibold ${
+                  groupBy === key
+                    ? "bg-[var(--brand)] text-white"
+                    : "bg-[var(--card)] text-[var(--muted)]"
+                }`}
+              >
+                {label}
+              </button>
             ))}
-          </ul>
+          </div>
+
+          {groups.map((g) => (
+            <div key={g.label || "all"}>
+              {g.label ? (
+                <p className="mt-2 text-[10px] font-bold uppercase tracking-wide text-[var(--muted)]">
+                  {g.label} · {g.matters.length}
+                </p>
+              ) : null}
+              <ul className="mt-2 space-y-2">
+                {g.matters.map((m) => (
+                  <li key={m.id} className="flex items-start gap-2">
+                    <span
+                      className={`mt-0.5 shrink-0 rounded px-1.5 py-0.5 text-[9px] font-bold ${OWNER_BADGE[m.owner]?.cls ?? OWNER_BADGE.team.cls}`}
+                    >
+                      {OWNER_BADGE[m.owner]?.label ?? "TEAM"}
+                    </span>
+                    <button
+                      type="button"
+                      onClick={() => m.emailIds[0] && onOpen(m.emailIds[0])}
+                      className="min-w-0 flex-1 text-left"
+                    >
+                      <span className="text-[13px] font-semibold text-[var(--fg-strong)]">
+                        {m.title}
+                      </span>
+                      <span className="text-[12px] text-[var(--fg)]">
+                        {" "}
+                        — {m.narrative}
+                      </span>
+                      <span className="mt-0.5 flex flex-wrap items-center gap-1">
+                        {m.orgUnit ? (
+                          <span className="rounded bg-[var(--card)] px-1 py-0.5 text-[9px] font-bold uppercase tracking-wide text-[var(--muted)]">
+                            {m.orgUnit}
+                          </span>
+                        ) : null}
+                        {(m.people ?? []).slice(0, 3).map((p) => (
+                          <span
+                            key={p.name}
+                            title={p.relationship}
+                            className="rounded bg-[var(--brand-soft)] px-1 py-0.5 text-[9px] font-semibold text-[var(--brand)]"
+                          >
+                            {p.name.split(" ")[0]}
+                            <span className="font-normal text-[var(--muted)]">
+                              {" "}
+                              · {p.relationship}
+                            </span>
+                          </span>
+                        ))}
+                      </span>
+                      {m.nextAction && !/^none/i.test(m.nextAction) ? (
+                        <span
+                          className="block truncate text-[12px] font-semibold"
+                          style={{
+                            color: m.urgency >= 2 ? "#d97706" : "var(--primary)",
+                          }}
+                        >
+                          → {m.nextAction}
+                        </span>
+                      ) : null}
+                    </button>
+                    <span className="shrink-0 text-[10px] text-[var(--nav-muted)]">
+                      {m.emailIds.length}
+                    </span>
+                  </li>
+                ))}
+              </ul>
+            </div>
+          ))}
 
           {brief.headlines.length > 0 ? (
             <div className="mt-3 border-t border-[var(--border)] pt-2">

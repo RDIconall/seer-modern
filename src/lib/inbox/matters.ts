@@ -13,11 +13,30 @@ import { z } from "zod";
  * it REMEMBERS: yesterday's matters are today's starting point.
  */
 
+export type MatterPerson = {
+  name: string;
+  email?: string;
+  /**
+   * Relationship typing, compact: role — lifecycle/closeness.
+   * "client — new" · "client — senior, close" · "team" · "vendor" ·
+   * "board" · "regulator" · "family" · "prospect"
+   */
+  relationship: string;
+};
+
 export type Matter = {
   id: string;
   title: string;
   /** "money" | "people" | "compliance" | "new-business" | "ops" | "personal" */
   category: string;
+  /**
+   * Organizational home: "accounting" | "sales" | "recruiting" |
+   * "ops — <specific project>" | "compliance" | "finance" | "legal" |
+   * "it" | "personal"
+   */
+  orgUnit: string;
+  /** The humans in this matter, with relationship typing */
+  people: MatterPerson[];
   /** One-sentence state of play, present tense */
   narrative: string;
   /** The one next move, imperative, or "none — team handling" */
@@ -58,6 +77,22 @@ const briefSchema = z.object({
       id: z.string().describe("stable kebab-case id, reuse existing ids"),
       title: z.string(),
       category: z.string(),
+      orgUnit: z
+        .string()
+        .describe(
+          "accounting | sales | recruiting | compliance | finance | legal | it | personal | ops — <specific project name>",
+        ),
+      people: z.array(
+        z.object({
+          name: z.string(),
+          email: z.string().optional(),
+          relationship: z
+            .string()
+            .describe(
+              'role — lifecycle/closeness, e.g. "client — new", "client — senior, close", "team", "vendor", "board", "regulator", "family", "prospect"',
+            ),
+        }),
+      ),
       narrative: z.string(),
       nextAction: z.string(),
       owner: z.enum(["you", "team", "them"]),
@@ -75,13 +110,15 @@ export async function loadBrief(accountEmail: string): Promise<Brief | null> {
   return await kvGet<Brief>(keyFor(accountEmail));
 }
 
-const SYSTEM = `You are the chief of staff writing the daily state-of-play for a CEO's inbox. The emails you receive are the ones STILL IN the inbox — kept deliberately. Cluster them into MATTERS: ongoing threads of work life (a negotiation, an inspection, a deal, a dispute, a purchase). Reuse the previous matters' ids when the same matter continues; carry their state forward and update it with the new evidence. One matter per real-world concern, not per email.
+const SYSTEM = `You are the chief of staff writing the daily state-of-play for a CEO's inbox. The emails you receive are the ones STILL IN the inbox — kept deliberately. Cluster them into MATTERS: ongoing threads of work life (a negotiation, an inspection, a deal, a dispute, a purchase). MATTERS ARE THE TOP-LEVEL UNIT; everything else is a facet on them. Reuse the previous matters' ids when the same matter continues; carry their state forward and update it with the new evidence. One matter per real-world concern, not per email.
 
 Rules:
 - narrative: one present-tense sentence of state ("Roche returned the signed SOW; the executed copy back to them gates the PO").
 - nextAction: the ONE next move, imperative and specific, or "none — team handling".
 - owner: "you" only when the user personally must act; "team" when a named other owns it; "them" when waiting on the counterparty.
 - urgency 3 = costs money or a relationship today; 0 = dormant.
+- orgUnit: which part of the operation owns this — accounting, sales, recruiting, compliance, finance, legal, it, personal, or "ops — <specific project>" for named projects/studies. Pick from the user's world, consistently: the same matter keeps the same orgUnit across days.
+- people: the humans IN the matter with relationship typing "role — lifecycle/closeness": "client — new" (first deal), "client — senior, close" (long history, warm), "vendor", "team" (works for the user), "board", "regulator", "prospect", "family". Use the previous matters and the user profile to keep relationship labels consistent — a person keeps the same relationship across matters unless the evidence changed.
 - Emails that are pure one-line facts with no ongoing matter (newsletters worth a headline, status notices) do NOT get matters — leave them unassigned; they become headlines.
 - Never invent emails or matters. Every matter cites the emailIds that evidence it.`;
 
@@ -123,6 +160,8 @@ export async function buildBrief(
       narrative: m.narrative,
       owner: m.owner,
       urgency: m.urgency,
+      orgUnit: m.orgUnit,
+      people: m.people,
     })),
     inbox: matterCandidates.map((i) => ({
       id: i.id,
