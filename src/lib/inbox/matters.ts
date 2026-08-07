@@ -2,6 +2,15 @@ import { getTriageModel } from "@/lib/inbox/gemini-triage";
 import { stripEmoji, type EmailItem } from "@/lib/inbox/types";
 import { loadFunctions } from "@/lib/store/functions";
 import { accountKey, kvGet, kvSet } from "@/lib/store/kv";
+import { loadMerchants } from "@/lib/store/merchants";
+
+/**
+ * Deterministic evidence, gathered BEFORE the model reasons — study
+ * codes are highly structured and a resolved code is a strong
+ * "work is awarded and running" (operations) signal.
+ */
+const STUDY_CODE =
+  /\b(RCD[_-]?\d{3,5}|LMD[_-]?\d{3,5}|RD\d{6,7}|TGRP\d{1,3}|RFQ[ #-]?\d{4,6})\b/i;
 import { profilePromptBlock, type UserProfile } from "@/lib/store/user-profile";
 import { generateText, Output } from "ai";
 import { z } from "zod";
@@ -30,12 +39,10 @@ export type Matter = {
   title: string;
   /** "money" | "people" | "compliance" | "new-business" | "ops" | "personal" */
   category: string;
-  /**
-   * Organizational home: "accounting" | "sales" | "recruiting" |
-   * "ops — <specific project>" | "compliance" | "finance" | "legal" |
-   * "it" | "personal"
-   */
+  /** Resolved against the user's function registry, verbatim */
   orgUnit: string;
+  /** Below ~0.85 the org call is a SUGGESTION awaiting confirmation */
+  orgConfidence?: number;
   /** The humans in this matter, with relationship typing */
   people: MatterPerson[];
   /** One-sentence state of play, present tense */
@@ -81,7 +88,14 @@ const briefSchema = z.object({
       orgUnit: z
         .string()
         .describe(
-          "accounting | sales | recruiting | compliance | finance | legal | it | personal | ops — <specific project name>",
+          "MUST be one of the payload's functions list, verbatim",
+        ),
+      orgConfidence: z
+        .number()
+        .min(0)
+        .max(1)
+        .describe(
+          "confidence in the orgUnit call; cite-your-evidence honesty — direction or stage ambiguity lowers it",
         ),
       people: z.array(
         z.object({
@@ -118,7 +132,16 @@ Rules:
 - nextAction: the ONE next move, imperative and specific, or "none — team handling".
 - owner: "you" only when the user personally must act; "team" when a named other owns it; "them" when waiting on the counterparty.
 - urgency 3 = costs money or a relationship today; 0 = dormant.
-- orgUnit: MUST be one of the entries in the payload's "functions" list — the user's own org chart, verbatim. For named projects/studies under "operations — studies", append the project: "operations — studies — <project name>". Deals route by STAGE: a new inbound is "sales — leads", an active quote/RFQ is "sales — new requests", an NDA/SOW/contract in motion is "sales — contracting". The same matter keeps the same orgUnit across days.
+- orgUnit: MUST be one of the entries in the payload's "functions" list — the user's own org chart, verbatim. For named projects/studies under "operations — studies", append the project: "operations — studies — <project name>". The same matter keeps the same orgUnit across days.
+
+HOW TO CLASSIFY orgUnit (the categories are function × workflow stage, NOT topics — two emails about the identical assay belong in different categories depending on whether money has changed hands):
+1. DIRECTION OF COMMERCE FIRST: is money flowing TOWARD the user's company or AWAY from it? A countersigned NDA from a CUSTOMER is "sales — contracting"; the identical countersigned NDA from a SOFTWARE VENDOR is "systems (it)". Inbound revenue → the sales/operations path. Outbound spend → systems (it), office / facilities, marketing, recruiting, or hr, by what's being bought. Use the payload evidence: vendor=true means they bill the user (spend side).
+2. STAGE within the revenue path:
+   · "sales — leads": interest exists, no defined scope (intro calls, conference follow-ups, "exploring whether you could…")
+   · "sales — new requests": specific scope, deliverable is a quote/feasibility/proposal (named assay + sample counts + a request to price)
+   · "sales — contracting": scope agreed, deliverable is executed paperwork (MSA/SOW/CDA redlines, PO receipt as part of an award, signature routing)
+   · "operations — studies": work is awarded and RUNNING (a resolved study code, site/IRB/protocol/enrollment/calibration language)
+3. CLASSIFY BY THE PRIMARY DELIVERABLE — the action that unblocks the counterparty — not by every document mentioned. "Send CDA and feasibility response" is "sales — new requests" (the feasibility answer is the ask; the CDA is packaging). A PO arriving as part of an award is contracting; an invoice or payment chase on already-awarded work is "finance (ar/ap)".
 - people: the humans IN the matter with relationship typing "role — lifecycle/closeness": "client — new" (first deal), "client — senior, close" (long history, warm), "vendor", "team" (works for the user), "board", "regulator", "prospect", "family". Use the previous matters and the user profile to keep relationship labels consistent — a person keeps the same relationship across matters unless the evidence changed.
 - Emails that are pure one-line facts with no ongoing matter (newsletters worth a headline, status notices) do NOT get matters — leave them unassigned; they become headlines.
 - Return AT MOST 14 matters — the most consequential; fold minor items into related matters or leave them unassigned.
@@ -162,6 +185,13 @@ export async function buildBrief(
     .slice(0, 120);
 
   const functions = await loadFunctions(accountEmail);
+  // Spend-side evidence: senders who bill the user (merchant graph)
+  const merchants = await loadMerchants(accountEmail).catch(() => ({}));
+  const vendorEmails = new Set(
+    Object.keys(merchants as Record<string, unknown>).map((k) =>
+      k.toLowerCase(),
+    ),
+  );
 
   const payload = {
     functions,
@@ -174,17 +204,29 @@ export async function buildBrief(
       orgUnit: m.orgUnit,
       people: m.people,
     })),
-    inbox: matterCandidates.map((i) => ({
-      id: i.id,
-      from: stripEmoji(i.fromName || i.fromEmail),
-      email: i.fromEmail,
-      subject: stripEmoji(i.subject),
-      gist: stripEmoji(i.guide?.task ?? i.snippet.slice(0, 160)),
-      action: i.guide?.action,
-      category: i.guide?.category,
-      importance: i.guide?.importance,
-      receivedAt: i.receivedAt.slice(0, 10),
-    })),
+    inbox: matterCandidates.map((i) => {
+      const study = `${i.subject}\n${i.snippet}`.match(STUDY_CODE)?.[0];
+      const d = i.guide?.debug;
+      return {
+        id: i.id,
+        from: stripEmoji(i.fromName || i.fromEmail),
+        email: i.fromEmail,
+        subject: stripEmoji(i.subject),
+        gist: stripEmoji(i.guide?.task ?? i.snippet.slice(0, 160)),
+        action: i.guide?.action,
+        category: i.guide?.category,
+        importance: i.guide?.importance,
+        receivedAt: i.receivedAt.slice(0, 10),
+        // Deterministic evidence: resolved before the model reasons
+        ...(study ? { studyCode: study.toUpperCase() } : {}),
+        ...(vendorEmails.has(i.fromEmail.toLowerCase())
+          ? { vendor: true }
+          : {}),
+        ...(d && d.sentTo === 0 && d.receivedFrom <= 1
+          ? { firstContact: true }
+          : {}),
+      };
+    }),
   };
 
   const { model } = await getTriageModel();

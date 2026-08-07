@@ -162,8 +162,16 @@ export function BriefPanel({
                       </span>
                       <span className="mt-0.5 flex flex-wrap items-center gap-1">
                         {m.orgUnit ? (
-                          <span className="rounded bg-[var(--card)] px-1 py-0.5 text-[9px] font-bold uppercase tracking-wide text-[var(--muted)]">
+                          <span
+                            className="rounded bg-[var(--card)] px-1 py-0.5 text-[9px] font-bold uppercase tracking-wide text-[var(--muted)]"
+                            title={
+                              (m.orgConfidence ?? 1) < 0.85
+                                ? "Low-confidence assignment — Seer's suggestion, confirm or correct"
+                                : undefined
+                            }
+                          >
                             {m.orgUnit}
+                            {(m.orgConfidence ?? 1) < 0.85 ? " ?" : ""}
                           </span>
                         ) : null}
                         {(m.people ?? []).slice(0, 3).map((p) => (
