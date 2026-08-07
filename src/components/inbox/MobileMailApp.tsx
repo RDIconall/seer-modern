@@ -3,6 +3,8 @@
 import DOMPurify from "dompurify";
 import {
   Archive,
+  BellOff,
+  Check,
   ChevronLeft,
   Forward,
   Inbox,
@@ -21,6 +23,7 @@ import {
   X,
 } from "lucide-react";
 import {
+  useCallback,
   useEffect,
   useMemo,
   useRef,
@@ -96,6 +99,8 @@ export function MobileMailApp() {
     snooze,
     delegate,
     bulkSection,
+    bulkItems,
+    bulkUnsubscribeItems,
     unsubscribe,
     teachSender,
     openReader,
@@ -123,6 +128,89 @@ export function MobileMailApp() {
   useEffect(() => {
     if (searchParams.get("settings") === "1") setSettingsOpen(true);
   }, [searchParams]);
+
+  // ---- Multi-select: long-press a row to enter, tap to add, bulk act ----
+  const [selectMode, setSelectMode] = useState(false);
+  const [checkedIds, setCheckedIds] = useState<ReadonlySet<string>>(new Set());
+  const [bulkBusy, setBulkBusy] = useState(false);
+
+  /** All rows in on-screen order (mailbox list, or triage sections). */
+  const visibleRows = useMemo<EmailItem[]>(() => {
+    if (tab === "cards") return [];
+    if (tab === "triage") {
+      if (!triage) return [];
+      return [
+        ...triage.needsReview,
+        ...triage.sections.flatMap((s) => s.items),
+      ];
+    }
+    return listItems;
+  }, [tab, triage, listItems]);
+
+  const checkedCount = useMemo(
+    () => visibleRows.reduce((n, r) => n + (checkedIds.has(r.id) ? 1 : 0), 0),
+    [visibleRows, checkedIds],
+  );
+
+  const exitSelect = useCallback(() => {
+    setSelectMode(false);
+    setCheckedIds(new Set());
+  }, []);
+
+  // Selection doesn't survive changing folders or searches
+  useEffect(() => {
+    exitSelect();
+  }, [tab, query, exitSelect]);
+
+  const enterSelectMode = useCallback((id: string) => {
+    setSelectMode(true);
+    setCheckedIds(new Set([id]));
+  }, []);
+
+  const toggleChecked = useCallback((id: string) => {
+    setCheckedIds((prev) => {
+      const next = new Set(prev);
+      if (next.has(id)) next.delete(id);
+      else next.add(id);
+      return next;
+    });
+  }, []);
+
+  const toggleAll = useCallback(() => {
+    setCheckedIds((prev) => {
+      const allSelected =
+        visibleRows.length > 0 && visibleRows.every((r) => prev.has(r.id));
+      return allSelected ? new Set() : new Set(visibleRows.map((r) => r.id));
+    });
+  }, [visibleRows]);
+
+  const applyBulk = useCallback(
+    async (kind: "archive" | "trash" | "unsubscribe") => {
+      const items = visibleRows
+        .filter((r) => checkedIds.has(r.id))
+        .map((r) => ({ id: r.id, fromEmail: r.fromEmail }));
+      if (items.length === 0 || bulkBusy) return;
+      setBulkBusy(true);
+      exitSelect();
+      try {
+        if (kind === "unsubscribe") await bulkUnsubscribeItems(items);
+        else await bulkItems(items, kind);
+      } finally {
+        setBulkBusy(false);
+      }
+    },
+    [
+      visibleRows,
+      checkedIds,
+      bulkBusy,
+      exitSelect,
+      bulkItems,
+      bulkUnsubscribeItems,
+    ],
+  );
+
+  const canArchiveSelection = tab !== "trash" && tab !== "sent";
+  const canUnsubscribeSelection = tab !== "trash" && tab !== "sent";
 
   const selectFolder = (next: ViewTab) => {
     hookSelectFolder(next);
@@ -394,7 +482,53 @@ export function MobileMailApp() {
       ) : null}
 
       <header className="sticky top-0 z-10 outlook-header shadow-sm">
-        {searchOpen ? (
+        {selectMode ? (
+          <div className="flex items-center gap-0.5 px-1 py-1.5">
+            <IconBtn onClick={exitSelect} label="Cancel selection" light>
+              <X className="h-5 w-5" />
+            </IconBtn>
+            <span className="min-w-0 flex-1 truncate px-1 text-[17px] font-semibold text-white">
+              {checkedCount} selected
+            </span>
+            <button
+              type="button"
+              onClick={toggleAll}
+              className="rounded-full px-2.5 py-1.5 text-[13px] font-semibold text-white active:bg-white/15"
+            >
+              {checkedCount === visibleRows.length && visibleRows.length > 0
+                ? "None"
+                : "All"}
+            </button>
+            {canArchiveSelection ? (
+              <IconBtn
+                onClick={() => applyBulk("archive")}
+                disabled={bulkBusy || checkedCount === 0}
+                label="Archive selected"
+                light
+              >
+                <Archive className="h-5 w-5" />
+              </IconBtn>
+            ) : null}
+            <IconBtn
+              onClick={() => applyBulk("trash")}
+              disabled={bulkBusy || checkedCount === 0}
+              label="Delete selected"
+              light
+            >
+              <Trash2 className="h-5 w-5" />
+            </IconBtn>
+            {canUnsubscribeSelection ? (
+              <IconBtn
+                onClick={() => applyBulk("unsubscribe")}
+                disabled={bulkBusy || checkedCount === 0}
+                label="Unsubscribe selected"
+                light
+              >
+                <BellOff className="h-5 w-5" />
+              </IconBtn>
+            ) : null}
+          </div>
+        ) : searchOpen ? (
           <form
             className="flex items-center gap-1 px-2 py-2"
             onSubmit={(e) => {
@@ -521,6 +655,10 @@ export function MobileMailApp() {
                   showGuide={tab === "inbox" || Boolean(query)}
                   logicMode={logicMode}
                   busy={busyId === item.id}
+                  selectMode={selectMode}
+                  checked={checkedIds.has(item.id)}
+                  onToggleSelect={() => toggleChecked(item.id)}
+                  onLongPress={() => enterSelectMode(item.id)}
                   onOpen={() => openReader(item.id)}
                   onArchive={
                     tab === "inbox"
@@ -568,6 +706,10 @@ export function MobileMailApp() {
                   showGuide
                   logicMode={logicMode}
                   busy={busyId === item.id}
+                  selectMode={selectMode}
+                  checked={checkedIds.has(item.id)}
+                  onToggleSelect={() => toggleChecked(item.id)}
+                  onLongPress={() => enterSelectMode(item.id)}
                   onOpen={() => openReader(item.id)}
                   onArchive={() => runAction(item.id, "archive", item.fromEmail)}
                   onDelete={() => runAction(item.id, "trash", item.fromEmail)}
@@ -614,6 +756,10 @@ export function MobileMailApp() {
                       showGuide
                       logicMode={logicMode}
                       busy={busyId === item.id}
+                      selectMode={selectMode}
+                      checked={checkedIds.has(item.id)}
+                      onToggleSelect={() => toggleChecked(item.id)}
+                      onLongPress={() => enterSelectMode(item.id)}
                       onOpen={() => openReader(item.id)}
                       onArchive={() => runAction(item.id, "archive", item.fromEmail)}
                       onDelete={() => runAction(item.id, "trash", item.fromEmail)}
@@ -830,6 +976,8 @@ function Toast({ message }: { message: string }) {
   );
 }
 
+const LONG_PRESS_MS = 450;
+
 function SwipeMailRow({
   item,
   onOpen,
@@ -839,6 +987,10 @@ function SwipeMailRow({
   chips,
   showGuide,
   logicMode,
+  selectMode,
+  checked,
+  onToggleSelect,
+  onLongPress,
 }: {
   item: EmailItem;
   onOpen: () => void;
@@ -848,24 +1000,70 @@ function SwipeMailRow({
   chips?: ReactNode;
   showGuide: boolean;
   logicMode?: boolean;
+  selectMode?: boolean;
+  checked?: boolean;
+  onToggleSelect?: () => void;
+  onLongPress?: () => void;
 }) {
   const g = item.guide;
   const startX = useRef<number | null>(null);
+  const startY = useRef<number | null>(null);
   const [offset, setOffset] = useState(0);
+  const longPressTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const longPressFired = useRef(false);
+
+  const cancelLongPress = () => {
+    if (longPressTimer.current != null) {
+      clearTimeout(longPressTimer.current);
+      longPressTimer.current = null;
+    }
+  };
 
   const onTouchStart = (e: TouchEvent) => {
     startX.current = e.touches[0]?.clientX ?? null;
+    startY.current = e.touches[0]?.clientY ?? null;
+    longPressFired.current = false;
+    if (!selectMode && onLongPress) {
+      cancelLongPress();
+      longPressTimer.current = setTimeout(() => {
+        longPressTimer.current = null;
+        longPressFired.current = true;
+        onLongPress();
+      }, LONG_PRESS_MS);
+    }
   };
   const onTouchMove = (e: TouchEvent) => {
     if (startX.current == null) return;
     const dx = (e.touches[0]?.clientX ?? startX.current) - startX.current;
-    setOffset(Math.max(-96, Math.min(96, dx)));
+    const dy = (e.touches[0]?.clientY ?? startY.current ?? 0) -
+      (startY.current ?? 0);
+    // Any real movement is a swipe/scroll, not a long-press
+    if (Math.abs(dx) > 10 || Math.abs(dy) > 10) cancelLongPress();
+    // Swipe actions are off while selecting — taps only
+    if (!selectMode) setOffset(Math.max(-96, Math.min(96, dx)));
   };
   const onTouchEnd = () => {
-    if (offset <= -64) onDelete();
-    else if (offset >= 64 && onArchive) onArchive();
+    cancelLongPress();
+    if (!selectMode && !longPressFired.current) {
+      if (offset <= -64) onDelete();
+      else if (offset >= 64 && onArchive) onArchive();
+    }
     setOffset(0);
     startX.current = null;
+    startY.current = null;
+  };
+
+  const handleClick = () => {
+    // The tap that triggered the long-press must not also open/toggle
+    if (longPressFired.current) {
+      longPressFired.current = false;
+      return;
+    }
+    if (selectMode && onToggleSelect) {
+      onToggleSelect();
+      return;
+    }
+    if (Math.abs(offset) < 8) onOpen();
   };
 
   return (
@@ -879,18 +1077,38 @@ function SwipeMailRow({
       <article
         role="button"
         tabIndex={0}
-        onClick={() => {
-          if (Math.abs(offset) < 8) onOpen();
-        }}
-        onKeyDown={(e) => e.key === "Enter" && onOpen()}
+        aria-pressed={selectMode ? Boolean(checked) : undefined}
+        onClick={handleClick}
+        onKeyDown={(e) => e.key === "Enter" && handleClick()}
         onTouchStart={onTouchStart}
         onTouchMove={onTouchMove}
         onTouchEnd={onTouchEnd}
-        className={`mail-row ${item.isUnread ? "unread" : ""} ${
+        onContextMenu={(e) => {
+          // Long-press opens selection, not the browser context menu
+          if (onLongPress) e.preventDefault();
+        }}
+        className={`mail-row select-none ${item.isUnread ? "unread" : ""} ${
           busy ? "opacity-50" : ""
         }`}
-        style={{ transform: `translateX(${offset}px)` }}
+        style={{
+          transform: `translateX(${offset}px)`,
+          ...(selectMode && checked
+            ? { background: "var(--brand-soft)" }
+            : {}),
+        }}
       >
+        {selectMode ? (
+          <span
+            className={`mt-1 flex h-5 w-5 shrink-0 items-center justify-center rounded-full border-2 transition-colors ${
+              checked
+                ? "border-[var(--brand)] bg-[var(--brand)] text-white"
+                : "border-[var(--muted)] bg-transparent text-transparent"
+            }`}
+            aria-hidden
+          >
+            <Check className="h-3 w-3" strokeWidth={3} />
+          </span>
+        ) : null}
         <span
           className={`mail-unread-dot ${item.isUnread ? "" : "empty"}`}
           aria-hidden
