@@ -21,7 +21,7 @@ import { loadUserProfile } from "@/lib/store/user-profile";
 import { getSenderOverride } from "@/lib/store/senders";
 import { NextResponse } from "next/server";
 
-export const maxDuration = 60;
+export const maxDuration = 300;
 
 /** Rebuild the brief when it's older than this even without new mail. */
 const BRIEF_MAX_AGE_MS = 6 * 60 * 60 * 1000;
@@ -47,7 +47,7 @@ export async function GET(request: Request) {
 
   for (const stored of accounts) {
     // Whole-run budget: leave headroom; the next tick continues.
-    if (Date.now() - started > 45_000) {
+    if (Date.now() - started > 240_000) {
       report.push({ email: stored.email, skipped: "time budget" });
       continue;
     }
