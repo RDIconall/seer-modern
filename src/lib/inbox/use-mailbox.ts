@@ -223,20 +223,21 @@ export function useMailbox(initialTab: ViewTab = "inbox") {
     return mailbox?.items ?? [];
   }, [mailbox, tab]);
 
-  const removeFromLists = useCallback((id: string) => {
-    setMailbox((prev) =>
-      prev
-        ? {
-            ...prev,
-            items: prev.items.filter((i) => i.id !== id),
-            count: Math.max(0, prev.count - 1),
-          }
-        : prev,
-    );
+  const removeManyFromLists = useCallback((ids: string[]) => {
+    const idSet = new Set(ids);
+    setMailbox((prev) => {
+      if (!prev) return prev;
+      const items = prev.items.filter((i) => !idSet.has(i.id));
+      return {
+        ...prev,
+        items,
+        count: Math.max(0, prev.count - (prev.items.length - items.length)),
+      };
+    });
     setTriage((prev) => {
       if (!prev) return prev;
       const filter = <T extends { id: string }>(items: T[]) =>
-        items.filter((i) => i.id !== id);
+        items.filter((i) => !idSet.has(i.id));
       return {
         ...prev,
         inbox: prev.inbox ? filter(prev.inbox) : prev.inbox,
@@ -244,10 +245,15 @@ export function useMailbox(initialTab: ViewTab = "inbox") {
         sections: prev.sections
           .map((s) => ({ ...s, items: filter(s.items) }))
           .filter((s) => s.items.length > 0),
-        count: Math.max(0, prev.count - 1),
+        count: Math.max(0, prev.count - ids.length),
       };
     });
   }, []);
+
+  const removeFromLists = useCallback(
+    (id: string) => removeManyFromLists([id]),
+    [removeManyFromLists],
+  );
 
   const closeReader = useCallback(() => {
     setReaderId(null);
@@ -332,71 +338,100 @@ export function useMailbox(initialTab: ViewTab = "inbox") {
     [closeReader, readerId, removeFromLists],
   );
 
-  const bulkSection = useCallback(
-    async (section: Section, action: MailAction) => {
-      const ids = section.items.map((i) => i.id);
-      setTriage((prev) => {
-        if (!prev) return prev;
-        const idSet = new Set(ids);
-        const filter = <T extends { id: string }>(items: T[]) =>
-          items.filter((i) => !idSet.has(i.id));
-        return {
-          ...prev,
-          inbox: prev.inbox ? filter(prev.inbox) : prev.inbox,
-          needsReview: filter(prev.needsReview),
-          sections: prev.sections
-            .map((s) =>
-              s.action === section.action
-                ? { ...s, items: [] }
-                : { ...s, items: s.items.filter((i) => !idSet.has(i.id)) },
-            )
-            .filter((s) => s.items.length > 0),
-          count: Math.max(0, prev.count - ids.length),
-        };
-      });
+  /**
+   * Multi-select bulk: archive/trash/read any set of messages.
+   * Optimistic removal, then chunked requests (the bulk API processes
+   * 15 per call — sending more used to silently drop the rest).
+   */
+  const bulkItems = useCallback(
+    async (
+      items: { id: string; fromEmail?: string }[],
+      action: MailAction,
+    ) => {
+      if (items.length === 0) return;
+      const ids = items.map((i) => i.id);
+      removeManyFromLists(ids);
+      if (readerId && ids.includes(readerId)) closeReader();
       try {
-        // The unsubscribe section actually unsubscribes (one-click /
-        // mailto), then trashes and teaches the sender — not just trash.
-        if (section.action === "unsubscribe") {
-          const res = await fetch("/api/unsubscribe", {
+        for (let i = 0; i < items.length; i += 15) {
+          const chunk = items.slice(i, i + 15);
+          const res = await fetch("/api/action/bulk", {
             method: "POST",
             headers: { "Content-Type": "application/json" },
             body: JSON.stringify({
-              items: section.items.map((i) => ({
-                id: i.id,
-                fromEmail: i.fromEmail,
+              items: chunk.map(({ id, fromEmail }) => ({
+                id,
+                action,
+                fromEmail,
               })),
             }),
           });
-          const json = await res.json();
-          if (!res.ok) throw new Error(json.error ?? "Unsubscribe failed");
-          setToast(
-            json.unsubscribed > 0
-              ? `Unsubscribed from ${json.unsubscribed} of ${ids.length} · all trashed & muted`
-              : `Trashed ${ids.length} · senders muted`,
-          );
-          return;
+          if (!res.ok) throw new Error("Bulk failed");
         }
-
-        const res = await fetch("/api/action/bulk", {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({
-            items: section.items.map((i) => ({
-              id: i.id,
-              action,
-              fromEmail: i.fromEmail,
-            })),
-          }),
-        });
-        if (!res.ok) throw new Error("Bulk failed");
-        setToast(`Updated ${ids.length}`);
+        setToast(
+          action === "trash"
+            ? `Moved ${items.length} to Trash`
+            : action === "archive"
+              ? `Archived ${items.length}`
+              : `Updated ${items.length}`,
+        );
       } catch {
         setToast("Bulk action failed — refreshing");
         load();
       }
     },
-    [load],
+    [closeReader, load, readerId, removeManyFromLists],
+  );
+
+  /**
+   * Multi-select unsubscribe: really unsubscribes (one-click / mailto),
+   * then trashes and mutes each sender. Chunked to the API's cap.
+   */
+  const bulkUnsubscribeItems = useCallback(
+    async (items: { id: string; fromEmail?: string }[]) => {
+      if (items.length === 0) return;
+      const ids = items.map((i) => i.id);
+      removeManyFromLists(ids);
+      if (readerId && ids.includes(readerId)) closeReader();
+      try {
+        let unsubscribed = 0;
+        for (let i = 0; i < items.length; i += 30) {
+          const chunk = items.slice(i, i + 30);
+          const res = await fetch("/api/unsubscribe", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({
+              items: chunk.map(({ id, fromEmail }) => ({ id, fromEmail })),
+            }),
+          });
+          const json = await res.json();
+          if (!res.ok) throw new Error(json.error ?? "Unsubscribe failed");
+          unsubscribed += json.unsubscribed ?? 0;
+        }
+        setToast(
+          unsubscribed > 0
+            ? `Unsubscribed from ${unsubscribed} of ${items.length} · all trashed & muted`
+            : `Trashed ${items.length} · senders muted`,
+        );
+      } catch {
+        setToast("Unsubscribe failed — refreshing");
+        load();
+      }
+    },
+    [closeReader, load, readerId, removeManyFromLists],
+  );
+
+  const bulkSection = useCallback(
+    async (section: Section, action: MailAction) => {
+      // The unsubscribe section actually unsubscribes (one-click /
+      // mailto), then trashes and teaches the sender — not just trash.
+      if (section.action === "unsubscribe") {
+        await bulkUnsubscribeItems(section.items);
+        return;
+      }
+      await bulkItems(section.items, action);
+    },
+    [bulkItems, bulkUnsubscribeItems],
   );
 
   /** Unsubscribe a single message for real, then trash + mute sender. */
@@ -689,6 +724,8 @@ export function useMailbox(initialTab: ViewTab = "inbox") {
     snooze,
     delegate,
     bulkSection,
+    bulkItems,
+    bulkUnsubscribeItems,
     unsubscribe,
     teachSender,
     openReader,

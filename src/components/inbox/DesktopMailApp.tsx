@@ -3,6 +3,7 @@
 import DOMPurify from "dompurify";
 import {
   Archive,
+  BellOff,
   Forward,
   Inbox,
   Layers,
@@ -17,7 +18,14 @@ import {
   Trash2,
   X,
 } from "lucide-react";
-import { useEffect, useMemo, useState, type ReactNode } from "react";
+import {
+  useCallback,
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+  type ReactNode,
+} from "react";
 import { useSearchParams } from "next/navigation";
 import { logout } from "@/app/actions";
 import { CardStack } from "@/components/inbox/CardStack";
@@ -94,6 +102,8 @@ export function DesktopMailApp() {
     snooze,
     delegate,
     bulkSection,
+    bulkItems,
+    bulkUnsubscribeItems,
     unsubscribe,
     teachSender,
     openReader,
@@ -114,6 +124,113 @@ export function DesktopMailApp() {
   useEffect(() => {
     if (searchParams.get("settings") === "1") setSettingsOpen(true);
   }, [searchParams]);
+
+  // ---- Multi-select: checkboxes + shift-click ranges + bulk actions ----
+  const [checkedIds, setCheckedIds] = useState<ReadonlySet<string>>(new Set());
+  const [bulkBusy, setBulkBusy] = useState(false);
+  const anchorIdRef = useRef<string | null>(null);
+
+  /** All rows in on-screen order — ranges follow what the eye sees. */
+  const visibleRows = useMemo<EmailItem[]>(() => {
+    if (tab === "cards") return [];
+    if (tab === "triage") {
+      if (!triage) return [];
+      return [
+        ...triage.needsReview,
+        ...triage.sections.flatMap((s) => s.items),
+      ];
+    }
+    return listItems;
+  }, [tab, triage, listItems]);
+
+  // Selection doesn't survive changing folders or searches
+  useEffect(() => {
+    setCheckedIds(new Set());
+    anchorIdRef.current = null;
+  }, [tab, query]);
+
+  const checkedCount = useMemo(
+    () => visibleRows.reduce((n, r) => n + (checkedIds.has(r.id) ? 1 : 0), 0),
+    [visibleRows, checkedIds],
+  );
+
+  const clearSelection = useCallback(() => {
+    setCheckedIds(new Set());
+    anchorIdRef.current = null;
+  }, []);
+
+  /** Toggle one row; with shift, apply the toggle to the whole range from the last clicked row. */
+  const toggleRow = useCallback(
+    (id: string, shift: boolean) => {
+      const anchor = anchorIdRef.current;
+      setCheckedIds((prev) => {
+        const next = new Set(prev);
+        const on = !prev.has(id);
+        if (shift && anchor && anchor !== id) {
+          const ids = visibleRows.map((r) => r.id);
+          const a = ids.indexOf(anchor);
+          const b = ids.indexOf(id);
+          if (a !== -1 && b !== -1) {
+            const [lo, hi] = a < b ? [a, b] : [b, a];
+            for (let i = lo; i <= hi; i++) {
+              if (on) next.add(ids[i]);
+              else next.delete(ids[i]);
+            }
+            return next;
+          }
+        }
+        if (on) next.add(id);
+        else next.delete(id);
+        return next;
+      });
+      if (!shift || !anchor) anchorIdRef.current = id;
+    },
+    [visibleRows],
+  );
+
+  const toggleAll = useCallback(() => {
+    setCheckedIds((prev) => {
+      const allSelected =
+        visibleRows.length > 0 && visibleRows.every((r) => prev.has(r.id));
+      return allSelected ? new Set() : new Set(visibleRows.map((r) => r.id));
+    });
+    anchorIdRef.current = null;
+  }, [visibleRows]);
+
+  // Escape drops the selection
+  useEffect(() => {
+    if (checkedCount === 0) return;
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === "Escape") clearSelection();
+    };
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, [checkedCount, clearSelection]);
+
+  const applyBulk = useCallback(
+    async (kind: "archive" | "trash" | "unsubscribe") => {
+      const items = visibleRows
+        .filter((r) => checkedIds.has(r.id))
+        .map((r) => ({ id: r.id, fromEmail: r.fromEmail }));
+      if (items.length === 0 || bulkBusy) return;
+      setBulkBusy(true);
+      clearSelection();
+      try {
+        if (kind === "unsubscribe") await bulkUnsubscribeItems(items);
+        else await bulkItems(items, kind);
+      } finally {
+        setBulkBusy(false);
+      }
+    },
+    [
+      visibleRows,
+      checkedIds,
+      bulkBusy,
+      clearSelection,
+      bulkItems,
+      bulkUnsubscribeItems,
+    ],
+  );
 
   const delegateFromCard = async (id: string) => {
     const r = await delegate(id);
@@ -377,6 +494,20 @@ export function DesktopMailApp() {
               ) : null}
             </p>
           ) : null}
+          {visibleRows.length > 0 ? (
+            <SelectionBar
+              total={visibleRows.length}
+              count={checkedCount}
+              busy={bulkBusy}
+              canArchive={tab !== "trash" && tab !== "sent"}
+              canUnsubscribe={tab !== "trash" && tab !== "sent"}
+              onToggleAll={toggleAll}
+              onClear={clearSelection}
+              onArchive={() => applyBulk("archive")}
+              onDelete={() => applyBulk("trash")}
+              onUnsubscribe={() => applyBulk("unsubscribe")}
+            />
+          ) : null}
         </header>
 
         <div className="flex-1 overflow-y-auto">
@@ -409,6 +540,8 @@ export function DesktopMailApp() {
                     key={item.id}
                     item={item}
                     selected={readerId === item.id}
+                    checked={checkedIds.has(item.id)}
+                    onToggle={(shift) => toggleRow(item.id, shift)}
                     busy={busyId === item.id}
                     showGuide={tab === "inbox" || Boolean(query)}
                     logicMode={logicMode}
@@ -440,6 +573,8 @@ export function DesktopMailApp() {
                     key={item.id}
                     item={item}
                     selected={readerId === item.id}
+                    checked={checkedIds.has(item.id)}
+                    onToggle={(shift) => toggleRow(item.id, shift)}
                     busy={busyId === item.id}
                     showGuide
                     logicMode={logicMode}
@@ -487,6 +622,8 @@ export function DesktopMailApp() {
                         key={item.id}
                         item={item}
                         selected={readerId === item.id}
+                        checked={checkedIds.has(item.id)}
+                        onToggle={(shift) => toggleRow(item.id, shift)}
                         busy={busyId === item.id}
                         showGuide
                         logicMode={logicMode}
@@ -604,6 +741,8 @@ export function DesktopMailApp() {
 function DesktopMailRow({
   item,
   selected,
+  checked,
+  onToggle,
   busy,
   showGuide,
   logicMode,
@@ -614,6 +753,8 @@ function DesktopMailRow({
 }: {
   item: EmailItem;
   selected: boolean;
+  checked?: boolean;
+  onToggle?: (shift: boolean) => void;
   busy?: boolean;
   showGuide: boolean;
   logicMode?: boolean;
@@ -635,12 +776,36 @@ function DesktopMailRow({
       <article
         role="button"
         tabIndex={0}
-        onClick={onOpen}
+        onClick={(e) => {
+          // Shift-click marks a range instead of opening the message
+          if (e.shiftKey && onToggle) {
+            onToggle(true);
+            return;
+          }
+          onOpen();
+        }}
+        onMouseDown={(e) => {
+          // Stop shift-click from selecting row text
+          if (e.shiftKey) e.preventDefault();
+        }}
         onKeyDown={(e) => e.key === "Enter" && onOpen()}
         className={`mail-row cursor-pointer pr-14 transition-colors ${
-          selected ? "bg-[var(--brand-soft)]" : ""
+          checked || selected ? "bg-[var(--brand-soft)]" : ""
         } ${busy ? "opacity-50" : ""} ${item.isUnread ? "unread" : ""}`}
       >
+        {onToggle ? (
+          <input
+            type="checkbox"
+            aria-label={`Select "${item.subject}"`}
+            checked={checked ?? false}
+            onClick={(e) => {
+              e.stopPropagation();
+              onToggle(e.shiftKey);
+            }}
+            onChange={() => {}}
+            className="mt-1 h-3.5 w-3.5 shrink-0 cursor-pointer accent-[var(--brand)]"
+          />
+        ) : null}
         <span
           className={`mail-unread-dot ${item.isUnread ? "" : "empty"}`}
           aria-hidden
@@ -692,6 +857,123 @@ function DesktopMailRow({
         </div>
       ) : null}
     </li>
+  );
+}
+
+function SelectionBar({
+  total,
+  count,
+  busy,
+  canArchive,
+  canUnsubscribe,
+  onToggleAll,
+  onClear,
+  onArchive,
+  onDelete,
+  onUnsubscribe,
+}: {
+  total: number;
+  count: number;
+  busy: boolean;
+  canArchive: boolean;
+  canUnsubscribe: boolean;
+  onToggleAll: () => void;
+  onClear: () => void;
+  onArchive: () => void;
+  onDelete: () => void;
+  onUnsubscribe: () => void;
+}) {
+  const all = total > 0 && count === total;
+  return (
+    <div className="flex min-h-9 items-center gap-2 border-b border-[var(--border)] bg-[var(--card)] px-3 py-1">
+      <input
+        type="checkbox"
+        aria-label={all ? "Clear selection" : "Select all"}
+        title={all ? "Clear selection" : "Select all"}
+        checked={all}
+        ref={(el) => {
+          if (el) el.indeterminate = count > 0 && !all;
+        }}
+        onChange={onToggleAll}
+        className="h-3.5 w-3.5 shrink-0 cursor-pointer accent-[var(--brand)]"
+      />
+      {count === 0 ? (
+        <span className="text-[11px] text-[var(--muted)]">
+          Select all — or click boxes, shift-click marks a range
+        </span>
+      ) : (
+        <>
+          <span className="shrink-0 text-[11px] font-semibold text-[var(--fg-strong)]">
+            {count} selected
+          </span>
+          <div className="ml-auto flex items-center gap-0.5">
+            {canArchive ? (
+              <SelectionButton
+                label="Archive"
+                disabled={busy}
+                onClick={onArchive}
+              >
+                <Archive className="h-3.5 w-3.5" />
+              </SelectionButton>
+            ) : null}
+            <SelectionButton
+              label="Delete"
+              tone="danger"
+              disabled={busy}
+              onClick={onDelete}
+            >
+              <Trash2 className="h-3.5 w-3.5" />
+            </SelectionButton>
+            {canUnsubscribe ? (
+              <SelectionButton
+                label="Unsub"
+                disabled={busy}
+                onClick={onUnsubscribe}
+              >
+                <BellOff className="h-3.5 w-3.5" />
+              </SelectionButton>
+            ) : null}
+            <button
+              type="button"
+              aria-label="Clear selection"
+              onClick={onClear}
+              className="flex h-6 w-6 items-center justify-center rounded-md text-[var(--muted)] hover:bg-[var(--row-hover)] hover:text-[var(--fg)]"
+            >
+              <X className="h-3.5 w-3.5" />
+            </button>
+          </div>
+        </>
+      )}
+    </div>
+  );
+}
+
+function SelectionButton({
+  children,
+  label,
+  onClick,
+  disabled,
+  tone,
+}: {
+  children: ReactNode;
+  label: string;
+  onClick: () => void;
+  disabled?: boolean;
+  tone?: "danger";
+}) {
+  return (
+    <button
+      type="button"
+      aria-label={label}
+      disabled={disabled}
+      onClick={onClick}
+      className={`flex items-center gap-1 rounded-md px-1.5 py-1 text-[11px] font-medium hover:bg-[var(--row-hover)] disabled:opacity-40 ${
+        tone === "danger" ? "text-[#d63b2f]" : "text-[var(--fg)]"
+      }`}
+    >
+      {children}
+      <span>{label}</span>
+    </button>
   );
 }
 
