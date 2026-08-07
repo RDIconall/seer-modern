@@ -1,5 +1,6 @@
 import { getTriageModel } from "@/lib/inbox/gemini-triage";
 import { stripEmoji, type EmailItem } from "@/lib/inbox/types";
+import { loadFunctions } from "@/lib/store/functions";
 import { accountKey, kvGet, kvSet } from "@/lib/store/kv";
 import { profilePromptBlock, type UserProfile } from "@/lib/store/user-profile";
 import { generateText, Output } from "ai";
@@ -117,7 +118,7 @@ Rules:
 - nextAction: the ONE next move, imperative and specific, or "none — team handling".
 - owner: "you" only when the user personally must act; "team" when a named other owns it; "them" when waiting on the counterparty.
 - urgency 3 = costs money or a relationship today; 0 = dormant.
-- orgUnit: which part of the operation owns this — accounting, sales, recruiting, compliance, finance, legal, it, personal, or "ops — <specific project>" for named projects/studies. Pick from the user's world, consistently: the same matter keeps the same orgUnit across days.
+- orgUnit: MUST be one of the entries in the payload's "functions" list — the user's own org chart, verbatim. For named projects/studies under "operations — studies", append the project: "operations — studies — <project name>". Deals route by STAGE: a new inbound is "sales — leads", an active quote/RFQ is "sales — new requests", an NDA/SOW/contract in motion is "sales — contracting". The same matter keeps the same orgUnit across days.
 - people: the humans IN the matter with relationship typing "role — lifecycle/closeness": "client — new" (first deal), "client — senior, close" (long history, warm), "vendor", "team" (works for the user), "board", "regulator", "prospect", "family". Use the previous matters and the user profile to keep relationship labels consistent — a person keeps the same relationship across matters unless the evidence changed.
 - Emails that are pure one-line facts with no ongoing matter (newsletters worth a headline, status notices) do NOT get matters — leave them unassigned; they become headlines.
 - Never invent emails or matters. Every matter cites the emailIds that evidence it.`;
@@ -153,7 +154,10 @@ export async function buildBrief(
     (i) => i.guide?.action !== "read_and_delete",
   );
 
+  const functions = await loadFunctions(accountEmail);
+
   const payload = {
+    functions,
     previousMatters: (prev?.matters ?? []).map((m) => ({
       id: m.id,
       title: m.title,
