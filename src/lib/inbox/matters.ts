@@ -121,6 +121,7 @@ Rules:
 - orgUnit: MUST be one of the entries in the payload's "functions" list — the user's own org chart, verbatim. For named projects/studies under "operations — studies", append the project: "operations — studies — <project name>". Deals route by STAGE: a new inbound is "sales — leads", an active quote/RFQ is "sales — new requests", an NDA/SOW/contract in motion is "sales — contracting". The same matter keeps the same orgUnit across days.
 - people: the humans IN the matter with relationship typing "role — lifecycle/closeness": "client — new" (first deal), "client — senior, close" (long history, warm), "vendor", "team" (works for the user), "board", "regulator", "prospect", "family". Use the previous matters and the user profile to keep relationship labels consistent — a person keeps the same relationship across matters unless the evidence changed.
 - Emails that are pure one-line facts with no ongoing matter (newsletters worth a headline, status notices) do NOT get matters — leave them unassigned; they become headlines.
+- Return AT MOST 14 matters — the most consequential; fold minor items into related matters or leave them unassigned.
 - Never invent emails or matters. Every matter cites the emailIds that evidence it.`;
 
 /**
@@ -158,7 +159,7 @@ export async function buildBrief(
         (b.guide?.importance ?? 1) - (a.guide?.importance ?? 1) ||
         (a.receivedAt < b.receivedAt ? 1 : -1),
     )
-    .slice(0, 180);
+    .slice(0, 120);
 
   const functions = await loadFunctions(accountEmail);
 
@@ -192,7 +193,7 @@ export async function buildBrief(
     model,
     temperature: 0,
     maxRetries: 1,
-    abortSignal: AbortSignal.timeout(90_000),
+    abortSignal: AbortSignal.timeout(120_000),
     output: Output.object({ schema: briefSchema }),
     system: profileBlock ? `${SYSTEM}\n\n${profileBlock}` : SYSTEM,
     prompt: JSON.stringify(payload),
