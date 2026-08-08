@@ -197,6 +197,13 @@ const briefSchema = z.object({
     .describe("group ALL digestInbox emails into 3-8 themes"),
 });
 
+// Matter generation should return only meaning, not echo hundreds of
+// filing records. Full-corpus filing happens deterministically below.
+const matterSchema = briefSchema.pick({
+  summary: true,
+  matters: true,
+});
+
 const digestSchema = z.object({
   summary: z
     .string()
@@ -248,13 +255,8 @@ HOW TO CLASSIFY orgUnit (the categories are function × workflow stage, NOT topi
 - people: the humans IN the matter with relationship typing "role — lifecycle/closeness": "client — new" (first deal), "client — senior, close" (long history, warm), "vendor", "team" (works for the user), "board", "regulator", "prospect", "family". Use the previous matters and the user profile to keep relationship labels consistent — a person keeps the same relationship across matters unless the evidence changed.
 - Return AT MOST 14 matters — the most consequential; fold minor items into related matters or file the rest.
 
-TOTAL COVERAGE — the inbox is a living corpus and every email must be accounted for:
-- Every id in "inbox" appears in EXACTLY ONE of: a matter's emailIds, "filed", or "unsure". No email may be silently dropped.
-- "filed" = real but not an ongoing matter: file it to its org unit (same classification doctrine as matters). This is how the whole inbox lands in the user's org format.
-- "unsure" = you genuinely cannot make the call and need the user (ambiguous direction of commerce, unknown person, can't tell if opted-in). Be decisive — unsure should be nearly empty.
+- Return ONLY the consequential matters. Do not return filing records for emails that do not belong to a matter; the application files those separately.
 - userOrgCorrections in the payload are the user's OWN fixes to earlier org calls — absolute ground truth, follow them exactly for those matters and let them teach you the pattern for similar ones.
-
-THE DIGEST — "digestInbox" is the FYI / read-then-delete mass. Do NOT make matters from it. Summarize it AS A WHOLE: digestSummary is the one paragraph the user reads INSTEAD of these emails (name the few facts that matter: amounts, dates, the single insight worth keeping); digestThemes groups every digest email into 3-8 themes with one covering sentence each. Every digestInbox id appears in exactly one theme.
 
 - Never invent emails or matters. Every matter cites the emailIds that evidence it.`;
 
@@ -416,7 +418,7 @@ export async function buildBrief(
       temperature: 0,
       maxRetries: 1,
       abortSignal: AbortSignal.timeout(180_000),
-      output: Output.object({ schema: briefSchema }),
+      output: Output.object({ schema: matterSchema }),
       system: profileBlock ? `${SYSTEM}\n\n${profileBlock}` : SYSTEM,
       prompt: JSON.stringify(payload),
     }),
@@ -477,50 +479,13 @@ export async function buildBrief(
     .filter((m) => m.emailIds.length > 0)
     .sort((a, b) => b.urgency - a.urgency);
 
-  // TOTAL COVERAGE — account for every candidate. Anything the model
-  // dropped lands in unsure so nothing silently vanishes from Atlas.
+  // TOTAL COVERAGE — the model returns only meaningful matters. Every
+  // remaining graded email is filed into the org tree locally, avoiding
+  // an enormous structured response that times out on large inboxes.
   const inMatters = new Set(matters.flatMap((m) => m.emailIds));
-  const filed: FiledEmail[] = (output.filed ?? [])
-    .filter((f) => byId.has(f.emailId) && !inMatters.has(f.emailId))
-    .map((f) => {
-      const i = byId.get(f.emailId)!;
-      return {
-        emailId: f.emailId,
-        threadId: i.threadId,
-        orgUnit: f.orgUnit,
-        line: stripEmoji(
-          `${i.fromName || i.fromEmail} — ${i.guide?.task && i.guide.task !== "none" ? i.guide.task : i.subject}`,
-        ).slice(0, 110),
-      };
-    });
-  const inFiled = new Set(filed.map((f) => f.emailId));
-  const unsure: UnsureItem[] = (output.unsure ?? [])
-    .filter(
-      (u) =>
-        byId.has(u.emailId) &&
-        !inMatters.has(u.emailId) &&
-        !inFiled.has(u.emailId),
-    )
-    .map((u) => ({
-      emailId: u.emailId,
-      threadId: byId.get(u.emailId)!.threadId,
-      question: stripEmoji(u.question).slice(0, 140),
-    }));
-  const accounted = new Set([...inMatters, ...inFiled, ...unsure.map((u) => u.emailId)]);
-  for (const i of matterCandidates) {
-    if (!accounted.has(i.id)) {
-      unsure.push({
-        emailId: i.id,
-        threadId: i.threadId,
-        question: `Where does "${stripEmoji(i.subject).slice(0, 60)}" from ${stripEmoji(i.fromName || i.fromEmail)} belong?`,
-      });
-    }
-  }
-
-  // The model sees the most consequential 120 candidates. The remainder
-  // still belongs to the living corpus: file it from its existing grade
-  // instead of dropping it or demanding hundreds more output objects.
-  for (const i of allMatterCandidates.slice(matterCandidates.length)) {
+  const filed: FiledEmail[] = [];
+  for (const i of allMatterCandidates) {
+    if (inMatters.has(i.id)) continue;
     filed.push({
       emailId: i.id,
       threadId: i.threadId,
@@ -534,6 +499,7 @@ export async function buildBrief(
       ).slice(0, 110),
     });
   }
+  const unsure: UnsureItem[] = [];
 
   const digestIdSet = new Set(digestItems.map((i) => i.id));
   const digest: Digest = {
