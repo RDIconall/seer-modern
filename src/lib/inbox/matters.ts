@@ -1,5 +1,6 @@
 import { getTriageModel } from "@/lib/inbox/gemini-triage";
 import { stripEmoji, type EmailItem } from "@/lib/inbox/types";
+import { loadExemplars, retrieveExemplars } from "@/lib/store/exemplars";
 import { loadFunctions } from "@/lib/store/functions";
 import { accountKey, kvGet, kvSet } from "@/lib/store/kv";
 import { loadMerchants } from "@/lib/store/merchants";
@@ -142,6 +143,7 @@ HOW TO CLASSIFY orgUnit (the categories are function × workflow stage, NOT topi
    · "sales — contracting": scope agreed, deliverable is executed paperwork (MSA/SOW/CDA redlines, PO receipt as part of an award, signature routing)
    · "operations — studies": work is awarded and RUNNING (a resolved study code, site/IRB/protocol/enrollment/calibration language)
 3. CLASSIFY BY THE PRIMARY DELIVERABLE — the action that unblocks the counterparty — not by every document mentioned. "Send CDA and feasibility response" is "sales — new requests" (the feasibility answer is the ask; the CDA is packaging). A PO arriving as part of an award is contracting; an invoice or payment chase on already-awarded work is "finance (ar/ap)".
+4. labeledExamples in the payload are the user's OWN past categorizations of similar work — they are ground truth for how the user carves up their world. When an example closely matches, follow it over your own instinct.
 - people: the humans IN the matter with relationship typing "role — lifecycle/closeness": "client — new" (first deal), "client — senior, close" (long history, warm), "vendor", "team" (works for the user), "board", "regulator", "prospect", "family". Use the previous matters and the user profile to keep relationship labels consistent — a person keeps the same relationship across matters unless the evidence changed.
 - Emails that are pure one-line facts with no ongoing matter (newsletters worth a headline, status notices) do NOT get matters — leave them unassigned; they become headlines.
 - Return AT MOST 14 matters — the most consequential; fold minor items into related matters or leave them unassigned.
@@ -185,6 +187,8 @@ export async function buildBrief(
     .slice(0, 120);
 
   const functions = await loadFunctions(accountEmail);
+  // The user's own labeled history — few-shot retrieved per candidate
+  const exemplars = await loadExemplars(accountEmail).catch(() => []);
   // Spend-side evidence: senders who bill the user (merchant graph)
   const merchants = await loadMerchants(accountEmail).catch(() => ({}));
   const vendorEmails = new Set(
@@ -193,8 +197,26 @@ export async function buildBrief(
     ),
   );
 
+  // Few-shot: nearest labeled examples across the candidate set
+  const picked = new Map<string, string>();
+  for (const i of matterCandidates) {
+    for (const e of retrieveExemplars(
+      `${i.subject} ${i.guide?.task ?? ""}`,
+      exemplars,
+      2,
+    )) {
+      picked.set(e.subject, e.category);
+      if (picked.size >= 24) break;
+    }
+    if (picked.size >= 24) break;
+  }
+
   const payload = {
     functions,
+    labeledExamples: [...picked.entries()].map(([subject, category]) => ({
+      subject,
+      category,
+    })),
     previousMatters: (prev?.matters ?? []).map((m) => ({
       id: m.id,
       title: m.title,
