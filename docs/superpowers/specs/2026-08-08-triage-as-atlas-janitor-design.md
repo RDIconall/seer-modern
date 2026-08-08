@@ -21,6 +21,12 @@ Atlas** with exactly two jobs:
 Everything Triage removes is one of those two things. Everything else
 belongs to Atlas.
 
+The anchoring insight (from the inbox review that started this work): for
+most of the inbox, **"kept" just means "never triaged" — and that is
+itself the finding.** ~130 of 170 messages were machine-generated noise
+no one had ever cleared. Triage's job is to make "kept" mean "kept for a
+reason" again.
+
 ## Why the current triage fails (audit, 2026-08-08)
 
 It fails on aggressiveness, timidity, reasons, and consistency at once,
@@ -96,6 +102,22 @@ pipeline.
   exactly the checkbox model the old TriageTable proved out.
 - Records (`disposition: "record"`) are never swept to trash — they
   archive.
+
+**Protected classes (the `bulk-delete` lesson).** A keyword `bulk-delete`
+rule currently live on `main` has nuked real, consequential mail —
+Qualio approval requests, IRB/regulatory notices, SharePoint/document
+comments, DMV and government renewals. No sweep (proposed or auto) may
+touch a conversation whose read carries any of:
+- `owner: "you"` or a non-informational `ask`
+- `signature` present
+- an approval / regulatory / government / legal-deadline `kind`
+- a person-protected or VIP sender (existing floors)
+- membership in any matter
+
+These are hard floors evaluated after the disposition, before the slate
+is built. A protected email that a reason would have swept is instead
+left in Atlas, not silently binned. This is the single most important
+guard against the "too aggressive" failure.
 
 ### 3. Closure detection (job 2 — new capability)
 
@@ -197,6 +219,8 @@ load-bearing and follow the grader out.
   bumps, rules-vs-model precedence)
 - `DIGEST_ACTIONS` partition in `matters.ts`
 - Keyword urgency-expiry regexes (replaced by `expires`)
+- The `bulk-delete` keyword rule (replaced by disposition + protected
+  classes) — it currently endangers approval/regulatory mail on `main`
 - The Triage tab, `TriageTable`, and the cards deck
 
 ## Verification
@@ -211,6 +235,9 @@ load-bearing and follow the grader out.
   user's individual action appears in the ledger; undo restores it.
 - **The ladder moves both ways**: a reason with 2 reversals in 20 stops
   auto-acting without a deploy.
+- **Protected classes are never swept**: a seeded Qualio approval
+  request, IRB notice, SharePoint comment, and DMV renewal all survive
+  every sweep, proposed or auto.
 - **The Abbott merge test still passes** (`mergeMatters` behavior is
   untouched).
 
