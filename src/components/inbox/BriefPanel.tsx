@@ -2,6 +2,7 @@
 
 import { useMemo, useState } from "react";
 import type { Brief, FiledEmail, Matter } from "@/lib/inbox/matters";
+import { formatAmount } from "@/lib/crm/registry";
 
 /**
  * ATLAS — the whole inbox as a living corpus, filed into the user's own
@@ -90,6 +91,31 @@ function MatterCard({
             </span>
           </dd>
         </div>
+        {m.crm ? (
+          <div className="flex gap-2">
+            <dt className="w-[92px] shrink-0 text-[11px] font-semibold uppercase tracking-wide text-[var(--nav-muted)]">
+              Salesforce
+            </dt>
+            <dd className="min-w-0 flex-1 text-[var(--fg)]">
+              {[
+                m.crm.code,
+                m.crm.account,
+                m.crm.amount ? formatAmount(m.crm.amount) : "",
+                m.crm.stage,
+                m.crm.status,
+                m.crm.closeDate ? `closes ${m.crm.closeDate}` : "",
+              ]
+                .filter(Boolean)
+                .join(" · ")}
+              {m.crm.investigators?.length ? (
+                <span className="text-[var(--muted)]">
+                  {" "}
+                  · sites: {m.crm.investigators.join(", ")}
+                </span>
+              ) : null}
+            </dd>
+          </div>
+        ) : null}
         <div className="flex gap-2">
           <dt className="w-[92px] shrink-0 text-[11px] font-semibold uppercase tracking-wide text-[var(--nav-muted)]">
             Filed
@@ -195,6 +221,12 @@ function MatterRow({
         className="min-w-0 flex-1 truncate text-left text-[14px] leading-7"
       >
         <span className="font-semibold text-[var(--fg-strong)]">{m.title}</span>
+        {m.crm?.amount ? (
+          <span className="font-semibold text-[var(--brand)]">
+            {" "}
+            {formatAmount(m.crm.amount)}
+          </span>
+        ) : null}
         <span className="text-[var(--muted)]"> — {m.narrative}</span>
       </button>
     </li>

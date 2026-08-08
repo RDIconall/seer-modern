@@ -96,6 +96,66 @@ export function SettingsPanel({
   const [bbBusy, setBbBusy] = useState<string | null>(null);
   const [bbNote, setBbNote] = useState<string | null>(null);
 
+  const [sf, setSf] = useState<{
+    configured?: boolean;
+    flow?: string | null;
+    loginUrl?: string;
+    counts?: { studies: number; opportunities: number; sites: number };
+    pipelineValue?: number;
+    source?: string;
+    studyObject?: string;
+    siteObject?: string;
+    syncedAt?: string;
+  } | null>(null);
+  const [sfBusy, setSfBusy] = useState<string | null>(null);
+  const [sfNote, setSfNote] = useState<string | null>(null);
+  const [sfReport, setSfReport] = useState("");
+
+  const loadSf = useCallback(async () => {
+    try {
+      const res = await fetch("/api/salesforce", { cache: "no-store" });
+      const json = await res.json();
+      if (res.ok) setSf(json);
+    } catch {
+      /* optional */
+    }
+  }, []);
+
+  async function sfAction(action: "sync" | "report" | "clear") {
+    setSfBusy(action);
+    setSfNote(null);
+    try {
+      const res = await fetch("/api/salesforce", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(
+          action === "report" ? { report: sfReport } : { action },
+        ),
+      });
+      const json = await res.json();
+      if (!res.ok) throw new Error(json.error ?? "Failed");
+      if (action === "sync") {
+        setSfNote(
+          `Pulled ${json.opportunities} opportunities · ${json.studies} studies · ${json.sites} sites` +
+            (json.studyObject ? ` (from ${json.studyObject})` : "") +
+            (json.notes?.length ? ` — ${json.notes.join("; ")}` : ""),
+        );
+      } else if (action === "report") {
+        setSfNote(
+          `Imported ${json.counts.studies} studies · ${json.counts.opportunities} opportunities`,
+        );
+        setSfReport("");
+      } else {
+        setSfNote("Registry cleared.");
+      }
+      await loadSf();
+    } catch (e) {
+      setSfNote(e instanceof Error ? e.message : "Failed");
+    } finally {
+      setSfBusy(null);
+    }
+  }
+
   const loadBb = useCallback(async () => {
     try {
       const res = await fetch("/api/imessage", { cache: "no-store" });
@@ -201,7 +261,8 @@ export function SettingsPanel({
     loadEa();
     loadHealth();
     loadBb();
-  }, [load, loadProfile, loadEa, loadHealth, loadBb]);
+    loadSf();
+  }, [load, loadProfile, loadEa, loadHealth, loadBb, loadSf]);
 
   async function saveEa(payload: { email?: string; name?: string; clear?: boolean }) {
     setEaBusy(true);
@@ -674,6 +735,87 @@ export function SettingsPanel({
               Live probes of every Google API Seer depends on. Red means that
               feature is silently degraded — the detail says exactly why.
             </p>
+          </section>
+
+          <section className="mb-6">
+            <h2 className="mb-2 text-xs font-medium uppercase tracking-wide text-[var(--muted)]">
+              Salesforce
+            </h2>
+            <div className="rounded-xl border border-[var(--border)] bg-[var(--bg)] px-4 py-3">
+              <p className="mb-2 text-[12px] leading-relaxed text-[var(--muted)]">
+                Your pipeline is the truth mail can only hint at. Connected,
+                Atlas names branches by real study and opportunity codes,
+                weights matters by their actual dollar value, and recognizes
+                the investigators running awarded work.
+              </p>
+              <p className="mb-2 text-[12px]">
+                {sf?.configured ? (
+                  <span className="text-[#0b8043]">
+                    Credentials present ({sf.flow}) · {sf.loginUrl}
+                  </span>
+                ) : (
+                  <span className="text-[var(--muted)]">
+                    Not configured — add SALESFORCE_CLIENT_ID plus either
+                    SALESFORCE_USERNAME + SALESFORCE_PRIVATE_KEY (JWT bearer)
+                    or SALESFORCE_REFRESH_TOKEN as secrets, then sync.
+                  </span>
+                )}
+              </p>
+              {sf?.counts ? (
+                <p className="mb-2 text-[12px] text-[var(--fg)]">
+                  {sf.counts.opportunities} open opportunities
+                  {sf.pipelineValue
+                    ? ` worth $${Math.round(sf.pipelineValue).toLocaleString()}`
+                    : ""}{" "}
+                  · {sf.counts.studies} studies · {sf.counts.sites} sites
+                  {sf.source ? ` · via ${sf.source}` : ""}
+                  {sf.studyObject ? ` · studies from ${sf.studyObject}` : ""}
+                </p>
+              ) : null}
+              <div className="mb-2 flex flex-wrap items-center gap-2">
+                <button
+                  type="button"
+                  disabled={sfBusy != null || !sf?.configured}
+                  onClick={() => sfAction("sync")}
+                  className="rounded-full bg-[var(--primary)] px-4 py-1.5 text-[12px] font-semibold text-white disabled:opacity-50"
+                >
+                  {sfBusy === "sync" ? "Pulling…" : "Sync from Salesforce"}
+                </button>
+                {sf?.counts && sf.counts.studies + sf.counts.opportunities > 0 ? (
+                  <button
+                    type="button"
+                    disabled={sfBusy != null}
+                    onClick={() => sfAction("clear")}
+                    className="rounded-full px-3 py-1.5 text-[12px] font-medium text-[#d63b2f] disabled:opacity-50"
+                  >
+                    Clear registry
+                  </button>
+                ) : null}
+              </div>
+              <details>
+                <summary className="cursor-pointer text-[12px] text-[var(--muted)]">
+                  No API access yet? Paste a report instead
+                </summary>
+                <textarea
+                  value={sfReport}
+                  onChange={(e) => setSfReport(e.target.value)}
+                  rows={4}
+                  placeholder="Paste a Salesforce report (CSV or TSV) with study/opportunity codes"
+                  className="mt-2 w-full rounded-lg border border-[var(--border)] bg-[var(--card)] px-3 py-2 text-[12px]"
+                />
+                <button
+                  type="button"
+                  disabled={sfBusy != null || sfReport.trim().length < 10}
+                  onClick={() => sfAction("report")}
+                  className="mt-2 rounded-full border border-[var(--primary)] px-4 py-1.5 text-[12px] font-semibold text-[var(--primary)] disabled:opacity-50"
+                >
+                  {sfBusy === "report" ? "Importing…" : "Import report"}
+                </button>
+              </details>
+              {sfNote ? (
+                <p className="mt-2 text-[12px] text-[var(--fg)]">{sfNote}</p>
+              ) : null}
+            </div>
           </section>
 
           <section className="mb-6">

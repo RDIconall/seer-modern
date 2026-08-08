@@ -10,6 +10,8 @@ import {
   codeLabels,
   loadSalesforce,
   normalizeCode,
+  opportunityIndex,
+  type SalesforceRegistry,
 } from "@/lib/store/salesforce";
 
 /**
@@ -63,6 +65,16 @@ export type Matter = {
   subUnit?: string;
   /** What finishing this matter actually achieves — the project goal */
   goal?: string;
+  /** Live CRM facts for the study/opportunity behind this matter */
+  crm?: {
+    code?: string;
+    account?: string;
+    stage?: string;
+    amount?: number;
+    closeDate?: string;
+    status?: string;
+    investigators?: string[];
+  };
   /** The emails in this matter, each with its own suggestion */
   emails?: MatterEmail[];
   /** Below ~0.85 the org call is a SUGGESTION awaiting confirmation */
@@ -119,7 +131,7 @@ export type UnsureItem = {
  * treats any older brief as stale and rebuilds it, so a redesign never
  * leaves a stale Atlas on screen waiting for a manual refresh.
  */
-export const BRIEF_ENGINE = 5;
+export const BRIEF_ENGINE = 6;
 
 export type Brief = {
   builtAt: string;
@@ -402,6 +414,44 @@ function counterparty(item: EmailItem, ownDomain: string): string {
     : label.charAt(0).toUpperCase() + label.slice(1);
 }
 
+/**
+ * The CRM record behind a matter, resolved by the codes its emails cite.
+ * Amounts and stages come from Salesforce, never from the model.
+ */
+function crmFactsFor(
+  emails: EmailItem[],
+  idx: {
+    opps: Map<string, { account?: string; stage?: string; amount?: number; closeDate?: string; code: string }>;
+    studyIndex: Map<string, { account?: string; status?: string; name?: string; code: string }>;
+    sitesByStudy: Map<string, string[]>;
+  },
+): Matter["crm"] {
+  for (const e of emails) {
+    const codes =
+      `${e.subject}\n${e.snippet}\n${e.guide?.task ?? ""}`.match(CODE_PATTERN) ??
+      [];
+    for (const raw of codes) {
+      const k = normalizeCode(raw);
+      const opp = idx.opps.get(k);
+      const study = idx.studyIndex.get(k);
+      if (!opp && !study) continue;
+      const investigators = idx.sitesByStudy.get(k);
+      return {
+        code: (opp?.code ?? study?.code ?? raw).toUpperCase(),
+        account: opp?.account ?? study?.account,
+        stage: opp?.stage,
+        amount: opp?.amount,
+        closeDate: opp?.closeDate,
+        status: study?.status,
+        ...(investigators?.length
+          ? { investigators: [...new Set(investigators)].slice(0, 6) }
+          : {}),
+      };
+    }
+  }
+  return undefined;
+}
+
 /** Plain-language suggestion for one email, from its grade. */
 function suggestionFor(item: EmailItem): string {
   switch (item.guide?.action) {
@@ -496,10 +546,20 @@ export async function buildBrief(
 
   const functions = await loadFunctions(accountEmail);
   // Live studies/opportunities name the branches inside each function
-  const salesforce = await loadSalesforce(accountEmail).catch(
-    () => ({ studies: [], opportunities: [] }),
-  );
+  const salesforce: SalesforceRegistry = await loadSalesforce(
+    accountEmail,
+  ).catch(() => ({ studies: [], opportunities: [], sites: [] }));
   const labels = codeLabels(salesforce);
+  const opps = opportunityIndex(salesforce);
+  const studyIndex = new Map(
+    salesforce.studies.map((st) => [normalizeCode(st.code), st]),
+  );
+  const sitesByStudy = new Map<string, string[]>();
+  for (const site of salesforce.sites ?? []) {
+    if (!site.studyCode || !site.investigator) continue;
+    const k = normalizeCode(site.studyCode);
+    sitesByStudy.set(k, [...(sitesByStudy.get(k) ?? []), site.investigator]);
+  }
   const ownDomain = accountEmail.split("@")[1]?.toLowerCase() ?? "";
   // The user's own org corrections — absolute ground truth
   const fixes: MatterFixes = await loadMatterFixes(accountEmail).catch(
@@ -548,12 +608,29 @@ export async function buildBrief(
       orgUnit: m.orgUnit,
       people: m.people,
     })),
-    activeStudies: salesforce.studies
-      .slice(0, 60)
-      .map((x) => `${x.code}${x.name ? ` — ${x.name}` : ""}`),
-    openOpportunities: salesforce.opportunities
-      .slice(0, 60)
-      .map((x) => `${x.code}${x.name ? ` — ${x.name}` : ""}`),
+    // Live CRM truth: what is actually running, and what it is worth
+    activeStudies: salesforce.studies.slice(0, 80).map((x) =>
+      [x.code, x.name, x.account, x.status].filter(Boolean).join(" · "),
+    ),
+    openOpportunities: salesforce.opportunities.slice(0, 80).map((x) =>
+      [
+        x.code,
+        x.name,
+        x.account,
+        x.stage,
+        x.amount ? `$${Math.round(x.amount).toLocaleString()}` : "",
+        x.closeDate ? `closes ${x.closeDate}` : "",
+      ]
+        .filter(Boolean)
+        .join(" · "),
+    ),
+    knownInvestigators: (salesforce.sites ?? [])
+      .slice(0, 80)
+      .map((s) =>
+        [s.investigator, s.name, s.city, s.studyCode]
+          .filter(Boolean)
+          .join(" · "),
+      ),
     inbox: batch.map((i) => {
       const study = `${i.subject}\n${i.snippet}`.match(STUDY_CODE)?.[0];
       const d = i.guide?.debug;
@@ -677,6 +754,10 @@ export async function buildBrief(
         const first = m.emailIds.map((id) => byId.get(id)).find(Boolean);
         return first ? subUnitFor(first, labels, ownDomain) : undefined;
       })(),
+      crm: crmFactsFor(
+        m.emailIds.map((id) => byId.get(id)).filter((i): i is EmailItem => Boolean(i)),
+        { opps, studyIndex, sitesByStudy },
+      ),
       emails: m.emailIds
         .map((id) => byId.get(id))
         .filter((i): i is EmailItem => Boolean(i))
@@ -698,7 +779,11 @@ export async function buildBrief(
       updatedAt: new Date().toISOString(),
     }))
     .filter((m) => m.emailIds.length > 0)
-    .sort((a, b) => b.urgency - a.urgency);
+    .sort(
+      (a, b) =>
+        b.urgency - a.urgency ||
+        (b.crm?.amount ?? 0) - (a.crm?.amount ?? 0),
+    );
 
   // TOTAL COVERAGE — the model returns only meaningful matters. Every
   // remaining graded email is filed into the org tree locally, avoiding
