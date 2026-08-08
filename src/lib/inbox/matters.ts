@@ -197,6 +197,21 @@ const briefSchema = z.object({
     .describe("group ALL digestInbox emails into 3-8 themes"),
 });
 
+const digestSchema = z.object({
+  summary: z
+    .string()
+    .describe(
+      "One concise paragraph covering the entire FYI/read-and-delete corpus; include only dates, amounts, exceptions, and insights worth the user's attention",
+    ),
+  themes: z.array(
+    z.object({
+      theme: z.string(),
+      line: z.string(),
+      emailIds: z.array(z.string()),
+    }),
+  ),
+});
+
 function keyFor(accountEmail: string) {
   return `brief:${accountKey(accountEmail)}`;
 }
@@ -243,6 +258,38 @@ THE DIGEST — "digestInbox" is the FYI / read-then-delete mass. Do NOT make mat
 
 - Never invent emails or matters. Every matter cites the emailIds that evidence it.`;
 
+const DIGEST_SYSTEM = `You are the executive briefing editor. Summarize a corpus of FYI and read-then-delete emails AS A WHOLE so the user never needs to open them one by one.
+- The summary is one concise paragraph. Mention only consequential dates, amounts, exceptions, and the few insights worth retaining.
+- Group the corpus into 3-8 themes. Each theme gets one covering sentence, not one sentence per email.
+- Every input email id must appear in exactly one theme. Never invent ids or facts.`;
+
+function inferredOrgUnit(item: EmailItem, functions: string[]): string {
+  const hay = `${item.guide?.category ?? ""} ${item.subject}`.toLowerCase();
+  const patterns: [RegExp, RegExp][] = [
+    [/\b(finance|invoice|receipt|bill|payment|bank|autopay|purchase order)\b/, /finance/i],
+    [/\b(recruit|candidate|interview)\b/, /recruit/i],
+    [/\b(employee|benefit|payroll|human resources)\b/, /\bhr\b|human resources/i],
+    [/\b(it|software|saas|security|system)\b/, /systems|information technology|\bit\b/i],
+    [/\b(facility|office|building|lease|vehicle)\b/, /office|facilit/i],
+    [/\b(marketing|campaign|conference|event)\b/, /marketing/i],
+    [/\b(board|investor)\b/, /board/i],
+    [/\b(study|protocol|irb|site|clinical|sample)\b/, /operations.*stud/i],
+    [/\b(contract|nda|cda|sow|msa|signature)\b/, /sales.*contract/i],
+    [/\b(rfq|quote|proposal|feasibility|new request)\b/, /sales.*new request/i],
+    [/\b(lead|prospect|introduction)\b/, /sales.*lead/i],
+  ];
+  for (const [signal, fn] of patterns) {
+    if (!signal.test(hay)) continue;
+    const match = functions.find((f) => fn.test(f));
+    if (match) return match;
+  }
+  return (
+    functions.find((f) => /operations/i.test(f)) ??
+    functions[0] ??
+    "unsorted"
+  );
+}
+
 /**
  * Rebuild the brief from the CURRENT inbox (graded) + the previous
  * brief's matters (memory). One long-context call; runs deferred.
@@ -258,9 +305,9 @@ export async function buildBrief(
   // digest), never worked one by one. Headlines stay as the per-line
   // fallback for clients that predate the digest.
   const DIGEST_ACTIONS = new Set(["read_and_delete", "glance_promo"]);
-  const digestItems = items
-    .filter((i) => DIGEST_ACTIONS.has(i.guide?.action ?? ""))
-    .slice(0, 150);
+  const digestItems = items.filter((i) =>
+    DIGEST_ACTIONS.has(i.guide?.action ?? ""),
+  );
   const headlineItems = items.filter(
     (i) => i.guide?.action === "read_and_delete",
   );
@@ -276,14 +323,14 @@ export async function buildBrief(
 
   // Matters get everything else that's still in the inbox — capped by
   // importance then recency so a 300-email backlog can't blow the call
-  const matterCandidates = items
+  const allMatterCandidates = items
     .filter((i) => !DIGEST_ACTIONS.has(i.guide?.action ?? ""))
     .sort(
       (a, b) =>
         (b.guide?.importance ?? 1) - (a.guide?.importance ?? 1) ||
         (a.receivedAt < b.receivedAt ? 1 : -1),
-    )
-    .slice(0, 120);
+    );
+  const matterCandidates = allMatterCandidates.slice(0, 120);
 
   const functions = await loadFunctions(accountEmail);
   // The user's own org corrections — absolute ground truth
@@ -356,25 +403,59 @@ export async function buildBrief(
           : {}),
       };
     }),
-    digestInbox: digestItems.map((i) => ({
-      id: i.id,
-      from: stripEmoji(i.fromName || i.fromEmail),
-      subject: stripEmoji(i.subject),
-      gist: stripEmoji(i.guide?.task ?? i.snippet.slice(0, 120)),
-    })),
   };
 
   const { model } = await getTriageModel();
   const profileBlock = profilePromptBlock(profile ?? null);
-  const { output } = await generateText({
-    model,
-    temperature: 0,
-    maxRetries: 1,
-    abortSignal: AbortSignal.timeout(120_000),
-    output: Output.object({ schema: briefSchema }),
-    system: profileBlock ? `${SYSTEM}\n\n${profileBlock}` : SYSTEM,
-    prompt: JSON.stringify(payload),
-  });
+  // Matters and the digest are independent bounded calls. Asking one
+  // response to cluster work, file hundreds of ids, and write the digest
+  // repeatedly exceeded the 120-second limit on a 500-message inbox.
+  const [{ output }, { output: digestOutput }] = await Promise.all([
+    generateText({
+      model,
+      temperature: 0,
+      maxRetries: 1,
+      abortSignal: AbortSignal.timeout(180_000),
+      output: Output.object({ schema: briefSchema }),
+      system: profileBlock ? `${SYSTEM}\n\n${profileBlock}` : SYSTEM,
+      prompt: JSON.stringify(payload),
+    }),
+    digestItems.length
+      ? generateText({
+          model,
+          temperature: 0,
+          maxRetries: 1,
+          abortSignal: AbortSignal.timeout(120_000),
+          output: Output.object({ schema: digestSchema }),
+          system: DIGEST_SYSTEM,
+          prompt: JSON.stringify(
+            digestItems.map((i) => ({
+              id: i.id,
+              from: stripEmoji(i.fromName || i.fromEmail),
+              subject: stripEmoji(i.subject),
+              gist: stripEmoji(i.guide?.task ?? i.snippet.slice(0, 120)),
+            })),
+          ),
+        }).catch((error) => {
+          console.error(
+            "[seer] digest generation failed; preserving corpus:",
+            error instanceof Error ? error.message : error,
+          );
+          return {
+            output: {
+              summary: `${digestItems.length} FYI updates were grouped for clearing; open the theme below only if you need the individual details.`,
+              themes: [
+                {
+                  theme: "Inbox updates",
+                  line: "Routine FYI and read-then-delete messages; no individual review required.",
+                  emailIds: digestItems.map((i) => i.id),
+                },
+              ],
+            },
+          };
+        })
+      : Promise.resolve({ output: { summary: "", themes: [] } }),
+  ]);
 
   const byId = new Map(matterCandidates.map((i) => [i.id, i]));
   const matters: Matter[] = output.matters
@@ -436,10 +517,28 @@ export async function buildBrief(
     }
   }
 
+  // The model sees the most consequential 120 candidates. The remainder
+  // still belongs to the living corpus: file it from its existing grade
+  // instead of dropping it or demanding hundreds more output objects.
+  for (const i of allMatterCandidates.slice(matterCandidates.length)) {
+    filed.push({
+      emailId: i.id,
+      threadId: i.threadId,
+      orgUnit: inferredOrgUnit(i, functions),
+      line: stripEmoji(
+        `${i.fromName || i.fromEmail} — ${
+          i.guide?.task && i.guide.task !== "none"
+            ? i.guide.task
+            : i.subject
+        }`,
+      ).slice(0, 110),
+    });
+  }
+
   const digestIdSet = new Set(digestItems.map((i) => i.id));
   const digest: Digest = {
-    summary: output.digestSummary ?? "",
-    themes: (output.digestThemes ?? [])
+    summary: digestOutput.summary,
+    themes: digestOutput.themes
       .map((t) => ({
         ...t,
         emailIds: t.emailIds.filter((id) => digestIdSet.has(id)),
