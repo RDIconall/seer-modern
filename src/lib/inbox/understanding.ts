@@ -1,0 +1,292 @@
+import { getTriageModel } from "@/lib/inbox/gemini-triage";
+import { stripEmoji } from "@/lib/inbox/types";
+import type { MailMessageListItem } from "@/lib/mail/types";
+import { generateText, Output } from "ai";
+import { z } from "zod";
+
+/**
+ * THE UNDERSTANDING RECORD — one deep read per email, cached forever.
+ *
+ * Every judgment Seer makes downstream (which matter, which org unit, does
+ * it await your signature, how loud) comes from this record. Rules keep
+ * only the work they're better at: exact codes, amounts, dates, headers.
+ *
+ * Bump UNDERSTANDING_VERSION when the schema or prompt changes; records
+ * from older versions are re-read.
+ */
+
+export const UNDERSTANDING_VERSION = 1;
+
+/** Bodies are trimmed here — beyond this, signature blocks and quoted
+ * history dominate and add tokens without adding meaning. */
+const BODY_CHARS = 8_000;
+
+export type SignatureAsk = {
+  /** "UC Davis Mutual CDA" — the document itself, not the subject line */
+  document: string;
+  counterparty?: string;
+  /** "Adobe Sign" | "DocuSign" | "SignNow" | "email attachment" */
+  platform?: string;
+};
+
+export type Understanding = {
+  id: string;
+  threadId: string;
+  version: number;
+  readAt: string;
+  /** "signature request" | "invoice" | "study update" | "newsletter" … */
+  kind: string;
+  /** What this is, in one line, in the user's own vocabulary */
+  oneLine: string;
+  /** What is wanted, or "nothing — informational" */
+  ask: string;
+  owner: "you" | "team" | "them" | "nobody";
+  /** ISO date, only when the email actually states one */
+  deadline?: string;
+  /** Extracted deterministically from the body, never model-authored */
+  amounts?: number[];
+  entities: string[];
+  /** Present ⇒ a document is waiting for the user's signature */
+  signature?: SignatureAsk;
+  /** The model's org call, validated against the user's registry */
+  org: { unit: string; confidence: number };
+  importance: number;
+};
+
+export type UnderstandingMap = Record<string, Understanding>;
+
+const recordSchema = z.object({
+  id: z.string(),
+  kind: z
+    .string()
+    .describe(
+      'what this email IS, 1-4 words: "signature request", "invoice", "study update", "IRB query", "shipping notice", "newsletter", "recruiting spam", "personal note"',
+    ),
+  oneLine: z
+    .string()
+    .describe(
+      "one line of what this actually says, concrete and specific — names, documents, amounts. Never restate the subject.",
+    ),
+  ask: z
+    .string()
+    .describe(
+      'what is being asked, imperative, or exactly "nothing — informational"',
+    ),
+  owner: z.enum(["you", "team", "them", "nobody"]),
+  deadline: z
+    .string()
+    .optional()
+    .describe("ISO date (YYYY-MM-DD) ONLY if the email states a real date"),
+  entities: z
+    .array(z.string())
+    .describe("companies and people named in the email, max 6"),
+  awaitsSignature: z
+    .boolean()
+    .describe(
+      "true ONLY when a document is waiting for THIS USER to sign it (an e-sign invitation addressed to them, or an attached agreement they must execute). False for copies, completed notifications, and other people's signatures.",
+    ),
+  signatureDocument: z
+    .string()
+    .optional()
+    .describe(
+      'the document awaiting signature, named as a person would say it: "UC Davis Mutual CDA", "RDI_SOW-010 Trademarking Support"',
+    ),
+  signatureCounterparty: z.string().optional(),
+  signaturePlatform: z
+    .string()
+    .optional()
+    .describe('"Adobe Sign", "DocuSign", "SignNow", or "email attachment"'),
+  orgUnit: z
+    .string()
+    .describe(
+      "the function from the payload's functions list this belongs to, verbatim",
+    ),
+  orgConfidence: z.number().min(0).max(1),
+  importance: z
+    .number()
+    .min(0)
+    .max(3)
+    .describe(
+      "3 = costs money or a relationship today; 2 = real work owed; 1 = worth knowing; 0 = disposable",
+    ),
+});
+
+const batchSchema = z.object({ records: z.array(recordSchema) });
+
+const SYSTEM = `You read a CEO's email and record what it MEANS. One record per email. You are the only thing standing between this person and a mountain of mail, so be concrete: name the document, the company, the number, the date.
+
+Rules:
+- oneLine: what the email actually says, not a restatement of the subject. "Bilal sent the UC Davis mutual CDA for your signature via Adobe Sign" — not "Signature request".
+- ask: the specific thing wanted from the user, imperative ("Sign the UC Davis mutual CDA"), or exactly "nothing — informational" when nothing is owed.
+- owner: "you" only when this person must personally act. "team" when a named colleague owns it. "them" when the ball is in the counterparty's court. "nobody" for pure notices.
+- awaitsSignature: true ONLY when a document is waiting for THIS USER to execute — an e-sign invitation addressed to them, or an attached agreement they must sign. A "completed"/"signed by all parties" notice is NOT awaiting signature. Someone else's signature request forwarded for information is NOT.
+- orgUnit: MUST be one entry from the payload's functions list, verbatim. Judge by what the email IS ABOUT and which direction money flows, never by the sender's domain:
+  · A signature platform (Adobe Sign, DocuSign) is only the DELIVERY MECHANISM. File by the document: a customer CDA is sales — contracting; a state dissolution form or an acquisition approval is finance (ar/ap) or the board; a vendor's software agreement is systems (it).
+  · Internal corporate paperwork (entity dissolution, registrations, acquisitions, tax, insurance) is NOT customer contracting.
+  · Awarded, running work with a study code is operations — studies. Pricing or feasibility requests are sales — new requests. Payment chases are finance (ar/ap).
+- orgConfidence: be honest. Below 0.6 means you truly could not tell.
+- importance: what happens if this is ignored for a week.
+- Never invent a fact, a date, or a document name. If the body doesn't say it, leave it out.`;
+
+/** Amounts belong to a regex, not a model — models paraphrase numbers. */
+const AMOUNT = /\$\s?([\d,]+(?:\.\d{2})?)/g;
+
+function extractAmounts(text: string): number[] {
+  const out: number[] = [];
+  for (const m of text.matchAll(AMOUNT)) {
+    const n = Number(m[1].replace(/,/g, ""));
+    if (Number.isFinite(n) && n > 0) out.push(n);
+  }
+  return [...new Set(out)].sort((a, b) => b - a).slice(0, 6);
+}
+
+export type ReadInput = Pick<
+  MailMessageListItem,
+  "id" | "threadId" | "fromEmail" | "fromName" | "subject" | "snippet"
+> & { body?: string };
+
+/** How many emails share one model call. Bodies are big; keep it modest. */
+const PER_CALL = 6;
+
+export type ReadOptions = {
+  functions: string[];
+  fetchBody: (id: string) => Promise<string | null>;
+  /** Stop starting new calls past this deadline (cron ticks are bounded) */
+  deadlineMs?: number;
+  /** Parallel model calls */
+  concurrency?: number;
+  onProgress?: (done: number) => void;
+};
+
+/**
+ * Read a set of emails deeply. Returns only the records it managed to
+ * produce — the caller merges them into the store, so a partial pass is
+ * progress rather than failure.
+ */
+export async function readEmails(
+  items: ReadInput[],
+  opts: ReadOptions,
+): Promise<Understanding[]> {
+  if (items.length === 0) return [];
+  const { model } = await getTriageModel();
+  const deadline = opts.deadlineMs ?? Date.now() + 120_000;
+  const concurrency = opts.concurrency ?? 3;
+
+  const batches: ReadInput[][] = [];
+  for (let i = 0; i < items.length; i += PER_CALL) {
+    batches.push(items.slice(i, i + PER_CALL));
+  }
+
+  const out: Understanding[] = [];
+  let cursor = 0;
+
+  async function worker() {
+    for (;;) {
+      const n = cursor++;
+      const batch = batches[n];
+      if (!batch || Date.now() > deadline) return;
+
+      const bodies = await Promise.all(
+        batch.map(async (m) => {
+          if (m.body) return m.body;
+          try {
+            return (await opts.fetchBody(m.id)) ?? m.snippet;
+          } catch {
+            return m.snippet;
+          }
+        }),
+      );
+
+      const payload = {
+        functions: opts.functions,
+        emails: batch.map((m, k) => ({
+          id: m.id,
+          from: stripEmoji(m.fromName || m.fromEmail),
+          fromEmail: m.fromEmail,
+          subject: stripEmoji(m.subject),
+          body: stripEmoji(bodies[k] ?? "").slice(0, BODY_CHARS),
+        })),
+      };
+
+      try {
+        const { output } = await generateText({
+          model,
+          temperature: 0,
+          maxRetries: 1,
+          abortSignal: AbortSignal.timeout(
+            Math.max(15_000, Math.min(90_000, deadline - Date.now())),
+          ),
+          output: Output.object({ schema: batchSchema }),
+          system: SYSTEM,
+          prompt: JSON.stringify(payload),
+        });
+
+        const byId = new Map(batch.map((m) => [m.id, m]));
+        for (const r of output.records) {
+          const src = byId.get(r.id);
+          if (!src) continue;
+          const bodyText =
+            bodies[batch.indexOf(src)] ?? `${src.subject} ${src.snippet}`;
+          out.push({
+            id: r.id,
+            threadId: src.threadId,
+            version: UNDERSTANDING_VERSION,
+            readAt: new Date().toISOString(),
+            kind: stripEmoji(r.kind).slice(0, 40),
+            oneLine: stripEmoji(r.oneLine).slice(0, 200),
+            ask: stripEmoji(r.ask).slice(0, 160),
+            owner: r.owner,
+            ...(r.deadline && /^\d{4}-\d{2}-\d{2}/.test(r.deadline)
+              ? { deadline: r.deadline.slice(0, 10) }
+              : {}),
+            ...(() => {
+              const amounts = extractAmounts(
+                `${src.subject}\n${bodyText.slice(0, BODY_CHARS)}`,
+              );
+              return amounts.length ? { amounts } : {};
+            })(),
+            entities: r.entities.slice(0, 6).map((e) => stripEmoji(e).slice(0, 60)),
+            ...(r.awaitsSignature && r.signatureDocument
+              ? {
+                  signature: {
+                    document: stripEmoji(r.signatureDocument).slice(0, 90),
+                    ...(r.signatureCounterparty
+                      ? {
+                          counterparty: stripEmoji(
+                            r.signatureCounterparty,
+                          ).slice(0, 60),
+                        }
+                      : {}),
+                    ...(r.signaturePlatform
+                      ? {
+                          platform: stripEmoji(r.signaturePlatform).slice(
+                            0,
+                            30,
+                          ),
+                        }
+                      : {}),
+                  },
+                }
+              : {}),
+            org: {
+              unit: r.orgUnit,
+              confidence: r.orgConfidence,
+            },
+            importance: r.importance,
+          });
+        }
+        opts.onProgress?.(out.length);
+      } catch (e) {
+        console.error(
+          `[seer] deep read batch ${n + 1}/${batches.length} failed:`,
+          e instanceof Error ? e.message : e,
+        );
+      }
+    }
+  }
+
+  await Promise.all(
+    Array.from({ length: Math.min(concurrency, batches.length) }, worker),
+  );
+  return out;
+}

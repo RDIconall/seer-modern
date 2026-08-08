@@ -25,7 +25,83 @@ export type ActionGuide = {
   harm?: string;
   /** The actionable sentence pulled from the email — old Seer style */
   ask?: string;
+  /** The implied action — imperative ("Fix the autopay payment") or "Be aware: …" */
+  task?: string;
+  /** Life bucket ("Old trip", "Groceries — delivered", "Money & bills") */
+  category?: string;
+  /** 0 noise · 1 marginal · 2 relevant · 3 critical */
+  importance?: number;
 };
+
+/** Rules-decided mail gets a coarse but honest life bucket. */
+function categoryFor(ruleId: string | undefined, action: TriageAction): string {
+  const r = ruleId ?? "";
+  if (/invite|rsvp|meeting/.test(r)) return "Calendar";
+  if (/shipper|delivery/.test(r)) return "Deliveries";
+  if (/finance|money|autopay|subscription/.test(r)) return "Money & bills";
+  if (/already-replied/.test(r)) return "Handled";
+  if (/urgency-expired/.test(r)) return "Expired";
+  if (/shopping|promo|marketing|urgency-bait/.test(r)) return "Shopping & promos";
+  if (/product/.test(r)) return "Product updates";
+  if (/edu-gov/.test(r)) return "School & gov";
+  if (/contact|engaged|personal/.test(r)) return "People";
+  switch (action) {
+    case "respond":
+      return "People";
+    case "review_subscription":
+      return "Money & bills";
+    case "unsubscribe":
+      return "Mailing lists";
+    case "glance_promo":
+      return "Shopping & promos";
+    case "read_and_archive":
+      return "Records";
+    default:
+      return "Everything else";
+  }
+}
+
+/**
+ * Every email carries an implied action — a concrete verb, or an
+ * explicit "Be aware". Rules-decided mail synthesizes one here; Gemini
+ * supplies its own (and the discipline of naming it keeps it honest).
+ */
+function impliedTask(
+  action: TriageAction,
+  subject: string,
+  ask?: string,
+): string {
+  // Echo the ask when it fits as an action phrase — never truncate;
+  // an ellipsised sentence is not a task, long asks display separately.
+  if (
+    ask &&
+    ask.length <= 80 &&
+    (action === "respond" || action === "act_today" || action === "needs_review")
+  ) {
+    return `Do it: ${ask.replace(/[?.!]\s*$/, "")}`;
+  }
+  const gist = subject.slice(0, 44) + (subject.length > 44 ? "…" : "");
+  switch (action) {
+    case "respond":
+      return "Reply — they're waiting";
+    case "act_today":
+      return "Handle it today";
+    case "review_subscription":
+      return "Check the charge";
+    case "needs_review":
+      return "Your call — decide";
+    case "read_and_archive":
+    case "read_and_delete":
+      // Rules can't read the body — the subject IS the best fact we have
+      return gist;
+    case "delete_now":
+      return "Nothing — delete it";
+    case "unsubscribe":
+      return "Unsubscribe — dead list";
+    case "glance_promo":
+      return "Glance: worth buying?";
+  }
+}
 
 const WANTS_ASK = new Set<TriageAction>([
   "respond",
@@ -78,6 +154,9 @@ export function buildActionGuideQuick(
   classification: ClassifyResult & {
     source?: "gemini" | "rules" | "override" | "learned";
     instruction?: string;
+    task?: string;
+    category?: string;
+    importance?: number;
   },
   subject: string,
   fromName?: string,
@@ -109,6 +188,13 @@ export function buildActionGuideQuick(
     who: story.who,
     harm: story.harm,
     ask,
+    task:
+      classification.task?.trim() ||
+      impliedTask(classification.action, subject, ask),
+    category:
+      classification.category?.trim() ||
+      categoryFor(classification.debug?.ruleId, classification.action),
+    importance: classification.importance,
   };
 }
 
@@ -116,6 +202,9 @@ export async function buildActionGuideDetailed(
   classification: ClassifyResult & {
     source?: "gemini" | "rules" | "override" | "learned";
     instruction?: string;
+    task?: string;
+    category?: string;
+    importance?: number;
   },
   subject: string,
   snippet: string,
@@ -168,5 +257,12 @@ export async function buildActionGuideDetailed(
     who: story.who,
     harm: story.harm,
     ask,
+    task:
+      classification.task?.trim() ||
+      impliedTask(classification.action, subject, ask),
+    category:
+      classification.category?.trim() ||
+      categoryFor(classification.debug?.ruleId, classification.action),
+    importance: classification.importance,
   };
 }

@@ -55,6 +55,12 @@ export async function getAccount(
   return store.accounts.find((a) => a.id === id);
 }
 
+/** Full accounts WITH tokens — background services only (cron sync). */
+export async function listAccountsWithTokens(): Promise<StoredAccount[]> {
+  const store = await readStore();
+  return store.accounts;
+}
+
 export async function upsertAccount(input: {
   provider: MailProvider;
   email: string;

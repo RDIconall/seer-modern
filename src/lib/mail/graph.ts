@@ -5,12 +5,36 @@ import type {
   SendMailInput,
 } from "@/lib/mail/types";
 
+/**
+ * Graph throttles bursts with 429 + Retry-After. One throttled call
+ * must never sink a whole inbox load — honor the header, retry, then
+ * fail only if Graph keeps saying no.
+ */
+export async function graphRawFetch(
+  url: string,
+  init: RequestInit,
+): Promise<Response> {
+  let last: Response | null = null;
+  for (let attempt = 0; attempt < 4; attempt++) {
+    if (attempt > 0) {
+      const retryAfter = Number(last?.headers.get("retry-after") ?? 0);
+      const wait =
+        retryAfter > 0 ? Math.min(retryAfter, 12) * 1000 : 500 * 2 ** attempt;
+      await new Promise((r) => setTimeout(r, wait));
+    }
+    const res = await fetch(url, init);
+    if (res.ok || (res.status !== 429 && res.status < 500)) return res;
+    last = res;
+  }
+  return last as Response;
+}
+
 async function graphFetch(
   accessToken: string,
   path: string,
   init?: RequestInit,
 ) {
-  const res = await fetch(`https://graph.microsoft.com/v1.0${path}`, {
+  const res = await graphRawFetch(`https://graph.microsoft.com/v1.0${path}`, {
     ...init,
     headers: {
       Authorization: `Bearer ${accessToken}`,
@@ -70,6 +94,21 @@ function folderPath(folder: MailFolder): string {
   return "/me/mailFolders/inbox/messages";
 }
 
+/** The authoritative inbox size, straight from Graph. */
+export async function getGraphInboxTotals(
+  accessToken: string,
+): Promise<{ messages: number; threads: number } | null> {
+  try {
+    const r = (await graphFetch(
+      accessToken,
+      "/me/mailFolders/inbox?$select=totalItemCount",
+    )) as { totalItemCount?: number };
+    return { messages: r.totalItemCount ?? 0, threads: 0 };
+  } catch {
+    return null;
+  }
+}
+
 export async function listGraphInbox(
   accessToken: string,
   maxResults = 40,
@@ -101,11 +140,16 @@ export async function listGraphFolder(
   const out: MailMessageListItem[] = [];
   let next: string | undefined = first.toString();
   while (next && out.length < maxResults) {
-    const res = await fetch(next, {
+    const res = await graphRawFetch(next, {
       headers: { Authorization: `Bearer ${accessToken}` },
       cache: "no-store",
     });
-    if (!res.ok) throw new Error(`Graph folder ${folder}: ${res.status}`);
+    if (!res.ok) {
+      // A page that still won't come after retries: serve what we have
+      // rather than failing the whole load with nothing.
+      if (out.length > 0) break;
+      throw new Error(`Graph folder ${folder}: ${res.status}`);
+    }
     const data = (await res.json()) as {
       value?: GraphMessage[];
       "@odata.nextLink"?: string;
@@ -133,7 +177,7 @@ export async function searchGraph(
     "$select",
     "id,conversationId,subject,bodyPreview,receivedDateTime,sentDateTime,isRead,from,toRecipients",
   );
-  const res = await fetch(url.toString(), {
+  const res = await graphRawFetch(url.toString(), {
     headers: {
       Authorization: `Bearer ${accessToken}`,
       ConsistencyLevel: "eventual",
@@ -160,8 +204,24 @@ export async function getGraphMessage(
 ): Promise<MailMessageDetail> {
   const m = (await graphFetch(
     accessToken,
-    `/me/messages/${id}?$select=id,conversationId,subject,body,bodyPreview,receivedDateTime,isRead,from,toRecipients,ccRecipients,internetMessageId`,
-  )) as GraphMessage;
+    `/me/messages/${id}?$select=id,conversationId,subject,body,bodyPreview,receivedDateTime,isRead,from,toRecipients,ccRecipients,internetMessageId,hasAttachments`,
+  )) as GraphMessage & { hasAttachments?: boolean };
+
+  let attachments: MailMessageDetail["attachments"];
+  if (m.hasAttachments) {
+    const list = (await graphFetch(
+      accessToken,
+      `/me/messages/${id}/attachments?$select=id,name,contentType,size`,
+    ).catch(() => null)) as {
+      value?: { id: string; name?: string; contentType?: string; size?: number }[];
+    } | null;
+    attachments = (list?.value ?? []).map((a) => ({
+      id: a.id,
+      filename: a.name ?? "attachment",
+      mimeType: a.contentType ?? "application/octet-stream",
+      size: a.size ?? 0,
+    }));
+  }
   const html = m.body?.contentType === "html" ? (m.body.content ?? "") : "";
   const text =
     m.body?.contentType === "text"
@@ -181,7 +241,22 @@ export async function getGraphMessage(
     toEmail: recipientsToString(m.toRecipients),
     ccEmail: recipientsToString(m.ccRecipients),
     messageIdHeader: m.internetMessageId ?? "",
+    attachments,
   };
+}
+
+/** Raw attachment bytes (fileAttachment contentBytes). */
+export async function getGraphAttachment(
+  accessToken: string,
+  messageId: string,
+  attachmentId: string,
+): Promise<Buffer> {
+  const res = await graphRawFetch(
+    `https://graph.microsoft.com/v1.0/me/messages/${messageId}/attachments/${attachmentId}/$value`,
+    { headers: { Authorization: `Bearer ${accessToken}` }, cache: "no-store" },
+  );
+  if (!res.ok) throw new Error(`Graph attachment: ${res.status}`);
+  return Buffer.from(await res.arrayBuffer());
 }
 
 function parseAddresses(raw: string): { emailAddress: { address: string } }[] {
@@ -263,4 +338,32 @@ export async function graphAction(
     method: "POST",
     body: JSON.stringify({ destinationId: archiveId }),
   });
+}
+
+/**
+ * Outlook has no thread endpoint — find every inbox message in the
+ * conversation and act on each, so the whole thread clears at once.
+ */
+export async function graphThreadAction(
+  accessToken: string,
+  conversationId: string,
+  action: "archive" | "trash" | "read",
+) {
+  const url = new URL(
+    "https://graph.microsoft.com/v1.0/me/mailFolders/inbox/messages",
+  );
+  url.searchParams.set(
+    "$filter",
+    `conversationId eq '${conversationId.replace(/'/g, "''")}'`,
+  );
+  url.searchParams.set("$select", "id");
+  url.searchParams.set("$top", "50");
+  const res = await graphRawFetch(url.toString(), {
+    headers: { Authorization: `Bearer ${accessToken}` },
+    cache: "no-store",
+  });
+  if (!res.ok) throw new Error(`Graph thread lookup: ${res.status}`);
+  const data = (await res.json()) as { value?: { id: string }[] };
+  const ids = (data.value ?? []).map((m) => m.id);
+  await Promise.allSettled(ids.map((id) => graphAction(accessToken, id, action)));
 }

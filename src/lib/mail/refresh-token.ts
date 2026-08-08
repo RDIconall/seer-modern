@@ -23,8 +23,11 @@ export async function refreshAccessToken(
       return await refreshMicrosoft(token);
     }
     return { ...token, error: "UnsupportedProvider" };
-  } catch {
-    return { ...token, error: "RefreshAccessTokenError" };
+  } catch (e) {
+    return {
+      ...token,
+      error: `RefreshAccessTokenError: ${e instanceof Error ? e.message : e}`,
+    };
   }
 }
 
@@ -48,7 +51,7 @@ async function refreshGoogle(
     error?: string;
   };
   if (!res.ok || !data.access_token) {
-    throw new Error(data.error ?? "Google refresh failed");
+    throw new Error(`google ${res.status}: ${JSON.stringify(data).slice(0, 160)}`);
   }
   return {
     ...token,
@@ -87,7 +90,7 @@ async function refreshMicrosoft(
     error?: string;
   };
   if (!res.ok || !data.access_token) {
-    throw new Error(data.error ?? "Microsoft refresh failed");
+    throw new Error(`microsoft ${res.status}: ${JSON.stringify(data).slice(0, 160)}`);
   }
   return {
     ...token,

@@ -1,8 +1,10 @@
 "use client";
 
-import DOMPurify from "dompurify";
+import { sanitizeEmailHtml } from "@/lib/inbox/sanitize";
 import {
   Archive,
+  Map,
+  Check,
   Forward,
   Inbox,
   Layers,
@@ -22,6 +24,13 @@ import { useSearchParams } from "next/navigation";
 import { logout } from "@/app/actions";
 import { CardStack } from "@/components/inbox/CardStack";
 import { ComposePanel } from "@/components/inbox/ComposePanel";
+import { DelegateSheet } from "@/components/inbox/DelegateSheet";
+import { ScheduleSheet } from "@/components/inbox/ScheduleSheet";
+import { UnsubAgentSheet } from "@/components/inbox/UnsubAgentSheet";
+import { VipSheet } from "@/components/inbox/VipSheet";
+import { BriefPanel } from "@/components/inbox/BriefPanel";
+import { CatchupCard } from "@/components/inbox/CatchupCard";
+import { TriageTable } from "@/components/inbox/TriageTable";
 import { AssistBar } from "@/components/inbox/AssistBar";
 import {
   LogicExplain,
@@ -29,25 +38,17 @@ import {
   ReaderGuideBar,
 } from "@/components/inbox/LogicExplain";
 import { SettingsPanel } from "@/components/inbox/SettingsPanel";
-import { ACTION_META, type TriageAction } from "@/lib/inbox/classify";
+import { type TriageAction } from "@/lib/inbox/classify";
 import { useMailbox } from "@/lib/inbox/use-mailbox";
 import {
+  actionThreadId,
   buildDeckCards,
   ensureRe,
   formatMailTime,
   mailInitial,
-  primaryMailAction,
   type EmailItem,
   type ViewTab,
 } from "@/lib/inbox/types";
-
-const QUICK_ACTIONS: TriageAction[] = [
-  "respond",
-  "read_and_archive",
-  "delete_now",
-  "unsubscribe",
-  "act_today",
-];
 
 const FOLDER_LABEL: Record<ViewTab, string> = {
   inbox: "Inbox",
@@ -55,6 +56,7 @@ const FOLDER_LABEL: Record<ViewTab, string> = {
   trash: "Trash",
   triage: "Triage",
   cards: "Cards",
+  atlas: "Atlas",
 };
 
 const FOLDERS: { tab: ViewTab; label: string; icon: ReactNode }[] = [
@@ -62,6 +64,7 @@ const FOLDERS: { tab: ViewTab; label: string; icon: ReactNode }[] = [
   { tab: "sent", label: "Sent", icon: <Send className="h-4 w-4" /> },
   { tab: "trash", label: "Trash", icon: <Trash2 className="h-4 w-4" /> },
   { tab: "cards", label: "Cards", icon: <Layers className="h-4 w-4" /> },
+  { tab: "atlas", label: "Atlas", icon: <Map className="h-4 w-4" /> },
   { tab: "triage", label: "Triage", icon: <ListFilter className="h-4 w-4" /> },
 ];
 
@@ -92,16 +95,38 @@ export function DesktopMailApp() {
     refreshIdentity,
     runAction,
     snooze,
-    delegate,
+    delegateFor,
+    delegating,
+    openDelegate,
+    closeDelegate,
+    confirmDelegate,
+    scheduleFor,
+    scheduling,
+    openSchedule,
+    closeSchedule,
+    confirmSchedule,
     bulkSection,
+    runBulk,
     unsubscribe,
     teachSender,
+    catchup,
+    dismissCatchup,
+    brief,
+    briefBuilding,
+    rebuildBrief,
+    clearHeadlines,
+    fixMatter,
+    atlasAction,
+    renameMatter,
+    createMatter,
     openReader,
     closeReader,
     startCompose,
     startReply,
     draftReply,
     drafting,
+    nudge,
+    nudging,
     rsvp,
     rsvping,
   } = mb;
@@ -109,21 +134,58 @@ export function DesktopMailApp() {
   const searchParams = useSearchParams();
   const [settingsOpen, setSettingsOpen] = useState(false);
   const [logicMode, setLogicMode] = useState(false);
+
+  // Density: compact rows (persisted, shared key with mobile)
+  const [dense, setDense] = useState<boolean>(() => {
+    if (typeof window === "undefined") return false;
+    return window.localStorage.getItem("seer:dense") === "1";
+  });
+  const toggleDense = () => {
+    setDense((d) => {
+      try {
+        window.localStorage.setItem("seer:dense", d ? "0" : "1");
+      } catch {
+        /* ignore */
+      }
+      return !d;
+    });
+  };
+
+  const [unsubAgentOpen, setUnsubAgentOpen] = useState(false);
+  const [vipsOpen, setVipsOpen] = useState(false);
+
+  // Multi-select in mail lists
+  const [picked, setPicked] = useState<Set<string>>(new Set());
+  const togglePick = (id: string) => {
+    setPicked((prev) => {
+      const next = new Set(prev);
+      if (next.has(id)) next.delete(id);
+      else next.add(id);
+      return next;
+    });
+  };
+  useEffect(() => {
+    setPicked(new Set());
+  }, [tab]);
+  const pickedItems = useMemo(
+    () =>
+      listItems
+        .filter((i) => picked.has(i.id))
+        .map((i) => ({ id: i.id, fromEmail: i.fromEmail, threadId: actionThreadId(i) })),
+    [listItems, picked],
+  );
   const deckCards = useMemo(() => buildDeckCards(triage), [triage]);
+  // Sibling of an active thread → act on this message only, never
+  // sweep the conversation turn that's still awaiting a reply.
+  const readerThreadId =
+    reader?.guide?.debug?.ruleId === "thread-sibling"
+      ? undefined
+      : reader?.threadId;
 
   useEffect(() => {
     if (searchParams.get("settings") === "1") setSettingsOpen(true);
   }, [searchParams]);
 
-  const delegateFromCard = async (id: string) => {
-    const r = await delegate(id);
-    if (r.needsEa) {
-      setToast("Add your EA's email in Settings first");
-      setSettingsOpen(true);
-      return false;
-    }
-    return true;
-  };
 
   const replyFromCard = async (id: string) => {
     try {
@@ -144,6 +206,7 @@ export function DesktopMailApp() {
   };
 
   if (compose) {
+    const wasHandoff = compose.archiveOriginal;
     return (
       <ComposePanel
         draft={compose}
@@ -151,18 +214,52 @@ export function DesktopMailApp() {
         onSent={() => {
           setCompose(null);
           closeReader();
-          setToast("Message sent");
-          if (tab === "sent") load();
+          setToast(
+            wasHandoff ? "Handed off — original archived" : "Message sent",
+          );
+          if (tab === "sent" || wasHandoff) load();
         }}
       />
     );
   }
 
-  const safeHtml = reader?.htmlBody ? DOMPurify.sanitize(reader.htmlBody) : "";
+  const safeHtml = reader?.htmlBody ? sanitizeEmailHtml(reader.htmlBody) : "";
   const listTitle = query ? "Search results" : FOLDER_LABEL[tab];
 
   return (
     <div className="flex h-[100dvh] min-h-screen overflow-hidden bg-[var(--bg)] text-[var(--fg)]">
+      {delegateFor ? (
+        <DelegateSheet
+          subject={delegateFor.subject}
+          busy={delegating}
+          onConfirm={confirmDelegate}
+          onClose={closeDelegate}
+        />
+      ) : null}
+      {scheduleFor ? (
+        <ScheduleSheet
+          subject={scheduleFor.subject}
+          ask={scheduleFor.ask}
+          busy={scheduling}
+          onConfirm={confirmSchedule}
+          onClose={closeSchedule}
+        />
+      ) : null}
+      {vipsOpen ? (
+        <VipSheet
+          onClose={() => setVipsOpen(false)}
+          onChanged={() => load()}
+        />
+      ) : null}
+      {unsubAgentOpen ? (
+        <UnsubAgentSheet
+          onClose={() => setUnsubAgentOpen(false)}
+          onDone={(summary) => {
+            setToast(summary);
+            load();
+          }}
+        />
+      ) : null}
       {settingsOpen ? (
         <SettingsPanel
           onClose={() => setSettingsOpen(false)}
@@ -277,7 +374,8 @@ export function DesktopMailApp() {
                   onBulk={bulkSection}
                   onReply={replyFromCard}
                   onSnooze={snooze}
-                  onDelegate={delegateFromCard}
+                  onDelegate={openDelegate}
+                  onSchedule={openSchedule}
                   onEmptyRefresh={load}
                 />
               </div>
@@ -300,7 +398,12 @@ export function DesktopMailApp() {
               </div>
               {reader.guide ? (
                 <div className="px-4 pb-1">
-                  <ReaderGuideBar guide={reader.guide} />
+                  <ReaderGuideBar
+                    guide={reader.guide}
+                    onTeach={(a) =>
+                      teachSender(reader.fromEmail, a, readerId ?? undefined, reader.threadId)
+                    }
+                  />
                 </div>
               ) : null}
               <div className="flex-1 overflow-auto px-5 py-4">
@@ -308,7 +411,7 @@ export function DesktopMailApp() {
                   <div
                     className="prose prose-sm max-w-none dark:prose-invert"
                     dangerouslySetInnerHTML={{
-                      __html: DOMPurify.sanitize(reader.htmlBody),
+                      __html: sanitizeEmailHtml(reader.htmlBody),
                     }}
                   />
                 ) : (
@@ -327,10 +430,18 @@ export function DesktopMailApp() {
         </section>
       ) : null}
 
-      {/* Middle + reading panes (hidden in Cards mode) */}
+      {/* Middle + reading panes (hidden in Cards mode). The triage table
+          needs the full remaining width — its five columns are unreadable
+          in the 360px list pane; the reader docks on the right instead. */}
       {tab !== "cards" ? (
       <>
-      <section className="flex w-[360px] shrink-0 flex-col border-r border-[var(--border)]">
+      <section
+        className={
+          tab === "triage" || tab === "atlas"
+            ? "flex min-w-0 flex-1 flex-col"
+            : "flex w-[360px] shrink-0 flex-col border-r border-[var(--border)]"
+        }
+      >
         <header className="shrink-0 border-b border-[var(--border)]">
           <div className="flex items-center justify-between gap-2 bg-[var(--brand)] px-4 py-3 text-white">
             <h1 className="text-lg font-semibold">{listTitle}</h1>
@@ -341,9 +452,9 @@ export function DesktopMailApp() {
                   onToggle={() => setLogicMode((v) => !v)}
                 />
               )}
-              {tab !== "triage" && mailbox ? (
+              {tab !== "triage" && tab !== "atlas" && mailbox ? (
                 <span className="text-xs text-white/80">{mailbox.count}</span>
-              ) : tab === "triage" && triage ? (
+              ) : (tab === "triage" || tab === "atlas") && triage ? (
                 <span className="text-xs text-white/80">{triage.count}</span>
               ) : null}
             </div>
@@ -364,15 +475,39 @@ export function DesktopMailApp() {
             />
           </form>
           {tab === "triage" && (triage?.assistant || triage?.history) ? (
-            <p className="bg-[var(--card)] px-4 py-2 text-[11px] text-[var(--muted)]">
-              {triage.assistant
+            <p className="flex items-start gap-2 bg-[var(--card)] px-4 py-2 text-[11px] text-[var(--muted)]">
+              <span className="order-last ml-auto flex shrink-0 gap-1.5">
+                <button
+                  type="button"
+                  onClick={() => setVipsOpen(true)}
+                  className="rounded-full border border-[#eab308] px-2 py-0.5 text-[10px] font-semibold text-[#b45309]"
+                >
+                  VIPs
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setUnsubAgentOpen(true)}
+                  className="rounded-full border border-[#a855f7] px-2 py-0.5 text-[10px] font-semibold text-[#a855f7]"
+                >
+                  Unsub agent
+                </button>
+                <button
+                  type="button"
+                  onClick={toggleDense}
+                  className="rounded-full border border-[var(--border)] px-2 py-0.5 text-[10px] font-semibold text-[var(--primary)]"
+                >
+                  {dense ? "Cozy" : "Compact"}
+                </button>
+              </span>
+              {logicMode && triage.assistant
                 ? `Gemini ${triage.assistant.gemini} · rules ${triage.assistant.rules}${triage.assistant.learned ? ` · learned ${triage.assistant.learned}` : ""} · taught ${triage.assistant.override}${triage.assistant.cached ? ` · cached ${triage.assistant.cached}` : ""} · your call ${triage.assistant.needsReview}`
-                : triage.history
-                  ? `Sent history · ${triage.history.engagedCount} people you email · ${triage.history.contactCount} contacts`
-                  : null}
+                : `${triage.count} triaged · ${triage.assistant?.needsReview ?? triage.needsReview.length} need you`}
               {triage.assistant?.error ? (
-                <span className="ml-2 font-medium text-[#d63b2f]">
-                  Gemini offline — rules only: {triage.assistant.error.slice(0, 120)}
+                <span className="ml-2 font-medium text-[#b45309]">
+                  {(triage.assistant.gemini ?? 0) + (triage.assistant.cached ?? 0) > 0
+                    ? "Some new mail used rules this load — "
+                    : "Gemini offline — rules only: "}
+                  {triage.assistant.error.slice(0, 110)}
                 </span>
               ) : null}
             </p>
@@ -387,11 +522,12 @@ export function DesktopMailApp() {
           ) : null}
 
           {loading &&
-          ((tab === "triage" && !triage) || (tab !== "triage" && !mailbox)) ? (
+          (((tab === "triage" || tab === "atlas") && !triage) ||
+            (tab !== "triage" && tab !== "atlas" && !mailbox)) ? (
             <p className="py-12 text-center text-sm text-[var(--muted)]">Loading…</p>
           ) : null}
 
-          {tab !== "triage" && mailbox ? (
+          {tab !== "triage" && tab !== "atlas" && mailbox ? (
             listItems.length === 0 ? (
               <EmptyList
                 text={
@@ -403,25 +539,82 @@ export function DesktopMailApp() {
                 }
               />
             ) : (
-              <ul>
-                {listItems.map((item) => (
-                  <DesktopMailRow
-                    key={item.id}
-                    item={item}
-                    selected={readerId === item.id}
-                    busy={busyId === item.id}
-                    showGuide={tab === "inbox" || Boolean(query)}
-                    logicMode={logicMode}
-                    onOpen={() => openReader(item.id)}
-                    onArchive={
-                      tab === "inbox"
-                        ? () => runAction(item.id, "archive", item.fromEmail)
-                        : undefined
-                    }
-                    onDelete={() => runAction(item.id, "trash", item.fromEmail)}
-                  />
-                ))}
-              </ul>
+              <>
+                {picked.size > 0 ? (
+                  <div className="sticky top-0 z-10 flex items-center gap-2 border-b border-[var(--border)] bg-[var(--brand-soft)] px-3 py-1.5">
+                    <span className="text-[12px] font-semibold">
+                      {picked.size} selected
+                    </span>
+                    <button
+                      type="button"
+                      onClick={() => {
+                        runBulk(pickedItems, "archive");
+                        setPicked(new Set());
+                      }}
+                      className="rounded px-2 py-1 text-[12px] font-semibold text-[#76ab19] hover:bg-[var(--card)]"
+                    >
+                      Archive
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => {
+                        runBulk(pickedItems, "trash");
+                        setPicked(new Set());
+                      }}
+                      className="rounded px-2 py-1 text-[12px] font-semibold text-[#d63b2f] hover:bg-[var(--card)]"
+                    >
+                      Delete
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => {
+                        runBulk(pickedItems, "read");
+                        setPicked(new Set());
+                      }}
+                      className="rounded px-2 py-1 text-[12px] font-semibold text-[var(--primary)] hover:bg-[var(--card)]"
+                    >
+                      Mark read
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => setPicked(new Set())}
+                      className="ml-auto rounded px-2 py-1 text-[12px] text-[var(--muted)] hover:bg-[var(--card)]"
+                    >
+                      Clear
+                    </button>
+                  </div>
+                ) : null}
+                <ul>
+                  {listItems.map((item) => (
+                    <DesktopMailRow
+                      key={item.id}
+                      item={item}
+                      selected={readerId === item.id}
+                      busy={busyId === item.id}
+                      showGuide={tab === "inbox" || Boolean(query)}
+                      logicMode={logicMode}
+                    onTeach={(a) => teachSender(item.fromEmail, a, item.id, item.threadId)}
+                      checked={picked.has(item.id)}
+                      onToggleSelect={() => togglePick(item.id)}
+                      onOpen={() => openReader(item.id)}
+                      onArchive={
+                        tab === "inbox"
+                          ? () =>
+                              runAction(
+                                item.id,
+                                "archive",
+                                item.fromEmail,
+                                actionThreadId(item),
+                              )
+                          : undefined
+                      }
+                      onDelete={() =>
+                        runAction(item.id, "trash", item.fromEmail, actionThreadId(item))
+                      }
+                    />
+                  ))}
+                </ul>
+              </>
             )
           ) : null}
 
@@ -429,81 +622,61 @@ export function DesktopMailApp() {
             <EmptyList text="Nothing to triage" />
           ) : null}
 
-          {tab === "triage" && triage && triage.needsReview.length > 0 ? (
-            <section>
-              <SectionHeader
-                label={`Needs your call · ${triage.needsReview.length}`}
+          {tab === "atlas" ? (
+            <div className="min-h-0 flex-1 overflow-y-auto">
+              {catchup ? (
+                <CatchupCard
+                  catchup={catchup}
+                  onOpen={openReader}
+                  onDismiss={dismissCatchup}
+                />
+              ) : null}
+              <BriefPanel
+                full
+                brief={brief}
+                building={briefBuilding}
+                onRebuild={rebuildBrief}
+                onOpen={openReader}
+                onClearHeadlines={clearHeadlines}
+                onFixMatter={fixMatter}
+                onAtlasAction={atlasAction}
+                onRenameMatter={renameMatter}
+                onCreateMatter={createMatter}
               />
-              <ul>
-                {triage.needsReview.map((item) => (
-                  <DesktopMailRow
-                    key={item.id}
-                    item={item}
-                    selected={readerId === item.id}
-                    busy={busyId === item.id}
-                    showGuide
-                    logicMode={logicMode}
-                    onOpen={() => openReader(item.id)}
-                    onArchive={() => runAction(item.id, "archive", item.fromEmail)}
-                    onDelete={() => runAction(item.id, "trash", item.fromEmail)}
-                    chips={
-                      <div className="mt-1 flex flex-wrap gap-1">
-                        {QUICK_ACTIONS.map((a) => (
-                          <button
-                            key={a}
-                            type="button"
-                            onClick={(e) => {
-                              e.stopPropagation();
-                              teachSender(item.fromEmail, a);
-                            }}
-                            className="rounded px-1.5 py-0.5 text-[10px] font-medium text-white"
-                            style={{ backgroundColor: ACTION_META[a].color }}
-                          >
-                            {ACTION_META[a].short}
-                          </button>
-                        ))}
-                      </div>
-                    }
-                  />
-                ))}
-              </ul>
-            </section>
+            </div>
           ) : null}
 
-          {tab === "triage"
-            ? triage?.sections.map((section) => (
-                <section key={section.action}>
-                  <SectionHeader
-                    label={`${section.label} · ${section.items.length}`}
-                    color={section.color}
-                    actionLabel={section.bulkLabel}
-                    onAction={() =>
-                      bulkSection(section, primaryMailAction(section.action))
-                    }
-                  />
-                  <ul>
-                    {section.items.map((item) => (
-                      <DesktopMailRow
-                        key={item.id}
-                        item={item}
-                        selected={readerId === item.id}
-                        busy={busyId === item.id}
-                        showGuide
-                        logicMode={logicMode}
-                        onOpen={() => openReader(item.id)}
-                        onArchive={() => runAction(item.id, "archive", item.fromEmail)}
-                        onDelete={() => runAction(item.id, "trash", item.fromEmail)}
-                      />
-                    ))}
-                  </ul>
-                </section>
-              ))
-            : null}
+          {tab === "triage" && triage && triage.count > 0 ? (
+            <>
+          <TriageTable
+              triage={triage}
+              mobile={false}
+              h={{
+                openReader,
+                runAction,
+                bulkSection,
+                unsubscribe,
+                teach: teachSender,
+                nudge,
+                nudging,
+                busyId,
+              }}
+            />
+            </>
+          ) : null}
         </div>
       </section>
 
-      {/* Right pane — reading */}
-      <main className="flex min-w-0 flex-1 flex-col overflow-hidden">
+      {/* Right pane — reading. In triage the table owns the width, so the
+          reader appears as a docked panel only while a message is open. */}
+      {(tab === "triage" || tab === "atlas") && !readerId ? null : (
+      <main
+        className={
+          tab === "triage" || tab === "atlas"
+            ? "flex w-[32rem] max-w-[44%] shrink-0 flex-col overflow-hidden border-l border-[var(--border)]"
+            : "flex min-w-0 flex-1 flex-col overflow-hidden"
+        }
+      >
         {!readerId ? (
           <div className="flex flex-1 items-center justify-center text-sm text-[var(--muted)]">
             Select a message
@@ -521,12 +694,29 @@ export function DesktopMailApp() {
                   onReplyAll={() => startReply("replyAll")}
                   onForward={() => startReply("forward")}
                   onArchive={() =>
-                    readerId && runAction(readerId, "archive", reader?.fromEmail)
+                    readerId &&
+                    runAction(
+                      readerId,
+                      "archive",
+                      reader?.fromEmail,
+                      readerThreadId,
+                    )
                   }
                   onDelete={() =>
-                    readerId && runAction(readerId, "trash", reader?.fromEmail)
+                    readerId &&
+                    runAction(readerId, "trash", reader?.fromEmail, readerThreadId)
                   }
                 />
+                {tab === "triage" ? (
+                  <button
+                    type="button"
+                    onClick={closeReader}
+                    aria-label="Close message"
+                    className="rounded-md p-1.5 text-[var(--muted)] hover:bg-[var(--row-hover)] hover:text-[var(--fg-strong)]"
+                  >
+                    <X className="h-4 w-4" />
+                  </button>
+                ) : null}
               </div>
             </header>
 
@@ -559,17 +749,49 @@ export function DesktopMailApp() {
                       </div>
                     </div>
                     {reader.guide ? (
-                      <ReaderGuideBar guide={reader.guide} />
+                      <ReaderGuideBar
+                        guide={reader.guide}
+                        onTeach={(a) =>
+                          teachSender(
+                            reader.fromEmail,
+                            a,
+                            readerId ?? undefined,
+                            reader.threadId,
+                          )
+                        }
+                      />
                     ) : null}
                     <AssistBar
                       reader={reader}
+                      messageId={readerId ?? undefined}
                       drafting={drafting}
                       onDraft={draftReply}
                       rsvping={rsvping}
                       onRsvp={rsvp}
                       onUnsubscribe={
                         readerId
-                          ? () => unsubscribe(readerId, reader?.fromEmail)
+                          ? () =>
+                              unsubscribe(
+                                readerId,
+                                reader?.fromEmail,
+                                reader?.threadId,
+                              )
+                          : undefined
+                      }
+                      onDelegate={
+                        readerId
+                          ? () => openDelegate(readerId, reader?.subject)
+                          : undefined
+                      }
+                      onSchedule={
+                        readerId && reader
+                          ? () =>
+                              openSchedule(
+                                readerId,
+                                reader.subject,
+                                reader.guide?.ask,
+                                reader.fromName,
+                              )
                           : undefined
                       }
                     />
@@ -593,6 +815,7 @@ export function DesktopMailApp() {
           </>
         )}
       </main>
+      )}
       </>
       ) : null}
 
@@ -611,6 +834,10 @@ function DesktopMailRow({
   onArchive,
   onDelete,
   chips,
+  checked,
+  onToggleSelect,
+  onTeach,
+  dense,
 }: {
   item: EmailItem;
   selected: boolean;
@@ -621,6 +848,11 @@ function DesktopMailRow({
   onArchive?: () => void;
   onDelete: () => void;
   chips?: ReactNode;
+  checked?: boolean;
+  onToggleSelect?: () => void;
+  onTeach?: (action: TriageAction) => void;
+  /** Compact: hide the snippet, tighten padding. */
+  dense?: boolean;
 }) {
   const [hovered, setHovered] = useState(false);
   const g = item.guide;
@@ -639,29 +871,79 @@ function DesktopMailRow({
         onKeyDown={(e) => e.key === "Enter" && onOpen()}
         className={`mail-row cursor-pointer pr-14 transition-colors ${
           selected ? "bg-[var(--brand-soft)]" : ""
-        } ${busy ? "opacity-50" : ""} ${item.isUnread ? "unread" : ""}`}
+        } ${checked ? "bg-[var(--primary-soft,rgba(52,152,217,0.1))]" : ""} ${
+          busy ? "opacity-50" : ""
+        } ${item.isUnread ? "unread" : ""}`}
       >
-        <span
-          className={`mail-unread-dot ${item.isUnread ? "" : "empty"}`}
-          aria-hidden
-        />
+        {onToggleSelect && (hovered || checked) ? (
+          <button
+            type="button"
+            aria-label={checked ? "Deselect" : "Select"}
+            onClick={(e) => {
+              e.stopPropagation();
+              onToggleSelect();
+            }}
+            className={`mr-1.5 flex h-4 w-4 shrink-0 items-center justify-center self-center rounded-full border-2 ${
+              checked
+                ? "border-[var(--primary)] bg-[var(--primary)] text-white"
+                : "border-[var(--muted)]"
+            }`}
+          >
+            {checked ? <Check className="h-2.5 w-2.5" /> : null}
+          </button>
+        ) : (
+          <span
+            className={`mail-unread-dot ${item.isUnread ? "" : "empty"}`}
+            aria-hidden
+          />
+        )}
         <div className="min-w-0 flex-1">
           <div className="flex items-baseline justify-between gap-2">
             <span className="mail-from truncate text-[13px] text-[var(--fg-strong)]">
-              {item.fromName || item.fromEmail}
+              {item.threadSenders?.length
+                ? item.threadSenders.join(", ")
+                : item.fromName || item.fromEmail}
+              {(item.threadCount ?? 1) > 1 ? (
+                <span className="ml-1 font-normal text-[var(--muted)]">
+                  · {item.threadCount}
+                </span>
+              ) : null}
             </span>
             <span className="shrink-0 text-[11px] text-[var(--muted)]">
               {formatMailTime(item.receivedAt)}
             </span>
           </div>
-          <div className="mail-subject truncate text-[12px] leading-snug">
-            {item.subject}
-          </div>
-          <div className="truncate text-[11px] leading-snug text-[var(--muted)]">
-            {item.snippet}
-          </div>
-          {showGuide && g ? (
-            <LogicExplain guide={g} expanded={logicMode} />
+          {dense ? (
+            <div className="flex items-baseline gap-1.5 truncate text-[12px] leading-snug">
+              {g?.category ? (
+                <span className="shrink-0 rounded bg-[var(--card)] px-1 text-[9px] font-semibold text-[var(--muted)]">
+                  {g.category}
+                </span>
+              ) : null}
+              {g?.task ? (
+                <span
+                  className="shrink-0 font-semibold"
+                  style={{ color: g.color }}
+                >
+                  {g.task}
+                </span>
+              ) : null}
+              <span className="truncate text-[var(--muted)]">
+                {item.subject}
+              </span>
+            </div>
+          ) : (
+            <>
+              <div className="mail-subject truncate text-[12px] leading-snug">
+                {item.subject}
+              </div>
+              <div className="truncate text-[11px] leading-snug text-[var(--muted)]">
+                {item.snippet}
+              </div>
+            </>
+          )}
+          {showGuide && g && (!dense || logicMode) ? (
+            <LogicExplain guide={g} expanded={logicMode} onTeach={onTeach} />
           ) : null}
           {chips}
         </div>
@@ -692,45 +974,6 @@ function DesktopMailRow({
         </div>
       ) : null}
     </li>
-  );
-}
-
-function SectionHeader({
-  label,
-  color,
-  actionLabel,
-  onAction,
-}: {
-  label: string;
-  color?: string;
-  actionLabel?: string;
-  onAction?: () => void;
-}) {
-  return (
-    <div className="sticky top-0 z-10 flex items-center justify-between border-b border-[var(--border)] bg-[var(--brand-soft)] px-3 py-2">
-      <h2
-        className="flex items-center gap-1.5 text-[12px] font-semibold"
-        style={{ color: color ?? "var(--fg-strong)" }}
-      >
-        {color ? (
-          <span
-            className="h-1.5 w-1.5 rounded-full"
-            style={{ backgroundColor: color }}
-            aria-hidden
-          />
-        ) : null}
-        {label}
-      </h2>
-      {actionLabel && onAction ? (
-        <button
-          type="button"
-          onClick={onAction}
-          className="text-[11px] font-semibold text-[var(--primary)] hover:underline"
-        >
-          {actionLabel}
-        </button>
-      ) : null}
-    </div>
   );
 }
 

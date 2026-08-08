@@ -2,14 +2,25 @@ import { buildActionGuideQuick } from "@/lib/inbox/action-guide";
 import { classifyMessage } from "@/lib/inbox/classify";
 import { classifyInboxWithAssistant } from "@/lib/inbox/gemini-triage";
 import { getOrBuildMailHistory } from "@/lib/inbox/mail-history-store";
+import { collapseThreads } from "@/lib/inbox/thread-collapse";
 import { getPersonalContext } from "@/lib/inbox/personal-context";
 import { loadActionMemory } from "@/lib/store/action-memory";
 import { loadRepliedThreads } from "@/lib/store/replied-threads";
 import { loadUserProfile } from "@/lib/store/user-profile";
 import type { IphoneTask } from "@/lib/api-parity/iphone-task-types";
 import { LEGACY_SESSION_COOKIE } from "@/lib/future-ios";
-import { listGmailFolder, listGmailInbox } from "@/lib/mail/gmail";
-import { listGraphFolder, listGraphInbox } from "@/lib/mail/graph";
+import {
+  getGmailMessage,
+  getGmailThreadLast,
+  listGmailFolder,
+  listGmailInbox,
+  searchGmail,
+} from "@/lib/mail/gmail";
+import {
+  getGraphMessage,
+  listGraphFolder,
+  listGraphInbox,
+} from "@/lib/mail/graph";
 import { makeGmailLabelStore } from "@/lib/mail/seer-labels";
 import { requireMailSession } from "@/lib/mail/session";
 import { getSenderOverride } from "@/lib/store/senders";
@@ -41,6 +52,15 @@ export async function GET() {
               session.provider === "google"
                 ? listGmailFolder(token, folder, max)
                 : listGraphFolder(token, folder, max),
+            listArchive:
+              session.provider === "google"
+                ? (token, max) =>
+                    searchGmail(
+                      token,
+                      "-in:inbox -in:sent -in:trash -in:spam is:read",
+                      max,
+                    )
+                : undefined,
           },
           raw,
         ),
@@ -72,11 +92,31 @@ export async function GET() {
       history,
       (email) => getSenderOverride(email),
       classifyMessage,
-      { personal, actionMemory, labels, profile, replied },
+      {
+        personal,
+        actionMemory,
+        labels,
+        profile,
+        replied,
+        threadLast:
+          session.provider === "google"
+            ? (threadId) => getGmailThreadLast(session.accessToken, threadId)
+            : undefined,
+        fetchBody: async (id) => {
+          const msg =
+            session.provider === "google"
+              ? await getGmailMessage(session.accessToken, id)
+              : await getGraphMessage(session.accessToken, id);
+          return (
+            msg.textBody ||
+            msg.htmlBody.replace(/<[^>]+>/g, " ").replace(/\s+/g, " ")
+          );
+        },
+      },
     );
 
     const tasks: IphoneTask[] = [];
-    for (const m of raw) {
+    for (const m of collapseThreads(raw)) {
       const classification = decisions.get(m.id);
       if (!classification) continue;
       const guide = buildActionGuideQuick(

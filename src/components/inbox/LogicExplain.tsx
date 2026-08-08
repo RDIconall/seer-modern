@@ -1,8 +1,80 @@
 "use client";
 
-import { ChevronDown } from "lucide-react";
+import { ChevronDown, GraduationCap } from "lucide-react";
 import { useState } from "react";
-import type { Guide } from "@/lib/inbox/types";
+import { ACTION_META, type TriageAction } from "@/lib/inbox/classify";
+import { stripEmoji, type Guide } from "@/lib/inbox/types";
+
+export type TeachHandler = (action: TriageAction) => void;
+
+/**
+ * The four corrections a human actually makes, in plain words. Each one
+ * fixes this email now AND the sender forever (a taught override, top of
+ * the precedence chain). Seer also learns silently from every archive
+ * and delete — teaching just skips the wait.
+ */
+export const TEACH_CHOICES: { action: TriageAction; label: string }[] = [
+  { action: "act_today", label: "Needs me" },
+  { action: "read_and_archive", label: "Archive" },
+  { action: "delete_now", label: "Delete" },
+  { action: "unsubscribe", label: "Unsubscribe" },
+];
+
+/** Which teach choice a current verdict belongs to — hidden as redundant. */
+export function teachGroup(action: TriageAction): TriageAction {
+  switch (action) {
+    case "respond":
+    case "act_today":
+    case "needs_review":
+      return "act_today";
+    case "delete_now":
+    case "read_and_delete":
+    case "glance_promo":
+      return "delete_now";
+    case "unsubscribe":
+      return "unsubscribe";
+    default:
+      return "read_and_archive";
+  }
+}
+
+function TeachRow({
+  guide,
+  onTeach,
+}: {
+  guide: Guide;
+  onTeach: TeachHandler;
+}) {
+  const current = teachGroup(guide.action);
+  return (
+    <div className="mt-1.5">
+      <div className="flex flex-wrap items-center gap-1.5">
+        <span className="flex items-center gap-1 text-[10px] font-semibold uppercase tracking-wide text-[var(--muted)]">
+          <GraduationCap className="h-3 w-3" />
+          Wrong?
+        </span>
+        {TEACH_CHOICES.filter((c) => c.action !== current).map((c) => (
+          <button
+            key={c.action}
+            type="button"
+            onClick={(e) => {
+              e.stopPropagation();
+              onTeach(c.action);
+            }}
+            className="rounded px-2 py-1 text-[11px] font-semibold text-white"
+            style={{ backgroundColor: ACTION_META[c.action].color }}
+          >
+            {c.label}
+          </button>
+        ))}
+      </div>
+      <p className="mt-1 text-[10px] leading-snug text-[var(--muted)]">
+        Fixes this sender from now on. Seer also learns by itself from what
+        you archive and delete — no teaching required.
+      </p>
+    </div>
+  );
+}
 
 function sourceLabelFor(guide: Guide): string | null {
   return guide.source === "gemini"
@@ -20,26 +92,38 @@ function sourceLabelFor(guide: Guide): string | null {
 export function LogicExplain({
   guide,
   expanded,
+  onTeach,
 }: {
   guide: Guide;
   expanded?: boolean;
+  onTeach?: TeachHandler;
 }) {
   const d = guide.debug;
   const sourceLabel = sourceLabelFor(guide);
 
   return (
     <div className="mt-1 space-y-1">
-      <div
-        className="truncate text-[11px] font-semibold"
-        style={{ color: guide.color }}
-      >
-        {guide.label}
-        {guide.confidence ? ` · ${guide.confidence}` : ""}
-        {sourceLabel ? ` · ${sourceLabel}` : ""}
+      <div className="flex min-w-0 items-center gap-1.5">
+        {guide.category ? (
+          <span className="shrink-0 rounded bg-[var(--card)] px-1.5 py-0.5 text-[10px] font-semibold text-[var(--muted)]">
+            {guide.category}
+          </span>
+        ) : null}
+        <span
+          className="truncate text-[11px] font-semibold"
+          style={{ color: guide.color }}
+        >
+          {stripEmoji(guide.task ?? guide.label)}
+          {expanded
+            ? `${guide.confidence ? ` · ${guide.confidence}` : ""}${sourceLabel ? ` · ${sourceLabel}` : ""}`
+            : ""}
+        </span>
       </div>
-      <div className="line-clamp-2 text-[11px] leading-snug text-[var(--muted)]">
-        {guide.reason}
-      </div>
+      {expanded ? (
+        <div className="line-clamp-2 text-[11px] leading-snug text-[var(--muted)]">
+          {guide.reason}
+        </div>
+      ) : null}
       {expanded && guide.who ? (
         <div className="text-[11px] leading-snug text-[var(--fg)]">
           <span className="font-semibold">Who:</span> {guide.who}
@@ -89,6 +173,9 @@ export function LogicExplain({
           </dd>
         </dl>
       ) : null}
+      {expanded && onTeach ? (
+        <TeachRow guide={guide} onTeach={onTeach} />
+      ) : null}
     </div>
   );
 }
@@ -97,7 +184,13 @@ export function LogicExplain({
  * Reader guide: one calm line — what to do — with the reasoning tucked
  * behind a "Why?" disclosure so the email is visible immediately.
  */
-export function ReaderGuideBar({ guide }: { guide: Guide }) {
+export function ReaderGuideBar({
+  guide,
+  onTeach,
+}: {
+  guide: Guide;
+  onTeach?: TeachHandler;
+}) {
   const [open, setOpen] = useState(false);
   const d = guide.debug;
   const sourceLabel = sourceLabelFor(guide);
@@ -123,7 +216,7 @@ export function ReaderGuideBar({ guide }: { guide: Guide }) {
         />
         <span className="min-w-0 flex-1 truncate text-[13px]">
           <span className="font-bold" style={{ color: guide.color }}>
-            {guide.label}
+            {stripEmoji(guide.task ?? guide.label)}
           </span>
           <span className="text-[var(--fg)]"> — {guide.instruction}</span>
         </span>
@@ -169,6 +262,9 @@ export function ReaderGuideBar({ guide }: { guide: Guide }) {
                 : ""}
               {d.meeting ? ` · ${d.meeting}` : ""}
             </p>
+          ) : null}
+          {onTeach ? (
+            <TeachRow guide={guide} onTeach={onTeach} />
           ) : null}
         </div>
       ) : null}

@@ -9,7 +9,12 @@ import {
 } from "@/lib/inbox/personal-context";
 import { loadActionMemory } from "@/lib/store/action-memory";
 import { loadRepliedThreads } from "@/lib/store/replied-threads";
-import { getGmailMessage, listGmailFolder } from "@/lib/mail/gmail";
+import {
+  getGmailMessage,
+  getGmailThreadLast,
+  listGmailFolder,
+  searchGmail,
+} from "@/lib/mail/gmail";
 import { getGraphMessage, listGraphFolder } from "@/lib/mail/graph";
 import { makeGmailLabelStore } from "@/lib/mail/seer-labels";
 import { requireMailSession } from "@/lib/mail/session";
@@ -91,6 +96,15 @@ export async function GET(
               session.provider === "google"
                 ? listGmailFolder(token, folder, max)
                 : listGraphFolder(token, folder, max),
+            listArchive:
+              session.provider === "google"
+                ? (token, max) =>
+                    searchGmail(
+                      token,
+                      "-in:inbox -in:sent -in:trash -in:spam is:read",
+                      max,
+                    )
+                : undefined,
           },
         ),
         getPersonalContext({
@@ -117,7 +131,8 @@ export async function GET(
           fromEmail: message.fromEmail,
           fromName: message.fromName,
           subject: message.subject,
-          snippet: (message.snippet || bodyText).slice(0, 600),
+          // Full-body depth: "amount due" on page two still counts
+          snippet: (bodyText || message.snippet).slice(0, 2000),
           labelIds: message.labelIds,
           threadId: message.threadId,
           receivedAt: message.receivedAt,
@@ -128,7 +143,20 @@ export async function GET(
       classifyMessage,
       // Single-message path: cache/label/rules only. Gemini runs on batch
       // inbox loads — never one email at a time (that burns quota fast).
-      { personal, actionMemory, labels, geminiEnabled: false, replied },
+      // threadLast MUST match the list path: the reader saying "awaiting
+      // their reply" while triage says "Reply to Rebecca" was the two
+      // views grading with different context.
+      {
+        personal,
+        actionMemory,
+        labels,
+        geminiEnabled: false,
+        replied,
+        threadLast:
+          session.provider === "google"
+            ? (threadId) => getGmailThreadLast(session.accessToken, threadId)
+            : undefined,
+      },
     );
 
     const fromAssistant = decisions.get(message.id);
@@ -179,8 +207,15 @@ export async function GET(
       }
     }
 
+    // Your own messages read as "You", not your full name — no more
+    // guessing who sent what inside a thread.
+    const displayMessage =
+      message.fromEmail.toLowerCase() === session.email.toLowerCase()
+        ? { ...message, fromName: "You" }
+        : message;
+
     return NextResponse.json({
-      message,
+      message: displayMessage,
       guide,
       classification,
       keyActions,
