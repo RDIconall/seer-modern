@@ -119,7 +119,7 @@ export type UnsureItem = {
  * treats any older brief as stale and rebuilds it, so a redesign never
  * leaves a stale Atlas on screen waiting for a manual refresh.
  */
-export const BRIEF_ENGINE = 3;
+export const BRIEF_ENGINE = 4;
 
 export type Brief = {
   builtAt: string;
@@ -355,9 +355,30 @@ function subUnitFor(item: EmailItem, labels: Map<string, string>): string {
     }
     return codes[0].toUpperCase().replace(/\s+/g, "_");
   }
-  const cat = item.guide?.category?.trim();
-  if (cat) return stripEmoji(cat);
-  return "No code";
+  // No code: the counterparty IS the branch. "Roche" and "Advarra" mean
+  // something to the user; a grade label like "Work" does not.
+  return counterparty(item);
+}
+
+const FREEMAIL =
+  /^(gmail|googlemail|outlook|hotmail|live|yahoo|ymail|aol|icloud|me|msn|proton|protonmail|comcast|sbcglobal|att|verizon)\./;
+
+/** The company (or person, for personal mail) this email came from. */
+function counterparty(item: EmailItem): string {
+  const domain = item.fromEmail.split("@")[1]?.toLowerCase() ?? "";
+  const bare = domain.replace(/^(mail|email|e|smtp|notifications?|no-?reply|info|reply|bounce|em|mailer|send|go|links?)\./, "");
+  if (!bare || FREEMAIL.test(`${bare}.`)) {
+    const name = stripEmoji(item.fromName || item.fromEmail);
+    // "Bates, Rebecca J" → "Rebecca Bates"
+    const flipped = name.includes(",")
+      ? `${name.split(",")[1]?.trim().split(" ")[0] ?? ""} ${name.split(",")[0]?.trim()}`.trim()
+      : name;
+    return flipped.split("@")[0] || "Personal";
+  }
+  const label = bare.split(".")[0];
+  return label.length <= 3
+    ? label.toUpperCase()
+    : label.charAt(0).toUpperCase() + label.slice(1);
 }
 
 /** Plain-language suggestion for one email, from its grade. */
