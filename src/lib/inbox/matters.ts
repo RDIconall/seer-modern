@@ -1,4 +1,5 @@
 import { getTriageModel } from "@/lib/inbox/gemini-triage";
+import { collapseThreads } from "@/lib/inbox/thread-collapse";
 import { stripEmoji, type EmailItem } from "@/lib/inbox/types";
 import type {
   Understanding,
@@ -49,7 +50,11 @@ export type MatterPerson = {
   relationship: string;
 };
 
-/** One email inside a matter, with what Seer suggests doing about it */
+/**
+ * One CONVERSATION inside a matter. A thread is one row however many
+ * messages it holds — six replies about the same request are one piece
+ * of work, not six.
+ */
 export type MatterEmail = {
   id: string;
   threadId: string;
@@ -57,6 +62,8 @@ export type MatterEmail = {
   line: string;
   /** Plain-language suggestion: "Reply — needs you", "Keep as record" */
   suggestion: string;
+  /** Inbox messages collapsed into this row */
+  count?: number;
 };
 
 export type Matter = {
@@ -105,7 +112,11 @@ export type Headline = {
   line: string;
 };
 
-/** An inbox email with no matter — but it still has an org home */
+/**
+ * An inbox CONVERSATION with no matter — one row per thread, with an
+ * org home. `emailId` is the newest message (what opening it shows);
+ * `messageIds` is everything acting on the row must sweep.
+ */
 export type FiledEmail = {
   emailId: string;
   threadId: string;
@@ -115,6 +126,10 @@ export type FiledEmail = {
   line: string;
   /** What Seer suggests doing with it */
   suggestion?: string;
+  /** Inbox messages in this thread */
+  count?: number;
+  /** Every message id behind the row — the coverage denominator */
+  messageIds?: string[];
 };
 
 /** The FYI / read-and-delete mass, summarized AS A WHOLE */
@@ -136,7 +151,7 @@ export type UnsureItem = {
  * treats any older brief as stale and rebuilds it, so a redesign never
  * leaves a stale Atlas on screen waiting for a manual refresh.
  */
-export const BRIEF_ENGINE = 8;
+export const BRIEF_ENGINE = 9;
 
 export type Brief = {
   builtAt: string;
@@ -303,6 +318,13 @@ export async function saveBrief(
 
 const SYSTEM = `You are the chief of staff writing the daily state-of-play for a CEO's inbox. The emails you receive are the ones STILL IN the inbox — kept deliberately. Cluster them into MATTERS: ongoing threads of work life (a negotiation, an inspection, a deal, a dispute, a purchase). MATTERS ARE THE TOP-LEVEL UNIT; everything else is a facet on them. Reuse the previous matters' ids when the same matter continues; carry their state forward and update it with the new evidence. One matter per real-world concern, not per email.
 
+EACH INBOX ENTRY IS A WHOLE CONVERSATION, not a single message. Its id is the newest message; "messages" is how many replies it holds and "voices" who has spoken. Cite the entry's id once — never split a conversation across matters.
+
+ONE MATTER PER REAL-WORLD CONCERN, and that concern is usually THE COUNTERPARTY'S PROGRAM, not the individual request. The payload groups entries by counterparty and study code precisely so you can see the whole relationship at once:
+- Every conversation with the same company about the same program is ONE matter. Six sample requests from one company's scientist — different assays, different follow-ups — are one matter ("Abbott sample requests"), with each conversation cited under it. Do NOT emit one matter per request, per assay, or per follow-up.
+- Split a counterparty into two matters only when the work is genuinely separate: a different study code, or a contract negotiation versus running operations.
+- Never emit two matters with near-identical titles or overlapping subject matter. If you are about to, they are the same matter: emit one and cite all its conversations.
+
 Rules:
 - narrative: one present-tense sentence of state ("Roche returned the signed SOW; the executed copy back to them gates the PO").
 - nextAction: the ONE next move, imperative and specific, or "none — team handling".
@@ -391,13 +413,38 @@ function subUnitFor(
   return counterparty(item, ownDomain);
 }
 
-/** "Bates, Rebecca J" → "Rebecca Bates" */
+/** Credentials trailing a name, not a first name: "Samoszuk, M.D." */
+const NAME_SUFFIX =
+  /^(md|phd|jr|sr|ii|iii|iv|mba|rn|np|pa|do|dds|dvm|esq|pmp|cpa)$/i;
+
+/** "Guttormsen, Ajda" → "Ajda Guttormsen"; "Samoszuk, M.D." → "Samoszuk" */
+function flipName(raw: string): string {
+  const name = stripEmoji(raw).trim();
+  if (!name.includes(",")) return name;
+  const [last, ...rest] = name.split(",");
+  const given = rest.join(" ").trim();
+  if (!given || NAME_SUFFIX.test(given.replace(/[.\s]/g, ""))) {
+    return last.trim();
+  }
+  return `${given} ${last.trim()}`.trim();
+}
+
+/** The human behind a row, in the order people say names out loud. */
 function personName(item: EmailItem): string {
-  const name = stripEmoji(item.fromName || item.fromEmail);
-  const flipped = name.includes(",")
-    ? `${name.split(",")[1]?.trim().split(" ")[0] ?? ""} ${name.split(",")[0]?.trim()}`.trim()
-    : name;
-  return flipped.split("@")[0] || "Personal";
+  return flipName(item.fromName || item.fromEmail).split("@")[0] || "Personal";
+}
+
+/**
+ * The row's headline. The deep read's sentence usually names the sender
+ * already ("Ajda Guttormsen from Abbott requested…"), so prefixing the
+ * sender there would say it twice; prefix only when it doesn't.
+ */
+function headline(who: string, oneLine: string): string {
+  const first = who.split(/\s+/)[0]?.toLowerCase();
+  const opening = oneLine.slice(0, 60).toLowerCase();
+  return first && first.length > 2 && opening.includes(first)
+    ? oneLine
+    : `${who} — ${oneLine}`;
 }
 
 const FREEMAIL =
@@ -453,6 +500,196 @@ function crmFactsFor(
   return undefined;
 }
 
+/**
+ * The relationship a conversation belongs to: its study/opportunity
+ * code when it cites one, else the counterparty. Conversations sharing
+ * a key must be judged together — that is what lets the model see
+ * "Abbott" as one program rather than six unrelated requests.
+ */
+function affinityKey(
+  item: EmailItem,
+  labels: Map<string, string>,
+  ownDomain: string,
+  u?: Understanding,
+): string {
+  const hay = `${item.subject}\n${item.snippet}\n${item.guide?.task ?? ""}\n${u?.oneLine ?? ""}`;
+  const codes = hay.match(CODE_PATTERN);
+  if (codes?.length) {
+    for (const c of codes) {
+      const known = labels.get(normalizeCode(c));
+      if (known) return `code:${normalizeCode(c)}`;
+    }
+    return `code:${normalizeCode(codes[0])}`;
+  }
+  return `party:${counterparty(item, ownDomain).toLowerCase()}`;
+}
+
+/**
+ * Pack rows into chunks WITHOUT breaking an affinity group. Groups keep
+ * the importance order of their strongest row, so the most consequential
+ * relationships are still read first when the cap bites.
+ */
+function packByAffinity<T>(
+  rows: T[],
+  keyOf: (row: T) => string,
+  chunkSize: number,
+  maxChunks: number,
+): T[][] {
+  const groups = new Map<string, T[]>();
+  for (const r of rows) {
+    const k = keyOf(r);
+    groups.set(k, [...(groups.get(k) ?? []), r]);
+  }
+  const chunks: T[][] = [];
+  let current: T[] = [];
+  for (const group of groups.values()) {
+    // A group bigger than a chunk is its own run of chunks
+    if (group.length >= chunkSize) {
+      if (current.length) {
+        chunks.push(current);
+        current = [];
+      }
+      for (let i = 0; i < group.length; i += chunkSize) {
+        chunks.push(group.slice(i, i + chunkSize));
+      }
+      continue;
+    }
+    if (current.length + group.length > chunkSize) {
+      chunks.push(current);
+      current = [];
+    }
+    current.push(...group);
+  }
+  if (current.length) chunks.push(current);
+  return chunks.slice(0, maxChunks);
+}
+
+const TITLE_STOP = new Set([
+  "the","a","an","and","or","of","for","to","re","fwd","on","in","with","from",
+  "at","by","new","update","updates","follow","up","followup","email","emails",
+  "thread","threads","inquiry","status","regarding","about","your","our",
+]);
+
+/**
+ * A matter's identity, reduced to its meaningful words. Two chunks
+ * naming the same work "Abbott sample requests" and "Sample requests
+ * from Abbott" invent different ids; these tokens are what catch them.
+ * Plurals are folded so "sample" and "samples" are the same word.
+ */
+function titleTokens(title: string): Set<string> {
+  return new Set(
+    title
+      .toLowerCase()
+      .replace(/[^a-z0-9 ]+/g, " ")
+      .split(/\s+/)
+      .filter((w) => w.length > 1 && !TITLE_STOP.has(w))
+      .map((w) => (w.length > 3 && w.endsWith("s") ? w.slice(0, -1) : w)),
+  );
+}
+
+/**
+ * Are two titles the same work? Equal word sets, or one contained in the
+ * other ("Abbott sample requests" inside "Abbott K2EDTA sample request
+ * 2026P-073"). Containment needs two words, so a bare counterparty name
+ * cannot swallow every matter it appears in — and partial overlap is NOT
+ * enough: "Roche anti-TPO SOW" and "Roche stability SOW" are two deals.
+ */
+function sameTitle(a: Set<string>, b: Set<string>): boolean {
+  const [small, big] = a.size <= b.size ? [a, b] : [b, a];
+  if (small.size === 0) return false;
+  for (const w of small) if (!big.has(w)) return false;
+  return small.size === big.size || small.size >= 2;
+}
+
+/** Union-find, just enough of it to group matters that are one matter. */
+function unionFind(size: number) {
+  const parent = Array.from({ length: size }, (_, i) => i);
+  const find = (i: number): number =>
+    parent[i] === i ? i : (parent[i] = find(parent[i]));
+  return {
+    find,
+    union(a: number, b: number) {
+      const [ra, rb] = [find(a), find(b)];
+      if (ra !== rb) parent[rb] = ra;
+    },
+  };
+}
+
+type MergeableMatter = {
+  id: string;
+  title: string;
+  urgency: number;
+  people: MatterPerson[];
+};
+
+/**
+ * ONE MATTER PER CONCERN, ONE CONVERSATION PER MATTER.
+ *
+ * Parallel model calls each invent their own ids, so the same work came
+ * back as "abbott-pediatric-cft" from one call and "abbott-tbi-donors"
+ * from another. Matters are therefore merged on IDENTITY — the same id,
+ * the same meaningful title words, or a shared conversation (a thread
+ * cannot be two matters) — and then each thread is awarded to exactly
+ * one matter, the one that understands it most fully.
+ */
+export function mergeMatters<M extends MergeableMatter>(
+  raw: { m: M; threads: string[] }[],
+): (M & { threads: string[] })[] {
+  const dsu = unionFind(raw.length);
+  const seenId = new Map<string, number>();
+  const seenThread = new Map<string, number>();
+  raw.forEach((entry, n) => {
+    const link = (map: Map<string, number>, key: string) => {
+      const first = map.get(key);
+      if (first === undefined) map.set(key, n);
+      else dsu.union(first, n);
+    };
+    link(seenId, entry.m.id);
+    for (const t of entry.threads) link(seenThread, t);
+  });
+  const tokens = raw.map((entry) => titleTokens(entry.m.title));
+  for (let i = 0; i < raw.length; i += 1) {
+    for (let j = i + 1; j < raw.length; j += 1) {
+      if (sameTitle(tokens[i], tokens[j])) dsu.union(i, j);
+    }
+  }
+
+  const groups = new Map<number, number[]>();
+  raw.forEach((_, n) => {
+    const root = dsu.find(n);
+    groups.set(root, [...(groups.get(root) ?? []), n]);
+  });
+
+  const claimed = new Set<string>();
+  return [...groups.values()]
+    .map((members) => {
+      const parts = members.map((n) => raw[n]);
+      // The fullest account of the work leads; ties go to urgency
+      const lead = [...parts].sort(
+        (a, b) =>
+          b.threads.length - a.threads.length || b.m.urgency - a.m.urgency,
+      )[0];
+      return {
+        ...lead.m,
+        urgency: Math.max(...parts.map((p) => p.m.urgency)),
+        people: parts.reduce<MatterPerson[]>(
+          (best, p) => (p.m.people.length > best.length ? p.m.people : best),
+          [],
+        ),
+        threads: [...new Set(parts.flatMap((p) => p.threads))],
+      };
+    })
+    .sort(
+      (a, b) => b.threads.length - a.threads.length || b.urgency - a.urgency,
+    )
+    .map((m) => {
+      const threads = m.threads.filter((t) => !claimed.has(t));
+      for (const t of threads) claimed.add(t);
+      return { ...m, threads };
+    })
+    .filter((m) => m.threads.length > 0);
+}
+
 /** What to do, straight from the read: the ask, or its absence. */
 function askSuggestion(u: Understanding): string {
   if (u.signature) return `Sign: ${u.signature.document}`;
@@ -494,7 +731,7 @@ function suggestionFor(item: EmailItem): string {
 
 function lineFor(item: EmailItem): string {
   return stripEmoji(
-    `${item.fromName || item.fromEmail} — ${
+    `${personName(item)} — ${
       item.guide?.task && item.guide.task !== "none"
         ? item.guide.task
         : item.subject
@@ -535,8 +772,8 @@ export async function buildBrief(
     ).slice(0, 90),
   }));
 
-  // Matters get everything else that's still in the inbox — capped by
-  // importance then recency so a 300-email backlog can't blow the call
+  // Matters get everything else that's still in the inbox, ordered by
+  // importance then recency.
   const allMatterCandidates = items
     .filter((i) => !DIGEST_ACTIONS.has(i.guide?.action ?? ""))
     .sort(
@@ -544,20 +781,38 @@ export async function buildBrief(
         (b.guide?.importance ?? 1) - (a.guide?.importance ?? 1) ||
         (a.receivedAt < b.receivedAt ? 1 : -1),
     );
-  // The AI reads the WHOLE corpus, in parallel chunks. One 500-email
-  // call times out; four 110-email calls do not, and nothing important
-  // gets left outside the model's view.
-  const CHUNK = 110;
-  const MAX_CHUNKS = 5;
-  const chunks: EmailItem[][] = [];
-  for (
-    let i = 0;
-    i < allMatterCandidates.length && chunks.length < MAX_CHUNKS;
-    i += CHUNK
-  ) {
-    chunks.push(allMatterCandidates.slice(i, i + CHUNK));
+
+  // CONVERSATIONS, NOT MESSAGES. Atlas used to work message by message,
+  // so a six-reply thread became six near-identical rows — the
+  // "duplicates". Everything below reasons in threads; message ids come
+  // back only when an action has to sweep them.
+  const threadMsgs = new Map<string, EmailItem[]>();
+  for (const i of allMatterCandidates) {
+    threadMsgs.set(i.threadId, [...(threadMsgs.get(i.threadId) ?? []), i]);
   }
-  const matterCandidates = chunks.flat();
+  const threadRows = collapseThreads(allMatterCandidates);
+  /** Any message id → its thread, so a cited inner id still resolves */
+  const threadOfMessage = new Map(
+    allMatterCandidates.map((i) => [i.id, i.threadId]),
+  );
+  const rowOfThread = new Map(threadRows.map((r) => [r.threadId, r]));
+  const messageIdsOf = (threadId: string) =>
+    (threadMsgs.get(threadId) ?? []).map((m) => m.id);
+  /**
+   * The deep read for a conversation: its newest READ message. The
+   * newest message can be an unread reply, and a thread's meaning does
+   * not change because its last line hasn't been read yet.
+   */
+  const readOf = (threadId: string): Understanding | undefined => {
+    const msgs = [...(threadMsgs.get(threadId) ?? [])].sort((a, b) =>
+      a.receivedAt < b.receivedAt ? 1 : -1,
+    );
+    for (const m of msgs) {
+      const u = understanding[m.id];
+      if (u) return u;
+    }
+    return undefined;
+  };
 
   const functions = await loadFunctions(accountEmail);
   // Live studies/opportunities name the branches inside each function
@@ -594,6 +849,37 @@ export async function buildBrief(
       k.toLowerCase(),
     ),
   );
+
+  // AFFINITY CHUNKING. One 500-email call times out, so the corpus is
+  // split across parallel calls — but splitting it by importance sent a
+  // company's six conversations to six different calls, none of which
+  // saw enough to recognize the matter, so all of them fell through to
+  // filing. Group by relationship first: every conversation with the
+  // same counterparty or study code goes to the SAME call.
+  const CHUNK = 100;
+  const MAX_CHUNKS = 8;
+  const chunks = packByAffinity(
+    threadRows,
+    (r) => affinityKey(r, labels, ownDomain, readOf(r.threadId)),
+    CHUNK,
+    MAX_CHUNKS,
+  );
+  const matterCandidates = chunks.flat();
+  {
+    const sizes = new Map<string, number>();
+    for (const r of threadRows) {
+      const k = affinityKey(r, labels, ownDomain, readOf(r.threadId));
+      sizes.set(k, (sizes.get(k) ?? 0) + 1);
+    }
+    const top = [...sizes.entries()]
+      .sort((a, b) => b[1] - a[1])
+      .slice(0, 5)
+      .map(([k, n]) => `${k}×${n}`)
+      .join(" ");
+    console.log(
+      `[seer] matters: ${allMatterCandidates.length} messages in ${threadRows.length} conversations, ${chunks.length} chunks; biggest relationships: ${top}`,
+    );
+  }
 
   // Few-shot: nearest labeled examples across the candidate set
   const picked = new Map<string, string>();
@@ -654,12 +940,16 @@ export async function buildBrief(
     inbox: batch.map((i) => {
       const study = `${i.subject}\n${i.snippet}`.match(STUDY_CODE)?.[0];
       const d = i.guide?.debug;
-      const u = understanding[i.id];
+      const u = readOf(i.threadId);
+      const msgs = threadMsgs.get(i.threadId)?.length ?? 1;
       return {
         id: i.id,
         from: stripEmoji(i.fromName || i.fromEmail),
         email: i.fromEmail,
         subject: stripEmoji(i.subject),
+        // This entry is a conversation: how many replies, and who spoke
+        ...(msgs > 1 ? { messages: msgs } : {}),
+        ...(i.threadSenders?.length ? { voices: i.threadSenders } : {}),
         // The deep read, when we have it: what this email actually means
         ...(u
           ? {
@@ -756,64 +1046,62 @@ export async function buildBrief(
       : Promise.resolve({ output: { summary: "", themes: [] } }),
   ]);
 
-  // Merge the chunks: same matter id seen twice keeps one row and pools
-  // its evidence, so a matter split across chunks doesn't double up.
-  const mergedMatters = new Map<
-    string,
-    (typeof chunkOutputs)[number]["matters"][number]
-  >();
-  for (const out of chunkOutputs) {
-    for (const m of out.matters) {
-      const prevM = mergedMatters.get(m.id);
-      if (!prevM) {
-        mergedMatters.set(m.id, { ...m });
-        continue;
-      }
-      prevM.emailIds = [...new Set([...prevM.emailIds, ...m.emailIds])];
-      prevM.urgency = Math.max(prevM.urgency, m.urgency);
-      if (prevM.people.length < m.people.length) prevM.people = m.people;
-    }
-  }
+  // Every chunk's matters, with their cited ids resolved to conversations
+  const merged = mergeMatters(
+    chunkOutputs.flatMap((out) =>
+      out.matters
+        .map((m) => ({
+          m,
+          threads: [
+            ...new Set(
+              m.emailIds
+                .map((id) => threadOfMessage.get(id))
+                .filter((t): t is string => Boolean(t)),
+            ),
+          ],
+        }))
+        .filter((entry) => entry.threads.length > 0),
+    ),
+  );
+
   const output = {
     summary: chunkOutputs.map((o) => o.summary).find(Boolean) ?? "",
-    matters: [...mergedMatters.values()],
+    matters: merged,
   };
 
-  const byId = new Map(matterCandidates.map((i) => [i.id, i]));
-  const matters: Matter[] = output.matters
-    .map((m) => ({
-      ...m,
-      // User corrections are ground truth even if the model ignored them
-      orgUnit: fixes[m.id]?.orgUnit ?? m.orgUnit,
-      orgConfidence: fixes[m.id] ? 1 : m.orgConfidence,
-      subUnit: (() => {
-        const first = m.emailIds.map((id) => byId.get(id)).find(Boolean);
-        return first ? subUnitFor(first, labels, ownDomain) : undefined;
-      })(),
-      crm: crmFactsFor(
-        m.emailIds.map((id) => byId.get(id)).filter((i): i is EmailItem => Boolean(i)),
-        { opps, studyIndex, sitesByStudy },
-      ),
-      emails: m.emailIds
-        .map((id) => byId.get(id))
-        .filter((i): i is EmailItem => Boolean(i))
-        .map((i) => ({
-          id: i.id,
-          threadId: i.threadId,
-          from: stripEmoji(i.fromName || i.fromEmail),
-          line: lineFor(i),
-          suggestion: suggestionFor(i),
-        })),
-      emailIds: m.emailIds.filter((id) => byId.has(id)),
-      threadIds: [
-        ...new Set(
-          m.emailIds
-            .map((id) => byId.get(id)?.threadId)
-            .filter((t): t is string => Boolean(t)),
-        ),
-      ],
-      updatedAt: new Date().toISOString(),
-    }))
+  const matters: Matter[] = merged
+    .map((m) => {
+      const rows = m.threads
+        .map((t) => rowOfThread.get(t))
+        .filter((r): r is (typeof threadRows)[number] => Boolean(r));
+      return {
+        ...m,
+        // User corrections are ground truth even if the model ignored them
+        orgUnit: fixes[m.id]?.orgUnit ?? m.orgUnit,
+        orgConfidence: fixes[m.id] ? 1 : m.orgConfidence,
+        subUnit: rows[0] ? subUnitFor(rows[0], labels, ownDomain) : undefined,
+        crm: crmFactsFor(rows, { opps, studyIndex, sitesByStudy }),
+        emails: rows.map((i) => {
+          const u = readOf(i.threadId);
+          const count = threadMsgs.get(i.threadId)?.length ?? 1;
+          const who = personName(i);
+          return {
+            id: i.id,
+            threadId: i.threadId,
+            from: who,
+            line: u
+              ? headline(who, stripEmoji(u.oneLine)).slice(0, 140)
+              : lineFor(i),
+            suggestion: u ? askSuggestion(u) : suggestionFor(i),
+            ...(count > 1 ? { count } : {}),
+          };
+        }),
+        // Acting on a matter must sweep every message in its threads
+        emailIds: m.threads.flatMap(messageIdsOf),
+        threadIds: m.threads,
+        updatedAt: new Date().toISOString(),
+      };
+    })
     .filter((m) => m.emailIds.length > 0)
     .sort(
       (a, b) =>
@@ -824,18 +1112,25 @@ export async function buildBrief(
   // TOTAL COVERAGE — the model returns only meaningful matters. Every
   // remaining graded email is filed into the org tree locally, avoiding
   // an enormous structured response that times out on large inboxes.
-  const inMatters = new Set(matters.flatMap((m) => m.emailIds));
+  // Filed rows are CONVERSATIONS. Filing message by message is what put
+  // the same Abbott request on screen four times.
+  const inMatters = new Set(matters.flatMap((m) => m.threadIds));
   const filed: FiledEmail[] = [];
-  for (const i of allMatterCandidates) {
-    if (inMatters.has(i.id)) continue;
-    const u = understanding[i.id];
+  for (const i of threadRows) {
+    if (inMatters.has(i.threadId)) continue;
+    const u = readOf(i.threadId);
+    const ids = messageIdsOf(i.threadId);
+    const who = personName(i);
     filed.push({
       emailId: i.id,
       threadId: i.threadId,
       orgUnit: orgUnitFor(i, functions, u).unit,
       subUnit: subUnitFor(i, labels, ownDomain),
-      line: u ? `${stripEmoji(i.fromName || i.fromEmail)} — ${u.oneLine}`.slice(0, 130) : lineFor(i),
+      line: u
+        ? headline(who, stripEmoji(u.oneLine)).slice(0, 140)
+        : lineFor(i),
       suggestion: u ? askSuggestion(u) : suggestionFor(i),
+      ...(ids.length > 1 ? { count: ids.length, messageIds: ids } : {}),
     });
   }
   const unsure: UnsureItem[] = [];
@@ -844,10 +1139,22 @@ export async function buildBrief(
   // Documents waiting on this person's pen, gathered from the reads. Not
   // a keyword hunt and not model-clustered: if the read says a document
   // awaits their signature, it belongs here, above everything else.
-  const signatureItems = allMatterCandidates.filter(
-    (i) => understanding[i.id]?.signature,
+  // One row per document, so a signature thread with three reminders is
+  // one line on the queue.
+  const signatureItems = threadRows.filter((i) =>
+    (threadMsgs.get(i.threadId) ?? []).some((m) => understanding[m.id]?.signature),
   );
-  const signatureIds = new Set(signatureItems.map((i) => i.id));
+  const signatureOf = (threadId: string) => {
+    const msgs = [...(threadMsgs.get(threadId) ?? [])].sort((a, b) =>
+      a.receivedAt < b.receivedAt ? 1 : -1,
+    );
+    for (const m of msgs) {
+      const sig = understanding[m.id]?.signature;
+      if (sig) return sig;
+    }
+    return undefined;
+  };
+  const signatureThreads = new Set(signatureItems.map((i) => i.threadId));
   const pinned: Matter[] = [];
   if (signatureItems.length > 0) {
     const now = new Date().toISOString();
@@ -863,16 +1170,16 @@ export async function buildBrief(
       narrative: `${signatureItems.length} document${signatureItems.length === 1 ? "" : "s"} waiting on your signature`,
       nextAction:
         signatureItems.length === 1
-          ? `Sign ${understanding[signatureItems[0].id]!.signature!.document}`
+          ? `Sign ${signatureOf(signatureItems[0].threadId)!.document}`
           : `Sign ${signatureItems.length} documents`,
       owner: "you",
       urgency: 3,
       emails: signatureItems.map((i) => {
-        const sig = understanding[i.id]!.signature!;
+        const sig = signatureOf(i.threadId)!;
         return {
           id: i.id,
           threadId: i.threadId,
-          from: stripEmoji(i.fromName || i.fromEmail),
+          from: personName(i),
           line: [
             sig.document,
             sig.counterparty ? `for ${sig.counterparty}` : "",
@@ -881,10 +1188,14 @@ export async function buildBrief(
             .filter(Boolean)
             .join(" "),
           suggestion: "Sign it",
+          ...(() => {
+            const n = threadMsgs.get(i.threadId)?.length ?? 1;
+            return n > 1 ? { count: n } : {};
+          })(),
         };
       }),
-      emailIds: signatureItems.map((i) => i.id),
-      threadIds: [...new Set(signatureItems.map((i) => i.threadId))],
+      emailIds: signatureItems.flatMap((i) => messageIdsOf(i.threadId)),
+      threadIds: [...signatureThreads],
       updatedAt: now,
     });
   }
@@ -900,11 +1211,19 @@ export async function buildBrief(
       .filter((t) => t.emailIds.length > 0),
   };
 
-  // The user's matters survive every rebuild, and their titles win.
+  // The user's matters survive every rebuild, and their titles win. A
+  // matter built from selected rows owns those whole conversations.
   const manualMatters: Matter[] = edits.manual.map((mm) => {
-    const rows = mm.emailIds
-      .map((id) => byId.get(id))
-      .filter((i): i is EmailItem => Boolean(i));
+    const threads = [
+      ...new Set(
+        mm.emailIds
+          .map((id) => threadOfMessage.get(id))
+          .filter((t): t is string => Boolean(t)),
+      ),
+    ];
+    const rows = threads
+      .map((t) => rowOfThread.get(t))
+      .filter((r): r is (typeof threadRows)[number] => Boolean(r));
     return {
       id: mm.id,
       title: mm.title,
@@ -915,47 +1234,53 @@ export async function buildBrief(
       goal: mm.goal,
       narrative:
         rows.length > 0
-          ? `${rows.length} email${rows.length === 1 ? "" : "s"} you grouped yourself`
+          ? `${rows.length} conversation${rows.length === 1 ? "" : "s"} you grouped yourself`
           : "yours — nothing from the inbox in it right now",
       nextAction: mm.nextAction ?? "none — yours to define",
       owner: "you",
       urgency: 2,
       subUnit: rows[0] ? subUnitFor(rows[0], labels, ownDomain) : undefined,
-      emails: rows.map((i) => ({
-        id: i.id,
-        threadId: i.threadId,
-        from: stripEmoji(i.fromName || i.fromEmail),
-        line: understanding[i.id]
-          ? `${stripEmoji(i.fromName || i.fromEmail)} — ${understanding[i.id]!.oneLine}`.slice(0, 130)
-          : lineFor(i),
-        suggestion: understanding[i.id]
-          ? askSuggestion(understanding[i.id]!)
-          : suggestionFor(i),
-      })),
-      emailIds: mm.emailIds,
-      threadIds: [...new Set(rows.map((i) => i.threadId))],
+      emails: rows.map((i) => {
+        const u = readOf(i.threadId);
+        const n = threadMsgs.get(i.threadId)?.length ?? 1;
+        const who = personName(i);
+        return {
+          id: i.id,
+          threadId: i.threadId,
+          from: who,
+          line: u
+            ? headline(who, stripEmoji(u.oneLine)).slice(0, 140)
+            : lineFor(i),
+          suggestion: u ? askSuggestion(u) : suggestionFor(i),
+          ...(n > 1 ? { count: n } : {}),
+        };
+      }),
+      emailIds: threads.flatMap(messageIdsOf),
+      threadIds: threads,
       updatedAt: mm.updatedAt,
     };
   });
-  const manualIds = new Set(manualMatters.flatMap((m) => m.emailIds));
+  const manualThreads = new Set(manualMatters.flatMap((m) => m.threadIds));
 
+  // Conversations claimed by the signature queue or by a matter the user
+  // built themselves are removed everywhere else — one row, one home.
+  const spokenFor = (threadId: string) =>
+    signatureThreads.has(threadId) || manualThreads.has(threadId);
   const cleanedMatters = [
     ...manualMatters,
-    ...matters.map((m) => ({
-      ...m,
-      // The user's title is ground truth
-      title: edits.renames[m.id]?.title ?? m.title,
-      emailIds: m.emailIds.filter(
-        (id) => !signatureIds.has(id) && !manualIds.has(id),
-      ),
-      emails: m.emails?.filter(
-        (e) => !signatureIds.has(e.id) && !manualIds.has(e.id),
-      ),
-    })),
+    ...matters.map((m) => {
+      const threadIds = m.threadIds.filter((t) => !spokenFor(t));
+      return {
+        ...m,
+        // The user's title is ground truth
+        title: edits.renames[m.id]?.title ?? m.title,
+        threadIds,
+        emailIds: threadIds.flatMap(messageIdsOf),
+        emails: m.emails?.filter((e) => !spokenFor(e.threadId)),
+      };
+    }),
   ].filter((m) => m.emailIds.length > 0 || m.category === "mine");
-  const cleanedFiled = filed.filter(
-    (f) => !signatureIds.has(f.emailId) && !manualIds.has(f.emailId),
-  );
+  const cleanedFiled = filed.filter((f) => !spokenFor(f.threadId));
 
   const brief: Brief = {
     builtAt: new Date().toISOString(),
@@ -973,7 +1298,12 @@ export async function buildBrief(
     totalInbox: items.length,
     totalThreads: new Set(items.map((i) => i.threadId)).size,
     ...(providerTotal ? { providerTotal } : {}),
-    readByAi: matterCandidates.length,
+    // Messages the AI actually judged — the conversations it read, in
+    // message terms, so coverage reconciles with the provider's count
+    readByAi: matterCandidates.reduce(
+      (n, r) => n + (threadMsgs.get(r.threadId)?.length ?? 1),
+      0,
+    ),
     filed: cleanedFiled,
     digest,
     unsure,

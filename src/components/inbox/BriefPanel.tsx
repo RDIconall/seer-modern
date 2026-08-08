@@ -261,8 +261,8 @@ function MatterCard({
       </dl>
 
       <p className="mt-2 text-[11px] font-semibold uppercase tracking-wide text-[var(--nav-muted)]">
-        Seer suggests · {m.emails?.length ?? m.emailIds.length} email
-        {(m.emails?.length ?? m.emailIds.length) === 1 ? "" : "s"}
+        Seer suggests · {m.emails?.length ?? m.threadIds.length} conversation
+        {(m.emails?.length ?? m.threadIds.length) === 1 ? "" : "s"}
       </p>
       <ul className="mt-0.5">
         {(m.emails ?? []).map((e) => (
@@ -276,6 +276,9 @@ function MatterCard({
               className="min-w-0 flex-1 truncate text-left text-[var(--fg)] hover:text-[var(--fg-strong)]"
             >
               {e.line}
+              {e.count && e.count > 1 ? (
+                <span className="text-[var(--nav-muted)]"> · {e.count}</span>
+              ) : null}
             </button>
             <span className="shrink-0 text-[11px] text-[var(--muted)]">
               {e.suggestion}
@@ -369,6 +372,10 @@ function FiledRow({
       >
         {code ? <span className="text-[var(--nav-muted)]">{code} </span> : null}
         {f.line}
+        {/* One row per conversation, Gmail-style: how many messages deep */}
+        {f.count && f.count > 1 ? (
+          <span className="text-[var(--nav-muted)]"> · {f.count}</span>
+        ) : null}
       </button>
       {f.suggestion ? (
         <span className="shrink-0 text-[11px] text-[var(--nav-muted)]">
@@ -483,8 +490,12 @@ export function BriefPanel({
         [...brief.matters, ...(brief.pinned ?? [])].flatMap((m) => m.emailIds),
       ).size
     : 0;
-  const filedCount = brief?.filed?.length ?? 0;
-  const accounted = inMatters + filedCount + digestCount;
+  // Rows are conversations; coverage is counted in MESSAGES so it still
+  // reconciles against the provider's own inbox total.
+  const filedRows = brief?.filed?.length ?? 0;
+  const filedMessages =
+    brief?.filed?.reduce((n, f) => n + (f.count ?? 1), 0) ?? 0;
+  const accounted = inMatters + filedMessages + digestCount;
   const total = brief?.totalInbox ?? accounted;
   const providerCount = brief?.providerTotal?.messages || undefined;
   const short = Math.max(0, (providerCount ?? total) - accounted);
@@ -548,7 +559,7 @@ export function BriefPanel({
                 : `· ${short} not read yet`}
             </span>
             <span className="text-[11px] text-[var(--nav-muted)]">
-              · {brief.matters.length} matters · {filedCount} filed ·{" "}
+              · {brief.matters.length} matters · {filedRows} filed ·{" "}
               {digestCount} to clear
               {brief.unread ? ` · ${brief.unread} still being read` : ""}
               {building ? " · reading…" : ""}

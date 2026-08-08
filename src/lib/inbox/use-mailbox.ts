@@ -12,7 +12,7 @@ import type {
   ViewTab,
 } from "@/lib/inbox/types";
 import type { ComposeDraft } from "@/components/inbox/ComposePanel";
-import type { Brief } from "@/lib/inbox/matters";
+import type { Brief, Matter } from "@/lib/inbox/matters";
 import {
   actionThreadId,
   buildCardDeck,
@@ -475,31 +475,40 @@ export function useMailbox(initialTab: ViewTab = "inbox") {
   );
 
   /** Atlas rows act on the whole conversation: archive closes the thread. */
-  const dropFromBrief = useCallback((ids: string[]) => {
-    const gone = new Set(ids);
-    setBrief((prev) =>
-      prev
-        ? {
-            ...prev,
-            matters: prev.matters
-              .map((m) => ({
-                ...m,
-                emailIds: m.emailIds.filter((id) => !gone.has(id)),
-                emails: m.emails?.filter((e) => !gone.has(e.id)),
-              }))
-              .filter((m) => m.emailIds.length > 0 || m.category === "mine"),
-            pinned: prev.pinned
-              ?.map((m) => ({
-                ...m,
-                emailIds: m.emailIds.filter((id) => !gone.has(id)),
-                emails: m.emails?.filter((e) => !gone.has(e.id)),
-              }))
-              .filter((m) => m.emailIds.length > 0),
-            filed: prev.filed?.filter((f) => !gone.has(f.emailId)),
-          }
-        : prev,
-    );
-  }, []);
+  /**
+   * Atlas rows are conversations, and an action closes the whole thread —
+   * so removal is by THREAD. Dropping only the message id left matters
+   * on screen holding their invisible siblings.
+   */
+  const dropFromBrief = useCallback(
+    (rows: { id: string; threadId: string }[]) => {
+      const goneThreads = new Set(rows.map((r) => r.threadId));
+      const goneIds = new Set(rows.map((r) => r.id));
+      const prune = <T extends Matter>(m: T): T => ({
+        ...m,
+        threadIds: m.threadIds.filter((t) => !goneThreads.has(t)),
+        emailIds: m.emailIds.filter((id) => !goneIds.has(id)),
+        emails: m.emails?.filter((e) => !goneThreads.has(e.threadId)),
+      });
+      setBrief((prev) =>
+        prev
+          ? {
+              ...prev,
+              matters: prev.matters
+                .map(prune)
+                .filter(
+                  (m) => m.threadIds.length > 0 || m.category === "mine",
+                ),
+              pinned: prev.pinned
+                ?.map(prune)
+                .filter((m) => m.threadIds.length > 0),
+              filed: prev.filed?.filter((f) => !goneThreads.has(f.threadId)),
+            }
+          : prev,
+      );
+    },
+    [],
+  );
 
   const atlasAction = useCallback(
     async (
@@ -507,7 +516,7 @@ export function useMailbox(initialTab: ViewTab = "inbox") {
       action: "archive" | "trash",
     ) => {
       if (rows.length === 0) return;
-      dropFromBrief(rows.map((r) => r.id));
+      dropFromBrief(rows);
       for (const r of rows) {
         markActed(r.id, r.threadId);
         removeFromLists(r.id);
