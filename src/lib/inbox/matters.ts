@@ -1,5 +1,9 @@
 import { getTriageModel } from "@/lib/inbox/gemini-triage";
 import { stripEmoji, type EmailItem } from "@/lib/inbox/types";
+import type {
+  Understanding,
+  UnderstandingMap,
+} from "@/lib/inbox/understanding";
 import { loadExemplars, retrieveExemplars } from "@/lib/store/exemplars";
 import { loadFunctions } from "@/lib/store/functions";
 import { accountKey, kvGet, kvSet } from "@/lib/store/kv";
@@ -131,7 +135,7 @@ export type UnsureItem = {
  * treats any older brief as stale and rebuilds it, so a redesign never
  * leaves a stale Atlas on screen waiting for a manual refresh.
  */
-export const BRIEF_ENGINE = 6;
+export const BRIEF_ENGINE = 7;
 
 export type Brief = {
   builtAt: string;
@@ -159,6 +163,10 @@ export type Brief = {
   digest?: Digest;
   /** The only rows that need a human: AI couldn't make the call */
   unsure?: UnsureItem[];
+  /** Matters pinned above the org tree — the signature queue lives here */
+  pinned?: Matter[];
+  /** Deep reads still outstanding — Atlas says so rather than pretending */
+  unread?: number;
 };
 
 const briefSchema = z.object({
@@ -316,6 +324,7 @@ HOW TO CLASSIFY orgUnit (the categories are function × workflow stage, NOT topi
 - Return ONLY the consequential matters. Do not return filing records for emails that do not belong to a matter; the application files those separately.
 - userOrgCorrections in the payload are the user's OWN fixes to earlier org calls — absolute ground truth, follow them exactly for those matters and let them teach you the pattern for similar ones.
 
+- Emails whose payload carries "awaitsSignature" are already handled by a dedicated signature queue. Do NOT build a matter about signing them; if such an email is also part of a larger negotiation, cluster that negotiation on its other evidence.
 - Never invent emails or matters. Every matter cites the emailIds that evidence it.`;
 
 const DIGEST_SYSTEM = `You sort the disposable end of a CEO's inbox into CATEGORIES. No prose essay — the categories and their one-line contents ARE the output.
@@ -324,44 +333,35 @@ const DIGEST_SYSTEM = `You sort the disposable end of a CEO's inbox into CATEGOR
 - summary: leave it as an empty string. The categories carry everything.
 - Every input email id appears in exactly one category. Never invent ids or facts.`;
 
-const DOMAIN_HOME: [RegExp, RegExp][] = [
-  [/(linkedin|indeed|ziprecruiter|glassdoor|handshake)\./, /recruit/i],
-  [/(quickbooks|intuit|bill\.com|ramp|brex|amex|chase|bankofamerica|wellsfargo)\./, /finance/i],
-  [/(atlassian|github|slack|zoom|microsoft|google|okta|1password|qualio|castoredc|docusign|adobe)\./, /systems|information technology|\bit\b/i],
-  [/(mailchimp|hubspot|constantcontact|eventbrite|cvent)\./, /marketing/i],
-];
-
-function inferredOrgUnit(item: EmailItem, functions: string[]): string {
-  const domain = item.fromEmail.split("@")[1]?.toLowerCase() ?? "";
-  for (const [d, fn] of DOMAIN_HOME) {
-    if (!d.test(`${domain}.`)) continue;
-    const match = functions.find((f) => fn.test(f));
-    if (match) return match;
+/**
+ * Where a message lives in the org chart. The deep read decides — it has
+ * seen the whole document. Rules only validate the answer against the
+ * user's own registry and, failing that, pick the least-wrong home.
+ */
+function orgUnitFor(
+  item: EmailItem,
+  functions: string[],
+  u?: Understanding,
+): { unit: string; confidence: number } {
+  const claimed = u?.org.unit?.trim();
+  if (claimed) {
+    const exact = functions.find(
+      (f) => f.toLowerCase() === claimed.toLowerCase(),
+    );
+    if (exact) return { unit: exact, confidence: u?.org.confidence ?? 0.7 };
+    // The model named something close to a registry entry
+    const near = functions.find(
+      (f) =>
+        claimed.toLowerCase().startsWith(f.toLowerCase()) ||
+        f.toLowerCase().startsWith(claimed.toLowerCase()),
+    );
+    if (near) return { unit: near, confidence: (u?.org.confidence ?? 0.7) * 0.9 };
   }
-  const hay = `${item.guide?.category ?? ""} ${item.subject}`.toLowerCase();
-  const patterns: [RegExp, RegExp][] = [
-    [/\b(finance|invoice|receipt|bill|payment|bank|autopay|purchase order)\b/, /finance/i],
-    [/\b(recruit|candidate|interview)\b/, /recruit/i],
-    [/\b(employee|benefit|payroll|human resources)\b/, /\bhr\b|human resources/i],
-    [/\b(it|software|saas|security|system)\b/, /systems|information technology|\bit\b/i],
-    [/\b(facility|office|building|lease|vehicle)\b/, /office|facilit/i],
-    [/\b(marketing|campaign|conference|event)\b/, /marketing/i],
-    [/\b(board|investor)\b/, /board/i],
-    [/\b(study|protocol|irb|site|clinical|sample)\b/, /operations.*stud/i],
-    [/\b(contract|nda|cda|sow|msa|signature)\b/, /sales.*contract/i],
-    [/\b(rfq|quote|proposal|feasibility|new request)\b/, /sales.*new request/i],
-    [/\b(lead|prospect|introduction)\b/, /sales.*lead/i],
-  ];
-  for (const [signal, fn] of patterns) {
-    if (!signal.test(hay)) continue;
-    const match = functions.find((f) => fn.test(f));
-    if (match) return match;
-  }
-  return (
-    functions.find((f) => /operations/i.test(f)) ??
-    functions[0] ??
-    "unsorted"
-  );
+  // Never read (or the read failed): park it where it can be found, and say
+  // so with a low confidence rather than inventing a category.
+  const fallback =
+    functions.find((f) => /operations/i.test(f)) ?? functions[0] ?? "unsorted";
+  return { unit: fallback, confidence: 0 };
 }
 
 /**
@@ -385,8 +385,8 @@ function subUnitFor(
     return codes[0].toUpperCase().replace(/\s+/g, "_");
   }
   // No code: the counterparty IS the branch. "Roche" and "Advarra" mean
-  // something to the user; a grade label like "Work" does not. Internal
-  // mail branches by colleague — our own company name says nothing.
+  // something to the user. Internal mail branches by colleague — our own
+  // company name says nothing.
   return counterparty(item, ownDomain);
 }
 
@@ -452,6 +452,19 @@ function crmFactsFor(
   return undefined;
 }
 
+/** What to do, straight from the read: the ask, or its absence. */
+function askSuggestion(u: Understanding): string {
+  if (u.signature) return `Sign: ${u.signature.document}`;
+  if (/^nothing/i.test(u.ask)) return u.importance >= 1 ? "Worth knowing" : "Disposable";
+  return u.owner === "you"
+    ? u.ask.slice(0, 60)
+    : u.owner === "them"
+      ? "Waiting on them"
+      : u.owner === "team"
+        ? "Team owns it"
+        : u.ask.slice(0, 60);
+}
+
 /** Plain-language suggestion for one email, from its grade. */
 function suggestionFor(item: EmailItem): string {
   switch (item.guide?.action) {
@@ -497,6 +510,7 @@ export async function buildBrief(
   items: EmailItem[],
   profile?: UserProfile | null,
   providerTotal?: { messages: number; threads: number } | null,
+  understanding: UnderstandingMap = {},
 ): Promise<Brief> {
   const prev = await loadBrief(accountEmail);
 
@@ -634,15 +648,31 @@ export async function buildBrief(
     inbox: batch.map((i) => {
       const study = `${i.subject}\n${i.snippet}`.match(STUDY_CODE)?.[0];
       const d = i.guide?.debug;
+      const u = understanding[i.id];
       return {
         id: i.id,
         from: stripEmoji(i.fromName || i.fromEmail),
         email: i.fromEmail,
         subject: stripEmoji(i.subject),
-        gist: stripEmoji(i.guide?.task ?? i.snippet.slice(0, 160)),
+        // The deep read, when we have it: what this email actually means
+        ...(u
+          ? {
+              kind: u.kind,
+              means: u.oneLine,
+              ask: u.ask,
+              owner: u.owner,
+              ...(u.deadline ? { deadline: u.deadline } : {}),
+              ...(u.amounts?.length ? { amounts: u.amounts } : {}),
+              ...(u.entities.length ? { entities: u.entities } : {}),
+              ...(u.signature ? { awaitsSignature: u.signature.document } : {}),
+              suggestedOrg: u.org.unit,
+              importance: u.importance,
+            }
+          : {
+              gist: stripEmoji(i.guide?.task ?? i.snippet.slice(0, 160)),
+              importance: i.guide?.importance,
+            }),
         action: i.guide?.action,
-        category: i.guide?.category,
-        importance: i.guide?.importance,
         receivedAt: i.receivedAt.slice(0, 10),
         // Deterministic evidence: resolved before the model reasons
         ...(study ? { studyCode: study.toUpperCase() } : {}),
@@ -792,16 +822,65 @@ export async function buildBrief(
   const filed: FiledEmail[] = [];
   for (const i of allMatterCandidates) {
     if (inMatters.has(i.id)) continue;
+    const u = understanding[i.id];
     filed.push({
       emailId: i.id,
       threadId: i.threadId,
-      orgUnit: inferredOrgUnit(i, functions),
+      orgUnit: orgUnitFor(i, functions, u).unit,
       subUnit: subUnitFor(i, labels, ownDomain),
-      line: lineFor(i),
-      suggestion: suggestionFor(i),
+      line: u ? `${stripEmoji(i.fromName || i.fromEmail)} — ${u.oneLine}`.slice(0, 130) : lineFor(i),
+      suggestion: u ? askSuggestion(u) : suggestionFor(i),
     });
   }
   const unsure: UnsureItem[] = [];
+
+  // ---- THE SIGNATURE QUEUE ----------------------------------------
+  // Documents waiting on this person's pen, gathered from the reads. Not
+  // a keyword hunt and not model-clustered: if the read says a document
+  // awaits their signature, it belongs here, above everything else.
+  const signatureItems = allMatterCandidates.filter(
+    (i) => understanding[i.id]?.signature,
+  );
+  const signatureIds = new Set(signatureItems.map((i) => i.id));
+  const pinned: Matter[] = [];
+  if (signatureItems.length > 0) {
+    const now = new Date().toISOString();
+    pinned.push({
+      id: "signature-queue",
+      title: "Things you need to sign",
+      goal: "Every document waiting on your signature is executed",
+      category: "signatures",
+      orgUnit: "signatures",
+      orgConfidence: 1,
+      people: [],
+      narrative: `${signatureItems.length} document${signatureItems.length === 1 ? "" : "s"} waiting on your signature`,
+      nextAction:
+        signatureItems.length === 1
+          ? `Sign ${understanding[signatureItems[0].id]!.signature!.document}`
+          : `Sign ${signatureItems.length} documents`,
+      owner: "you",
+      urgency: 3,
+      emails: signatureItems.map((i) => {
+        const sig = understanding[i.id]!.signature!;
+        return {
+          id: i.id,
+          threadId: i.threadId,
+          from: stripEmoji(i.fromName || i.fromEmail),
+          line: [
+            sig.document,
+            sig.counterparty ? `for ${sig.counterparty}` : "",
+            sig.platform ? `(${sig.platform})` : "",
+          ]
+            .filter(Boolean)
+            .join(" "),
+          suggestion: "Sign it",
+        };
+      }),
+      emailIds: signatureItems.map((i) => i.id),
+      threadIds: [...new Set(signatureItems.map((i) => i.threadId))],
+      updatedAt: now,
+    });
+  }
 
   const digestIdSet = new Set(digestItems.map((i) => i.id));
   const digest: Digest = {
@@ -814,11 +893,21 @@ export async function buildBrief(
       .filter((t) => t.emailIds.length > 0),
   };
 
+  const cleanedMatters = matters
+    .map((m) => ({
+      ...m,
+      emailIds: m.emailIds.filter((id) => !signatureIds.has(id)),
+      emails: m.emails?.filter((e) => !signatureIds.has(e.id)),
+    }))
+    .filter((m) => m.emailIds.length > 0);
+  const cleanedFiled = filed.filter((f) => !signatureIds.has(f.emailId));
+
   const brief: Brief = {
     builtAt: new Date().toISOString(),
     engine: BRIEF_ENGINE,
     summary: output.summary,
-    matters,
+    matters: cleanedMatters,
+    pinned,
     headlines,
     // Clear-all now covers the whole digest (fyi + read-and-delete)
     headlineIds: digestItems.map((i) => ({
@@ -830,9 +919,10 @@ export async function buildBrief(
     totalThreads: new Set(items.map((i) => i.threadId)).size,
     ...(providerTotal ? { providerTotal } : {}),
     readByAi: matterCandidates.length,
-    filed,
+    filed: cleanedFiled,
     digest,
     unsure,
+    unread: items.filter((i) => !understanding[i.id]).length,
   };
   await kvSet(keyFor(accountEmail), brief);
   return brief;

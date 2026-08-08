@@ -15,6 +15,7 @@ import {
 import { getGraphInboxTotals, listGraphFolder } from "@/lib/mail/graph";
 import { makeGmailLabelStore } from "@/lib/mail/seer-labels";
 import { requireMailSession } from "@/lib/mail/session";
+import { loadUnderstanding } from "@/lib/store/understanding-store";
 import { loadUserProfile } from "@/lib/store/user-profile";
 import { getSenderOverride } from "@/lib/store/senders";
 import { NextResponse, after } from "next/server";
@@ -150,6 +151,8 @@ export async function POST() {
         ? await getGmailInboxTotals(session.accessToken)
         : await getGraphInboxTotals(session.accessToken);
 
+    const understanding = await loadUnderstanding(session.email);
+
     after(async () => {
       try {
         const brief = await buildBrief(
@@ -157,6 +160,7 @@ export async function POST() {
           items,
           profile,
           providerTotal,
+          understanding,
         );
         console.log(
           `[seer] brief rebuilt: ${brief.matters.length} matters · ${brief.headlines.length} headlines`,

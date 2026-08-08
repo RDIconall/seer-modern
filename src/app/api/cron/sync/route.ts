@@ -22,12 +22,25 @@ import { withFreshToken } from "@/lib/mail/vault";
 import { listAccountsWithTokens } from "@/lib/store/accounts";
 import { loadActionMemory } from "@/lib/store/action-memory";
 import { loadRepliedThreads } from "@/lib/store/replied-threads";
+import { loadFunctions } from "@/lib/store/functions";
+import { readEmails } from "@/lib/inbox/understanding";
+import {
+  loadUnderstanding,
+  mergeUnderstanding,
+  unreadIds,
+} from "@/lib/store/understanding-store";
 import { loadUserProfile } from "@/lib/store/user-profile";
 import { getSenderOverride } from "@/lib/store/senders";
 import { NextResponse } from "next/server";
 
 /** Deep enough to cover a real 500+ inbox in one pass */
 const INBOX_DEPTH = 1200;
+
+/**
+ * Deep reads per tick. A full backlog drains over several ticks rather
+ * than blowing the function's time budget in one.
+ */
+const DEEP_READS_PER_TICK = 90;
 
 export const maxDuration = 300;
 
@@ -146,6 +159,45 @@ export async function GET(request: Request) {
         },
       );
 
+      // ---- DEEP READS -------------------------------------------------
+      // The expensive, once-per-email pass that gives every downstream
+      // judgment something real to work with. Bounded per tick; the
+      // backlog drains over successive ticks, newest first.
+      const functions = await loadFunctions(acct.email);
+      const priorReads = await loadUnderstanding(acct.email);
+      const needReads = unreadIds(raw, priorReads);
+      let deepReads = 0;
+      if (needReads.length > 0) {
+        const byId = new Map(raw.map((m) => [m.id, m]));
+        const queue = needReads
+          .map((id) => byId.get(id)!)
+          .sort((a, b) => (a.receivedAt < b.receivedAt ? 1 : -1))
+          .slice(0, DEEP_READS_PER_TICK);
+        const records = await readEmails(queue, {
+          functions,
+          deadlineMs: Math.min(
+            Date.now() + 110_000,
+            started + 250_000,
+          ),
+          fetchBody: async (id) => {
+            const msg = isGoogle
+              ? await getGmailMessage(token, id)
+              : await getGraphMessage(token, id);
+            return (
+              msg.textBody ||
+              msg.htmlBody.replace(/<[^>]+>/g, " ").replace(/\s+/g, " ")
+            );
+          },
+        });
+        deepReads = records.length;
+        await mergeUnderstanding(
+          acct.email,
+          records,
+          new Set(raw.map((m) => m.id)),
+        );
+      }
+      const understanding = await loadUnderstanding(acct.email);
+
       let freshReads = 0;
       for (const r of decisions.values()) {
         if (r.source === "gemini" && !r.cached) freshReads += 1;
@@ -160,7 +212,7 @@ export async function GET(request: Request) {
           : Infinity;
       let briefRebuilt = false;
       let briefError: string | undefined;
-      if (freshReads > 0 || briefAge > BRIEF_MAX_AGE_MS) {
+      if (freshReads > 0 || deepReads > 0 || briefAge > BRIEF_MAX_AGE_MS) {
         const items: EmailItem[] = raw.map((m) => {
           const r = decisions.get(m.id);
           return {
@@ -178,7 +230,13 @@ export async function GET(request: Request) {
           ? await getGmailInboxTotals(token)
           : await getGraphInboxTotals(token);
         try {
-          await buildBrief(acct.email, items, profile, providerTotal);
+          await buildBrief(
+            acct.email,
+            items,
+            profile,
+            providerTotal,
+            understanding,
+          );
           briefRebuilt = true;
         } catch (e) {
           briefError =
@@ -193,6 +251,8 @@ export async function GET(request: Request) {
         inbox: raw.length,
         graded: decisions.size,
         freshReads,
+        deepReads,
+        stillUnread: Math.max(0, needReads.length - deepReads),
         briefRebuilt,
         ...(briefError ? { briefError } : {}),
       });
