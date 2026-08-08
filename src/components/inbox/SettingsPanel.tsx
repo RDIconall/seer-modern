@@ -99,6 +99,14 @@ export function SettingsPanel({
   const [sf, setSf] = useState<{
     configured?: boolean;
     flow?: string | null;
+    canConnect?: boolean;
+    appSource?: "settings" | "env" | null;
+    connection?: {
+      username?: string;
+      displayName?: string;
+      instanceUrl?: string;
+      connectedAt?: string;
+    } | null;
     loginUrl?: string;
     counts?: { studies: number; opportunities: number; sites: number };
     pipelineValue?: number;
@@ -110,6 +118,27 @@ export function SettingsPanel({
   const [sfBusy, setSfBusy] = useState<string | null>(null);
   const [sfNote, setSfNote] = useState<string | null>(null);
   const [sfReport, setSfReport] = useState("");
+  const [sfClientId, setSfClientId] = useState("");
+  const [sfClientSecret, setSfClientSecret] = useState("");
+  const [sfSandbox, setSfSandbox] = useState(false);
+
+  // Coming back from Salesforce: say what happened, in words
+  useEffect(() => {
+    const note = new URLSearchParams(window.location.search).get("sf");
+    if (!note) return;
+    const SF_NOTES: Record<string, string> = {
+      connected: "Connected to Salesforce. Syncing is now one click.",
+      "no-app":
+        "Add the Connected App's Consumer Key first, then log in.",
+      "no-refresh-scope":
+        "Salesforce didn't return a refresh token — add the “refresh_token, offline_access” scope to the Connected App so background sync can work.",
+      state: "That login didn't match this browser session. Try again.",
+      token: "Salesforce rejected the login. Check the Consumer Key.",
+      signin: "Sign in to Seer first, then connect Salesforce.",
+      access_denied: "Salesforce access was declined.",
+    };
+    setSfNote(SF_NOTES[note] ?? `Salesforce: ${note}`);
+  }, []);
 
   const loadSf = useCallback(async () => {
     try {
@@ -121,7 +150,9 @@ export function SettingsPanel({
     }
   }, []);
 
-  async function sfAction(action: "sync" | "report" | "clear") {
+  async function sfAction(
+    action: "sync" | "report" | "clear" | "app" | "disconnect",
+  ) {
     setSfBusy(action);
     setSfNote(null);
     try {
@@ -129,12 +160,26 @@ export function SettingsPanel({
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify(
-          action === "report" ? { report: sfReport } : { action },
+          action === "report"
+            ? { report: sfReport }
+            : action === "app"
+              ? {
+                  action,
+                  clientId: sfClientId,
+                  clientSecret: sfClientSecret,
+                  sandbox: sfSandbox,
+                }
+              : { action },
         ),
       });
       const json = await res.json();
       if (!res.ok) throw new Error(json.error ?? "Failed");
-      if (action === "sync") {
+      if (action === "app") {
+        setSfNote("Connected App saved — now log in with Salesforce.");
+        setSfClientSecret("");
+      } else if (action === "disconnect") {
+        setSfNote("Disconnected.");
+      } else if (action === "sync") {
         setSfNote(
           `Pulled ${json.opportunities} opportunities · ${json.studies} studies · ${json.sites} sites` +
             (json.studyObject ? ` (from ${json.studyObject})` : "") +
@@ -749,18 +794,102 @@ export function SettingsPanel({
                 the investigators running awarded work.
               </p>
               <p className="mb-2 text-[12px]">
-                {sf?.configured ? (
+                {sf?.connection ? (
+                  <span className="text-[#0b8043]">
+                    Signed in as{" "}
+                    {sf.connection.displayName ?? sf.connection.username} ·{" "}
+                    {sf.connection.instanceUrl?.replace(/^https:\/\//, "")}
+                  </span>
+                ) : sf?.configured ? (
                   <span className="text-[#0b8043]">
                     Credentials present ({sf.flow}) · {sf.loginUrl}
                   </span>
+                ) : sf?.canConnect ? (
+                  <span className="text-[var(--muted)]">
+                    Ready to connect — sign in and Seer syncs as you, with
+                    your permissions.
+                  </span>
                 ) : (
                   <span className="text-[var(--muted)]">
-                    Not configured — add SALESFORCE_CLIENT_ID plus either
-                    SALESFORCE_USERNAME + SALESFORCE_PRIVATE_KEY (JWT bearer)
-                    or SALESFORCE_REFRESH_TOKEN as secrets, then sync.
+                    Not connected yet. Add a Connected App below — it takes a
+                    Consumer Key, no secrets.
                   </span>
                 )}
               </p>
+
+              {/* The one-click path: OAuth with PKCE, no secret to store */}
+              <div className="mb-2 flex flex-wrap items-center gap-2">
+                {sf?.canConnect ? (
+                  <a
+                    href="/api/salesforce/connect"
+                    className="rounded-full bg-[#0176d3] px-4 py-1.5 text-[12px] font-semibold text-white"
+                  >
+                    {sf.connection
+                      ? "Reconnect Salesforce"
+                      : "Log in with Salesforce"}
+                  </a>
+                ) : null}
+                {sf?.connection ? (
+                  <button
+                    type="button"
+                    disabled={sfBusy != null}
+                    onClick={() => sfAction("disconnect")}
+                    className="rounded-full px-3 py-1.5 text-[12px] font-medium text-[#d63b2f] disabled:opacity-50"
+                  >
+                    Disconnect
+                  </button>
+                ) : null}
+              </div>
+
+              <details className="mb-2">
+                <summary className="cursor-pointer text-[12px] text-[var(--muted)]">
+                  {sf?.canConnect
+                    ? `Connected App · ${sf.appSource === "env" ? "from deployment" : "yours"}`
+                    : "Set up the Connected App (one time)"}
+                </summary>
+                <p className="mt-2 text-[12px] leading-relaxed text-[var(--muted)]">
+                  In Salesforce: Setup → App Manager → New Connected App.
+                  Enable OAuth, set the callback to{" "}
+                  <code className="text-[11px]">
+                    {typeof window === "undefined"
+                      ? "/api/salesforce/callback"
+                      : `${window.location.origin}/api/salesforce/callback`}
+                  </code>
+                  , select the scopes <em>api</em> and{" "}
+                  <em>refresh_token, offline_access</em>, and turn OFF “Require
+                  Secret for Web Server Flow” so no secret is needed. Then
+                  paste the Consumer Key here.
+                </p>
+                <input
+                  value={sfClientId}
+                  onChange={(e) => setSfClientId(e.target.value)}
+                  placeholder="Consumer Key (3MVG9…)"
+                  className="mt-2 w-full rounded-lg border border-[var(--border)] bg-[var(--card)] px-3 py-2 text-[12px]"
+                />
+                <input
+                  value={sfClientSecret}
+                  onChange={(e) => setSfClientSecret(e.target.value)}
+                  placeholder="Consumer Secret — only if your org requires one"
+                  className="mt-2 w-full rounded-lg border border-[var(--border)] bg-[var(--card)] px-3 py-2 text-[12px]"
+                />
+                <label className="mt-2 flex items-center gap-2 text-[12px] text-[var(--muted)]">
+                  <input
+                    type="checkbox"
+                    checked={sfSandbox}
+                    onChange={(e) => setSfSandbox(e.target.checked)}
+                    className="h-3.5 w-3.5 accent-[var(--brand)]"
+                  />
+                  This is a sandbox (test.salesforce.com)
+                </label>
+                <button
+                  type="button"
+                  disabled={sfBusy != null || sfClientId.trim().length < 10}
+                  onClick={() => sfAction("app")}
+                  className="mt-2 rounded-full border border-[var(--primary)] px-4 py-1.5 text-[12px] font-semibold text-[var(--primary)] disabled:opacity-50"
+                >
+                  {sfBusy === "app" ? "Saving…" : "Save Connected App"}
+                </button>
+              </details>
               {sf?.counts ? (
                 <p className="mb-2 text-[12px] text-[var(--fg)]">
                   {sf.counts.opportunities} open opportunities

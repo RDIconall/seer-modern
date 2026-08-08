@@ -1,4 +1,3 @@
-import { credsFromEnv } from "@/lib/crm/salesforce-api";
 import { syncSalesforce } from "@/lib/crm/salesforce-sync";
 import { requireMailSession } from "@/lib/mail/session";
 import {
@@ -7,6 +6,14 @@ import {
   saveSalesforce,
   type SalesforceRegistry,
 } from "@/lib/store/salesforce";
+import {
+  clearConnection,
+  DEFAULT_LOGIN_URL,
+  loadApp,
+  loadConnection,
+  resolveCreds,
+  saveApp,
+} from "@/lib/store/salesforce-auth";
 import { NextResponse } from "next/server";
 
 export const maxDuration = 120;
@@ -25,21 +32,30 @@ export async function GET() {
     return NextResponse.json({ error: "Not signed in" }, { status: 401 });
   }
   const registry = await loadSalesforce(session.email);
-  const creds = credsFromEnv();
+  const [app, conn, resolved] = await Promise.all([
+    loadApp(session.email),
+    loadConnection(session.email),
+    resolveCreds(session.email),
+  ]);
   const value = registry.opportunities.reduce(
     (sum, o) => sum + (o.amount ?? 0),
     0,
   );
   return NextResponse.json({
-    configured: Boolean(creds),
-    flow: creds?.privateKey
-      ? "jwt-bearer"
-      : creds?.refreshToken
-        ? "refresh-token"
-        : creds?.clientSecret
-          ? "client-credentials"
-          : null,
-    loginUrl: creds?.loginUrl,
+    configured: Boolean(resolved),
+    flow: resolved?.via ?? null,
+    // Can the user just click Connect, or must an app be registered first?
+    canConnect: Boolean(app),
+    appSource: app?.source ?? null,
+    connection: conn
+      ? {
+          username: conn.username,
+          displayName: conn.displayName,
+          instanceUrl: conn.instanceUrl,
+          connectedAt: conn.connectedAt,
+        }
+      : null,
+    loginUrl: app?.loginUrl ?? resolved?.creds.loginUrl,
     counts: {
       studies: registry.studies.length,
       opportunities: registry.opportunities.length,
@@ -59,10 +75,40 @@ export async function POST(req: Request) {
     return NextResponse.json({ error: "Not signed in" }, { status: 401 });
   }
   const body = (await req.json().catch(() => ({}))) as {
-    action?: "sync" | "clear";
+    action?: "sync" | "clear" | "app" | "disconnect";
     report?: string;
     registry?: SalesforceRegistry;
+    clientId?: string;
+    clientSecret?: string;
+    sandbox?: boolean;
   };
+
+  // Register the Connected App from the UI, so nothing has to be
+  // deployed to change it. The consumer key is public under PKCE.
+  if (body.action === "app") {
+    const clientId = body.clientId?.trim();
+    if (!clientId) {
+      return NextResponse.json(
+        { error: "Paste the Connected App's Consumer Key" },
+        { status: 400 },
+      );
+    }
+    await saveApp(session.email, {
+      clientId,
+      ...(body.clientSecret?.trim()
+        ? { clientSecret: body.clientSecret.trim() }
+        : {}),
+      loginUrl: body.sandbox
+        ? "https://test.salesforce.com"
+        : DEFAULT_LOGIN_URL,
+    });
+    return NextResponse.json({ ok: true });
+  }
+
+  if (body.action === "disconnect") {
+    await clearConnection(session.email);
+    return NextResponse.json({ ok: true, disconnected: true });
+  }
 
   if (body.action === "clear") {
     await saveSalesforce(session.email, {
@@ -74,18 +120,18 @@ export async function POST(req: Request) {
   }
 
   if (body.action === "sync") {
-    const creds = credsFromEnv();
-    if (!creds) {
+    const resolved = await resolveCreds(session.email);
+    if (!resolved) {
       return NextResponse.json(
         {
           error:
-            "Salesforce is not configured. Add SALESFORCE_CLIENT_ID plus either SALESFORCE_USERNAME + SALESFORCE_PRIVATE_KEY (JWT bearer) or SALESFORCE_REFRESH_TOKEN, then sync again.",
+            "Salesforce isn't connected yet. Add a Connected App's Consumer Key below, then click Log in with Salesforce.",
         },
         { status: 400 },
       );
     }
     try {
-      const report = await syncSalesforce(session.email, creds);
+      const report = await syncSalesforce(session.email, resolved.creds);
       return NextResponse.json({ ok: true, ...report });
     } catch (e) {
       return NextResponse.json(

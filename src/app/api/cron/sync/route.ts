@@ -29,6 +29,9 @@ import {
   mergeUnderstanding,
   unreadIds,
 } from "@/lib/store/understanding-store";
+import { loadSalesforce } from "@/lib/store/salesforce";
+import { resolveCreds } from "@/lib/store/salesforce-auth";
+import { syncSalesforce } from "@/lib/crm/salesforce-sync";
 import { loadUserProfile } from "@/lib/store/user-profile";
 import { getSenderOverride } from "@/lib/store/senders";
 import { NextResponse } from "next/server";
@@ -46,6 +49,9 @@ export const maxDuration = 300;
 
 /** Rebuild the brief when it's older than this even without new mail. */
 const BRIEF_MAX_AGE_MS = 6 * 60 * 60 * 1000;
+
+/** Pipelines move daily, not by the minute — one CRM pull a day is plenty */
+const CRM_MAX_AGE_MS = 20 * 60 * 60 * 1000;
 
 /**
  * THE SYNC CRON — Seer checks the mail so the user doesn't. Every few
@@ -159,6 +165,29 @@ export async function GET(request: Request) {
         },
       );
 
+      // ---- CRM ----------------------------------------------------------
+      // A user-authorized connection carries its own refresh token, so
+      // the pipeline can stay current without anyone clicking Sync.
+      let crmSynced = false;
+      try {
+        const registry = await loadSalesforce(acct.email);
+        const age = registry.syncedAt
+          ? Date.now() - new Date(registry.syncedAt).getTime()
+          : Infinity;
+        if (age > CRM_MAX_AGE_MS) {
+          const resolved = await resolveCreds(acct.email);
+          if (resolved) {
+            await syncSalesforce(acct.email, resolved.creds);
+            crmSynced = true;
+          }
+        }
+      } catch (e) {
+        console.error(
+          `[seer] cron salesforce sync failed for ${acct.email}:`,
+          e instanceof Error ? e.message : e,
+        );
+      }
+
       // ---- DEEP READS -------------------------------------------------
       // The expensive, once-per-email pass that gives every downstream
       // judgment something real to work with. Bounded per tick; the
@@ -254,6 +283,7 @@ export async function GET(request: Request) {
         freshReads,
         deepReads,
         stillUnread: Math.max(0, needReads.length - deepReads),
+        ...(crmSynced ? { crmSynced } : {}),
         briefRebuilt,
         ...(briefError ? { briefError } : {}),
       });

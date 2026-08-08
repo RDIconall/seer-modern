@@ -4,12 +4,14 @@ import { createSign } from "node:crypto";
  * SALESFORCE — the live business database behind the mail. Opportunities
  * (with amounts and stages), active studies, sites and investigators.
  *
- * Auth is server-to-server so the background sync works with nobody
- * signed in. Three flows, in order of preference:
+ * Auth always ends in a refresh or assertion the server can replay, so
+ * the background sync works with nobody signed in. Credentials are
+ * resolved in lib/store/salesforce-auth; this module only spends them:
  *
- *  1. JWT bearer (a Connected App with a certificate) — no user, no
- *     expiring refresh token, the standard for unattended integrations.
- *  2. Refresh token — simplest if the org already issued one.
+ *  1. Refresh token — what "Log in with Salesforce" produces, and what
+ *     a user can revoke themselves.
+ *  2. JWT bearer (a Connected App with a certificate) — for an
+ *     unattended integration user, configured in the environment.
  *  3. Client credentials — only some orgs enable it.
  *
  * The schema is DISCOVERED, not assumed: every org names its custom
@@ -33,27 +35,6 @@ export type SalesforceAuth = {
   accessToken: string;
   instanceUrl: string;
 };
-
-export function credsFromEnv(): SalesforceCreds | null {
-  const clientId =
-    process.env.SALESFORCE_CLIENT_ID ?? process.env.SF_CLIENT_ID;
-  if (!clientId) return null;
-  return {
-    loginUrl:
-      process.env.SALESFORCE_LOGIN_URL ??
-      process.env.SF_LOGIN_URL ??
-      "https://login.salesforce.com",
-    clientId,
-    clientSecret:
-      process.env.SALESFORCE_CLIENT_SECRET ?? process.env.SF_CLIENT_SECRET,
-    username: process.env.SALESFORCE_USERNAME ?? process.env.SF_USERNAME,
-    privateKey: (
-      process.env.SALESFORCE_PRIVATE_KEY ?? process.env.SF_PRIVATE_KEY
-    )?.replace(/\\n/g, "\n"),
-    refreshToken:
-      process.env.SALESFORCE_REFRESH_TOKEN ?? process.env.SF_REFRESH_TOKEN,
-  };
-}
 
 function base64url(input: Buffer | string): string {
   return Buffer.from(input)
