@@ -115,6 +115,7 @@ export function DesktopMailApp() {
     briefBuilding,
     rebuildBrief,
     clearHeadlines,
+    fixMatter,
     openReader,
     closeReader,
     startCompose,
@@ -634,6 +635,7 @@ export function DesktopMailApp() {
                 onRebuild={rebuildBrief}
                 onOpen={openReader}
                 onClearHeadlines={clearHeadlines}
+                onFixMatter={fixMatter}
               />
             </div>
           ) : null}

@@ -444,11 +444,11 @@ export function TriageTable({
   // ---- Spreadsheet plumbing: flat row order, cursor, range select ----
   const visibleRows = useMemo(() => {
     const rows: EmailItem[] = [];
+    if (open.has("done")) for (const s of zones.handled) rows.push(...s.items);
+    if (open.has("fyi")) rows.push(...zones.fyi);
+    if (open.has("money-rec")) rows.push(...zones.moneyRecords);
     if (open.has("money-act")) rows.push(...zones.moneyAct);
     if (open.has("needs")) rows.push(...zones.needs);
-    if (open.has("money-rec")) rows.push(...zones.moneyRecords);
-    if (open.has("fyi")) rows.push(...zones.fyi);
-    if (open.has("done")) for (const s of zones.handled) rows.push(...s.items);
     return rows;
   }, [zones, open]);
   const rowIdx = useMemo(
@@ -651,77 +651,101 @@ export function TriageTable({
 
   const groups: ReactNode[] = [];
 
-  // 0. MONEY — ACTION NEEDED (invoices to pay, failed payments, checks)
-  if (zones.moneyAct.length > 0) {
+  // 3. Handled for you — per-section sweeps
+  if (zones.handled.length > 0) {
     groups.push(
       <GroupHeader
-        key="h-money-act"
-        label={`Money — action needed · ${zones.moneyAct.length} (invoices to pay, payments, checks)`}
-        color="#b45309"
-        open={open.has("money-act")}
-        onToggle={() => toggle("money-act")}
+        key="h-done"
+        label={`Clear · ${zones.handledCount} — Seer\u2019s calls, confirm and sweep`}
+        color="#64748b"
+        open={open.has("done")}
+        onToggle={() => toggle("done")}
         span={SPAN}
         mobile={mobile}
       />,
     );
-    if (open.has("money-act")) {
-      for (const item of zones.moneyAct) {
+    if (open.has("done")) {
+      for (const section of zones.handled) {
         groups.push(
-          <Row
-            key={item.id}
-            item={item}
-            h={h}
+          <GroupHeader
+            key={`h-${section.action}`}
+            label={`${section.label} · ${section.items.length}`}
+            color={section.color}
+            open
+            onToggle={() => {}}
+            span={SPAN}
             mobile={mobile}
-            emphasize
-            checked={picked.has(item.id)}
-            onToggle={(r) => togglePick(item.id, r)}
-            active={!mobile && rowIdx.get(item.id) === activeIdx}
+            action={
+              <button
+                type="button"
+                onClick={() =>
+                  h.bulkSection(section, primaryMailAction(section.action))
+                }
+                className="shrink-0 text-[12px] font-semibold text-[var(--primary)]"
+              >
+                {section.bulkLabel}
+              </button>
+            }
           />,
         );
+        for (const item of section.items) {
+          groups.push(
+            <Row
+              key={item.id}
+              item={item}
+              h={h}
+              mobile={mobile}
+              checked={picked.has(item.id)}
+              onToggle={(r) => togglePick(item.id, r)}
+              active={!mobile && rowIdx.get(item.id) === activeIdx}
+            />,
+          );
+        }
       }
     }
   }
 
-  // 1. Needs you
-  groups.push(
-    <GroupHeader
-      key="h-needs"
-      label={`Needs you · ${zones.needs.length}`}
-      color="#d97706"
-      open={open.has("needs")}
-      onToggle={() => toggle("needs")}
-      span={SPAN}
-      mobile={mobile}
-    />,
-  );
-  if (open.has("needs")) {
-    if (zones.needs.length === 0) {
-      groups.push(
-        mobile ? (
-          <p
-            key="needs-empty"
-            className="flex items-center gap-2 px-3 py-3 text-[13px] text-[var(--muted)]"
+  // 2. FYI
+  if (zones.fyi.length > 0) {
+    groups.push(
+      <GroupHeader
+        key="h-fyi"
+        label={`FYI — skim once · ${zones.fyi.length}`}
+        color="#0e7490"
+        open={open.has("fyi")}
+        onToggle={() => toggle("fyi")}
+        span={SPAN}
+        mobile={mobile}
+        action={
+          <button
+            type="button"
+            onClick={() =>
+              h.bulkSection(
+                {
+                  action: "read_and_delete",
+                  label: "FYI",
+                  color: "#0e7490",
+                  bulkLabel: "Clear all",
+                  items: zones.fyi,
+                },
+                "trash",
+              )
+            }
+            className="shrink-0 text-[12px] font-semibold text-[var(--primary)]"
           >
-            <CheckCircle2 className="h-4 w-4 text-[#0b8043]" /> Nothing needs
-            you right now.
-          </p>
-        ) : (
-          <tr key="needs-empty">
-            <td colSpan={SPAN} className="px-3 py-3 text-[13px] text-[var(--muted)]">
-              Nothing needs you right now.
-            </td>
-          </tr>
-        ),
-      );
-    } else {
-      for (const item of zones.needs) {
+            Clear all
+          </button>
+        }
+      />,
+    );
+    if (open.has("fyi")) {
+      for (const item of zones.fyi) {
         groups.push(
           <Row
             key={item.id}
             item={item}
             h={h}
             mobile={mobile}
-            emphasize
             checked={picked.has(item.id)}
             onToggle={(r) => togglePick(item.id, r)}
             active={!mobile && rowIdx.get(item.id) === activeIdx}
@@ -781,47 +805,28 @@ export function TriageTable({
     }
   }
 
-  // 2. FYI
-  if (zones.fyi.length > 0) {
+  // 0. MONEY — ACTION NEEDED (invoices to pay, failed payments, checks)
+  if (zones.moneyAct.length > 0) {
     groups.push(
       <GroupHeader
-        key="h-fyi"
-        label={`FYI — skim once · ${zones.fyi.length}`}
-        color="#0e7490"
-        open={open.has("fyi")}
-        onToggle={() => toggle("fyi")}
+        key="h-money-act"
+        label={`Money — action needed · ${zones.moneyAct.length} (invoices to pay, payments, checks)`}
+        color="#b45309"
+        open={open.has("money-act")}
+        onToggle={() => toggle("money-act")}
         span={SPAN}
         mobile={mobile}
-        action={
-          <button
-            type="button"
-            onClick={() =>
-              h.bulkSection(
-                {
-                  action: "read_and_delete",
-                  label: "FYI",
-                  color: "#0e7490",
-                  bulkLabel: "Clear all",
-                  items: zones.fyi,
-                },
-                "trash",
-              )
-            }
-            className="shrink-0 text-[12px] font-semibold text-[var(--primary)]"
-          >
-            Clear all
-          </button>
-        }
       />,
     );
-    if (open.has("fyi")) {
-      for (const item of zones.fyi) {
+    if (open.has("money-act")) {
+      for (const item of zones.moneyAct) {
         groups.push(
           <Row
             key={item.id}
             item={item}
             h={h}
             mobile={mobile}
+            emphasize
             checked={picked.has(item.id)}
             onToggle={(r) => togglePick(item.id, r)}
             active={!mobile && rowIdx.get(item.id) === activeIdx}
@@ -831,56 +836,51 @@ export function TriageTable({
     }
   }
 
-  // 3. Handled for you — per-section sweeps
-  if (zones.handled.length > 0) {
-    groups.push(
-      <GroupHeader
-        key="h-done"
-        label={`Ready to clear · ${zones.handledCount} — Seer\u2019s suggestions, nothing here needs you`}
-        color="#64748b"
-        open={open.has("done")}
-        onToggle={() => toggle("done")}
-        span={SPAN}
-        mobile={mobile}
-      />,
-    );
-    if (open.has("done")) {
-      for (const section of zones.handled) {
+  // 1. Needs you
+  groups.push(
+    <GroupHeader
+      key="h-needs"
+      label={`Needs you · ${zones.needs.length} — also tracked in Atlas`}
+      color="#d97706"
+      open={open.has("needs")}
+      onToggle={() => toggle("needs")}
+      span={SPAN}
+      mobile={mobile}
+    />,
+  );
+  if (open.has("needs")) {
+    if (zones.needs.length === 0) {
+      groups.push(
+        mobile ? (
+          <p
+            key="needs-empty"
+            className="flex items-center gap-2 px-3 py-3 text-[13px] text-[var(--muted)]"
+          >
+            <CheckCircle2 className="h-4 w-4 text-[#0b8043]" /> Nothing needs
+            you right now.
+          </p>
+        ) : (
+          <tr key="needs-empty">
+            <td colSpan={SPAN} className="px-3 py-3 text-[13px] text-[var(--muted)]">
+              Nothing needs you right now.
+            </td>
+          </tr>
+        ),
+      );
+    } else {
+      for (const item of zones.needs) {
         groups.push(
-          <GroupHeader
-            key={`h-${section.action}`}
-            label={`${section.label} · ${section.items.length}`}
-            color={section.color}
-            open
-            onToggle={() => {}}
-            span={SPAN}
+          <Row
+            key={item.id}
+            item={item}
+            h={h}
             mobile={mobile}
-            action={
-              <button
-                type="button"
-                onClick={() =>
-                  h.bulkSection(section, primaryMailAction(section.action))
-                }
-                className="shrink-0 text-[12px] font-semibold text-[var(--primary)]"
-              >
-                {section.bulkLabel}
-              </button>
-            }
+            emphasize
+            checked={picked.has(item.id)}
+            onToggle={(r) => togglePick(item.id, r)}
+            active={!mobile && rowIdx.get(item.id) === activeIdx}
           />,
         );
-        for (const item of section.items) {
-          groups.push(
-            <Row
-              key={item.id}
-              item={item}
-              h={h}
-              mobile={mobile}
-              checked={picked.has(item.id)}
-              onToggle={(r) => togglePick(item.id, r)}
-              active={!mobile && rowIdx.get(item.id) === activeIdx}
-            />,
-          );
-        }
       }
     }
   }
@@ -892,12 +892,15 @@ export function TriageTable({
     <div>
       <p className="flex items-baseline gap-2 border-b border-[var(--border)] bg-[var(--card)] px-3 py-2.5 text-[13px] font-medium">
         <span className="font-bold text-[var(--fg-strong)]">
-          {zones.moneyAct.length + zones.needs.length} need you
-          {zones.moneyAct.length > 0 ? ` (${zones.moneyAct.length} money)` : ""}
+          {zones.handledCount + zones.fyi.length} to clear
         </span>
         <span className="text-[var(--muted)]">
-          · {zones.moneyRecords.length} money records · {zones.fyi.length} to
-          skim · {zones.handledCount} ready to clear
+          · {zones.moneyRecords.length} money records ·{" "}
+          {zones.moneyAct.length + zones.needs.length} need you
+          {zones.moneyAct.length > 0
+            ? ` (${zones.moneyAct.length} money)`
+            : ""}{" "}
+          — the work itself lives in Atlas
         </span>
         {triage.assistant?.pending ? (
           <span className="animate-pulse text-[11px] font-semibold text-[var(--primary)]">

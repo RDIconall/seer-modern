@@ -441,7 +441,16 @@ export function useMailbox(initialTab: ViewTab = "inbox") {
         removeFromLists(x.id);
       }
       setBrief((prev) =>
-        prev ? { ...prev, headlines: [], headlineIds: [] } : prev,
+        prev
+          ? {
+              ...prev,
+              headlines: [],
+              headlineIds: [],
+              digest: prev.digest
+                ? { ...prev.digest, themes: [] }
+                : prev.digest,
+            }
+          : prev,
       );
       try {
         await fetch("/api/action/bulk", {
@@ -464,6 +473,31 @@ export function useMailbox(initialTab: ViewTab = "inbox") {
     // eslint-disable-next-line react-hooks/exhaustive-deps
     [markActed, removeFromLists],
   );
+
+  /** The user's org call is ground truth — fix it once, Seer learns. */
+  const fixMatter = useCallback(async (matterId: string, orgUnit: string) => {
+    setBrief((prev) =>
+      prev
+        ? {
+            ...prev,
+            matters: prev.matters.map((m) =>
+              m.id === matterId ? { ...m, orgUnit, orgConfidence: 1 } : m,
+            ),
+          }
+        : prev,
+    );
+    try {
+      await fetch("/api/brief", {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ matterId, orgUnit }),
+      });
+      setToast(`Filed under ${orgUnit}`);
+    } catch {
+      setToast("Fix failed");
+    }
+  }, []);
+
   useEffect(() => {
     fetch("/api/catchup", { cache: "no-store" })
       .then((r) => r.json())
@@ -1185,6 +1219,7 @@ export function useMailbox(initialTab: ViewTab = "inbox") {
     briefBuilding,
     rebuildBrief,
     clearHeadlines,
+    fixMatter,
     openReader,
     closeReader,
     startCompose,

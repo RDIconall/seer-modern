@@ -2,7 +2,8 @@ import { buildActionGuideQuick } from "@/lib/inbox/action-guide";
 import { classifyMessage } from "@/lib/inbox/classify";
 import { classifyInboxWithAssistant } from "@/lib/inbox/gemini-triage";
 import { getOrBuildMailHistory } from "@/lib/inbox/mail-history-store";
-import { buildBrief, loadBrief } from "@/lib/inbox/matters";
+import { buildBrief, loadBrief, saveBrief } from "@/lib/inbox/matters";
+import { saveMatterFix } from "@/lib/store/matter-fixes";
 import type { EmailItem } from "@/lib/inbox/types";
 import { getInboxSnapshot } from "@/lib/mail/inbox-snapshot";
 import {
@@ -18,6 +19,36 @@ import { getSenderOverride } from "@/lib/store/senders";
 import { NextResponse, after } from "next/server";
 
 export const maxDuration = 60;
+
+/** PATCH: fix a matter's org placement — the user's call is ground truth. */
+export async function PATCH(req: Request) {
+  const session = await requireMailSession();
+  if (!session) {
+    return NextResponse.json({ error: "Not signed in" }, { status: 401 });
+  }
+  const { matterId, orgUnit } = (await req.json().catch(() => ({}))) as {
+    matterId?: string;
+    orgUnit?: string;
+  };
+  if (!matterId || !orgUnit) {
+    return NextResponse.json(
+      { error: "matterId and orgUnit required" },
+      { status: 400 },
+    );
+  }
+  await saveMatterFix(session.email, matterId, orgUnit);
+  // Reflect immediately in the stored brief — no rebuild needed
+  const brief = await loadBrief(session.email);
+  if (brief) {
+    const m = brief.matters.find((x) => x.id === matterId);
+    if (m) {
+      m.orgUnit = orgUnit;
+      m.orgConfidence = 1;
+      await saveBrief(session.email, brief);
+    }
+  }
+  return NextResponse.json({ ok: true, brief });
+}
 
 /** GET: the stored brief. POST: rebuild it (AI pass runs after response). */
 export async function GET() {

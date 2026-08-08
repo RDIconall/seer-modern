@@ -118,6 +118,7 @@ export function MobileMailApp() {
     briefBuilding,
     rebuildBrief,
     clearHeadlines,
+    fixMatter,
     openReader,
     closeReader,
     startCompose,
@@ -813,6 +814,7 @@ export function MobileMailApp() {
               onRebuild={rebuildBrief}
               onOpen={openReader}
               onClearHeadlines={clearHeadlines}
+              onFixMatter={fixMatter}
             />
           </div>
         ) : null}

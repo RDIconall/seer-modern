@@ -3,6 +3,7 @@ import { stripEmoji, type EmailItem } from "@/lib/inbox/types";
 import { loadExemplars, retrieveExemplars } from "@/lib/store/exemplars";
 import { loadFunctions } from "@/lib/store/functions";
 import { accountKey, kvGet, kvSet } from "@/lib/store/kv";
+import { loadMatterFixes, type MatterFixes } from "@/lib/store/matter-fixes";
 import { loadMerchants } from "@/lib/store/merchants";
 
 /**
@@ -65,6 +66,28 @@ export type Headline = {
   line: string;
 };
 
+/** An inbox email with no matter — but it still has an org home */
+export type FiledEmail = {
+  emailId: string;
+  threadId: string;
+  orgUnit: string;
+  line: string;
+};
+
+/** The FYI / read-and-delete mass, summarized AS A WHOLE */
+export type Digest = {
+  /** One paragraph covering everything below — read this, skip the rest */
+  summary: string;
+  themes: { theme: string; line: string; emailIds: string[] }[];
+};
+
+/** Where the AI could not make the call — the user's actual triage work */
+export type UnsureItem = {
+  emailId: string;
+  threadId: string;
+  question: string;
+};
+
 export type Brief = {
   builtAt: string;
   summary: string;
@@ -73,6 +96,16 @@ export type Brief = {
   headlines: Headline[];
   /** Ids safe to archive once the headlines are glanced */
   headlineIds: { id: string; threadId: string }[];
+  /** The org registry snapshot the brief was built against */
+  functions?: string[];
+  /** Total inbox size at build time — the coverage denominator */
+  totalInbox?: number;
+  /** Non-matter emails, each filed to an org unit — full-corpus accounting */
+  filed?: FiledEmail[];
+  /** Collective summary of the FYI / read-and-delete mass */
+  digest?: Digest;
+  /** The only rows that need a human: AI couldn't make the call */
+  unsure?: UnsureItem[];
 };
 
 const briefSchema = z.object({
@@ -116,6 +149,48 @@ const briefSchema = z.object({
       emailIds: z.array(z.string()),
     }),
   ),
+  filed: z
+    .array(
+      z.object({
+        emailId: z.string(),
+        orgUnit: z
+          .string()
+          .describe("one of the payload's functions list, verbatim"),
+      }),
+    )
+    .describe(
+      "EVERY inbox email that is not in a matter and not unsure gets filed to an org unit here — total coverage, no email left unaccounted",
+    ),
+  unsure: z
+    .array(
+      z.object({
+        emailId: z.string(),
+        question: z
+          .string()
+          .describe(
+            'the one-line question only the user can answer, e.g. "Is the Werfen intro a lead or personal networking?"',
+          ),
+      }),
+    )
+    .describe(
+      "ONLY where you genuinely cannot make the call — ambiguous direction of commerce, unknown person, unclear if user opted in. Aim for near-zero.",
+    ),
+  digestSummary: z
+    .string()
+    .describe(
+      "One paragraph covering the ENTIRE digestInbox as a whole — what the noise collectively says (renewals due, shipments moving, newsletters' one real insight). The user reads this instead of the emails.",
+    ),
+  digestThemes: z
+    .array(
+      z.object({
+        theme: z.string().describe('short label, e.g. "Shipments" or "SaaS renewals"'),
+        line: z
+          .string()
+          .describe("one sentence covering every email in this theme"),
+        emailIds: z.array(z.string()),
+      }),
+    )
+    .describe("group ALL digestInbox emails into 3-8 themes"),
 });
 
 function keyFor(accountEmail: string) {
@@ -124,6 +199,13 @@ function keyFor(accountEmail: string) {
 
 export async function loadBrief(accountEmail: string): Promise<Brief | null> {
   return await kvGet<Brief>(keyFor(accountEmail));
+}
+
+export async function saveBrief(
+  accountEmail: string,
+  brief: Brief,
+): Promise<void> {
+  await kvSet(keyFor(accountEmail), brief);
 }
 
 const SYSTEM = `You are the chief of staff writing the daily state-of-play for a CEO's inbox. The emails you receive are the ones STILL IN the inbox — kept deliberately. Cluster them into MATTERS: ongoing threads of work life (a negotiation, an inspection, a deal, a dispute, a purchase). MATTERS ARE THE TOP-LEVEL UNIT; everything else is a facet on them. Reuse the previous matters' ids when the same matter continues; carry their state forward and update it with the new evidence. One matter per real-world concern, not per email.
@@ -145,8 +227,16 @@ HOW TO CLASSIFY orgUnit (the categories are function × workflow stage, NOT topi
 3. CLASSIFY BY THE PRIMARY DELIVERABLE — the action that unblocks the counterparty — not by every document mentioned. "Send CDA and feasibility response" is "sales — new requests" (the feasibility answer is the ask; the CDA is packaging). A PO arriving as part of an award is contracting; an invoice or payment chase on already-awarded work is "finance (ar/ap)".
 4. labeledExamples in the payload are the user's OWN past categorizations of similar work — they are ground truth for how the user carves up their world. When an example closely matches, follow it over your own instinct.
 - people: the humans IN the matter with relationship typing "role — lifecycle/closeness": "client — new" (first deal), "client — senior, close" (long history, warm), "vendor", "team" (works for the user), "board", "regulator", "prospect", "family". Use the previous matters and the user profile to keep relationship labels consistent — a person keeps the same relationship across matters unless the evidence changed.
-- Emails that are pure one-line facts with no ongoing matter (newsletters worth a headline, status notices) do NOT get matters — leave them unassigned; they become headlines.
-- Return AT MOST 14 matters — the most consequential; fold minor items into related matters or leave them unassigned.
+- Return AT MOST 14 matters — the most consequential; fold minor items into related matters or file the rest.
+
+TOTAL COVERAGE — the inbox is a living corpus and every email must be accounted for:
+- Every id in "inbox" appears in EXACTLY ONE of: a matter's emailIds, "filed", or "unsure". No email may be silently dropped.
+- "filed" = real but not an ongoing matter: file it to its org unit (same classification doctrine as matters). This is how the whole inbox lands in the user's org format.
+- "unsure" = you genuinely cannot make the call and need the user (ambiguous direction of commerce, unknown person, can't tell if opted-in). Be decisive — unsure should be nearly empty.
+- userOrgCorrections in the payload are the user's OWN fixes to earlier org calls — absolute ground truth, follow them exactly for those matters and let them teach you the pattern for similar ones.
+
+THE DIGEST — "digestInbox" is the FYI / read-then-delete mass. Do NOT make matters from it. Summarize it AS A WHOLE: digestSummary is the one paragraph the user reads INSTEAD of these emails (name the few facts that matter: amounts, dates, the single insight worth keeping); digestThemes groups every digest email into 3-8 themes with one covering sentence each. Every digestInbox id appears in exactly one theme.
+
 - Never invent emails or matters. Every matter cites the emailIds that evidence it.`;
 
 /**
@@ -160,8 +250,13 @@ export async function buildBrief(
 ): Promise<Brief> {
   const prev = await loadBrief(accountEmail);
 
-  // The read-then-delete class becomes headlines directly — the AI's
-  // task line IS the headline; no model call needed for these.
+  // The FYI / read-then-delete mass — summarized as a whole (the
+  // digest), never worked one by one. Headlines stay as the per-line
+  // fallback for clients that predate the digest.
+  const DIGEST_ACTIONS = new Set(["read_and_delete", "glance_promo"]);
+  const digestItems = items
+    .filter((i) => DIGEST_ACTIONS.has(i.guide?.action ?? ""))
+    .slice(0, 150);
   const headlineItems = items.filter(
     (i) => i.guide?.action === "read_and_delete",
   );
@@ -178,7 +273,7 @@ export async function buildBrief(
   // Matters get everything else that's still in the inbox — capped by
   // importance then recency so a 300-email backlog can't blow the call
   const matterCandidates = items
-    .filter((i) => i.guide?.action !== "read_and_delete")
+    .filter((i) => !DIGEST_ACTIONS.has(i.guide?.action ?? ""))
     .sort(
       (a, b) =>
         (b.guide?.importance ?? 1) - (a.guide?.importance ?? 1) ||
@@ -187,6 +282,10 @@ export async function buildBrief(
     .slice(0, 120);
 
   const functions = await loadFunctions(accountEmail);
+  // The user's own org corrections — absolute ground truth
+  const fixes: MatterFixes = await loadMatterFixes(accountEmail).catch(
+    () => ({}),
+  );
   // The user's own labeled history — few-shot retrieved per candidate
   const exemplars = await loadExemplars(accountEmail).catch(() => []);
   // Spend-side evidence: senders who bill the user (merchant graph)
@@ -213,6 +312,10 @@ export async function buildBrief(
 
   const payload = {
     functions,
+    userOrgCorrections: Object.entries(fixes).map(([matterId, f]) => ({
+      matterId,
+      orgUnit: f.orgUnit,
+    })),
     labeledExamples: [...picked.entries()].map(([subject, category]) => ({
       subject,
       category,
@@ -249,6 +352,12 @@ export async function buildBrief(
           : {}),
       };
     }),
+    digestInbox: digestItems.map((i) => ({
+      id: i.id,
+      from: stripEmoji(i.fromName || i.fromEmail),
+      subject: stripEmoji(i.subject),
+      gist: stripEmoji(i.guide?.task ?? i.snippet.slice(0, 120)),
+    })),
   };
 
   const { model } = await getTriageModel();
@@ -267,6 +376,9 @@ export async function buildBrief(
   const matters: Matter[] = output.matters
     .map((m) => ({
       ...m,
+      // User corrections are ground truth even if the model ignored them
+      orgUnit: fixes[m.id]?.orgUnit ?? m.orgUnit,
+      orgConfidence: fixes[m.id] ? 1 : m.orgConfidence,
       emailIds: m.emailIds.filter((id) => byId.has(id)),
       threadIds: [
         ...new Set(
@@ -280,15 +392,72 @@ export async function buildBrief(
     .filter((m) => m.emailIds.length > 0)
     .sort((a, b) => b.urgency - a.urgency);
 
+  // TOTAL COVERAGE — account for every candidate. Anything the model
+  // dropped lands in unsure so nothing silently vanishes from Atlas.
+  const inMatters = new Set(matters.flatMap((m) => m.emailIds));
+  const filed: FiledEmail[] = output.filed
+    .filter((f) => byId.has(f.emailId) && !inMatters.has(f.emailId))
+    .map((f) => {
+      const i = byId.get(f.emailId)!;
+      return {
+        emailId: f.emailId,
+        threadId: i.threadId,
+        orgUnit: f.orgUnit,
+        line: stripEmoji(
+          `${i.fromName || i.fromEmail} — ${i.guide?.task && i.guide.task !== "none" ? i.guide.task : i.subject}`,
+        ).slice(0, 110),
+      };
+    });
+  const inFiled = new Set(filed.map((f) => f.emailId));
+  const unsure: UnsureItem[] = output.unsure
+    .filter(
+      (u) =>
+        byId.has(u.emailId) &&
+        !inMatters.has(u.emailId) &&
+        !inFiled.has(u.emailId),
+    )
+    .map((u) => ({
+      emailId: u.emailId,
+      threadId: byId.get(u.emailId)!.threadId,
+      question: stripEmoji(u.question).slice(0, 140),
+    }));
+  const accounted = new Set([...inMatters, ...inFiled, ...unsure.map((u) => u.emailId)]);
+  for (const i of matterCandidates) {
+    if (!accounted.has(i.id)) {
+      unsure.push({
+        emailId: i.id,
+        threadId: i.threadId,
+        question: `Where does "${stripEmoji(i.subject).slice(0, 60)}" from ${stripEmoji(i.fromName || i.fromEmail)} belong?`,
+      });
+    }
+  }
+
+  const digestIdSet = new Set(digestItems.map((i) => i.id));
+  const digest: Digest = {
+    summary: output.digestSummary,
+    themes: output.digestThemes
+      .map((t) => ({
+        ...t,
+        emailIds: t.emailIds.filter((id) => digestIdSet.has(id)),
+      }))
+      .filter((t) => t.emailIds.length > 0),
+  };
+
   const brief: Brief = {
     builtAt: new Date().toISOString(),
     summary: output.summary,
     matters,
     headlines,
-    headlineIds: headlineItems.map((i) => ({
+    // Clear-all now covers the whole digest (fyi + read-and-delete)
+    headlineIds: digestItems.map((i) => ({
       id: i.id,
       threadId: i.threadId,
     })),
+    functions,
+    totalInbox: items.length,
+    filed,
+    digest,
+    unsure,
   };
   await kvSet(keyFor(accountEmail), brief);
   return brief;
