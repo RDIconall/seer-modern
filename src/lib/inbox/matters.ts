@@ -119,7 +119,7 @@ export type UnsureItem = {
  * treats any older brief as stale and rebuilds it, so a redesign never
  * leaves a stale Atlas on screen waiting for a manual refresh.
  */
-export const BRIEF_ENGINE = 4;
+export const BRIEF_ENGINE = 5;
 
 export type Brief = {
   builtAt: string;
@@ -312,7 +312,20 @@ const DIGEST_SYSTEM = `You sort the disposable end of a CEO's inbox into CATEGOR
 - summary: leave it as an empty string. The categories carry everything.
 - Every input email id appears in exactly one category. Never invent ids or facts.`;
 
+const DOMAIN_HOME: [RegExp, RegExp][] = [
+  [/(linkedin|indeed|ziprecruiter|glassdoor|handshake)\./, /recruit/i],
+  [/(quickbooks|intuit|bill\.com|ramp|brex|amex|chase|bankofamerica|wellsfargo)\./, /finance/i],
+  [/(atlassian|github|slack|zoom|microsoft|google|okta|1password|qualio|castoredc|docusign|adobe)\./, /systems|information technology|\bit\b/i],
+  [/(mailchimp|hubspot|constantcontact|eventbrite|cvent)\./, /marketing/i],
+];
+
 function inferredOrgUnit(item: EmailItem, functions: string[]): string {
+  const domain = item.fromEmail.split("@")[1]?.toLowerCase() ?? "";
+  for (const [d, fn] of DOMAIN_HOME) {
+    if (!d.test(`${domain}.`)) continue;
+    const match = functions.find((f) => fn.test(f));
+    if (match) return match;
+  }
   const hay = `${item.guide?.category ?? ""} ${item.subject}`.toLowerCase();
   const patterns: [RegExp, RegExp][] = [
     [/\b(finance|invoice|receipt|bill|payment|bank|autopay|purchase order)\b/, /finance/i],
@@ -344,7 +357,11 @@ function inferredOrgUnit(item: EmailItem, functions: string[]): string {
  * organizing unit of this business, so it wins; otherwise the grade's
  * own category keeps like with like instead of one 377-row heap.
  */
-function subUnitFor(item: EmailItem, labels: Map<string, string>): string {
+function subUnitFor(
+  item: EmailItem,
+  labels: Map<string, string>,
+  ownDomain: string,
+): string {
   const hay = `${item.subject}\n${item.snippet}\n${item.guide?.task ?? ""}`;
   const codes = hay.match(CODE_PATTERN);
   if (codes?.length) {
@@ -356,25 +373,29 @@ function subUnitFor(item: EmailItem, labels: Map<string, string>): string {
     return codes[0].toUpperCase().replace(/\s+/g, "_");
   }
   // No code: the counterparty IS the branch. "Roche" and "Advarra" mean
-  // something to the user; a grade label like "Work" does not.
-  return counterparty(item);
+  // something to the user; a grade label like "Work" does not. Internal
+  // mail branches by colleague — our own company name says nothing.
+  return counterparty(item, ownDomain);
+}
+
+/** "Bates, Rebecca J" → "Rebecca Bates" */
+function personName(item: EmailItem): string {
+  const name = stripEmoji(item.fromName || item.fromEmail);
+  const flipped = name.includes(",")
+    ? `${name.split(",")[1]?.trim().split(" ")[0] ?? ""} ${name.split(",")[0]?.trim()}`.trim()
+    : name;
+  return flipped.split("@")[0] || "Personal";
 }
 
 const FREEMAIL =
   /^(gmail|googlemail|outlook|hotmail|live|yahoo|ymail|aol|icloud|me|msn|proton|protonmail|comcast|sbcglobal|att|verizon)\./;
 
 /** The company (or person, for personal mail) this email came from. */
-function counterparty(item: EmailItem): string {
+function counterparty(item: EmailItem, ownDomain: string): string {
   const domain = item.fromEmail.split("@")[1]?.toLowerCase() ?? "";
+  if (ownDomain && domain === ownDomain) return personName(item);
   const bare = domain.replace(/^(mail|email|e|smtp|notifications?|no-?reply|info|reply|bounce|em|mailer|send|go|links?)\./, "");
-  if (!bare || FREEMAIL.test(`${bare}.`)) {
-    const name = stripEmoji(item.fromName || item.fromEmail);
-    // "Bates, Rebecca J" → "Rebecca Bates"
-    const flipped = name.includes(",")
-      ? `${name.split(",")[1]?.trim().split(" ")[0] ?? ""} ${name.split(",")[0]?.trim()}`.trim()
-      : name;
-    return flipped.split("@")[0] || "Personal";
-  }
+  if (!bare || FREEMAIL.test(`${bare}.`)) return personName(item);
   const label = bare.split(".")[0];
   return label.length <= 3
     ? label.toUpperCase()
@@ -479,6 +500,7 @@ export async function buildBrief(
     () => ({ studies: [], opportunities: [] }),
   );
   const labels = codeLabels(salesforce);
+  const ownDomain = accountEmail.split("@")[1]?.toLowerCase() ?? "";
   // The user's own org corrections — absolute ground truth
   const fixes: MatterFixes = await loadMatterFixes(accountEmail).catch(
     () => ({}),
@@ -653,7 +675,7 @@ export async function buildBrief(
       orgConfidence: fixes[m.id] ? 1 : m.orgConfidence,
       subUnit: (() => {
         const first = m.emailIds.map((id) => byId.get(id)).find(Boolean);
-        return first ? subUnitFor(first, labels) : undefined;
+        return first ? subUnitFor(first, labels, ownDomain) : undefined;
       })(),
       emails: m.emailIds
         .map((id) => byId.get(id))
@@ -689,7 +711,7 @@ export async function buildBrief(
       emailId: i.id,
       threadId: i.threadId,
       orgUnit: inferredOrgUnit(i, functions),
-      subUnit: subUnitFor(i, labels),
+      subUnit: subUnitFor(i, labels, ownDomain),
       line: lineFor(i),
       suggestion: suggestionFor(i),
     });
