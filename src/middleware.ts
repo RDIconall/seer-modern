@@ -17,6 +17,12 @@ export function middleware(request: NextRequest) {
   if (!canonicalHost || process.env.VERCEL_ENV !== "production") {
     return NextResponse.next();
   }
+  // Vercel invokes crons on the deployment's own URL; a redirect drops
+  // the Authorization header and the sync never runs. No cookies are
+  // involved server-to-server, so the canonical funnel must not apply.
+  if (request.nextUrl.pathname.startsWith("/api/cron/")) {
+    return NextResponse.next();
+  }
   const host = request.headers.get("host");
   if (host && host !== canonicalHost) {
     const url = new URL(request.url);
