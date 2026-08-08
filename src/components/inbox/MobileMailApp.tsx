@@ -119,6 +119,9 @@ export function MobileMailApp() {
     rebuildBrief,
     clearHeadlines,
     fixMatter,
+    atlasAction,
+    renameMatter,
+    createMatter,
     openReader,
     closeReader,
     startCompose,
@@ -815,6 +818,9 @@ export function MobileMailApp() {
               onOpen={openReader}
               onClearHeadlines={clearHeadlines}
               onFixMatter={fixMatter}
+              onAtlasAction={atlasAction}
+              onRenameMatter={renameMatter}
+              onCreateMatter={createMatter}
             />
           </div>
         ) : null}

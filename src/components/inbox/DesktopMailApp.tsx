@@ -116,6 +116,9 @@ export function DesktopMailApp() {
     rebuildBrief,
     clearHeadlines,
     fixMatter,
+    atlasAction,
+    renameMatter,
+    createMatter,
     openReader,
     closeReader,
     startCompose,
@@ -636,6 +639,9 @@ export function DesktopMailApp() {
                 onOpen={openReader}
                 onClearHeadlines={clearHeadlines}
                 onFixMatter={fixMatter}
+                onAtlasAction={atlasAction}
+                onRenameMatter={renameMatter}
+                onCreateMatter={createMatter}
               />
             </div>
           ) : null}

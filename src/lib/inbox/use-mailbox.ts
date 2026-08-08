@@ -474,6 +474,114 @@ export function useMailbox(initialTab: ViewTab = "inbox") {
     [markActed, removeFromLists],
   );
 
+  /** Atlas rows act on the whole conversation: archive closes the thread. */
+  const dropFromBrief = useCallback((ids: string[]) => {
+    const gone = new Set(ids);
+    setBrief((prev) =>
+      prev
+        ? {
+            ...prev,
+            matters: prev.matters
+              .map((m) => ({
+                ...m,
+                emailIds: m.emailIds.filter((id) => !gone.has(id)),
+                emails: m.emails?.filter((e) => !gone.has(e.id)),
+              }))
+              .filter((m) => m.emailIds.length > 0 || m.category === "mine"),
+            pinned: prev.pinned
+              ?.map((m) => ({
+                ...m,
+                emailIds: m.emailIds.filter((id) => !gone.has(id)),
+                emails: m.emails?.filter((e) => !gone.has(e.id)),
+              }))
+              .filter((m) => m.emailIds.length > 0),
+            filed: prev.filed?.filter((f) => !gone.has(f.emailId)),
+          }
+        : prev,
+    );
+  }, []);
+
+  const atlasAction = useCallback(
+    async (
+      rows: { id: string; threadId: string }[],
+      action: "archive" | "trash",
+    ) => {
+      if (rows.length === 0) return;
+      dropFromBrief(rows.map((r) => r.id));
+      for (const r of rows) {
+        markActed(r.id, r.threadId);
+        removeFromLists(r.id);
+      }
+      try {
+        const res = await fetch("/api/action/bulk", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            // threadId makes this close the whole conversation, like Gmail
+            items: rows.map((r) => ({
+              id: r.id,
+              threadId: r.threadId,
+              action,
+            })),
+          }),
+        });
+        if (!res.ok) throw new Error((await res.json()).error);
+        setToast(
+          `${action === "archive" ? "Archived" : "Deleted"} ${rows.length} thread${rows.length === 1 ? "" : "s"}`,
+        );
+      } catch {
+        setToast("Action failed — refreshing");
+        load();
+      }
+    },
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [dropFromBrief, markActed, removeFromLists],
+  );
+
+  const renameMatter = useCallback(async (matterId: string, title: string) => {
+    setBrief((prev) =>
+      prev
+        ? {
+            ...prev,
+            matters: prev.matters.map((m) =>
+              m.id === matterId ? { ...m, title } : m,
+            ),
+            pinned: prev.pinned?.map((m) =>
+              m.id === matterId ? { ...m, title } : m,
+            ),
+          }
+        : prev,
+    );
+    try {
+      await fetch("/api/matters", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ action: "rename", matterId, title }),
+      });
+    } catch {
+      setToast("Rename failed");
+    }
+  }, []);
+
+  const createMatter = useCallback(
+    async (title: string, emailIds: string[]) => {
+      try {
+        const res = await fetch("/api/matters", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ action: "create", title, emailIds }),
+        });
+        const json = await res.json();
+        if (!res.ok) throw new Error(json.error);
+        if (json.brief) setBrief(json.brief);
+        setToast(`Created “${title}”`);
+      } catch (e) {
+        setToast(e instanceof Error ? e.message : "Could not create matter");
+      }
+    },
+    [],
+  );
+
   /** The user's org call is ground truth — fix it once, Seer learns. */
   const fixMatter = useCallback(async (matterId: string, orgUnit: string) => {
     setBrief((prev) =>
@@ -1220,6 +1328,9 @@ export function useMailbox(initialTab: ViewTab = "inbox") {
     rebuildBrief,
     clearHeadlines,
     fixMatter,
+    atlasAction,
+    renameMatter,
+    createMatter,
     openReader,
     closeReader,
     startCompose,

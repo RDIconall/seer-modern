@@ -8,6 +8,7 @@ import { loadExemplars, retrieveExemplars } from "@/lib/store/exemplars";
 import { loadFunctions } from "@/lib/store/functions";
 import { accountKey, kvGet, kvSet } from "@/lib/store/kv";
 import { loadMatterFixes, type MatterFixes } from "@/lib/store/matter-fixes";
+import { loadMatterEdits } from "@/lib/store/manual-matters";
 import { loadMerchants } from "@/lib/store/merchants";
 import {
   CODE_PATTERN,
@@ -135,7 +136,7 @@ export type UnsureItem = {
  * treats any older brief as stale and rebuilds it, so a redesign never
  * leaves a stale Atlas on screen waiting for a manual refresh.
  */
-export const BRIEF_ENGINE = 7;
+export const BRIEF_ENGINE = 8;
 
 export type Brief = {
   builtAt: string;
@@ -579,6 +580,11 @@ export async function buildBrief(
   const fixes: MatterFixes = await loadMatterFixes(accountEmail).catch(
     () => ({}),
   );
+  // Titles the user chose and matters they created — never overwritten
+  const edits = await loadMatterEdits(accountEmail).catch(() => ({
+    renames: {} as Record<string, { title: string; at: string }>,
+    manual: [],
+  }));
   // The user's own labeled history — few-shot retrieved per candidate
   const exemplars = await loadExemplars(accountEmail).catch(() => []);
   // Spend-side evidence: senders who bill the user (merchant graph)
@@ -847,7 +853,8 @@ export async function buildBrief(
     const now = new Date().toISOString();
     pinned.push({
       id: "signature-queue",
-      title: "Things you need to sign",
+      title:
+        edits.renames["signature-queue"]?.title ?? "Things you need to sign",
       goal: "Every document waiting on your signature is executed",
       category: "signatures",
       orgUnit: "signatures",
@@ -893,14 +900,62 @@ export async function buildBrief(
       .filter((t) => t.emailIds.length > 0),
   };
 
-  const cleanedMatters = matters
-    .map((m) => ({
+  // The user's matters survive every rebuild, and their titles win.
+  const manualMatters: Matter[] = edits.manual.map((mm) => {
+    const rows = mm.emailIds
+      .map((id) => byId.get(id))
+      .filter((i): i is EmailItem => Boolean(i));
+    return {
+      id: mm.id,
+      title: mm.title,
+      category: "mine",
+      orgUnit: mm.orgUnit ?? functions[0] ?? "unsorted",
+      orgConfidence: 1,
+      people: [],
+      goal: mm.goal,
+      narrative:
+        rows.length > 0
+          ? `${rows.length} email${rows.length === 1 ? "" : "s"} you grouped yourself`
+          : "yours — nothing from the inbox in it right now",
+      nextAction: mm.nextAction ?? "none — yours to define",
+      owner: "you",
+      urgency: 2,
+      subUnit: rows[0] ? subUnitFor(rows[0], labels, ownDomain) : undefined,
+      emails: rows.map((i) => ({
+        id: i.id,
+        threadId: i.threadId,
+        from: stripEmoji(i.fromName || i.fromEmail),
+        line: understanding[i.id]
+          ? `${stripEmoji(i.fromName || i.fromEmail)} — ${understanding[i.id]!.oneLine}`.slice(0, 130)
+          : lineFor(i),
+        suggestion: understanding[i.id]
+          ? askSuggestion(understanding[i.id]!)
+          : suggestionFor(i),
+      })),
+      emailIds: mm.emailIds,
+      threadIds: [...new Set(rows.map((i) => i.threadId))],
+      updatedAt: mm.updatedAt,
+    };
+  });
+  const manualIds = new Set(manualMatters.flatMap((m) => m.emailIds));
+
+  const cleanedMatters = [
+    ...manualMatters,
+    ...matters.map((m) => ({
       ...m,
-      emailIds: m.emailIds.filter((id) => !signatureIds.has(id)),
-      emails: m.emails?.filter((e) => !signatureIds.has(e.id)),
-    }))
-    .filter((m) => m.emailIds.length > 0);
-  const cleanedFiled = filed.filter((f) => !signatureIds.has(f.emailId));
+      // The user's title is ground truth
+      title: edits.renames[m.id]?.title ?? m.title,
+      emailIds: m.emailIds.filter(
+        (id) => !signatureIds.has(id) && !manualIds.has(id),
+      ),
+      emails: m.emails?.filter(
+        (e) => !signatureIds.has(e.id) && !manualIds.has(e.id),
+      ),
+    })),
+  ].filter((m) => m.emailIds.length > 0 || m.category === "mine");
+  const cleanedFiled = filed.filter(
+    (f) => !signatureIds.has(f.emailId) && !manualIds.has(f.emailId),
+  );
 
   const brief: Brief = {
     builtAt: new Date().toISOString(),
