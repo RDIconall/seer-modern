@@ -19,6 +19,9 @@ import { loadUserProfile } from "@/lib/store/user-profile";
 import { getSenderOverride } from "@/lib/store/senders";
 import { NextResponse, after } from "next/server";
 
+/** Deep enough to cover a real 500+ inbox in one pass */
+const INBOX_DEPTH = 1200;
+
 export const maxDuration = 60;
 
 /** PATCH: fix a matter's org placement — the user's call is ground truth. */
@@ -70,8 +73,8 @@ export async function POST() {
 
     const raw = await getInboxSnapshot(session.email, () =>
       session.provider === "google"
-        ? listGmailFolder(session.accessToken, "inbox", 500)
-        : listGraphFolder(session.accessToken, "inbox", 500),
+        ? listGmailFolder(session.accessToken, "inbox", INBOX_DEPTH)
+        : listGraphFolder(session.accessToken, "inbox", INBOX_DEPTH),
     );
 
     const [history, labels, profile] = await Promise.all([

@@ -15,6 +15,9 @@ import { markOpened, readLastOpen } from "@/lib/store/last-open";
 import { getSenderOverride } from "@/lib/store/senders";
 import { NextResponse } from "next/server";
 
+/** Deep enough to cover a real 500+ inbox in one pass */
+const INBOX_DEPTH = 1200;
+
 export const maxDuration = 30;
 
 const NEEDS = new Set(["respond", "act_today", "needs_review", "review_subscription"]);
@@ -41,8 +44,8 @@ export async function GET() {
 
     const raw = await getInboxSnapshot(session.email, () =>
       session.provider === "google"
-        ? listGmailFolder(session.accessToken, "inbox", 500)
-        : listGraphFolder(session.accessToken, "inbox", 500),
+        ? listGmailFolder(session.accessToken, "inbox", INBOX_DEPTH)
+        : listGraphFolder(session.accessToken, "inbox", INBOX_DEPTH),
     );
     const fresh = raw.filter((m) => m.receivedAt > since);
     if (fresh.length < MIN_NEW) {

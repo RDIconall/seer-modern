@@ -26,6 +26,9 @@ import { loadUserProfile } from "@/lib/store/user-profile";
 import { getSenderOverride } from "@/lib/store/senders";
 import { NextResponse } from "next/server";
 
+/** Deep enough to cover a real 500+ inbox in one pass */
+const INBOX_DEPTH = 1200;
+
 export const maxDuration = 300;
 
 /** Rebuild the brief when it's older than this even without new mail. */
@@ -72,8 +75,8 @@ export async function GET(request: Request) {
         acct.email,
         () =>
           isGoogle
-            ? listGmailFolder(token, "inbox", 500)
-            : listGraphFolder(token, "inbox", 500),
+            ? listGmailFolder(token, "inbox", INBOX_DEPTH)
+            : listGraphFolder(token, "inbox", INBOX_DEPTH),
         { force: true },
       );
 
