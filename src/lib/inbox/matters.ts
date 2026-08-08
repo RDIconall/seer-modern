@@ -158,6 +158,7 @@ const briefSchema = z.object({
           .describe("one of the payload's functions list, verbatim"),
       }),
     )
+    .optional()
     .describe(
       "EVERY inbox email that is not in a matter and not unsure gets filed to an org unit here — total coverage, no email left unaccounted",
     ),
@@ -172,11 +173,13 @@ const briefSchema = z.object({
           ),
       }),
     )
+    .optional()
     .describe(
       "ONLY where you genuinely cannot make the call — ambiguous direction of commerce, unknown person, unclear if user opted in. Aim for near-zero.",
     ),
   digestSummary: z
     .string()
+    .optional()
     .describe(
       "One paragraph covering the ENTIRE digestInbox as a whole — what the noise collectively says (renewals due, shipments moving, newsletters' one real insight). The user reads this instead of the emails.",
     ),
@@ -190,6 +193,7 @@ const briefSchema = z.object({
         emailIds: z.array(z.string()),
       }),
     )
+    .optional()
     .describe("group ALL digestInbox emails into 3-8 themes"),
 });
 
@@ -395,7 +399,7 @@ export async function buildBrief(
   // TOTAL COVERAGE — account for every candidate. Anything the model
   // dropped lands in unsure so nothing silently vanishes from Atlas.
   const inMatters = new Set(matters.flatMap((m) => m.emailIds));
-  const filed: FiledEmail[] = output.filed
+  const filed: FiledEmail[] = (output.filed ?? [])
     .filter((f) => byId.has(f.emailId) && !inMatters.has(f.emailId))
     .map((f) => {
       const i = byId.get(f.emailId)!;
@@ -409,7 +413,7 @@ export async function buildBrief(
       };
     });
   const inFiled = new Set(filed.map((f) => f.emailId));
-  const unsure: UnsureItem[] = output.unsure
+  const unsure: UnsureItem[] = (output.unsure ?? [])
     .filter(
       (u) =>
         byId.has(u.emailId) &&
@@ -434,8 +438,8 @@ export async function buildBrief(
 
   const digestIdSet = new Set(digestItems.map((i) => i.id));
   const digest: Digest = {
-    summary: output.digestSummary,
-    themes: output.digestThemes
+    summary: output.digestSummary ?? "",
+    themes: (output.digestThemes ?? [])
       .map((t) => ({
         ...t,
         emailIds: t.emailIds.filter((id) => digestIdSet.has(id)),

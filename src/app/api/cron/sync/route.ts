@@ -172,7 +172,9 @@ export async function GET(request: Request) {
           briefRebuilt = true;
         } catch (e) {
           briefError =
-            e instanceof Error ? e.message.slice(0, 120) : "brief failed";
+            e instanceof Error ? e.message.slice(0, 300) : "brief failed";
+          // Own log line — the end-of-run report can get truncated away
+          console.error(`[seer] cron brief failed for ${acct.email}: ${briefError}`);
         }
       }
 
