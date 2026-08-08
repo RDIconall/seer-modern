@@ -143,11 +143,14 @@ export async function GET(request: Request) {
         if (r.source === "gemini" && !r.cached) freshReads += 1;
       }
 
-      // Brief stays current: new grades landed, or it simply aged out
+      // Brief stays current: new grades landed, or it simply aged out.
+      // A brief without corpus accounting predates the Atlas engine —
+      // rebuild it regardless of age.
       const brief = await loadBrief(acct.email);
-      const briefAge = brief
-        ? Date.now() - new Date(brief.builtAt).getTime()
-        : Infinity;
+      const briefAge =
+        brief && brief.totalInbox !== undefined
+          ? Date.now() - new Date(brief.builtAt).getTime()
+          : Infinity;
       let briefRebuilt = false;
       let briefError: string | undefined;
       if (freshReads > 0 || briefAge > BRIEF_MAX_AGE_MS) {
