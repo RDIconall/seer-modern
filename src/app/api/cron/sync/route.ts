@@ -2,7 +2,7 @@ import { buildActionGuideQuick } from "@/lib/inbox/action-guide";
 import { classifyMessage } from "@/lib/inbox/classify";
 import { classifyInboxWithAssistant } from "@/lib/inbox/gemini-triage";
 import { getOrBuildMailHistory } from "@/lib/inbox/mail-history-store";
-import { buildBrief, loadBrief } from "@/lib/inbox/matters";
+import { BRIEF_ENGINE, buildBrief, loadBrief } from "@/lib/inbox/matters";
 import type { EmailItem } from "@/lib/inbox/types";
 import { getInboxSnapshot } from "@/lib/mail/inbox-snapshot";
 import {
@@ -148,12 +148,11 @@ export async function GET(request: Request) {
         if (r.source === "gemini" && !r.cached) freshReads += 1;
       }
 
-      // Brief stays current: new grades landed, or it simply aged out.
-      // A brief without corpus accounting predates the Atlas engine —
-      // rebuild it regardless of age.
+      // Brief stays current: new grades landed, it aged out, or it came
+      // from an older engine (a redesign must not leave stale Atlas up).
       const brief = await loadBrief(acct.email);
       const briefAge =
-        brief && brief.totalInbox !== undefined
+        brief && brief.engine === BRIEF_ENGINE
           ? Date.now() - new Date(brief.builtAt).getTime()
           : Infinity;
       let briefRebuilt = false;

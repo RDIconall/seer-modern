@@ -114,8 +114,17 @@ export type UnsureItem = {
   question: string;
 };
 
+/**
+ * Bump when the brief's shape or engine changes: the background sync
+ * treats any older brief as stale and rebuilds it, so a redesign never
+ * leaves a stale Atlas on screen waiting for a manual refresh.
+ */
+export const BRIEF_ENGINE = 3;
+
 export type Brief = {
   builtAt: string;
+  /** Engine that produced this brief — see BRIEF_ENGINE */
+  engine?: number;
   summary: string;
   matters: Matter[];
   /** The read-then-delete class, collapsed to one line each */
@@ -679,6 +688,7 @@ export async function buildBrief(
 
   const brief: Brief = {
     builtAt: new Date().toISOString(),
+    engine: BRIEF_ENGINE,
     summary: output.summary,
     matters,
     headlines,
