@@ -7,11 +7,12 @@ import { saveMatterFix } from "@/lib/store/matter-fixes";
 import type { EmailItem } from "@/lib/inbox/types";
 import { getInboxSnapshot } from "@/lib/mail/inbox-snapshot";
 import {
+  getGmailInboxTotals,
   getGmailThreadLast,
   listGmailFolder,
   searchGmail,
 } from "@/lib/mail/gmail";
-import { listGraphFolder } from "@/lib/mail/graph";
+import { getGraphInboxTotals, listGraphFolder } from "@/lib/mail/graph";
 import { makeGmailLabelStore } from "@/lib/mail/seer-labels";
 import { requireMailSession } from "@/lib/mail/session";
 import { loadUserProfile } from "@/lib/store/user-profile";
@@ -141,9 +142,19 @@ export async function POST() {
       };
     });
 
+    const providerTotal =
+      session.provider === "google"
+        ? await getGmailInboxTotals(session.accessToken)
+        : await getGraphInboxTotals(session.accessToken);
+
     after(async () => {
       try {
-        const brief = await buildBrief(session.email, items, profile);
+        const brief = await buildBrief(
+          session.email,
+          items,
+          profile,
+          providerTotal,
+        );
         console.log(
           `[seer] brief rebuilt: ${brief.matters.length} matters · ${brief.headlines.length} headlines`,
         );

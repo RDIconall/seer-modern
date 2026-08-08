@@ -94,6 +94,21 @@ function folderPath(folder: MailFolder): string {
   return "/me/mailFolders/inbox/messages";
 }
 
+/** The authoritative inbox size, straight from Graph. */
+export async function getGraphInboxTotals(
+  accessToken: string,
+): Promise<{ messages: number; threads: number } | null> {
+  try {
+    const r = (await graphFetch(
+      accessToken,
+      "/me/mailFolders/inbox?$select=totalItemCount",
+    )) as { totalItemCount?: number };
+    return { messages: r.totalItemCount ?? 0, threads: 0 };
+  } catch {
+    return null;
+  }
+}
+
 export async function listGraphInbox(
   accessToken: string,
   maxResults = 40,

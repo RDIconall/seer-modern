@@ -225,6 +225,27 @@ async function hydrateList(
   return items;
 }
 
+/**
+ * The authoritative inbox size, straight from Gmail. Atlas cites this so
+ * "the whole inbox" is a verifiable claim rather than a hope.
+ */
+export async function getGmailInboxTotals(
+  accessToken: string,
+): Promise<{ messages: number; threads: number } | null> {
+  try {
+    const r = (await gmailFetch(accessToken, "/users/me/labels/INBOX")) as {
+      messagesTotal?: number;
+      threadsTotal?: number;
+    };
+    return {
+      messages: r.messagesTotal ?? 0,
+      threads: r.threadsTotal ?? 0,
+    };
+  } catch {
+    return null;
+  }
+}
+
 export async function listGmailInbox(
   accessToken: string,
   maxResults = 40,

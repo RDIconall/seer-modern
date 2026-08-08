@@ -6,12 +6,17 @@ import { buildBrief, loadBrief } from "@/lib/inbox/matters";
 import type { EmailItem } from "@/lib/inbox/types";
 import { getInboxSnapshot } from "@/lib/mail/inbox-snapshot";
 import {
+  getGmailInboxTotals,
   getGmailMessage,
   getGmailThreadLast,
   listGmailFolder,
   searchGmail,
 } from "@/lib/mail/gmail";
-import { getGraphMessage, listGraphFolder } from "@/lib/mail/graph";
+import {
+  getGraphInboxTotals,
+  getGraphMessage,
+  listGraphFolder,
+} from "@/lib/mail/graph";
 import { makeGmailLabelStore } from "@/lib/mail/seer-labels";
 import { withFreshToken } from "@/lib/mail/vault";
 import { listAccountsWithTokens } from "@/lib/store/accounts";
@@ -167,8 +172,11 @@ export async function GET(request: Request) {
               : undefined,
           };
         });
+        const providerTotal = isGoogle
+          ? await getGmailInboxTotals(token)
+          : await getGraphInboxTotals(token);
         try {
-          await buildBrief(acct.email, items, profile);
+          await buildBrief(acct.email, items, profile, providerTotal);
           briefRebuilt = true;
         } catch (e) {
           briefError =

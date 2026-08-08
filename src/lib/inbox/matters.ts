@@ -5,6 +5,12 @@ import { loadFunctions } from "@/lib/store/functions";
 import { accountKey, kvGet, kvSet } from "@/lib/store/kv";
 import { loadMatterFixes, type MatterFixes } from "@/lib/store/matter-fixes";
 import { loadMerchants } from "@/lib/store/merchants";
+import {
+  CODE_PATTERN,
+  codeLabels,
+  loadSalesforce,
+  normalizeCode,
+} from "@/lib/store/salesforce";
 
 /**
  * Deterministic evidence, gathered BEFORE the model reasons — study
@@ -36,6 +42,16 @@ export type MatterPerson = {
   relationship: string;
 };
 
+/** One email inside a matter, with what Seer suggests doing about it */
+export type MatterEmail = {
+  id: string;
+  threadId: string;
+  from: string;
+  line: string;
+  /** Plain-language suggestion: "Reply — needs you", "Keep as record" */
+  suggestion: string;
+};
+
 export type Matter = {
   id: string;
   title: string;
@@ -43,6 +59,12 @@ export type Matter = {
   category: string;
   /** Resolved against the user's function registry, verbatim */
   orgUnit: string;
+  /** Study/opportunity branch inside the function, e.g. "RCD_2818" */
+  subUnit?: string;
+  /** What finishing this matter actually achieves — the project goal */
+  goal?: string;
+  /** The emails in this matter, each with its own suggestion */
+  emails?: MatterEmail[];
   /** Below ~0.85 the org call is a SUGGESTION awaiting confirmation */
   orgConfidence?: number;
   /** The humans in this matter, with relationship typing */
@@ -71,7 +93,11 @@ export type FiledEmail = {
   emailId: string;
   threadId: string;
   orgUnit: string;
+  /** Study/opportunity branch inside the function */
+  subUnit?: string;
   line: string;
+  /** What Seer suggests doing with it */
+  suggestion?: string;
 };
 
 /** The FYI / read-and-delete mass, summarized AS A WHOLE */
@@ -100,6 +126,12 @@ export type Brief = {
   functions?: string[];
   /** Total inbox size at build time — the coverage denominator */
   totalInbox?: number;
+  /** Distinct threads behind those messages — reconciles with Gmail */
+  totalThreads?: number;
+  /** The provider's own inbox count — the verifiable denominator */
+  providerTotal?: { messages: number; threads: number };
+  /** How many messages the AI clustered vs filed by rule */
+  readByAi?: number;
   /** Non-matter emails, each filed to an org unit — full-corpus accounting */
   filed?: FiledEmail[];
   /** Collective summary of the FYI / read-and-delete mass */
@@ -118,6 +150,11 @@ const briefSchema = z.object({
     z.object({
       id: z.string().describe("stable kebab-case id, reuse existing ids"),
       title: z.string(),
+      goal: z
+        .string()
+        .describe(
+          "the OUTCOME that closes this matter, one clause — what is true when it's done (\"anti-TPO SOW fully executed so the PO can be issued\")",
+        ),
       category: z.string(),
       orgUnit: z
         .string()
@@ -260,10 +297,11 @@ HOW TO CLASSIFY orgUnit (the categories are function × workflow stage, NOT topi
 
 - Never invent emails or matters. Every matter cites the emailIds that evidence it.`;
 
-const DIGEST_SYSTEM = `You are the executive briefing editor. Summarize a corpus of FYI and read-then-delete emails AS A WHOLE so the user never needs to open them one by one.
-- The summary is one concise paragraph. Mention only consequential dates, amounts, exceptions, and the few insights worth retaining.
-- Group the corpus into 3-8 themes. Each theme gets one covering sentence, not one sentence per email.
-- Every input email id must appear in exactly one theme. Never invent ids or facts.`;
+const DIGEST_SYSTEM = `You sort the disposable end of a CEO's inbox into CATEGORIES. No prose essay — the categories and their one-line contents ARE the output.
+- Group everything into 6-14 concrete categories named after what the mail IS, in the user's business vocabulary: "Travel", "Shipping & samples", "Invoices & receipts", "Bank & card notices", "IT & software notices", "Regulatory & standards bulletins", "Conferences & webinars", "Recruiting spam", "Vendor marketing", "Newsletters", "Personal & household". Invent better names when the corpus warrants; never use vague ones like "Other" or "Misc" unless nothing else fits.
+- Each category's line is one sentence of what it collectively contains, naming any date or amount that actually matters ("Two AA trips: LAX–ORD Aug 14, DFW–LAX Aug 21").
+- summary: leave it as an empty string. The categories carry everything.
+- Every input email id appears in exactly one category. Never invent ids or facts.`;
 
 function inferredOrgUnit(item: EmailItem, functions: string[]): string {
   const hay = `${item.guide?.category ?? ""} ${item.subject}`.toLowerCase();
@@ -293,6 +331,63 @@ function inferredOrgUnit(item: EmailItem, functions: string[]): string {
 }
 
 /**
+ * The branch inside a function. A study/opportunity code is the real
+ * organizing unit of this business, so it wins; otherwise the grade's
+ * own category keeps like with like instead of one 377-row heap.
+ */
+function subUnitFor(item: EmailItem, labels: Map<string, string>): string {
+  const hay = `${item.subject}\n${item.snippet}\n${item.guide?.task ?? ""}`;
+  const codes = hay.match(CODE_PATTERN);
+  if (codes?.length) {
+    // Prefer a code the registry knows — that's a live study/opportunity
+    for (const c of codes) {
+      const known = labels.get(normalizeCode(c));
+      if (known) return known;
+    }
+    return codes[0].toUpperCase().replace(/\s+/g, "_");
+  }
+  const cat = item.guide?.category?.trim();
+  if (cat) return stripEmoji(cat);
+  return "No code";
+}
+
+/** Plain-language suggestion for one email, from its grade. */
+function suggestionFor(item: EmailItem): string {
+  switch (item.guide?.action) {
+    case "act_today":
+      return "Needs you — reply or act";
+    case "respond":
+      return "A short reply closes it";
+    case "read_and_archive":
+      return "Keep as record — archive";
+    case "read_and_delete":
+      return "Read once, then delete";
+    case "delete_now":
+      return "Safe to delete";
+    case "unsubscribe":
+      return "Unsubscribe";
+    case "review_subscription":
+      return "Decide: keep or unsubscribe";
+    case "glance_promo":
+      return "Glance, then delete";
+    case "needs_review":
+      return "Your call";
+    default:
+      return item.guide?.action ? stripEmoji(item.guide.action) : "No call yet";
+  }
+}
+
+function lineFor(item: EmailItem): string {
+  return stripEmoji(
+    `${item.fromName || item.fromEmail} — ${
+      item.guide?.task && item.guide.task !== "none"
+        ? item.guide.task
+        : item.subject
+    }`,
+  ).slice(0, 110);
+}
+
+/**
  * Rebuild the brief from the CURRENT inbox (graded) + the previous
  * brief's matters (memory). One long-context call; runs deferred.
  */
@@ -300,6 +395,7 @@ export async function buildBrief(
   accountEmail: string,
   items: EmailItem[],
   profile?: UserProfile | null,
+  providerTotal?: { messages: number; threads: number } | null,
 ): Promise<Brief> {
   const prev = await loadBrief(accountEmail);
 
@@ -332,9 +428,27 @@ export async function buildBrief(
         (b.guide?.importance ?? 1) - (a.guide?.importance ?? 1) ||
         (a.receivedAt < b.receivedAt ? 1 : -1),
     );
-  const matterCandidates = allMatterCandidates.slice(0, 120);
+  // The AI reads the WHOLE corpus, in parallel chunks. One 500-email
+  // call times out; four 110-email calls do not, and nothing important
+  // gets left outside the model's view.
+  const CHUNK = 110;
+  const MAX_CHUNKS = 5;
+  const chunks: EmailItem[][] = [];
+  for (
+    let i = 0;
+    i < allMatterCandidates.length && chunks.length < MAX_CHUNKS;
+    i += CHUNK
+  ) {
+    chunks.push(allMatterCandidates.slice(i, i + CHUNK));
+  }
+  const matterCandidates = chunks.flat();
 
   const functions = await loadFunctions(accountEmail);
+  // Live studies/opportunities name the branches inside each function
+  const salesforce = await loadSalesforce(accountEmail).catch(
+    () => ({ studies: [], opportunities: [] }),
+  );
+  const labels = codeLabels(salesforce);
   // The user's own org corrections — absolute ground truth
   const fixes: MatterFixes = await loadMatterFixes(accountEmail).catch(
     () => ({}),
@@ -363,7 +477,7 @@ export async function buildBrief(
     if (picked.size >= 24) break;
   }
 
-  const payload = {
+  const payloadFor = (batch: EmailItem[]) => ({
     functions,
     userOrgCorrections: Object.entries(fixes).map(([matterId, f]) => ({
       matterId,
@@ -382,7 +496,13 @@ export async function buildBrief(
       orgUnit: m.orgUnit,
       people: m.people,
     })),
-    inbox: matterCandidates.map((i) => {
+    activeStudies: salesforce.studies
+      .slice(0, 60)
+      .map((x) => `${x.code}${x.name ? ` — ${x.name}` : ""}`),
+    openOpportunities: salesforce.opportunities
+      .slice(0, 60)
+      .map((x) => `${x.code}${x.name ? ` — ${x.name}` : ""}`),
+    inbox: batch.map((i) => {
       const study = `${i.subject}\n${i.snippet}`.match(STUDY_CODE)?.[0];
       const d = i.guide?.debug;
       return {
@@ -405,23 +525,35 @@ export async function buildBrief(
           : {}),
       };
     }),
-  };
+  });
 
   const { model } = await getTriageModel();
   const profileBlock = profilePromptBlock(profile ?? null);
   // Matters and the digest are independent bounded calls. Asking one
   // response to cluster work, file hundreds of ids, and write the digest
   // repeatedly exceeded the 120-second limit on a 500-message inbox.
-  const [{ output }, { output: digestOutput }] = await Promise.all([
-    generateText({
-      model,
-      temperature: 0,
-      maxRetries: 1,
-      abortSignal: AbortSignal.timeout(180_000),
-      output: Output.object({ schema: matterSchema }),
-      system: profileBlock ? `${SYSTEM}\n\n${profileBlock}` : SYSTEM,
-      prompt: JSON.stringify(payload),
-    }),
+  const [chunkOutputs, { output: digestOutput }] = await Promise.all([
+    Promise.all(
+      chunks.map((batch, n) =>
+        generateText({
+          model,
+          temperature: 0,
+          maxRetries: 1,
+          abortSignal: AbortSignal.timeout(150_000),
+          output: Output.object({ schema: matterSchema }),
+          system: profileBlock ? `${SYSTEM}\n\n${profileBlock}` : SYSTEM,
+          prompt: JSON.stringify(payloadFor(batch)),
+        })
+          .then((r) => r.output)
+          .catch((error) => {
+            console.error(
+              `[seer] matter chunk ${n + 1}/${chunks.length} failed:`,
+              error instanceof Error ? error.message : error,
+            );
+            return { summary: "", matters: [] };
+          }),
+      ),
+    ),
     digestItems.length
       ? generateText({
           model,
@@ -459,6 +591,29 @@ export async function buildBrief(
       : Promise.resolve({ output: { summary: "", themes: [] } }),
   ]);
 
+  // Merge the chunks: same matter id seen twice keeps one row and pools
+  // its evidence, so a matter split across chunks doesn't double up.
+  const mergedMatters = new Map<
+    string,
+    (typeof chunkOutputs)[number]["matters"][number]
+  >();
+  for (const out of chunkOutputs) {
+    for (const m of out.matters) {
+      const prevM = mergedMatters.get(m.id);
+      if (!prevM) {
+        mergedMatters.set(m.id, { ...m });
+        continue;
+      }
+      prevM.emailIds = [...new Set([...prevM.emailIds, ...m.emailIds])];
+      prevM.urgency = Math.max(prevM.urgency, m.urgency);
+      if (prevM.people.length < m.people.length) prevM.people = m.people;
+    }
+  }
+  const output = {
+    summary: chunkOutputs.map((o) => o.summary).find(Boolean) ?? "",
+    matters: [...mergedMatters.values()],
+  };
+
   const byId = new Map(matterCandidates.map((i) => [i.id, i]));
   const matters: Matter[] = output.matters
     .map((m) => ({
@@ -466,6 +621,20 @@ export async function buildBrief(
       // User corrections are ground truth even if the model ignored them
       orgUnit: fixes[m.id]?.orgUnit ?? m.orgUnit,
       orgConfidence: fixes[m.id] ? 1 : m.orgConfidence,
+      subUnit: (() => {
+        const first = m.emailIds.map((id) => byId.get(id)).find(Boolean);
+        return first ? subUnitFor(first, labels) : undefined;
+      })(),
+      emails: m.emailIds
+        .map((id) => byId.get(id))
+        .filter((i): i is EmailItem => Boolean(i))
+        .map((i) => ({
+          id: i.id,
+          threadId: i.threadId,
+          from: stripEmoji(i.fromName || i.fromEmail),
+          line: lineFor(i),
+          suggestion: suggestionFor(i),
+        })),
       emailIds: m.emailIds.filter((id) => byId.has(id)),
       threadIds: [
         ...new Set(
@@ -490,13 +659,9 @@ export async function buildBrief(
       emailId: i.id,
       threadId: i.threadId,
       orgUnit: inferredOrgUnit(i, functions),
-      line: stripEmoji(
-        `${i.fromName || i.fromEmail} — ${
-          i.guide?.task && i.guide.task !== "none"
-            ? i.guide.task
-            : i.subject
-        }`,
-      ).slice(0, 110),
+      subUnit: subUnitFor(i, labels),
+      line: lineFor(i),
+      suggestion: suggestionFor(i),
     });
   }
   const unsure: UnsureItem[] = [];
@@ -524,6 +689,9 @@ export async function buildBrief(
     })),
     functions,
     totalInbox: items.length,
+    totalThreads: new Set(items.map((i) => i.threadId)).size,
+    ...(providerTotal ? { providerTotal } : {}),
+    readByAi: matterCandidates.length,
     filed,
     digest,
     unsure,
