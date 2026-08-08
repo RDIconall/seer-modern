@@ -1,10 +1,15 @@
 "use client";
 
-import { CheckCheck, ChevronDown, RefreshCw } from "lucide-react";
+import { ChevronDown, ChevronRight } from "lucide-react";
 import { useMemo, useState } from "react";
 import type { Brief, Matter } from "@/lib/inbox/matters";
 
-/** Matters stay the unit — grouping is just a different shelf order. */
+/**
+ * THE BRIEF as a Checkvist-style outline: plain text, one line per
+ * matter, disclosure on demand. Typography and indentation carry the
+ * structure; the single accent marks what is YOURS. No badges.
+ */
+
 type GroupBy = "urgency" | "org" | "relationship";
 
 function groupMatters(
@@ -31,17 +36,81 @@ function groupMatters(
     );
 }
 
-const OWNER_BADGE: Record<string, { label: string; cls: string }> = {
-  you: { label: "YOU", cls: "bg-[#d97706] text-white" },
-  team: { label: "TEAM", cls: "bg-[var(--card)] text-[var(--muted)]" },
-  them: { label: "WAITING", cls: "bg-[#0e7490] text-white" },
-};
+/** you = solid marker in the one accent; them/team = quiet glyphs */
+function ownerGlyph(owner: string): { glyph: string; cls: string } {
+  if (owner === "you") return { glyph: "●", cls: "text-[var(--brand)]" };
+  if (owner === "them") return { glyph: "◌", cls: "text-[var(--muted)]" };
+  return { glyph: "–", cls: "text-[var(--nav-muted)]" };
+}
 
-/**
- * The state of your work life — matters tracked across days, each line
- * anchored to its emails, plus the headline digest that replaces
- * reading the read-and-delete class one by one.
- */
+function MatterLine({
+  m,
+  onOpen,
+}: {
+  m: Matter;
+  onOpen: (id: string) => void;
+}) {
+  const [open, setOpen] = useState(false);
+  const g = ownerGlyph(m.owner);
+  const lowConf = (m.orgConfidence ?? 1) < 0.85;
+  return (
+    <li>
+      <div className="group flex items-baseline gap-1.5">
+        <button
+          type="button"
+          onClick={() => setOpen((v) => !v)}
+          aria-label={open ? "Collapse" : "Expand"}
+          className="w-4 shrink-0 text-[var(--nav-muted)]"
+        >
+          {open ? (
+            <ChevronDown className="h-3.5 w-3.5" />
+          ) : (
+            <ChevronRight className="h-3.5 w-3.5" />
+          )}
+        </button>
+        <span className={`shrink-0 text-[11px] ${g.cls}`} title={m.owner}>
+          {g.glyph}
+        </span>
+        <button
+          type="button"
+          onClick={() => setOpen((v) => !v)}
+          className="min-w-0 flex-1 truncate text-left text-[13px] leading-6"
+        >
+          <span className="font-semibold text-[var(--fg-strong)]">
+            {m.title}
+          </span>
+          <span className="text-[var(--muted)]"> — {m.narrative}</span>
+        </button>
+      </div>
+      {open ? (
+        <div className="ml-10 space-y-0.5 pb-1.5 text-[12px] leading-5">
+          {m.nextAction && !/^none/i.test(m.nextAction) ? (
+            <p className="text-[var(--fg)]">→ {m.nextAction}</p>
+          ) : null}
+          <p className="text-[var(--muted)]">
+            {m.orgUnit}
+            {lowConf ? "?" : ""}
+            {m.people?.length
+              ? ` · ${m.people
+                  .slice(0, 4)
+                  .map((p) => `${p.name.split(" ")[0]} (${p.relationship})`)
+                  .join(", ")}`
+              : ""}
+            {" · "}
+            <button
+              type="button"
+              onClick={() => m.emailIds[0] && onOpen(m.emailIds[0])}
+              className="underline decoration-[var(--border)] underline-offset-2 hover:text-[var(--fg)]"
+            >
+              {m.emailIds.length} email{m.emailIds.length === 1 ? "" : "s"}
+            </button>
+          </p>
+        </div>
+      ) : null}
+    </li>
+  );
+}
+
 export function BriefPanel({
   brief,
   building,
@@ -56,7 +125,7 @@ export function BriefPanel({
   onClearHeadlines: (ids: { id: string; threadId: string }[]) => void;
 }) {
   const [open, setOpen] = useState(true);
-  const [showHeadlines, setShowHeadlines] = useState(true);
+  const [showHeadlines, setShowHeadlines] = useState(false);
   const [groupBy, setGroupBy] = useState<GroupBy>("urgency");
   const groups = useMemo(
     () => (brief ? groupMatters(brief.matters, groupBy) : []),
@@ -64,25 +133,20 @@ export function BriefPanel({
   );
 
   return (
-    <div className="border-b border-[var(--border)] bg-[var(--bg)]">
-      <div className="flex items-center gap-2 bg-[var(--brand-soft)] px-4 py-2">
+    <div className="border-b border-[var(--border)]">
+      {/* header: one quiet line */}
+      <div className="flex items-baseline gap-2 px-4 pt-2.5">
         <button
           type="button"
           onClick={() => setOpen((v) => !v)}
-          className="flex min-w-0 flex-1 items-center gap-1.5 text-left"
+          className="flex min-w-0 items-baseline gap-1.5 text-left"
         >
-          <ChevronDown
-            className={`h-3.5 w-3.5 shrink-0 text-[var(--brand)] transition-transform ${open ? "" : "-rotate-90"}`}
-          />
-          <span className="text-[11px] font-bold uppercase tracking-wide text-[var(--brand)]">
-            The brief
-            {brief
-              ? ` · ${brief.matters.length} matters`
-              : ""}
+          <span className="text-[11px] font-bold uppercase tracking-widest text-[var(--fg-strong)]">
+            Brief
           </span>
           {brief ? (
-            <span className="truncate text-[11px] text-[var(--muted)]">
-              updated{" "}
+            <span className="text-[11px] text-[var(--nav-muted)]">
+              {brief.matters.length} matters ·{" "}
               {new Date(brief.builtAt).toLocaleTimeString([], {
                 hour: "numeric",
                 minute: "2-digit",
@@ -90,170 +154,100 @@ export function BriefPanel({
             </span>
           ) : null}
         </button>
-        <button
-          type="button"
-          disabled={building}
-          onClick={onRebuild}
-          className="flex shrink-0 items-center gap-1 text-[12px] font-semibold text-[var(--primary)] disabled:opacity-50"
-        >
-          <RefreshCw className={`h-3.5 w-3.5 ${building ? "animate-spin" : ""}`} />
-          {building ? "Reading…" : brief ? "Update" : "Build the brief"}
-        </button>
-      </div>
-
-      {open && brief ? (
-        <div className="px-4 py-2.5">
-          <p className="text-[13px] font-medium leading-snug text-[var(--fg-strong)]">
-            {brief.summary}
-          </p>
-
-          <div className="mt-1.5 flex items-center gap-1">
-            <span className="text-[10px] font-semibold uppercase tracking-wide text-[var(--nav-muted)]">
-              Group
-            </span>
+        <span className="flex-1" />
+        {brief ? (
+          <span className="flex items-baseline gap-2 text-[11px] text-[var(--nav-muted)]">
             {(
               [
-                ["urgency", "Urgency"],
-                ["org", "Org"],
-                ["relationship", "Relationship"],
+                ["urgency", "urgency"],
+                ["org", "org"],
+                ["relationship", "people"],
               ] as const
             ).map(([key, label]) => (
               <button
                 key={key}
                 type="button"
                 onClick={() => setGroupBy(key)}
-                className={`rounded px-1.5 py-0.5 text-[10px] font-semibold ${
+                className={
                   groupBy === key
-                    ? "bg-[var(--brand)] text-white"
-                    : "bg-[var(--card)] text-[var(--muted)]"
-                }`}
+                    ? "text-[var(--fg-strong)] underline underline-offset-4"
+                    : "hover:text-[var(--fg)]"
+                }
               >
                 {label}
               </button>
             ))}
-          </div>
+          </span>
+        ) : null}
+        <button
+          type="button"
+          disabled={building}
+          onClick={onRebuild}
+          className="text-[11px] text-[var(--nav-muted)] hover:text-[var(--fg)] disabled:opacity-50"
+        >
+          {building ? "reading…" : "update"}
+        </button>
+      </div>
+
+      {open && brief ? (
+        <div className="px-4 pb-2.5 pt-1.5">
+          <p className="mb-1.5 line-clamp-2 max-w-[70ch] text-[12px] leading-5 text-[var(--muted)]">
+            {brief.summary}
+          </p>
 
           {groups.map((g) => (
             <div key={g.label || "all"}>
               {g.label ? (
-                <p className="mt-2 text-[10px] font-bold uppercase tracking-wide text-[var(--muted)]">
+                <p className="mt-2 text-[10px] font-semibold uppercase tracking-widest text-[var(--nav-muted)]">
                   {g.label} · {g.matters.length}
                 </p>
               ) : null}
-              <ul className="mt-2 space-y-2">
+              <ul>
                 {g.matters.map((m) => (
-                  <li key={m.id} className="flex items-start gap-2">
-                    <span
-                      className={`mt-0.5 shrink-0 rounded px-1.5 py-0.5 text-[9px] font-bold ${OWNER_BADGE[m.owner]?.cls ?? OWNER_BADGE.team.cls}`}
-                    >
-                      {OWNER_BADGE[m.owner]?.label ?? "TEAM"}
-                    </span>
-                    <button
-                      type="button"
-                      onClick={() => m.emailIds[0] && onOpen(m.emailIds[0])}
-                      className="min-w-0 flex-1 text-left"
-                    >
-                      <span className="text-[13px] font-semibold text-[var(--fg-strong)]">
-                        {m.title}
-                      </span>
-                      <span className="text-[12px] text-[var(--fg)]">
-                        {" "}
-                        — {m.narrative}
-                      </span>
-                      <span className="mt-0.5 flex flex-wrap items-center gap-1">
-                        {m.orgUnit ? (
-                          <span
-                            className="rounded bg-[var(--card)] px-1 py-0.5 text-[9px] font-bold uppercase tracking-wide text-[var(--muted)]"
-                            title={
-                              (m.orgConfidence ?? 1) < 0.85
-                                ? "Low-confidence assignment — Seer's suggestion, confirm or correct"
-                                : undefined
-                            }
-                          >
-                            {m.orgUnit}
-                            {(m.orgConfidence ?? 1) < 0.85 ? " ?" : ""}
-                          </span>
-                        ) : null}
-                        {(m.people ?? []).slice(0, 3).map((p) => (
-                          <span
-                            key={p.name}
-                            title={p.relationship}
-                            className="rounded bg-[var(--brand-soft)] px-1 py-0.5 text-[9px] font-semibold text-[var(--brand)]"
-                          >
-                            {p.name.split(" ")[0]}
-                            <span className="font-normal text-[var(--muted)]">
-                              {" "}
-                              · {p.relationship}
-                            </span>
-                          </span>
-                        ))}
-                      </span>
-                      {m.nextAction && !/^none/i.test(m.nextAction) ? (
-                        <span
-                          className="block truncate text-[12px] font-semibold"
-                          style={{
-                            color: m.urgency >= 2 ? "#d97706" : "var(--primary)",
-                          }}
-                        >
-                          → {m.nextAction}
-                        </span>
-                      ) : null}
-                    </button>
-                    <span className="shrink-0 text-[10px] text-[var(--nav-muted)]">
-                      {m.emailIds.length}
-                    </span>
-                  </li>
+                  <MatterLine key={m.id} m={m} onOpen={onOpen} />
                 ))}
               </ul>
             </div>
           ))}
 
           {brief.headlines.length > 0 ? (
-            <div className="mt-3 border-t border-[var(--border)] pt-2">
-              <div className="flex items-center gap-2">
-                <button
-                  type="button"
-                  onClick={() => setShowHeadlines((v) => !v)}
-                  className="flex min-w-0 flex-1 items-center gap-1 text-left text-[10px] font-bold uppercase tracking-wide text-[var(--muted)]"
-                >
-                  <ChevronDown
-                    className={`h-3 w-3 transition-transform ${showHeadlines ? "" : "-rotate-90"}`}
-                  />
-                  Headlines · {brief.headlines.length} — the glance IS the read
-                </button>
-                <button
-                  type="button"
-                  onClick={() => onClearHeadlines(brief.headlineIds)}
-                  className="flex shrink-0 items-center gap-1 text-[11px] font-semibold text-[var(--primary)]"
-                >
-                  <CheckCheck className="h-3.5 w-3.5" />
-                  Glanced — clear all
-                </button>
-              </div>
-              {showHeadlines ? (
-                <ul className="mt-1 space-y-0.5">
-                  {brief.headlines.map((h) => (
-                    <li key={h.id}>
-                      <button
-                        type="button"
-                        onClick={() => onOpen(h.id)}
-                        className="w-full truncate text-left text-[12px] text-[var(--fg)]"
-                      >
-                        · {h.line}
-                      </button>
-                    </li>
-                  ))}
-                </ul>
-              ) : null}
+            <div className="mt-1.5 flex items-baseline gap-2 text-[12px]">
+              <button
+                type="button"
+                onClick={() => setShowHeadlines((v) => !v)}
+                className="text-[var(--nav-muted)] hover:text-[var(--fg)]"
+              >
+                {showHeadlines ? "▾" : "▸"} {brief.headlines.length} headlines
+              </button>
+              <button
+                type="button"
+                onClick={() => onClearHeadlines(brief.headlineIds)}
+                className="text-[var(--nav-muted)] underline decoration-[var(--border)] underline-offset-2 hover:text-[var(--fg)]"
+              >
+                glanced — clear all
+              </button>
             </div>
+          ) : null}
+          {showHeadlines && brief.headlines.length > 0 ? (
+            <ul className="ml-4 mt-0.5">
+              {brief.headlines.map((h) => (
+                <li key={h.id}>
+                  <button
+                    type="button"
+                    onClick={() => onOpen(h.id)}
+                    className="w-full truncate text-left text-[12px] leading-5 text-[var(--muted)] hover:text-[var(--fg)]"
+                  >
+                    · {h.line}
+                  </button>
+                </li>
+              ))}
+            </ul>
           ) : null}
         </div>
       ) : null}
       {open && !brief && !building ? (
-        <p className="px-4 py-3 text-[12px] text-[var(--muted)]">
-          No brief yet — tap “Build the brief” and Seer will read the whole
-          inbox as one unit: the matters you&apos;re tracking, and the
-          headlines worth one glance.
+        <p className="px-4 pb-3 text-[12px] text-[var(--muted)]">
+          No brief yet — “update” reads the inbox as one unit.
         </p>
       ) : null}
     </div>
