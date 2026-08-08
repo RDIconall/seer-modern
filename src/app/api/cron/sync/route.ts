@@ -40,7 +40,7 @@ const INBOX_DEPTH = 1200;
  * Deep reads per tick. A full backlog drains over several ticks rather
  * than blowing the function's time budget in one.
  */
-const DEEP_READS_PER_TICK = 90;
+const DEEP_READS_PER_TICK = 160;
 
 export const maxDuration = 300;
 
@@ -175,6 +175,7 @@ export async function GET(request: Request) {
           .slice(0, DEEP_READS_PER_TICK);
         const records = await readEmails(queue, {
           functions,
+          concurrency: 5,
           deadlineMs: Math.min(
             Date.now() + 110_000,
             started + 250_000,
