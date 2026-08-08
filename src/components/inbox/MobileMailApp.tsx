@@ -472,10 +472,10 @@ export function MobileMailApp() {
             >
               <div className="flex items-center gap-2.5">
                 {/* eslint-disable-next-line @next/next/no-img-element */}
-                <img src="/seer-mark.png" alt="" width={30} height={30} />
+                <img src="/seer-eye.png" alt="" width={30} height={30} />
                 <span className="seer-brand text-xl">Seer</span>
               </div>
-              <div className="seer-tagline mt-0.5 text-[11px]">Work smarter</div>
+              <div className="seer-tagline mt-0.5 text-[11px]">Fewer decisions.</div>
               <div className="mt-0.5 truncate text-xs text-[var(--muted)]">
                 {accountEmail}
               </div>

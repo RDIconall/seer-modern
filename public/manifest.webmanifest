@@ -1,13 +1,13 @@
 {
   "name": "Seer",
   "short_name": "Seer",
-  "description": "Work smarter — fly through email with your copilot",
+  "description": "Fewer decisions — fly through email with your copilot",
   "start_url": "/m",
   "scope": "/m",
   "display": "standalone",
   "orientation": "portrait-primary",
-  "background_color": "#eef1f4",
-  "theme_color": "#12a493",
+  "background_color": "#F1F3F5",
+  "theme_color": "#0B7F74",
   "lang": "en",
   "categories": ["productivity", "utilities"],
   "icons": [
