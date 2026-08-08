@@ -1,7 +1,8 @@
 # Triage, reimagined: the janitor for Atlas
 
 Date: 2026-08-08
-Status: draft — awaiting user review
+Status: subsystem design — incorporated into
+`2026-08-08-seer-brain-atlas-architecture.md`
 
 ## Reframing
 
@@ -126,12 +127,15 @@ guard against the "too aggressive" failure.
   `status: "active" | "waiting" | "looks-closed" | "dormant"` with a
   one-line `statusWhy`, judged from the new evidence ("the executed SOW
   went back to Roche June 3 — the goal is met").
-- Deterministic staleness signals feed the same judgment and can raise
-  (never auto-execute) a closure candidate on their own:
-  - `owner: "them"` and no inbound mail on any of the matter's threads
-    for **21 days** (configurable)
-  - no new mail on the matter for **35 days** (configurable)
+- Lifecycle is event-driven, not timer-driven. Closure evidence includes:
+  - a later message superseding or completing the work
+  - the matter's goal being met
+  - an authoritative system-of-record state (for example Salesforce
+    Closed Won/Lost, or a completed/terminated study)
   - every conversation's `ask` answered or `expires` passed
+- Silence alone can raise a soft review flag but never a closure
+  proposal. A live/open system-of-record object or recent file, note, or
+  Timeglass activity protects a long-tail matter as **quiet but alive**.
 - Atlas shows closure proposals inline on the matter: *"Looks closed —
   the executed copy went back June 3. Archive its 12 conversations?"*
   Accepting archives every thread (existing thread-aware actions) and
