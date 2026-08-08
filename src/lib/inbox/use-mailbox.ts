@@ -80,7 +80,7 @@ const TOMBSTONE_MS = 3 * 60 * 1000;
 // Gmail-style URL state: #inbox, #triage, #inbox/<messageId> … so the
 // browser back/forward buttons navigate the app instead of leaving it,
 // and a reload restores exactly where you were.
-const HASH_TABS: ViewTab[] = ["inbox", "sent", "trash", "triage", "cards"];
+const HASH_TABS: ViewTab[] = ["inbox", "sent", "trash", "triage", "cards", "atlas"];
 
 function parseHash(): { tab?: ViewTab; id?: string } {
   if (typeof window === "undefined") return {};
@@ -268,7 +268,7 @@ export function useMailbox(initialTab: ViewTab = "inbox") {
     // then refresh silently in the background.
     let hadCache = false;
     if (!query.trim()) {
-      if (tab === "triage" || tab === "cards") {
+      if (tab === "triage" || tab === "cards" || tab === "atlas") {
         const cached = readViewCache<TodayData>(
           "triage",
           identityEmailRef.current,
@@ -291,7 +291,7 @@ export function useMailbox(initialTab: ViewTab = "inbox") {
     setLoading(!hadCache);
 
     try {
-      if (tab === "triage" || tab === "cards") await loadTriage();
+      if (tab === "triage" || tab === "cards" || tab === "atlas") await loadTriage();
       else await loadMailbox(tab, query);
     } catch (e) {
       const msg = e instanceof Error ? e.message : "Load failed";
@@ -1133,7 +1133,7 @@ export function useMailbox(initialTab: ViewTab = "inbox") {
 
   const submitSearch = useCallback(() => {
     setQuery(search.trim());
-    if (tab === "triage" || tab === "cards") setTab("inbox");
+    if (tab === "triage" || tab === "cards" || tab === "atlas") setTab("inbox");
   }, [search, tab]);
 
   return {

@@ -95,7 +95,7 @@ export type MailboxData = {
   count: number;
 };
 
-export type ViewTab = "inbox" | "sent" | "trash" | "triage" | "cards";
+export type ViewTab = "inbox" | "sent" | "trash" | "triage" | "cards" | "atlas";
 export type MailAction = "archive" | "trash" | "read";
 
 /** Flatten triage payload into a Seer-style card deck (priority order). */

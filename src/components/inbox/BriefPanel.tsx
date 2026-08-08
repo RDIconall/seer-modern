@@ -46,9 +46,11 @@ function ownerGlyph(owner: string): { glyph: string; cls: string } {
 function MatterLine({
   m,
   onOpen,
+  full,
 }: {
   m: Matter;
   onOpen: (id: string) => void;
+  full?: boolean;
 }) {
   const [open, setOpen] = useState(false);
   const g = ownerGlyph(m.owner);
@@ -74,7 +76,7 @@ function MatterLine({
         <button
           type="button"
           onClick={() => setOpen((v) => !v)}
-          className="min-w-0 flex-1 truncate text-left text-[13px] leading-6"
+          className={`min-w-0 flex-1 truncate text-left ${full ? "text-[15px] leading-8" : "text-[13px] leading-6"}`}
         >
           <span className="font-semibold text-[var(--fg-strong)]">
             {m.title}
@@ -83,7 +85,7 @@ function MatterLine({
         </button>
       </div>
       {open ? (
-        <div className="ml-10 space-y-0.5 pb-1.5 text-[12px] leading-5">
+        <div className={`ml-10 space-y-0.5 pb-1.5 ${full ? "text-[13px] leading-6" : "text-[12px] leading-5"}`}>
           {m.nextAction && !/^none/i.test(m.nextAction) ? (
             <p className="text-[var(--fg)]">→ {m.nextAction}</p>
           ) : null}
@@ -117,15 +119,18 @@ export function BriefPanel({
   onRebuild,
   onOpen,
   onClearHeadlines,
+  full,
 }: {
   brief: Brief | null;
   building: boolean;
   onRebuild: () => void;
   onOpen: (id: string) => void;
   onClearHeadlines: (ids: { id: string; threadId: string }[]) => void;
+  /** Atlas mode: full-page scale, always expanded */
+  full?: boolean;
 }) {
   const [open, setOpen] = useState(true);
-  const [showHeadlines, setShowHeadlines] = useState(false);
+  const [showHeadlines, setShowHeadlines] = useState(Boolean(full));
   const [groupBy, setGroupBy] = useState<GroupBy>("urgency");
   const groups = useMemo(
     () => (brief ? groupMatters(brief.matters, groupBy) : []),
@@ -191,7 +196,7 @@ export function BriefPanel({
 
       {open && brief ? (
         <div className="px-4 pb-2.5 pt-1.5">
-          <p className="mb-1.5 line-clamp-2 max-w-[70ch] text-[12px] leading-5 text-[var(--muted)]">
+          <p className={`mb-1.5 max-w-[70ch] text-[var(--muted)] ${full ? "text-[14px] leading-6" : "line-clamp-2 text-[12px] leading-5"}`}>
             {brief.summary}
           </p>
 
@@ -204,7 +209,7 @@ export function BriefPanel({
               ) : null}
               <ul>
                 {g.matters.map((m) => (
-                  <MatterLine key={m.id} m={m} onOpen={onOpen} />
+                  <MatterLine key={m.id} m={m} onOpen={onOpen} full={full} />
                 ))}
               </ul>
             </div>

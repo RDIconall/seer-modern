@@ -3,6 +3,7 @@
 import { sanitizeEmailHtml } from "@/lib/inbox/sanitize";
 import {
   Archive,
+  Map,
   Check,
   Forward,
   Inbox,
@@ -55,6 +56,7 @@ const FOLDER_LABEL: Record<ViewTab, string> = {
   trash: "Trash",
   triage: "Triage",
   cards: "Cards",
+  atlas: "Atlas",
 };
 
 const FOLDERS: { tab: ViewTab; label: string; icon: ReactNode }[] = [
@@ -62,6 +64,7 @@ const FOLDERS: { tab: ViewTab; label: string; icon: ReactNode }[] = [
   { tab: "sent", label: "Sent", icon: <Send className="h-4 w-4" /> },
   { tab: "trash", label: "Trash", icon: <Trash2 className="h-4 w-4" /> },
   { tab: "cards", label: "Cards", icon: <Layers className="h-4 w-4" /> },
+  { tab: "atlas", label: "Atlas", icon: <Map className="h-4 w-4" /> },
   { tab: "triage", label: "Triage", icon: <ListFilter className="h-4 w-4" /> },
 ];
 
@@ -430,7 +433,7 @@ export function DesktopMailApp() {
       <>
       <section
         className={
-          tab === "triage"
+          tab === "triage" || tab === "atlas"
             ? "flex min-w-0 flex-1 flex-col"
             : "flex w-[360px] shrink-0 flex-col border-r border-[var(--border)]"
         }
@@ -445,9 +448,9 @@ export function DesktopMailApp() {
                   onToggle={() => setLogicMode((v) => !v)}
                 />
               )}
-              {tab !== "triage" && mailbox ? (
+              {tab !== "triage" && tab !== "atlas" && mailbox ? (
                 <span className="text-xs text-white/80">{mailbox.count}</span>
-              ) : tab === "triage" && triage ? (
+              ) : (tab === "triage" || tab === "atlas") && triage ? (
                 <span className="text-xs text-white/80">{triage.count}</span>
               ) : null}
             </div>
@@ -614,22 +617,28 @@ export function DesktopMailApp() {
             <EmptyList text="Nothing to triage" />
           ) : null}
 
+          {tab === "atlas" ? (
+            <div className="min-h-0 flex-1 overflow-y-auto">
+              {catchup ? (
+                <CatchupCard
+                  catchup={catchup}
+                  onOpen={openReader}
+                  onDismiss={dismissCatchup}
+                />
+              ) : null}
+              <BriefPanel
+                full
+                brief={brief}
+                building={briefBuilding}
+                onRebuild={rebuildBrief}
+                onOpen={openReader}
+                onClearHeadlines={clearHeadlines}
+              />
+            </div>
+          ) : null}
+
           {tab === "triage" && triage && triage.count > 0 ? (
             <>
-          {catchup ? (
-            <CatchupCard
-              catchup={catchup}
-              onOpen={openReader}
-              onDismiss={dismissCatchup}
-            />
-          ) : null}
-          <BriefPanel
-            brief={brief}
-            building={briefBuilding}
-            onRebuild={rebuildBrief}
-            onOpen={openReader}
-            onClearHeadlines={clearHeadlines}
-          />
           <TriageTable
               triage={triage}
               mobile={false}
@@ -651,10 +660,10 @@ export function DesktopMailApp() {
 
       {/* Right pane — reading. In triage the table owns the width, so the
           reader appears as a docked panel only while a message is open. */}
-      {tab === "triage" && !readerId ? null : (
+      {(tab === "triage" || tab === "atlas") && !readerId ? null : (
       <main
         className={
-          tab === "triage"
+          tab === "triage" || tab === "atlas"
             ? "flex w-[32rem] max-w-[44%] shrink-0 flex-col overflow-hidden border-l border-[var(--border)]"
             : "flex min-w-0 flex-1 flex-col overflow-hidden"
         }

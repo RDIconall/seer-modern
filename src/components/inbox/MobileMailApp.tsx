@@ -3,6 +3,7 @@
 import { sanitizeEmailHtml } from "@/lib/inbox/sanitize";
 import {
   Archive,
+  Map,
   Check,
   MailOpen,
   ChevronLeft,
@@ -66,6 +67,7 @@ const FOLDER_LABEL: Record<ViewTab, string> = {
   trash: "Trash",
   triage: "Triage",
   cards: "Cards",
+  atlas: "Atlas",
 };
 
 export function MobileMailApp() {
@@ -795,22 +797,28 @@ export function MobileMailApp() {
           <EmptyState text="Nothing to triage" />
         ) : null}
 
+        {tab === "atlas" ? (
+          <div>
+            {catchup ? (
+              <CatchupCard
+                catchup={catchup}
+                onOpen={openReader}
+                onDismiss={dismissCatchup}
+              />
+            ) : null}
+            <BriefPanel
+              full
+              brief={brief}
+              building={briefBuilding}
+              onRebuild={rebuildBrief}
+              onOpen={openReader}
+              onClearHeadlines={clearHeadlines}
+            />
+          </div>
+        ) : null}
+
         {tab === "triage" && triage && triage.count > 0 ? (
           <>
-        {catchup ? (
-          <CatchupCard
-            catchup={catchup}
-            onOpen={openReader}
-            onDismiss={dismissCatchup}
-          />
-        ) : null}
-        <BriefPanel
-          brief={brief}
-          building={briefBuilding}
-          onRebuild={rebuildBrief}
-          onOpen={openReader}
-          onClearHeadlines={clearHeadlines}
-        />
         <TriageTable
               triage={triage}
               mobile={true}
@@ -830,14 +838,20 @@ export function MobileMailApp() {
       </PullToRefresh>
 
       <nav className="fixed bottom-0 left-0 right-0 z-20 mx-auto max-w-lg border-t border-[var(--border)] bg-[var(--bg)] bottom-nav">
-        <div className="grid grid-cols-4">
+        <div className="grid grid-cols-5">
           <BottomNavItem
             active={tab === "inbox" || tab === "sent" || tab === "trash"}
             label="Mail"
             icon={<Inbox className="h-6 w-6" />}
             onClick={() => {
-              if (tab === "triage" || tab === "cards") setTab("inbox");
+              if (tab === "triage" || tab === "cards" || tab === "atlas") setTab("inbox");
             }}
+          />
+          <BottomNavItem
+            active={tab === "atlas"}
+            label="Atlas"
+            icon={<Map className="h-6 w-6" />}
+            onClick={() => selectFolder("atlas")}
           />
           <BottomNavItem
             active={tab === "cards"}
