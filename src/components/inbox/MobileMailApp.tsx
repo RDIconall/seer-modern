@@ -630,8 +630,8 @@ export function MobileMailApp() {
         ) : null}
 
         {loading &&
-        (((tab === "triage" || tab === "cards") && !triage) ||
-          (tab !== "triage" && tab !== "cards" && !mailbox)) ? (
+        (((tab === "triage" || tab === "cards" || tab === "atlas") && !triage) ||
+          (tab !== "triage" && tab !== "cards" && tab !== "atlas" && !mailbox)) ? (
           <p className="py-16 text-center text-sm text-[var(--muted)]">
             Loading…
           </p>
@@ -652,7 +652,7 @@ export function MobileMailApp() {
           />
         ) : null}
 
-        {tab !== "triage" && tab !== "cards" && mailbox ? (
+        {tab !== "triage" && tab !== "cards" && tab !== "atlas" && mailbox ? (
           listItems.length === 0 ? (
             <EmptyState
               text={

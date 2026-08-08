@@ -518,11 +518,12 @@ export function DesktopMailApp() {
           ) : null}
 
           {loading &&
-          ((tab === "triage" && !triage) || (tab !== "triage" && !mailbox)) ? (
+          (((tab === "triage" || tab === "atlas") && !triage) ||
+            (tab !== "triage" && tab !== "atlas" && !mailbox)) ? (
             <p className="py-12 text-center text-sm text-[var(--muted)]">Loading…</p>
           ) : null}
 
-          {tab !== "triage" && mailbox ? (
+          {tab !== "triage" && tab !== "atlas" && mailbox ? (
             listItems.length === 0 ? (
               <EmptyList
                 text={
