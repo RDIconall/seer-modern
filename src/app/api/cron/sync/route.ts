@@ -7,6 +7,7 @@ import { compileEmailContext, type BrainSources } from "@/lib/brain/context";
 import { getPersonalContext } from "@/lib/inbox/personal-context";
 import { loadPeople } from "@/lib/store/people";
 import { loadSalesforce } from "@/lib/store/salesforce";
+import { pgEnabled, pgHealth } from "@/lib/store/pg";
 import type { EmailItem } from "@/lib/inbox/types";
 import { getInboxSnapshot } from "@/lib/mail/inbox-snapshot";
 import {
@@ -73,6 +74,12 @@ export async function GET(request: Request) {
 
   const started = Date.now();
   const report: Record<string, unknown>[] = [];
+  // Prove the storage backend at the top of every run — a silent fallback
+  // to Redis would otherwise hide a broken Postgres wiring.
+  if (pgEnabled()) {
+    const h = await pgHealth();
+    console.log("[seer] storage: postgres", JSON.stringify(h));
+  }
   const accounts = await listAccountsWithTokens();
 
   for (const stored of accounts) {
