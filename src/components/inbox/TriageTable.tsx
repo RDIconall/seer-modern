@@ -374,8 +374,8 @@ function CorrectPicker({ item, h }: { item: EmailItem; h: Handlers }) {
           const a = e.target.value as TriageAction;
           if (a) h.teach?.(item.fromEmail, a, item.id, actionThreadId(item));
         }}
-        aria-label="Correct — teach Seer"
-        title="Correct — teach Seer"
+        aria-label="Change"
+        title="Change"
         className="h-6 w-5 cursor-pointer appearance-none rounded-md border border-[var(--border)] bg-[var(--bg)] pl-1 text-[10px] font-bold text-[var(--muted)] hover:text-[var(--fg)]"
       >
         <option value="" hidden>
@@ -656,7 +656,7 @@ export function TriageTable({
     groups.push(
       <GroupHeader
         key="h-done"
-        label={`Clear · ${zones.handledCount} — Seer\u2019s calls, confirm and sweep`}
+        label={`Clear · ${zones.handledCount}`}
         color="#64748b"
         open={open.has("done")}
         onToggle={() => toggle("done")}

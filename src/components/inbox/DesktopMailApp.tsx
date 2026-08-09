@@ -34,11 +34,9 @@ import { TriageTable } from "@/components/inbox/TriageTable";
 import { AssistBar } from "@/components/inbox/AssistBar";
 import {
   LogicExplain,
-  LogicToggle,
   ReaderGuideBar,
 } from "@/components/inbox/LogicExplain";
 import { SettingsPanel } from "@/components/inbox/SettingsPanel";
-import { type TriageAction } from "@/lib/inbox/classify";
 import { useMailbox } from "@/lib/inbox/use-mailbox";
 import {
   actionThreadId,
@@ -133,7 +131,6 @@ export function DesktopMailApp() {
 
   const searchParams = useSearchParams();
   const [settingsOpen, setSettingsOpen] = useState(false);
-  const [logicMode, setLogicMode] = useState(false);
 
   // Density: compact rows (persisted, shared key with mobile)
   const [dense, setDense] = useState<boolean>(() => {
@@ -446,12 +443,6 @@ export function DesktopMailApp() {
           <div className="flex items-center justify-between gap-2 bg-[var(--brand)] px-4 py-3 text-white">
             <h1 className="text-lg font-semibold">{listTitle}</h1>
             <div className="flex items-center gap-2">
-              {(tab === "inbox" || tab === "triage" || Boolean(query)) && (
-                <LogicToggle
-                  on={logicMode}
-                  onToggle={() => setLogicMode((v) => !v)}
-                />
-              )}
               {tab !== "triage" && tab !== "atlas" && mailbox ? (
                 <span className="text-xs text-white/80">{mailbox.count}</span>
               ) : (tab === "triage" || tab === "atlas") && triage ? (
@@ -499,9 +490,7 @@ export function DesktopMailApp() {
                   {dense ? "Cozy" : "Compact"}
                 </button>
               </span>
-              {logicMode && triage.assistant
-                ? `Gemini ${triage.assistant.gemini} · rules ${triage.assistant.rules}${triage.assistant.learned ? ` · learned ${triage.assistant.learned}` : ""} · taught ${triage.assistant.override}${triage.assistant.cached ? ` · cached ${triage.assistant.cached}` : ""} · your call ${triage.assistant.needsReview}`
-                : `${triage.count} triaged · ${triage.assistant?.needsReview ?? triage.needsReview.length} need you`}
+              {`${triage.count} triaged · ${triage.assistant?.needsReview ?? triage.needsReview.length} need you`}
               {triage.assistant?.error ? (
                 <span className="ml-2 font-medium text-[#b45309]">
                   {(triage.assistant.gemini ?? 0) + (triage.assistant.cached ?? 0) > 0
@@ -592,8 +581,6 @@ export function DesktopMailApp() {
                       selected={readerId === item.id}
                       busy={busyId === item.id}
                       showGuide={tab === "inbox" || Boolean(query)}
-                      logicMode={logicMode}
-                    onTeach={(a) => teachSender(item.fromEmail, a, item.id, item.threadId)}
                       checked={picked.has(item.id)}
                       onToggleSelect={() => togglePick(item.id)}
                       onOpen={() => openReader(item.id)}
@@ -829,28 +816,24 @@ function DesktopMailRow({
   selected,
   busy,
   showGuide,
-  logicMode,
   onOpen,
   onArchive,
   onDelete,
   chips,
   checked,
   onToggleSelect,
-  onTeach,
   dense,
 }: {
   item: EmailItem;
   selected: boolean;
   busy?: boolean;
   showGuide: boolean;
-  logicMode?: boolean;
   onOpen: () => void;
   onArchive?: () => void;
   onDelete: () => void;
   chips?: ReactNode;
   checked?: boolean;
   onToggleSelect?: () => void;
-  onTeach?: (action: TriageAction) => void;
   /** Compact: hide the snippet, tighten padding. */
   dense?: boolean;
 }) {
@@ -942,9 +925,7 @@ function DesktopMailRow({
               </div>
             </>
           )}
-          {showGuide && g && (!dense || logicMode) ? (
-            <LogicExplain guide={g} expanded={logicMode} onTeach={onTeach} />
-          ) : null}
+          {showGuide && g && !dense ? <LogicExplain guide={g} /> : null}
           {chips}
         </div>
       </article>

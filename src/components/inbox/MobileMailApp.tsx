@@ -33,7 +33,6 @@ import {
 } from "react";
 import { useSearchParams } from "next/navigation";
 import { logoutMobile } from "@/app/actions";
-import { type TriageAction } from "@/lib/inbox/classify";
 import { CardStack } from "@/components/inbox/CardStack";
 import { ComposePanel } from "@/components/inbox/ComposePanel";
 import { DelegateSheet } from "@/components/inbox/DelegateSheet";
@@ -47,7 +46,6 @@ import { ScheduleSheet } from "@/components/inbox/ScheduleSheet";
 import { AssistBar } from "@/components/inbox/AssistBar";
 import {
   LogicExplain,
-  LogicToggle,
   ReaderGuideBar,
 } from "@/components/inbox/LogicExplain";
 import { SettingsPanel } from "@/components/inbox/SettingsPanel";
@@ -138,7 +136,6 @@ export function MobileMailApp() {
   const [drawer, setDrawer] = useState(false);
   const [searchOpen, setSearchOpen] = useState(false);
   const [settingsOpen, setSettingsOpen] = useState(false);
-  const [logicMode, setLogicMode] = useState(false);
   const searchRef = useRef<HTMLInputElement>(null);
   const deckCards = useMemo(() => buildDeckCards(triage), [triage]);
 
@@ -592,12 +589,6 @@ export function MobileMailApp() {
                     ? "Triage"
                     : FOLDER_LABEL[tab]}
             </h1>
-            {(tab === "inbox" || tab === "triage" || Boolean(query)) && (
-              <LogicToggle
-                on={logicMode}
-                onToggle={() => setLogicMode((v) => !v)}
-              />
-            )}
             <IconBtn onClick={load} disabled={loading} label="Refresh" light>
               <RefreshCw
                 className={`h-5 w-5 ${loading ? "animate-spin" : ""}`}
@@ -689,8 +680,6 @@ export function MobileMailApp() {
                     key={item.id}
                     item={item}
                     showGuide={tab === "inbox" || Boolean(query)}
-                    logicMode={logicMode}
-                    onTeach={(a) => teachSender(item.fromEmail, a, item.id, item.threadId)}
                     busy={busyId === item.id}
                     selectMode={selectMode}
                     checked={picked.has(item.id)}
@@ -758,9 +747,7 @@ export function MobileMailApp() {
           <div className="border-b border-[var(--border)] bg-[var(--card)] px-4 py-2">
             <div className="flex items-start justify-between gap-2">
               <p className="min-w-0 text-[12px] text-[var(--muted)]">
-                {logicMode && triage.assistant
-                  ? `Gemini ${triage.assistant.gemini} · rules ${triage.assistant.rules}${triage.assistant.learned ? ` · learned ${triage.assistant.learned}` : ""} · taught ${triage.assistant.override}${triage.assistant.cached ? ` · cached ${triage.assistant.cached}` : ""} · your call ${triage.assistant.needsReview}`
-                  : `${triage.count} triaged · ${triage.assistant?.needsReview ?? triage.needsReview.length} need you`}
+                {`${triage.count} triaged · ${triage.assistant?.needsReview ?? triage.needsReview.length} need you`}
               </p>
               <span className="flex shrink-0 gap-1.5">
                 <button
@@ -1025,11 +1012,9 @@ function SwipeMailRow({
   busy,
   chips,
   showGuide,
-  logicMode,
   selectMode,
   checked,
   onToggleSelect,
-  onTeach,
   dense,
   indented,
 }: {
@@ -1040,11 +1025,9 @@ function SwipeMailRow({
   busy?: boolean;
   chips?: ReactNode;
   showGuide: boolean;
-  logicMode?: boolean;
   selectMode?: boolean;
   checked?: boolean;
   onToggleSelect?: () => void;
-  onTeach?: (action: TriageAction) => void;
   /** Compact: two lines max — sender/time, task+subject. */
   dense?: boolean;
   /** Rendered inside an expanded sender group. */
@@ -1182,9 +1165,7 @@ function SwipeMailRow({
               </div>
             </>
           )}
-          {showGuide && g && (!dense || logicMode) ? (
-            <LogicExplain guide={g} expanded={logicMode} onTeach={onTeach} />
-          ) : null}
+          {showGuide && g && !dense ? <LogicExplain guide={g} /> : null}
           {chips}
         </div>
       </article>
