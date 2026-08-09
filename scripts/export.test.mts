@@ -33,6 +33,8 @@ const brief = {
           id: "e1",
           threadId: "t1",
           from: "Anna Roche",
+          fromEmail: "anna@roche.com",
+          subject: "Pricing request — anti-TPO study",
           line: "Anna Roche — pricing for anti-TPO",
           suggestion: "Send pricing",
           at: "2026-08-08T10:00:00Z",
@@ -52,6 +54,9 @@ const brief = {
       emailId: "f1",
       threadId: "t5",
       orgUnit: "quality — SOPs",
+      fromName: "Audit Team",
+      fromEmail: "audit@lab.com",
+      subject: "Invoice 4471 for the Q2 audit",
       line: "Receipt for the audit fee",
       suggestion: "Keep as record",
       count: 2,
@@ -69,6 +74,9 @@ const brief = {
           {
             id: "d1",
             threadId: "t9",
+            fromName: "Slack",
+            fromEmail: "notifications@slack.com",
+            subject: "You were mentioned in #general",
             line: "Someone mentioned you in #general",
             at: "2026-08-09T08:00:00Z",
           },
@@ -114,6 +122,33 @@ check("a delete row names its digest category", () => {
   assert.equal(row.nextAction, "Delete");
 });
 
+check("every row carries the native from name, from email and subject", () => {
+  const rows = buildExportRows(brief);
+  const [matter, record, del] = rows;
+
+  assert.equal(matter.fromName, "Anna Roche");
+  assert.equal(matter.fromEmail, "anna@roche.com");
+  assert.equal(matter.subject, "Pricing request — anti-TPO study");
+
+  assert.equal(record.fromName, "Audit Team");
+  assert.equal(record.fromEmail, "audit@lab.com");
+  assert.equal(record.subject, "Invoice 4471 for the Q2 audit");
+
+  // The explicit gap the CEO flagged: a Triage delete row must still have
+  // the native sender and subject, not just the AI summary line.
+  assert.equal(del.fromName, "Slack");
+  assert.equal(del.fromEmail, "notifications@slack.com");
+  assert.equal(del.subject, "You were mentioned in #general");
+});
+
+check("the CSV header names the native columns", () => {
+  const csv = toCsv(buildExportRows(brief));
+  const header = csv.split("\r\n")[0];
+  assert.ok(header.includes("From name"));
+  assert.ok(header.includes("From email"));
+  assert.ok(header.includes("Subject"));
+});
+
 check("the deep read's verdict is carried through", () => {
   const rows = buildExportRows(brief, {
     e1: { disposition: "matter" },
@@ -131,7 +166,9 @@ check("commas and quotes in a summary cannot break the CSV", () => {
       category: "sales",
       orgUnit: "sales",
       subUnit: "",
-      from: "A, B",
+      fromName: "A, B",
+      fromEmail: "a@x.com",
+      subject: "Q2, revisited",
       summary: "line one\nline two",
       nextAction: "",
       disposition: "",

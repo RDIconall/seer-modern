@@ -196,7 +196,9 @@ export async function POST(req: Request) {
         emails: rows.map((f) => ({
           id: f.emailId,
           threadId: f.threadId,
-          from: f.line.split(" — ")[0] ?? "",
+          from: f.fromName ?? f.line.split(" — ")[0] ?? "",
+          ...(f.fromEmail ? { fromEmail: f.fromEmail } : {}),
+          ...(f.subject ? { subject: f.subject } : {}),
           line: f.line,
           suggestion: f.suggestion ?? "",
         })),

@@ -6,7 +6,13 @@ type Row = {
   category: string;
   orgUnit: string;
   subUnit: string;
-  from: string;
+  /** Native sender display name, from the provider */
+  fromName: string;
+  /** Native sender address, from the provider */
+  fromEmail: string;
+  /** Native message subject, from the provider */
+  subject: string;
+  /** Seer's one-line read of the conversation */
   summary: string;
   nextAction: string;
   disposition: string;
@@ -16,6 +22,12 @@ type Row = {
   threadId: string;
   messageId: string;
 };
+
+/** "Anna Roche — pricing" → "Anna Roche". A filed line leads with the sender. */
+function nameFromLine(line: string): string {
+  const dash = line.indexOf(" — ");
+  return (dash > -1 ? line.slice(0, dash) : "").trim();
+}
 
 /** The function a matter or record rolls up to, e.g. "sales — leads" → "sales". */
 function categoryRoot(orgUnit: string, functions: string[]): string {
@@ -59,6 +71,8 @@ export function buildExportRows(
           id: "",
           threadId,
           from: "",
+          fromEmail: "" as string | undefined,
+          subject: "" as string | undefined,
           line: "",
           suggestion: "",
           at: "",
@@ -72,7 +86,9 @@ export function buildExportRows(
         category,
         orgUnit: matter.orgUnit,
         subUnit: matter.subUnit ?? "",
-        from: c.from ?? "",
+        fromName: c.from ?? "",
+        fromEmail: c.fromEmail ?? "",
+        subject: c.subject ?? "",
         summary: c.line ?? "",
         nextAction: c.suggestion || matter.nextAction || "",
         disposition: u?.disposition ?? "",
@@ -96,7 +112,9 @@ export function buildExportRows(
       category: categoryRoot(row.orgUnit, functions),
       orgUnit: row.orgUnit,
       subUnit: row.subUnit ?? "",
-      from: "",
+      fromName: row.fromName ?? nameFromLine(row.line),
+      fromEmail: row.fromEmail ?? "",
+      subject: row.subject ?? "",
       summary: row.line,
       nextAction: row.suggestion ?? "",
       disposition: u?.disposition ?? "",
@@ -117,6 +135,9 @@ export function buildExportRows(
             threadId: "",
             line: "",
             at: "",
+            fromName: undefined as string | undefined,
+            fromEmail: undefined as string | undefined,
+            subject: undefined as string | undefined,
           }));
     for (const item of items) {
       const u = readOf(item.id);
@@ -126,7 +147,9 @@ export function buildExportRows(
         category: "triage",
         orgUnit: "",
         subUnit: "",
-        from: "",
+        fromName: item.fromName ?? "",
+        fromEmail: item.fromEmail ?? "",
+        subject: item.subject ?? "",
         summary: item.line || theme.line,
         nextAction: "Delete",
         disposition: u?.disposition ?? "",
@@ -148,7 +171,9 @@ const HEADERS: { key: keyof Row; label: string }[] = [
   { key: "category", label: "Function" },
   { key: "orgUnit", label: "Org unit" },
   { key: "subUnit", label: "Sub unit" },
-  { key: "from", label: "From" },
+  { key: "fromName", label: "From name" },
+  { key: "fromEmail", label: "From email" },
+  { key: "subject", label: "Subject" },
   { key: "summary", label: "What it is" },
   { key: "nextAction", label: "Next action" },
   { key: "disposition", label: "Deep read" },

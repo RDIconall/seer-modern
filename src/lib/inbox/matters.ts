@@ -106,6 +106,9 @@ export type MatterEmail = {
   count?: number;
   /** Newest message time in this conversation (ISO) */
   at?: string;
+  /** Native provider fields for the newest message — for export/audit */
+  fromEmail?: string;
+  subject?: string;
 };
 
 export type Matter = {
@@ -175,6 +178,10 @@ export type FiledEmail = {
   orgUnit: string;
   /** Study/opportunity branch inside the function */
   subUnit?: string;
+  /** Native provider fields for the newest message — for export/audit */
+  fromName?: string;
+  fromEmail?: string;
+  subject?: string;
   line: string;
   /** What Seer suggests doing with it */
   suggestion?: string;
@@ -197,7 +204,16 @@ export type Digest = {
     line: string;
     emailIds: string[];
     /** Individual evidence, available only when the user expands a theme. */
-    items?: { id: string; threadId: string; line: string; at: string }[];
+    items?: {
+      id: string;
+      threadId: string;
+      line: string;
+      at: string;
+      /** Native provider fields — for export/audit */
+      fromName?: string;
+      fromEmail?: string;
+      subject?: string;
+    }[];
   }[];
 };
 
@@ -213,7 +229,7 @@ export type UnsureItem = {
  * treats any older brief as stale and rebuilds it, so a redesign never
  * leaves a stale Atlas on screen waiting for a manual refresh.
  */
-export const BRIEF_ENGINE = 16;
+export const BRIEF_ENGINE = 17;
 
 /**
  * The forecast lens — "what matters WHEN". A temporal view over the same
@@ -1448,6 +1464,8 @@ export async function buildBrief(
             id: i.id,
             threadId: i.threadId,
             from: who,
+            fromEmail: i.fromEmail,
+            subject: stripEmoji(i.subject),
             line: u
               ? headline(who, stripEmoji(u.oneLine)).slice(0, 140)
               : lineFor(i),
@@ -1575,6 +1593,9 @@ export async function buildBrief(
       threadId: i.threadId,
       orgUnit: orgUnitFor(i, functions, u).unit,
       subUnit: subUnitFor(i, labels, ownDomain),
+      fromName: personName(i),
+      fromEmail: i.fromEmail,
+      subject: stripEmoji(i.subject),
       line: u
         ? headline(who, stripEmoji(u.oneLine)).slice(0, 140)
         : lineFor(i),
@@ -1612,6 +1633,8 @@ export async function buildBrief(
           emailId: i.id,
           threadId: i.threadId,
           from: who,
+          fromEmail: i.fromEmail,
+          subject: stripEmoji(i.subject),
           line: baseFiled.line,
           suggestion: baseFiled.suggestion,
           subUnit: baseFiled.subUnit,
@@ -1704,6 +1727,8 @@ export async function buildBrief(
           id: i.id,
           threadId: i.threadId,
           from: personName(i),
+          fromEmail: i.fromEmail,
+          subject: stripEmoji(i.subject),
           line: [
             sig.document,
             sig.counterparty ? `for ${sig.counterparty}` : "",
@@ -1742,6 +1767,9 @@ export async function buildBrief(
               return {
                 id,
                 threadId: item.threadId,
+                fromName: stripEmoji(item.fromName || item.fromEmail),
+                fromEmail: item.fromEmail,
+                subject: stripEmoji(item.subject),
                 line: stripEmoji(
                   u?.oneLine ||
                     item.guide?.task ||
@@ -1756,6 +1784,9 @@ export async function buildBrief(
               ): item is {
                 id: string;
                 threadId: string;
+                fromName: string;
+                fromEmail: string;
+                subject: string;
                 line: string;
                 at: string;
               } => Boolean(item),
@@ -1802,6 +1833,8 @@ export async function buildBrief(
           id: i.id,
           threadId: i.threadId,
           from: who,
+          fromEmail: i.fromEmail,
+          subject: stripEmoji(i.subject),
           line: u
             ? headline(who, stripEmoji(u.oneLine)).slice(0, 140)
             : lineFor(i),

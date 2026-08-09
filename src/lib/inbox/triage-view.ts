@@ -60,6 +60,8 @@ export function matterFromRead(input: {
     emailId: string;
     threadId: string;
     from: string;
+    fromEmail?: string;
+    subject?: string;
     line: string;
     suggestion?: string;
     subUnit?: string;
@@ -97,6 +99,8 @@ export function matterFromRead(input: {
         id: row.emailId,
         threadId: row.threadId,
         from: row.from,
+        ...(row.fromEmail ? { fromEmail: row.fromEmail } : {}),
+        ...(row.subject ? { subject: row.subject } : {}),
         line: row.line,
         suggestion: row.suggestion ?? "Your call",
         ...(row.at ? { at: row.at } : {}),
