@@ -3,6 +3,7 @@ import {
   digestThemeRows,
   matterCandidateFor,
 } from "../src/lib/inbox/triage-view.ts";
+import { restoreClosureMatter } from "../src/lib/store/closed-matters.ts";
 
 let failures = 0;
 function check(name: string, fn: () => void) {
@@ -84,6 +85,32 @@ check("records and FYIs never become promotion candidates", () => {
   );
 });
 
+check("a matter disposition still surfaces when the model omits its title", () => {
+  const candidate = matterCandidateFor(
+    {
+      emailId: "m2",
+      threadId: "t2",
+      orgUnit: "board",
+      line: "Sandy wants the revised board forecast",
+    },
+    {
+      id: "m2",
+      threadId: "t2",
+      version: 4,
+      readAt: "2026-08-09T00:00:00Z",
+      kind: "board request",
+      oneLine: "Sandy requested the revised board forecast",
+      ask: "Send Sandy the revised forecast",
+      owner: "you",
+      entities: ["Sandy"],
+      org: { unit: "board", confidence: 1 },
+      importance: 3,
+      disposition: "matter",
+    },
+  );
+  assert.equal(candidate?.title, "Sandy requested the revised board forecast");
+});
+
 check("a digest theme clears only its own conversations", () => {
   const rows = digestThemeRows(
     {
@@ -99,6 +126,54 @@ check("a digest theme clears only its own conversations", () => {
     { id: "a", threadId: "ta" },
     { id: "c", threadId: "tc" },
   ]);
+});
+
+check("reopening restores the settled snapshot to active matters once", () => {
+  const matter = {
+    id: "roche-pricing",
+    title: "Roche pricing",
+    category: "sales",
+    orgUnit: "sales — new requests",
+    people: [],
+    narrative: "Roche is waiting for pricing.",
+    nextAction: "Send pricing",
+    owner: "you",
+    urgency: 2,
+    emailIds: ["m1"],
+    threadIds: ["t1"],
+    updatedAt: "2026-08-09T00:00:00Z",
+  };
+  const brief = {
+    builtAt: "2026-08-09T00:00:00Z",
+    summary: "",
+    matters: [],
+    headlines: [],
+    headlineIds: [],
+    count: 0,
+  };
+  const restored = restoreClosureMatter(brief as never, {
+    matterId: matter.id,
+    titleTokens: ["roche", "pricing"],
+    threadIds: ["t1"],
+    closedAt: "2026-08-09T00:00:00Z",
+    reason: "done",
+    by: "user",
+    matter,
+  });
+  assert.equal(restored.matters.length, 1);
+  assert.equal(restored.matters[0].id, matter.id);
+  assert.equal(
+    restoreClosureMatter(restored, {
+      matterId: matter.id,
+      titleTokens: ["roche", "pricing"],
+      threadIds: ["t1"],
+      closedAt: "2026-08-09T00:00:00Z",
+      reason: "done",
+      by: "user",
+      matter,
+    }).matters.length,
+    1,
+  );
 });
 
 if (failures) {

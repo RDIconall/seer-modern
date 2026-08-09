@@ -1,5 +1,5 @@
 import { accountKey, kvGet, kvSet } from "@/lib/store/kv";
-import type { Matter } from "@/lib/inbox/matters";
+import type { Brief, Matter } from "@/lib/inbox/matters";
 
 /**
  * CLOSED MATTERS — durable closure records so a finished concern never
@@ -89,6 +89,16 @@ export async function reopenMatter(
     await saveClosedMatters(accountEmail, closed);
   }
   return closed;
+}
+
+/** Put a settled snapshot back into the active brief before deleting closure. */
+export function restoreClosureMatter(
+  brief: Brief,
+  closure: MatterClosure,
+): Brief {
+  const matter = closure.matter;
+  if (!matter || brief.matters.some((m) => m.id === matter.id)) return brief;
+  return { ...brief, matters: [matter, ...brief.matters] };
 }
 
 /**

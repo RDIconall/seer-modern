@@ -139,11 +139,21 @@ export function TriageDigest({
           </p>
         ) : (
           <ul className="divide-y divide-[var(--border)]">
-            {themes.map((theme) => {
+            {themes.map((theme, themeIndex) => {
               const rows = digestThemeRows(theme, brief.headlineIds);
               const open = openThemes.has(theme.theme);
+              const fallbackItems = theme.emailIds
+                .map((id) => brief.headlines.find((h) => h.id === id))
+                .filter(
+                  (
+                    item,
+                  ): item is { id: string; threadId: string; line: string } =>
+                    Boolean(item),
+                )
+                .map((item) => ({ ...item, at: "" }));
+              const items = theme.items?.length ? theme.items : fallbackItems;
               return (
-                <li key={theme.theme} className="py-2">
+                <li key={`${theme.theme}:${themeIndex}`} className="py-2">
                   <div className="flex items-start gap-3">
                     <button
                       type="button"
@@ -155,6 +165,7 @@ export function TriageDigest({
                           return next;
                         })
                       }
+                      aria-expanded={open}
                       className="min-w-0 flex-1 text-left"
                     >
                       <span className="text-[14px] font-bold text-[var(--fg-strong)]">
@@ -176,9 +187,9 @@ export function TriageDigest({
                       Clear
                     </button>
                   </div>
-                  {open && theme.items?.length ? (
+                  {open && items.length ? (
                     <ul className="mt-1 border-l border-[var(--border)] pl-3">
-                      {theme.items.map((item) => (
+                      {items.map((item) => (
                         <li key={item.id}>
                           <button
                             type="button"

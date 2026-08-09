@@ -6,6 +6,7 @@ import {
   closeMatter,
   loadClosedMatters,
   reopenMatter,
+  restoreClosureMatter,
   titleTokensOf,
 } from "@/lib/store/closed-matters";
 import { appendLedger } from "@/lib/store/triage-ledger";
@@ -249,6 +250,11 @@ export async function POST(req: Request) {
         ),
       );
     }
+    const restoredBrief =
+      brief && closure ? restoreClosureMatter(brief, closure) : brief;
+    if (restoredBrief && restoredBrief !== brief) {
+      await saveBrief(session.email, restoredBrief);
+    }
     const closed = await reopenMatter(session.email, body.matterId);
     const settled = Object.fromEntries(
       Object.entries(closed).map(([id, closure]) => [
@@ -256,7 +262,11 @@ export async function POST(req: Request) {
         { at: closure.closedAt, matter: closure.matter },
       ]),
     );
-    return NextResponse.json({ ok: true, settled });
+    return NextResponse.json({
+      ok: true,
+      settled,
+      brief: restoredBrief,
+    });
   }
 
   return NextResponse.json({ error: "Unknown action" }, { status: 400 });

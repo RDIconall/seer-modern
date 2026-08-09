@@ -626,6 +626,7 @@ export function DesktopMailApp() {
       >
         {!readerId && tab === "atlas" && openMatter ? (
           <MatterPanel
+            key={openMatter.id}
             m={openMatter}
             functions={brief?.functions ?? []}
             settled={Boolean(settledMatters[openMatter.id])}

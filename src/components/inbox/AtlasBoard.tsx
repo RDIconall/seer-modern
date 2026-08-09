@@ -125,7 +125,7 @@ function MatterRow({
         {...attributes}
         {...listeners}
         aria-label="Drag matter"
-        className="shrink-0 cursor-grab touch-none self-center text-[var(--nav-muted)] opacity-0 group-hover:opacity-100 active:cursor-grabbing"
+        className="shrink-0 cursor-grab touch-none self-center text-[var(--nav-muted)] opacity-40 hover:opacity-100 active:cursor-grabbing"
       >
         <GripVertical className="h-3.5 w-3.5" />
       </button>
@@ -186,7 +186,7 @@ function FiledRow({
         {...attributes}
         {...listeners}
         aria-label="Drag into a column"
-        className="shrink-0 cursor-grab touch-none self-center text-[var(--nav-muted)] opacity-0 group-hover:opacity-100 active:cursor-grabbing"
+        className="shrink-0 cursor-grab touch-none self-center text-[var(--nav-muted)] opacity-40 hover:opacity-100 active:cursor-grabbing"
       >
         <GripVertical className="h-3.5 w-3.5" />
       </button>
@@ -287,9 +287,9 @@ export function AtlasBoard({
   activeMatterId: string | null;
   onOpenMatter: (id: string) => void;
   onOpenEmail: (id: string) => void;
-  onMoveMatter: (matterId: string, orgUnit: string) => void;
+  onMoveMatter: (matterId: string, orgUnit: string) => Promise<void>;
   onReorder: (orgUnit: string, matterIds: string[]) => void;
-  onSettle: (matterId: string, settled: boolean) => void;
+  onSettle: (matterId: string, settled: boolean) => Promise<boolean>;
   onCreateMatter: (title: string, emailIds: string[], orgUnit?: string) => void;
   mobile?: boolean;
 }) {
@@ -298,12 +298,24 @@ export function AtlasBoard({
   // Mobile: long-press a matter to open a "move to" sheet (no dragging).
   const [moveFor, setMoveFor] = useState<string | null>(null);
   const pressTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const longPressFired = useRef(false);
   const startPress = (matterId: string) => {
-    pressTimer.current = setTimeout(() => setMoveFor(matterId), 450);
+    longPressFired.current = false;
+    pressTimer.current = setTimeout(() => {
+      longPressFired.current = true;
+      setMoveFor(matterId);
+    }, 450);
   };
   const cancelPress = () => {
     if (pressTimer.current) clearTimeout(pressTimer.current);
     pressTimer.current = null;
+  };
+  const openAfterPress = (matterId: string) => {
+    if (longPressFired.current) {
+      longPressFired.current = false;
+      return;
+    }
+    onOpenMatter(matterId);
   };
 
   const sensors = useSensors(
@@ -430,7 +442,7 @@ export function AtlasBoard({
     setActiveId(String(e.active.id));
   }
 
-  function handleDragEnd(e: DragEndEvent) {
+  async function handleDragEnd(e: DragEndEvent) {
     setActiveId(null);
     const { active, over } = e;
     if (!over) return;
@@ -457,15 +469,15 @@ export function AtlasBoard({
     const from = a.sectionKey as string;
 
     if (target === SETTLED) {
-      if (from !== SETTLED) onSettle(matterId, true);
+      if (from !== SETTLED) await onSettle(matterId, true);
       return;
     }
     if (target === TRIAGE) return; // a matter is not inbox noise
 
     // From Settled back to a function: reopen, then file it there.
     if (from === SETTLED) {
-      onSettle(matterId, false);
-      onMoveMatter(matterId, target);
+      const reopened = await onSettle(matterId, false);
+      if (reopened) await onMoveMatter(matterId, target);
       return;
     }
 
@@ -604,7 +616,7 @@ export function AtlasBoard({
                               </span>
                               <button
                                 type="button"
-                                onClick={() => onOpenMatter(r.id)}
+                                onClick={() => openAfterPress(r.id)}
                                 onTouchStart={() => startPress(r.id)}
                                 onTouchEnd={cancelPress}
                                 onTouchMove={cancelPress}
@@ -683,8 +695,8 @@ export function AtlasBoard({
             {settled[moveFor] ? (
               <button
                 type="button"
-                onClick={() => {
-                  onSettle(moveFor, false);
+                onClick={async () => {
+                  await onSettle(moveFor, false);
                   setMoveFor(null);
                 }}
                 className="block w-full px-4 py-3 text-left text-[17px] font-bold text-[var(--brand)]"
@@ -696,9 +708,12 @@ export function AtlasBoard({
               <button
                 key={f}
                 type="button"
-                onClick={() => {
-                  if (settled[moveFor]) onSettle(moveFor, false);
-                  onMoveMatter(moveFor, f);
+                onClick={async () => {
+                  if (settled[moveFor]) {
+                    const reopened = await onSettle(moveFor, false);
+                    if (!reopened) return;
+                  }
+                  await onMoveMatter(moveFor, f);
                   setMoveFor(null);
                 }}
                 className="block w-full px-4 py-3 text-left text-[17px] text-[var(--fg)]"
@@ -709,8 +724,8 @@ export function AtlasBoard({
             {!settled[moveFor] ? (
               <button
                 type="button"
-                onClick={() => {
-                  onSettle(moveFor, true);
+                onClick={async () => {
+                  await onSettle(moveFor, true);
                   setMoveFor(null);
                 }}
                 className="block w-full border-t border-[var(--border)] px-4 py-3 text-left text-[17px] text-[var(--muted)]"

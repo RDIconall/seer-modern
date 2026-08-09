@@ -26,13 +26,17 @@ export function matterCandidateFor(
 ): MatterCandidate | null {
   if (
     !understanding ||
-    understanding.disposition !== "matter" ||
-    !understanding.matterTitle?.trim()
+    understanding.disposition !== "matter"
   ) {
     return null;
   }
+  const title =
+    understanding.matterTitle?.trim() ||
+    understanding.oneLine?.trim() ||
+    row.line.trim();
+  if (!title) return null;
   return {
-    title: understanding.matterTitle.trim(),
+    title: title.slice(0, 100),
     why:
       understanding.matterWhy?.trim() ||
       understanding.oneLine ||

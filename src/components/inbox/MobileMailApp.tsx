@@ -421,6 +421,7 @@ export function MobileMailApp() {
     return (
       <div className="app-shell fixed inset-0 z-50 flex flex-col bg-[var(--bg)]">
         <MatterPanel
+          key={openMatter.id}
           m={openMatter}
           functions={brief?.functions ?? []}
           settled={Boolean(settledMatters[openMatter.id])}

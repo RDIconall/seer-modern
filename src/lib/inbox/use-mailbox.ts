@@ -482,7 +482,7 @@ export function useMailbox(initialTab: ViewTab = "inbox") {
           : prev,
       );
       try {
-        await fetch("/api/action/bulk", {
+        const res = await fetch("/api/action/bulk", {
           method: "POST",
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify({
@@ -494,6 +494,10 @@ export function useMailbox(initialTab: ViewTab = "inbox") {
             ...(reason ? { reason, source: "confirmed" } : {}),
           }),
         });
+        if (!res.ok) {
+          const json = await res.json().catch(() => ({}));
+          throw new Error(json.error ?? "Clear failed");
+        }
         setToast(`Glanced — ${ids.length} filed`);
       } catch {
         setToast("Clear failed — refreshing");
@@ -648,6 +652,7 @@ export function useMailbox(initialTab: ViewTab = "inbox") {
   /** Persist the user's own priority order for one whiteboard column. */
   const reorderMatters = useCallback(
     async (orgUnit: string, matterIds: string[]) => {
+      const before = matterOrder;
       setMatterOrder((prev) => ({ ...prev, [orgUnit]: matterIds }));
       try {
         await fetch("/api/matters", {
@@ -656,10 +661,11 @@ export function useMailbox(initialTab: ViewTab = "inbox") {
           body: JSON.stringify({ action: "order", orgUnit, matterIds }),
         });
       } catch {
+        setMatterOrder(before);
         setToast("Could not save order");
       }
     },
-    [],
+    [matterOrder],
   );
 
   /** Close a matter into Settled (or reopen it) — a client overlay by id. */
@@ -668,8 +674,17 @@ export function useMailbox(initialTab: ViewTab = "inbox") {
       const snapshot = brief
         ? [...(brief.pinned ?? []), ...brief.matters].find(
             (m) => m.id === matterId,
-          )
-        : undefined;
+          ) ?? settledMatters[matterId]?.matter
+        : settledMatters[matterId]?.matter;
+      const beforeSettled = settledMatters;
+      const beforeBrief = brief;
+      if (!settled && snapshot) {
+        setBrief((prev) =>
+          prev && !prev.matters.some((m) => m.id === snapshot.id)
+            ? { ...prev, matters: [snapshot, ...prev.matters] }
+            : prev,
+        );
+      }
       setSettledMatters((prev) => {
         const next = { ...prev };
         if (settled) {
@@ -695,11 +710,15 @@ export function useMailbox(initialTab: ViewTab = "inbox") {
         if (json.settled) setSettledMatters(json.settled);
         if (json.brief) setBrief(json.brief);
         setToast(settled ? "Settled" : "Reopened");
+        return true;
       } catch {
+        setSettledMatters(beforeSettled);
+        setBrief(beforeBrief);
         setToast(settled ? "Could not settle" : "Could not reopen");
+        return false;
       }
     },
-    [brief],
+    [brief, settledMatters],
   );
 
   useEffect(() => {
