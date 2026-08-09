@@ -144,7 +144,28 @@ inbox dashboard in both Atlas and Triage.
   its own Archive and Delete (optimistic, undoable). Finished matters sit above
   it as one-tap Close rows.
 
+## Export columns
+
+The inbox export (`/api/export/inbox`) carries the native provider fields on
+every row — matters, records, and the Triage delete list alike: **From name**,
+**From email**, and **Subject**, alongside Seer's own read (the one-line
+summary, the deep-read disposition, placement, function, message count). The
+brief now persists those native fields on filed rows, digest items, and matter
+conversations, so the export stays snapshot-based and never calls the provider.
+
+## Triage table (#16)
+
+Rows are grouped by category, each group has bulk **Archive all / Delete all**
+over the whole category, and every row keeps its own Archive and Delete. No
+grey text anywhere — every cell reads at foreground strength, which is what
+makes a table scannable. Columns: From, Subject, When, Actions.
+
 ## Changelog
+
+- 2026-08-09 — Export gains native From name / From email / Subject on every
+  row (the triage gap the CEO flagged); brief persists these fields. Triage
+  table grouped by category with bulk-by-category actions and all-black text
+  (#16).
 
 - 2026-08-09 — One row, one home: a conversation owned by a matter can no
   longer also appear in Triage. The digest is decided per message, so a thread
