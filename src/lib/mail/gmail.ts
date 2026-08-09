@@ -432,7 +432,7 @@ export async function sendGmailMessage(
 export async function gmailAction(
   accessToken: string,
   id: string,
-  action: "archive" | "trash" | "read",
+  action: "archive" | "trash" | "read" | "restore",
 ) {
   if (action === "trash") {
     await gmailFetch(accessToken, `/users/me/messages/${id}/trash`, {
@@ -443,6 +443,12 @@ export async function gmailAction(
   const body: { removeLabelIds?: string[]; addLabelIds?: string[] } = {};
   if (action === "archive") body.removeLabelIds = ["INBOX"];
   if (action === "read") body.removeLabelIds = ["UNREAD"];
+  // Undo: put it back in the inbox and out of the trash in one modify —
+  // covers both an archive and a trash without knowing which it was.
+  if (action === "restore") {
+    body.addLabelIds = ["INBOX"];
+    body.removeLabelIds = ["TRASH"];
+  }
   await gmailFetch(accessToken, `/users/me/messages/${id}/modify`, {
     method: "POST",
     body: JSON.stringify(body),
@@ -456,7 +462,7 @@ export async function gmailAction(
 export async function gmailThreadAction(
   accessToken: string,
   threadId: string,
-  action: "archive" | "trash" | "read",
+  action: "archive" | "trash" | "read" | "restore",
 ) {
   if (action === "trash") {
     await gmailFetch(accessToken, `/users/me/threads/${threadId}/trash`, {
@@ -464,9 +470,13 @@ export async function gmailThreadAction(
     });
     return;
   }
-  const body: { removeLabelIds?: string[] } = {};
+  const body: { removeLabelIds?: string[]; addLabelIds?: string[] } = {};
   if (action === "archive") body.removeLabelIds = ["INBOX"];
   if (action === "read") body.removeLabelIds = ["UNREAD"];
+  if (action === "restore") {
+    body.addLabelIds = ["INBOX"];
+    body.removeLabelIds = ["TRASH"];
+  }
   await gmailFetch(accessToken, `/users/me/threads/${threadId}/modify`, {
     method: "POST",
     body: JSON.stringify(body),

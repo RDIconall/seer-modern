@@ -1,5 +1,9 @@
 import { loadBrief, saveBrief, type Matter } from "@/lib/inbox/matters";
 import { requireMailSession } from "@/lib/mail/session";
+import { gmailThreadAction } from "@/lib/mail/gmail";
+import { graphThreadAction } from "@/lib/mail/graph";
+import { closeMatter, titleTokensOf } from "@/lib/store/closed-matters";
+import { appendLedger } from "@/lib/store/triage-ledger";
 import {
   addToMatter,
   createMatter,
@@ -28,15 +32,62 @@ export async function POST(req: Request) {
     return NextResponse.json({ error: "Not signed in" }, { status: 401 });
   }
   const body = (await req.json().catch(() => ({}))) as {
-    action?: "create" | "rename" | "add" | "delete";
+    action?: "create" | "rename" | "add" | "delete" | "close";
     matterId?: string;
     title?: string;
     orgUnit?: string;
     goal?: string;
     emailIds?: string[];
+    reason?: string;
+    handoff?: { provider: string; recordId?: string; url?: string };
   };
 
   const brief = await loadBrief(session.email);
+
+  // CLOSE — the loudest "this is done" signal. Archives the matter's
+  // whole conversations, writes a durable closure record so it never
+  // resurrects, and logs it to the Cleaned ledger so it can be undone.
+  if (body.action === "close") {
+    if (!body.matterId) {
+      return NextResponse.json({ error: "matterId required" }, { status: 400 });
+    }
+    const matter =
+      brief?.matters.find((m) => m.id === body.matterId) ??
+      brief?.pinned?.find((m) => m.id === body.matterId);
+    if (!matter) {
+      return NextResponse.json({ error: "Matter not found" }, { status: 404 });
+    }
+    const threadIds = matter.threadIds ?? [];
+    const runThread =
+      session.provider === "google" ? gmailThreadAction : graphThreadAction;
+    await Promise.allSettled(
+      threadIds.map((t) => runThread(session.accessToken, t, "archive")),
+    );
+    await closeMatter(session.email, {
+      matterId: matter.id,
+      titleTokens: titleTokensOf(matter.title),
+      threadIds,
+      reason: body.reason?.slice(0, 200) ?? matter.statusWhy ?? "You closed it",
+      by: "user",
+      ...(body.handoff ? { handoff: body.handoff } : {}),
+    });
+    const entry = await appendLedger(session.email, {
+      kind: body.handoff ? "matter-handoff" : "matter-closed",
+      summary: `Closed "${matter.title}"${body.handoff ? ` — handed to ${body.handoff.provider}` : ""}`,
+      source: "manual",
+      matterId: matter.id,
+      threadIds,
+      emailIds: matter.emailIds,
+    });
+    if (brief) {
+      brief.matters = brief.matters.filter((m) => m.id !== body.matterId);
+      if (brief.pinned) {
+        brief.pinned = brief.pinned.filter((m) => m.id !== body.matterId);
+      }
+      await saveBrief(session.email, brief);
+    }
+    return NextResponse.json({ ok: true, ledgerId: entry.id, brief });
+  }
 
   if (body.action === "rename") {
     if (!body.matterId || !body.title?.trim()) {
