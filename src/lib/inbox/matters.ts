@@ -10,6 +10,12 @@ import { loadFunctions } from "@/lib/store/functions";
 import { accountKey, kvGet, kvSet } from "@/lib/store/kv";
 import { loadMatterFixes, type MatterFixes } from "@/lib/store/matter-fixes";
 import { loadMatterEdits } from "@/lib/store/manual-matters";
+import {
+  loadClosedMatters,
+  matchesClosure,
+  saveClosedMatters,
+  type ClosedMatters,
+} from "@/lib/store/closed-matters";
 import { loadMerchants } from "@/lib/store/merchants";
 import {
   CODE_PATTERN,
@@ -101,6 +107,16 @@ export type Matter = {
   owner: string;
   /** 0-3, how loudly this should lead the brief */
   urgency: number;
+  /**
+   * Lifecycle, event-driven (never a timer): "active" (moving),
+   * "waiting" (ball elsewhere), "looks-closed" (superseding evidence or
+   * a closed CRM stage — a closure PROPOSAL, never auto-executed),
+   * "dormant" (quiet but alive — an open opportunity or recent work),
+   * "reopened" (new mail after it was closed).
+   */
+  status?: "active" | "waiting" | "looks-closed" | "dormant" | "reopened";
+  /** One line explaining the status ("executed SOW went back June 3") */
+  statusWhy?: string;
   emailIds: string[];
   threadIds: string[];
   updatedAt: string;
@@ -151,7 +167,21 @@ export type UnsureItem = {
  * treats any older brief as stale and rebuilds it, so a redesign never
  * leaves a stale Atlas on screen waiting for a manual refresh.
  */
-export const BRIEF_ENGINE = 9;
+export const BRIEF_ENGINE = 10;
+
+/**
+ * The forecast lens — "what matters WHEN". A temporal view over the same
+ * matters (by id), not a second tree: Now (act or it costs something),
+ * Next (coming up), Waiting (ball elsewhere), At risk (a closure proposal
+ * or a decision needed), Quiet but alive (dormant, still open).
+ */
+export type Forecast = {
+  now: string[];
+  next: string[];
+  waiting: string[];
+  atRisk: string[];
+  quiet: string[];
+};
 
 export type Brief = {
   builtAt: string;
@@ -181,6 +211,8 @@ export type Brief = {
   unsure?: UnsureItem[];
   /** Matters pinned above the org tree — the signature queue lives here */
   pinned?: Matter[];
+  /** "What matters when" — matter ids bucketed by the forecast lens */
+  forecast?: Forecast;
   /** Deep reads still outstanding — Atlas says so rather than pretending */
   unread?: number;
 };
@@ -228,6 +260,18 @@ const briefSchema = z.object({
       nextAction: z.string(),
       owner: z.enum(["you", "team", "them"]),
       urgency: z.number().min(0).max(3),
+      status: z
+        .enum(["active", "waiting", "looks-closed", "dormant"])
+        .optional()
+        .describe(
+          'lifecycle from the EVIDENCE, never a clock: "active" = moving, work is being done or owed; "waiting" = the ball is in the counterparty\'s court; "looks-closed" = later evidence says the goal is met or the deal ended (signed, paid, awarded, lost) — a PROPOSAL to archive, so cite it in statusWhy; "dormant" = no recent movement but not resolved (a long-tail deal). When unsure, "active".',
+        ),
+      statusWhy: z
+        .string()
+        .optional()
+        .describe(
+          'one line of evidence for the status, especially for looks-closed ("the executed SOW went back to Roche June 3; the goal is met")',
+        ),
       emailIds: z.array(z.string()),
     }),
   ),
@@ -876,6 +920,10 @@ export async function buildBrief(
     renames: {} as Record<string, { title: string; at: string }>,
     manual: [],
   }));
+  // Closure records — a finished concern must not resurrect on rebuild
+  const closed = await loadClosedMatters(accountEmail).catch(
+    (): ClosedMatters => ({}),
+  );
   // The user's own labeled history — few-shot retrieved per candidate
   const exemplars = await loadExemplars(accountEmail).catch(() => []);
   // Spend-side evidence: senders who bill the user (merchant graph)
@@ -1145,12 +1193,59 @@ export async function buildBrief(
         (b.crm?.amount ?? 0) - (a.crm?.amount ?? 0),
     );
 
+  // ---- LIFECYCLE (event-driven, never a timer) ----------------------
+  // A closed CRM stage PROPOSES closure (status only — never auto-acts).
+  // A durable closure record SUPPRESSES a resurrected matter, unless new
+  // mail arrived after it was closed — then it reopens explicitly.
+  const CLOSED_STAGE = /closed won|closed lost|\bwon\b|\blost\b/i;
+  const newestMailOf = (threadIds: string[]): string => {
+    let newest = "";
+    for (const t of threadIds)
+      for (const msg of threadMsgs.get(t) ?? []) {
+        if (msg.receivedAt > newest) newest = msg.receivedAt;
+      }
+    return newest;
+  };
+  let closedDirty = false;
+  const livingMatters: Matter[] = [];
+  for (const m of matters) {
+    let status = m.status;
+    let statusWhy = m.statusWhy;
+    if (m.crm?.stage && CLOSED_STAGE.test(m.crm.stage)) {
+      status = "looks-closed";
+      statusWhy = statusWhy ?? `CRM stage: ${m.crm.stage}`;
+    } else if (!status) {
+      status = m.owner === "them" ? "waiting" : "active";
+    }
+    const closure = Object.values(closed).find((c) =>
+      matchesClosure({ id: m.id, title: m.title, threadIds: m.threadIds }, c),
+    );
+    if (closure) {
+      const newest = newestMailOf(m.threadIds);
+      if (newest && newest > closure.closedAt) {
+        delete closed[closure.matterId];
+        closedDirty = true;
+        livingMatters.push({
+          ...m,
+          status: "reopened",
+          statusWhy: `New mail after you closed this (${closure.reason})`,
+        });
+      }
+      // else: closed and quiet — suppress; its threads fall through to filed
+      continue;
+    }
+    livingMatters.push({ ...m, status, statusWhy });
+  }
+  if (closedDirty) {
+    await saveClosedMatters(accountEmail, closed).catch(() => {});
+  }
+
   // TOTAL COVERAGE — the model returns only meaningful matters. Every
   // remaining graded email is filed into the org tree locally, avoiding
   // an enormous structured response that times out on large inboxes.
   // Filed rows are CONVERSATIONS. Filing message by message is what put
   // the same Abbott request on screen four times.
-  const inMatters = new Set(matters.flatMap((m) => m.threadIds));
+  const inMatters = new Set(livingMatters.flatMap((m) => m.threadIds));
   const filed: FiledEmail[] = [];
   for (const i of threadRows) {
     if (inMatters.has(i.threadId)) continue;
@@ -1304,7 +1399,7 @@ export async function buildBrief(
     signatureThreads.has(threadId) || manualThreads.has(threadId);
   const cleanedMatters = [
     ...manualMatters,
-    ...matters.map((m) => {
+    ...livingMatters.map((m) => {
       const threadIds = m.threadIds.filter((t) => !spokenFor(t));
       return {
         ...m,
@@ -1318,12 +1413,28 @@ export async function buildBrief(
   ].filter((m) => m.emailIds.length > 0 || m.category === "mine");
   const cleanedFiled = filed.filter((f) => !spokenFor(f.threadId));
 
+  // THE FORECAST: bucket every matter by "what matters when".
+  const forecast: Forecast = { now: [], next: [], waiting: [], atRisk: [], quiet: [] };
+  const bucketOf = (m: Matter): keyof Forecast => {
+    if (m.status === "looks-closed") return "atRisk";
+    if (m.status === "dormant") return "quiet";
+    if (m.owner === "them" || m.status === "waiting") return "waiting";
+    const hasNext = Boolean(m.nextAction && !/^none/i.test(m.nextAction));
+    if (m.owner === "you" && (m.urgency >= 3 || hasNext)) return "now";
+    return "next";
+  };
+  // Signature queue always leads "now"; then the rest of the matters.
+  for (const m of [...pinned, ...cleanedMatters]) {
+    forecast[bucketOf(m)].push(m.id);
+  }
+
   const brief: Brief = {
     builtAt: new Date().toISOString(),
     engine: BRIEF_ENGINE,
     summary: output.summary,
     matters: cleanedMatters,
     pinned,
+    forecast,
     headlines,
     // Clear-all now covers the whole digest (fyi + read-and-delete)
     headlineIds: digestItems.map((i) => ({
