@@ -41,7 +41,6 @@ import { UnsubAgentSheet } from "@/components/inbox/UnsubAgentSheet";
 import { VipSheet } from "@/components/inbox/VipSheet";
 import { AtlasBoard } from "@/components/inbox/AtlasBoard";
 import { MatterPanel } from "@/components/inbox/MatterPanel";
-import { CatchupCard } from "@/components/inbox/CatchupCard";
 import { TriageDigest } from "@/components/inbox/TriageDigest";
 import { ScheduleSheet } from "@/components/inbox/ScheduleSheet";
 import { AssistBar } from "@/components/inbox/AssistBar";
@@ -344,14 +343,22 @@ export function MobileMailApp() {
         </header>
 
         <div className="flex-1 overflow-auto">
-          {/* Who and when, on one line. */}
-          <div className="flex items-baseline gap-2 px-4 pb-1 pt-3">
-            <span className="min-w-0 shrink text-[14px] font-bold text-[var(--fg-strong)]">
-              {reader?.fromName ?? "…"}
-            </span>
-            <span className="min-w-0 flex-1 truncate text-[12px] text-[var(--muted)]">
-              {reader?.fromEmail}
-            </span>
+          {/* Outlook-style header: sender, then recipients. */}
+          <div className="px-4 pb-1 pt-3">
+            <div className="flex items-baseline gap-2">
+              <span className="min-w-0 shrink text-[14px] font-bold text-[var(--fg-strong)]">
+                {reader?.fromName ?? "…"}
+              </span>
+              <span className="min-w-0 flex-1 truncate text-[12px] text-[var(--muted)]">
+                {reader?.fromEmail}
+              </span>
+            </div>
+            {reader?.toEmail ? (
+              <p className="mt-0.5 truncate text-[12px] text-[var(--muted)]">
+                To: {reader.toEmail}
+                {reader.ccEmail ? ` · Cc: ${reader.ccEmail}` : ""}
+              </p>
+            ) : null}
           </div>
           {reader ? (
             <div className="px-4">
@@ -754,26 +761,19 @@ export function MobileMailApp() {
 
         {tab === "atlas" ? (
           <div className="flex flex-1 flex-col">
-            {catchup ? (
-              <CatchupCard
-                catchup={catchup}
-                onOpen={openReader}
-                onDismiss={dismissCatchup}
-              />
-            ) : null}
             <AtlasBoard
               mobile
               brief={brief}
               building={briefBuilding}
               matterOrder={matterOrder}
-              settled={settledMatters}
               activeMatterId={openMatterId}
+              catchup={catchup}
               onOpenMatter={setOpenMatterId}
               onOpenEmail={openReader}
               onMoveMatter={fixMatter}
               onReorder={reorderMatters}
-              onSettle={settleMatter}
               onCreateMatter={createMatter}
+              onDismissCatchup={dismissCatchup}
             />
           </div>
         ) : null}

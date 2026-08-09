@@ -31,7 +31,6 @@ import { UnsubAgentSheet } from "@/components/inbox/UnsubAgentSheet";
 import { VipSheet } from "@/components/inbox/VipSheet";
 import { AtlasBoard } from "@/components/inbox/AtlasBoard";
 import { MatterPanel } from "@/components/inbox/MatterPanel";
-import { CatchupCard } from "@/components/inbox/CatchupCard";
 import { TriageDigest } from "@/components/inbox/TriageDigest";
 import { AssistBar } from "@/components/inbox/AssistBar";
 import { ReaderMore } from "@/components/inbox/ReaderMore";
@@ -574,19 +573,12 @@ export function DesktopMailApp() {
 
           {tab === "atlas" ? (
             <div className="flex min-h-0 flex-1 flex-col overflow-y-auto">
-              {catchup ? (
-                <CatchupCard
-                  catchup={catchup}
-                  onOpen={openReader}
-                  onDismiss={dismissCatchup}
-                />
-              ) : null}
               <AtlasBoard
                 brief={brief}
                 building={briefBuilding}
                 matterOrder={matterOrder}
-                settled={settledMatters}
                 activeMatterId={openMatterId}
+                catchup={catchup}
                 onOpenMatter={(id) => {
                   closeReader();
                   setOpenMatterId(id);
@@ -594,8 +586,8 @@ export function DesktopMailApp() {
                 onOpenEmail={openReader}
                 onMoveMatter={fixMatter}
                 onReorder={reorderMatters}
-                onSettle={settleMatter}
                 onCreateMatter={createMatter}
+                onDismissCatchup={dismissCatchup}
               />
             </div>
           ) : null}
@@ -738,19 +730,27 @@ export function DesktopMailApp() {
                 <p className="px-6 py-8 text-[14px] text-[var(--muted)]">Loading…</p>
               ) : (
                 <>
-                  {/* One line for who and when. Name, address and time used
-                      to stack three deep above every message. */}
-                  <div className="flex items-baseline gap-2 px-6 pb-2 pt-3">
-                    <span className="shrink-0 text-[14px] font-bold text-[var(--fg-strong)]">
-                      {reader.fromName || reader.fromEmail}
-                    </span>
-                    <span className="min-w-0 flex-1 truncate text-[14px] text-[var(--muted)]">
-                      {reader.fromEmail}
-                    </span>
-                    {reader.receivedAt ? (
-                      <span className="shrink-0 text-[12px] text-[var(--muted)]">
-                        {formatMailTime(reader.receivedAt)}
+                  {/* Outlook-style header: sender + time on one line, then the
+                      recipients underneath. */}
+                  <div className="px-6 pb-2 pt-3">
+                    <div className="flex items-baseline gap-2">
+                      <span className="shrink-0 text-[14px] font-bold text-[var(--fg-strong)]">
+                        {reader.fromName || reader.fromEmail}
                       </span>
+                      <span className="min-w-0 flex-1 truncate text-[14px] text-[var(--muted)]">
+                        {reader.fromEmail}
+                      </span>
+                      {reader.receivedAt ? (
+                        <span className="shrink-0 text-[12px] text-[var(--muted)]">
+                          {formatMailTime(reader.receivedAt)}
+                        </span>
+                      ) : null}
+                    </div>
+                    {reader.toEmail ? (
+                      <p className="mt-0.5 truncate text-[12px] text-[var(--muted)]">
+                        To: {reader.toEmail}
+                        {reader.ccEmail ? ` · Cc: ${reader.ccEmail}` : ""}
+                      </p>
                     ) : null}
                   </div>
 

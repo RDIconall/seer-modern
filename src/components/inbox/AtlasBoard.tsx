@@ -21,22 +21,29 @@ import {
   verticalListSortingStrategy,
 } from "@dnd-kit/sortable";
 import { CSS } from "@dnd-kit/utilities";
-import { GripVertical } from "lucide-react";
+import { Download, GripVertical, Sunrise, X } from "lucide-react";
 import type { Brief, FiledEmail, Matter } from "@/lib/inbox/matters";
 import { formatAmount } from "@/lib/crm/registry";
-import { InboxDashboard } from "@/components/inbox/InboxDashboard";
 
 /**
  * ATLAS — the CEO whiteboard. Every matter is one bare name under its
  * function heading; everything about it lives in the panel that opens on
- * click. Two system columns close the board: Triage (inbox mail not yet a
- * matter) and Settled (closed matters, greyed). Drag a matter between
- * columns to re-file it, drag within a column to set your own order, and
- * drag a Triage row into a function column to make it a matter.
+ * click. One system column, Triage, holds inbox mail not yet a matter.
+ * Drag a matter between columns to re-file it, drag within a column to set
+ * your own order, and drag a Triage row into a function column to make it a
+ * matter. Settling a matter archives it — there is no separate parking lot.
  */
 
 const TRIAGE = "__triage__";
-const SETTLED = "__settled__";
+
+export type CatchupData = {
+  since: string;
+  newCount: number;
+  needsYou: number;
+  fyi: number;
+  cleared: number;
+  headlines: { id: string; who: string; line: string }[];
+};
 
 type BoardRow =
   | { kind: "matter"; id: string; matter: Matter }
@@ -45,9 +52,107 @@ type BoardRow =
 type BoardSection = {
   key: string;
   label: string;
-  kind: "function" | "triage" | "settled";
+  kind: "function" | "triage";
   rows: BoardRow[];
 };
+
+/**
+ * The Atlas top strip: what used to be a full stats tile is now a single
+ * quiet line. The catch-up "while you were away" summary collapses to one
+ * icon that opens on demand; the inbox export sits beside it. Neither steals
+ * a quarter of the whiteboard.
+ */
+function AtlasTopBar({
+  catchup,
+  onOpenEmail,
+  onDismissCatchup,
+}: {
+  catchup?: CatchupData | null;
+  onOpenEmail: (id: string) => void;
+  onDismissCatchup?: () => void;
+}) {
+  const [open, setOpen] = useState(false);
+  const hasCatchup = Boolean(catchup && catchup.newCount > 0);
+  const sinceLabel = catchup
+    ? new Date(catchup.since).toLocaleString([], {
+        weekday: "short",
+        hour: "numeric",
+        minute: "2-digit",
+      })
+    : "";
+  return (
+    <div className="relative flex items-center justify-end gap-1 px-4 py-2">
+      {hasCatchup ? (
+        <button
+          type="button"
+          onClick={() => setOpen((v) => !v)}
+          aria-label="While you were away"
+          aria-expanded={open}
+          className="flex items-center gap-1 rounded-full px-2 py-1 text-[12px] text-[var(--brand)] hover:bg-[var(--row-hover)]"
+        >
+          <Sunrise className="h-4 w-4" />
+          <span className="font-bold">{catchup!.needsYou}</span>
+        </button>
+      ) : null}
+      <a
+        href="/api/export/inbox"
+        className="flex items-center gap-1 rounded-full px-2 py-1 text-[12px] text-[var(--muted)] hover:bg-[var(--row-hover)] hover:text-[var(--fg)]"
+        aria-label="Export inbox as CSV"
+      >
+        <Download className="h-4 w-4" />
+        <span>Export</span>
+      </a>
+
+      {open && catchup ? (
+        <div className="absolute right-4 top-full z-40 mt-1 w-80 max-w-[90vw] overflow-hidden rounded-xl border border-[var(--border)] bg-[var(--bg)] p-3 shadow-lg">
+          <div className="flex items-start justify-between gap-2">
+            <p className="text-[14px] font-bold text-[var(--fg-strong)]">
+              While you were away{" "}
+              <span className="font-normal text-[var(--muted)]">
+                (since {sinceLabel})
+              </span>
+            </p>
+            <button
+              type="button"
+              onClick={() => {
+                setOpen(false);
+                onDismissCatchup?.();
+              }}
+              aria-label="Dismiss"
+              className="shrink-0 text-[var(--muted)] hover:text-[var(--fg)]"
+            >
+              <X className="h-4 w-4" />
+            </button>
+          </div>
+          <p className="mt-0.5 text-[14px] text-[var(--fg)]">
+            {catchup.newCount} new · {catchup.needsYou} need you
+            {catchup.fyi > 0 ? ` · ${catchup.fyi} FYI` : ""}
+            {catchup.cleared > 0 ? ` · ${catchup.cleared} ready to clear` : ""}
+          </p>
+          {catchup.headlines.length > 0 ? (
+            <ul className="mt-1.5 space-y-1">
+              {catchup.headlines.map((h) => (
+                <li key={h.id}>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setOpen(false);
+                      onOpenEmail(h.id);
+                    }}
+                    className="w-full truncate text-left text-[14px]"
+                  >
+                    <span className="text-[var(--fg-strong)]">{h.who}</span>{" "}
+                    <span className="text-[var(--fg)]">— {h.line}</span>
+                  </button>
+                </li>
+              ))}
+            </ul>
+          ) : null}
+        </div>
+      ) : null}
+    </div>
+  );
+}
 
 /** Root function for an orgUnit like "operations — studies — RCD_2818" */
 function orgRoot(orgUnit: string, functions: string[]): string {
@@ -92,13 +197,11 @@ function MatterRow({
   m,
   sectionKey,
   active,
-  greyed,
   onOpen,
 }: {
   m: Matter;
   sectionKey: string;
   active: boolean;
-  greyed: boolean;
   onOpen: () => void;
 }) {
   const {
@@ -130,29 +233,18 @@ function MatterRow({
       >
         <GripVertical className="h-3.5 w-3.5" />
       </button>
-      {greyed ? (
-        <span className="shrink-0 text-[12px] text-[var(--nav-muted)]">·</span>
-      ) : (
-        <span className={`shrink-0 text-[12px] ${g.cls}`} title={m.owner}>
-          {g.glyph}
-        </span>
-      )}
+      <span className={`shrink-0 text-[12px] ${g.cls}`} title={m.owner}>
+        {g.glyph}
+      </span>
       <button
         type="button"
         onClick={onOpen}
         className="min-w-0 flex-1 py-1 text-left text-[14px] leading-5"
       >
-        <span
-          className={
-            greyed
-              ? "line-clamp-2 text-[var(--muted)]"
-              : "line-clamp-2 font-bold text-[var(--fg-strong)]"
-          }
-        >
-          {m.title}
-        </span>
-        {!greyed && m.crm?.amount ? (
-          <span className="font-bold text-[var(--brand)]">
+        {/* A matter name is content, not a heading — Regular 400. */}
+        <span className="line-clamp-2 text-[var(--fg-strong)]">{m.title}</span>
+        {m.crm?.amount ? (
+          <span className="text-[var(--brand)]">
             {" "}
             {formatAmount(m.crm.amount)}
           </span>
@@ -240,9 +332,7 @@ function Column({
         >
           {section.rows.length === 0 ? (
             <li className="px-1 py-1 text-[12px] italic text-[var(--nav-muted)]">
-              {section.kind === "settled"
-                ? "Drag a finished matter here"
-                : "Drop a matter here"}
+              Drop a matter here
             </li>
           ) : null}
           {section.rows.map((r) =>
@@ -252,7 +342,6 @@ function Column({
                 m={r.matter}
                 sectionKey={section.key}
                 active={activeMatterId === r.id}
-                greyed={section.kind === "settled"}
                 onOpen={() => onOpenMatter(r.id)}
               />
             ) : (
@@ -273,27 +362,27 @@ export function AtlasBoard({
   brief,
   building,
   matterOrder,
-  settled,
   activeMatterId,
+  catchup,
   onOpenMatter,
   onOpenEmail,
   onMoveMatter,
   onReorder,
-  onSettle,
   onCreateMatter,
+  onDismissCatchup,
   mobile,
 }: {
   brief: Brief | null;
   building: boolean;
   matterOrder: Record<string, string[]>;
-  settled: Record<string, { at: string; matter?: Matter }>;
   activeMatterId: string | null;
+  catchup?: CatchupData | null;
   onOpenMatter: (id: string) => void;
   onOpenEmail: (id: string) => void;
   onMoveMatter: (matterId: string, orgUnit: string) => Promise<void>;
   onReorder: (orgUnit: string, matterIds: string[]) => void;
-  onSettle: (matterId: string, settled: boolean) => Promise<boolean>;
   onCreateMatter: (title: string, emailIds: string[], orgUnit?: string) => void;
+  onDismissCatchup?: () => void;
   mobile?: boolean;
 }) {
   const [activeId, setActiveId] = useState<string | null>(null);
@@ -330,29 +419,12 @@ export function AtlasBoard({
 
   const functions = useMemo(() => brief?.functions ?? [], [brief]);
 
-  // Build the ordered sections: function columns, then Triage and Settled.
+  // Build the ordered sections: function columns, then Triage.
   const sections = useMemo<BoardSection[]>(() => {
     if (!brief) return [];
     const allMatters = [...(brief.pinned ?? []), ...brief.matters];
-    const seenMatterIds = new Set(allMatters.map((m) => m.id));
-    for (const value of Object.values(settled)) {
-      if (value.matter && !seenMatterIds.has(value.matter.id)) {
-        allMatters.push(value.matter);
-        seenMatterIds.add(value.matter.id);
-      }
-    }
-    const settledSection: BoardSection = {
-      key: SETTLED,
-      label: "Settled",
-      kind: "settled",
-      rows: [],
-    };
     const byFn = new Map<string, Matter[]>();
     for (const m of allMatters) {
-      if (settled[m.id]) {
-        settledSection.rows.push({ kind: "matter", id: m.id, matter: m });
-        continue;
-      }
       const root = orgRoot(m.orgUnit, functions);
       const list = byFn.get(root) ?? [];
       list.push(m);
@@ -389,9 +461,8 @@ export function AtlasBoard({
 
     const result = [...fnSections];
     if (triageSection.rows.length > 0) result.push(triageSection);
-    result.push(settledSection);
     return result;
-  }, [brief, functions, matterOrder, settled]);
+  }, [brief, functions, matterOrder]);
 
   // Ordered matter ids per column — the basis for reorder/move math.
   const orderedIdsByKey = useMemo(() => {
@@ -457,7 +528,7 @@ export function AtlasBoard({
 
     // A Triage row dragged into a function column becomes a matter.
     if (a?.type === "filed" && a.filed) {
-      if (target === TRIAGE || target === SETTLED) return;
+      if (target === TRIAGE) return;
       const candidate = a.filed.matterCandidate;
       onCreateMatter(
         candidate?.title ?? titleFromLine(a.filed.line),
@@ -471,18 +542,7 @@ export function AtlasBoard({
     const matterId = String(active.id).slice("matter:".length);
     const from = a.sectionKey as string;
 
-    if (target === SETTLED) {
-      if (from !== SETTLED) await onSettle(matterId, true);
-      return;
-    }
     if (target === TRIAGE) return; // a matter is not inbox noise
-
-    // From Settled back to a function: reopen, then file it there.
-    if (from === SETTLED) {
-      const reopened = await onSettle(matterId, false);
-      if (reopened) await onMoveMatter(matterId, target);
-      return;
-    }
 
     const overIsMatter =
       (over.data.current as { type?: string } | undefined)?.type === "matter";
@@ -525,9 +585,9 @@ export function AtlasBoard({
 
   const activeMatter =
     activeId?.startsWith("matter:")
-      ? [...(brief.pinned ?? []), ...brief.matters]
-          .find((m) => m.id === activeId.slice("matter:".length)) ??
-        settled[activeId.slice("matter:".length)]?.matter
+      ? [...(brief.pinned ?? []), ...brief.matters].find(
+          (m) => m.id === activeId.slice("matter:".length),
+        )
       : null;
   const activeFiled =
     activeId?.startsWith("filed:")
@@ -536,7 +596,11 @@ export function AtlasBoard({
 
   return (
     <div className="min-h-0 flex-1 overflow-y-auto">
-      <InboxDashboard brief={brief} />
+      <AtlasTopBar
+        catchup={catchup}
+        onOpenEmail={onOpenEmail}
+        onDismissCatchup={onDismissCatchup}
+      />
       {building ? (
         <p className="px-4 pt-2 text-[12px] text-[var(--nav-muted)]">
           Reading…
@@ -585,15 +649,9 @@ export function AtlasBoard({
                               className="flex items-baseline gap-1.5"
                             >
                               <span
-                                className={`shrink-0 text-[12px] ${
-                                  section.kind === "settled"
-                                    ? "text-[var(--nav-muted)]"
-                                    : ownerGlyph(r.matter.owner).cls
-                                }`}
+                                className={`shrink-0 text-[12px] ${ownerGlyph(r.matter.owner).cls}`}
                               >
-                                {section.kind === "settled"
-                                  ? "·"
-                                  : ownerGlyph(r.matter.owner).glyph}
+                                {ownerGlyph(r.matter.owner).glyph}
                               </span>
                               <button
                                 type="button"
@@ -607,13 +665,8 @@ export function AtlasBoard({
                                 }}
                                 className="min-w-0 flex-1 py-2 text-left text-[17px] leading-6"
                               >
-                                <span
-                                  className={
-                                    section.kind === "settled"
-                                      ? "line-clamp-2 text-[var(--muted)]"
-                                      : "line-clamp-2 font-bold text-[var(--fg-strong)]"
-                                  }
-                                >
+                                {/* Content weight, not heading weight. */}
+                                <span className="line-clamp-2 text-[var(--fg-strong)]">
                                   {r.matter.title}
                                 </span>
                               </button>
@@ -652,7 +705,7 @@ export function AtlasBoard({
 
         <DragOverlay>
           {activeMatter ? (
-            <span className="rounded bg-[var(--card)] px-2 py-1 text-[14px] font-bold text-[var(--fg-strong)] shadow-lg ring-1 ring-[var(--border)]">
+            <span className="rounded bg-[var(--card)] px-2 py-1 text-[14px] text-[var(--fg-strong)] shadow-lg ring-1 ring-[var(--border)]">
               {activeMatter.title}
             </span>
           ) : activeFiled ? (
@@ -676,27 +729,11 @@ export function AtlasBoard({
             <p className="px-4 py-2 text-[12px] font-bold text-[var(--nav-muted)]">
               Move to
             </p>
-            {settled[moveFor] ? (
-              <button
-                type="button"
-                onClick={async () => {
-                  await onSettle(moveFor, false);
-                  setMoveFor(null);
-                }}
-                className="block w-full px-4 py-3 text-left text-[17px] font-bold text-[var(--brand)]"
-              >
-                Reopen
-              </button>
-            ) : null}
             {functions.map((f) => (
               <button
                 key={f}
                 type="button"
                 onClick={async () => {
-                  if (settled[moveFor]) {
-                    const reopened = await onSettle(moveFor, false);
-                    if (!reopened) return;
-                  }
                   await onMoveMatter(moveFor, f);
                   setMoveFor(null);
                 }}
@@ -705,18 +742,6 @@ export function AtlasBoard({
                 {f}
               </button>
             ))}
-            {!settled[moveFor] ? (
-              <button
-                type="button"
-                onClick={async () => {
-                  await onSettle(moveFor, true);
-                  setMoveFor(null);
-                }}
-                className="block w-full border-t border-[var(--border)] px-4 py-3 text-left text-[17px] text-[var(--muted)]"
-              >
-                Settled
-              </button>
-            ) : null}
           </div>
         </div>
       ) : null}
