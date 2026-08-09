@@ -1,6 +1,12 @@
 "use client";
 
-import { useCallback, useMemo, useRef, useState } from "react";
+import {
+  useCallback,
+  useLayoutEffect,
+  useMemo,
+  useRef,
+  useState,
+} from "react";
 import { Archive, Download, Trash2 } from "lucide-react";
 import type { Brief, Matter } from "@/lib/inbox/matters";
 
@@ -30,6 +36,21 @@ function shortTime(iso?: string): string {
 }
 
 const DELETE_DISPOSITIONS = new Set(["disposable", "fyi"]);
+
+/**
+ * The element that actually scrolls this list — the table's own container on
+ * desktop, an ancestor on mobile. Adjusting the wrong one is a silent no-op.
+ */
+function scrollParent(node: HTMLElement | null): HTMLElement | null {
+  for (let el = node; el; el = el.parentElement) {
+    const style = getComputedStyle(el);
+    const scrollable = /(auto|scroll|overlay)/.test(
+      style.overflowY + style.overflow,
+    );
+    if (scrollable && el.scrollHeight > el.clientHeight) return el;
+  }
+  return (document.scrollingElement as HTMLElement | null) ?? null;
+}
 
 type Bucket = "review" | "delete";
 
@@ -110,6 +131,10 @@ export function TriageDigest({
 }) {
   const functions = useMemo(() => brief?.functions ?? [], [brief]);
   const { widths, start } = useColumnWidths([200, 320, 320, 64]);
+  const scrollRef = useRef<HTMLDivElement>(null);
+  const anchorRef = useRef<{ id: string; top: number } | null>(null);
+  /** Category → its fixed slot on screen, so sections never swap places. */
+  const orderRef = useRef<Map<string, number>>(new Map());
 
   const closing = useMemo<Matter[]>(
     () =>
@@ -172,9 +197,20 @@ export function TriageDigest({
       }
     }
 
-    return [...map.values()].sort(
+    // STABLE ORDER. Sorting by size on every render meant deleting one row
+    // could make a category smaller than its neighbour and swap two whole
+    // sections under the user's cursor. A category takes its slot the first
+    // time it appears — biggest first — and keeps it while the tab is open.
+    const order = orderRef.current;
+    const unseen = [...map.values()].filter((g) => !order.has(g.category));
+    unseen.sort(
       (a, b) =>
         b.review.length + b.delete.length - (a.review.length + a.delete.length),
+    );
+    for (const g of unseen) order.set(g.category, order.size);
+    return [...map.values()].sort(
+      (a, b) =>
+        (order.get(a.category) ?? 0) - (order.get(b.category) ?? 0),
     );
   }, [brief, functions]);
 
@@ -182,6 +218,28 @@ export function TriageDigest({
     (n, g) => n + g.review.length + g.delete.length,
     0,
   );
+
+  // KEEP YOUR PLACE. Clearing rows shortens the list above the viewport, which
+  // slides everything under the cursor upward. Before acting we record where a
+  // surviving row sits on screen; after the re-render we put it back on that
+  // exact pixel, so the table never moves and you can keep working downward.
+  useLayoutEffect(() => {
+    const box = scrollRef.current;
+    const anchor = anchorRef.current;
+    anchorRef.current = null;
+    if (!box || !anchor) return;
+    for (const el of Array.from(
+      box.querySelectorAll<HTMLElement>("[data-row-id]"),
+    )) {
+      if (el.dataset.rowId !== anchor.id) continue;
+      const moved = el.getBoundingClientRect().top - anchor.top;
+      if (moved !== 0) {
+        const scroller = scrollParent(box);
+        if (scroller) scroller.scrollTop += moved;
+      }
+      return;
+    }
+  }, [totalRows]);
 
   if (!brief) {
     return (
@@ -191,16 +249,40 @@ export function TriageDigest({
     );
   }
 
+  /**
+   * The topmost row still on screen that this action will NOT remove. Its
+   * on-screen position is what we hold still across the update.
+   */
+  const rememberPlace = (removing: Set<string>) => {
+    const box = scrollRef.current;
+    anchorRef.current = null;
+    if (!box) return;
+    const listTop = box.getBoundingClientRect().top;
+    for (const el of Array.from(
+      box.querySelectorAll<HTMLElement>("[data-row-id]"),
+    )) {
+      const id = el.dataset.rowId;
+      if (!id || removing.has(id)) continue;
+      const top = el.getBoundingClientRect().top;
+      if (top >= listTop) {
+        anchorRef.current = { id, top };
+        return;
+      }
+    }
+  };
+
   const clearRows = (
     rows: TriageRow[],
     mode: "archive" | "trash",
     reason: string,
-  ) =>
+  ) => {
+    rememberPlace(new Set(rows.map((r) => r.id)));
     onClear(
       rows.map((r) => ({ id: r.id, threadId: r.threadId, count: r.count })),
       reason,
       mode,
     );
+  };
 
   const Resizer = ({ index }: { index: number }) => (
     <span
@@ -240,6 +322,7 @@ export function TriageDigest({
         {rows.map((row) => (
           <tr
             key={row.id}
+            data-row-id={row.id}
             className="border-b border-[var(--border)] align-top hover:bg-[var(--row-hover)]"
           >
             <td className="px-4 py-2 text-[14px] text-[var(--fg-strong)]">
@@ -293,7 +376,10 @@ export function TriageDigest({
     );
 
   return (
-    <div className="min-h-0 flex-1 overflow-auto text-[var(--fg)]">
+    <div
+      ref={scrollRef}
+      className="min-h-0 flex-1 overflow-auto text-[var(--fg)]"
+    >
       <header className="flex items-baseline justify-between gap-3 border-b border-[var(--border)] px-4 py-3">
         <div>
           <h1 className="text-[17px] font-bold text-[var(--fg-strong)]">
