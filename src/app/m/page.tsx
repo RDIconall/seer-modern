@@ -20,7 +20,7 @@ export default async function MobileHome() {
   return (
     <Suspense
       fallback={
-        <p className="p-8 text-center text-sm text-[var(--muted)]">Loading…</p>
+        <p className="p-8 text-center text-[14px] text-[var(--muted)]">Loading…</p>
       }
     >
       <MobileMailApp />

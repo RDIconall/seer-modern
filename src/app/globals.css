@@ -3,7 +3,7 @@
 /*
  * Seer studio tokens — Fewer decisions. / Seeing what matters.
  * Ink · Paper · Field · Brand · Signal · Action · Mute
- * Dual eye mark. Klim National 2 + Tiempos Headline + Söhne Mono.
+ * Dual eye mark. Klim National 2 — one typeface, 400 and 700 only.
  */
 :root {
   --bg: #ffffff;
@@ -103,7 +103,7 @@ body {
 }
 
 .mail-row.unread .mail-subject {
-  font-weight: 600;
+  font-weight: 700;
   color: var(--fg-strong);
 }
 
@@ -220,17 +220,15 @@ body {
   }
 }
 
-/* Wordmark — Tiempos Headline */
+/* Wordmark — National 2 Bold, same face as the product */
 .seer-brand {
-  font-family: var(--font-seer-display), "Tiempos Headline", Georgia, serif;
-  font-weight: 500;
-  letter-spacing: -0.02em;
+  font-family: var(--font-seer), "National 2", sans-serif;
+  font-weight: 700;
   text-transform: none;
   color: var(--fg-strong);
 }
 
 .seer-tagline {
-  font-weight: 500;
-  letter-spacing: -0.02em;
+  font-weight: 400;
   color: var(--fg-strong);
 }

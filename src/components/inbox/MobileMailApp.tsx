@@ -285,7 +285,7 @@ export function MobileMailApp() {
             <ChevronLeft className="h-6 w-6" />
           </IconBtn>
           <div className="min-w-0 flex-1 px-1">
-            <div className="truncate text-[15px] font-semibold text-white">
+            <div className="truncate text-[17px] font-bold text-white">
               {reader?.subject ?? "…"}
             </div>
           </div>
@@ -315,14 +315,14 @@ export function MobileMailApp() {
           <div className="border-b border-[var(--border)] px-4 py-3">
             <div className="flex items-start gap-3">
               <span
-                className={`mail-unread-dot mt-2 ${reader ? "" : "empty"}`}
+                className={`mail-unread-dot mt-2 ${reader ?"" : "empty"}`}
                 aria-hidden
               />
               <div className="min-w-0 flex-1">
-                <div className="truncate text-[15px] font-semibold text-[var(--fg-strong)]">
+                <div className="truncate text-[17px] font-bold text-[var(--fg-strong)]">
                   {reader?.fromName ?? "…"}
                 </div>
-                <div className="truncate text-xs text-[var(--muted)]">
+                <div className="truncate text-[12px] text-[var(--muted)]">
                   {reader?.fromEmail}
                 </div>
               </div>
@@ -378,14 +378,14 @@ export function MobileMailApp() {
           </div>
           <div className="px-4 py-4">
             {!reader ? (
-              <p className="text-sm text-[var(--muted)]">Loading…</p>
+              <p className="text-[14px] text-[var(--muted)]">Loading…</p>
             ) : safeHtml ? (
               <div
                 className="prose prose-sm max-w-none text-[var(--fg)] dark:prose-invert"
                 dangerouslySetInnerHTML={{ __html: safeHtml }}
               />
             ) : (
-              <pre className="whitespace-pre-wrap text-sm leading-relaxed">
+              <pre className="whitespace-pre-wrap text-[14px] leading-relaxed">
                 {reader.textBody || reader.subject}
               </pre>
             )}
@@ -470,18 +470,18 @@ export function MobileMailApp() {
               <div className="flex items-center gap-2.5">
                 {/* eslint-disable-next-line @next/next/no-img-element */}
                 <img src="/seer-eye.png" alt="" width={30} height={30} />
-                <span className="seer-brand text-xl">Seer</span>
+                <span className="seer-brand text-[17px]">Seer</span>
               </div>
-              <div className="seer-tagline mt-0.5 text-[11px]">Fewer decisions.</div>
-              <div className="mt-0.5 truncate text-xs text-[var(--muted)]">
+              <div className="seer-tagline mt-0.5 text-[12px]">Fewer decisions.</div>
+              <div className="mt-0.5 truncate text-[12px] text-[var(--muted)]">
                 {accountEmail}
               </div>
               {accountLabel ? (
-                <div className="mt-0.5 text-[11px] text-[var(--primary)]">
+                <div className="mt-0.5 text-[12px] text-[var(--primary)]">
                   {accountLabel} · Tap for settings
                 </div>
               ) : (
-                <div className="mt-0.5 text-[11px] text-[var(--primary)]">
+                <div className="mt-0.5 text-[12px] text-[var(--primary)]">
                   Tap for settings & accounts
                 </div>
               )}
@@ -533,7 +533,7 @@ export function MobileMailApp() {
             >
               <button
                 type="submit"
-                className="flex w-full items-center gap-4 rounded-r-full px-4 py-3 text-sm text-[var(--muted)]"
+                className="flex w-full items-center gap-4 rounded-r-full px-4 py-3 text-[14px] text-[var(--muted)]"
               >
                 <LogOut className="h-5 w-5" />
                 Sign out
@@ -560,7 +560,7 @@ export function MobileMailApp() {
               value={search}
               onChange={(e) => setSearch(e.target.value)}
               placeholder="Search"
-              className="min-w-0 flex-1 rounded bg-white/15 px-3 py-2 text-[15px] text-white outline-none placeholder:text-white/70"
+              className="min-w-0 flex-1 rounded bg-white/15 px-3 py-2 text-[17px] text-white outline-none placeholder:text-white/70"
             />
             {search ? (
               <IconBtn
@@ -580,7 +580,7 @@ export function MobileMailApp() {
             <IconBtn onClick={() => setDrawer(true)} label="Menu" light>
               <Menu className="h-5 w-5" />
             </IconBtn>
-            <h1 className="min-w-0 flex-1 truncate px-1 text-[20px] font-semibold tracking-tight text-white">
+            <h1 className="min-w-0 flex-1 truncate px-1 text-[17px] font-bold text-white">
               {query
                 ? "Search results"
                 : tab === "cards"
@@ -591,7 +591,7 @@ export function MobileMailApp() {
             </h1>
             <IconBtn onClick={load} disabled={loading} label="Refresh" light>
               <RefreshCw
-                className={`h-5 w-5 ${loading ? "animate-spin" : ""}`}
+                className={`h-5 w-5 ${loading ?"animate-spin" : ""}`}
               />
             </IconBtn>
             <IconBtn
@@ -614,12 +614,11 @@ export function MobileMailApp() {
 
       <PullToRefresh
         onRefresh={load}
-        className={`flex flex-1 flex-col overflow-auto pb-24 ${
-          tab === "cards" ? "seer-deck-bg" : ""
+        className={`flex flex-1 flex-col overflow-auto pb-24 ${ tab ==="cards" ? "seer-deck-bg" : ""
         }`}
       >
         {error ? (
-          <p className="mx-4 my-3 rounded-lg bg-[#d63b2f]/10 px-3 py-2 text-sm text-[#d63b2f]">
+          <p className="mx-4 my-3 rounded-lg bg-[#d63b2f]/10 px-3 py-2 text-[14px] text-[#d63b2f]">
             {error}
           </p>
         ) : null}
@@ -627,7 +626,7 @@ export function MobileMailApp() {
         {loading &&
         (((tab === "triage" || tab === "cards" || tab === "atlas") && !triage) ||
           (tab !== "triage" && tab !== "cards" && tab !== "atlas" && !mailbox)) ? (
-          <p className="py-16 text-center text-sm text-[var(--muted)]">
+          <p className="py-16 text-center text-[14px] text-[var(--muted)]">
             Loading…
           </p>
         ) : null}
@@ -661,7 +660,7 @@ export function MobileMailApp() {
           ) : (
             <>
               <div className="flex items-center justify-between border-b border-[var(--border)] bg-[var(--card)] px-4 py-1.5">
-                <span className="text-[12px] text-[var(--muted)]">
+                <span className="text-[14px] text-[var(--muted)]">
                   {selectMode
                     ? `${picked.size} selected`
                     : `${listItems.length} messages`}
@@ -669,7 +668,7 @@ export function MobileMailApp() {
                 <button
                   type="button"
                   onClick={() => (selectMode ? exitSelect() : setSelectMode(true))}
-                  className="text-[12px] font-semibold text-[var(--primary)]"
+                  className="text-[14px] text-[var(--primary)]"
                 >
                   {selectMode ? "Cancel" : "Select"}
                 </button>
@@ -710,7 +709,7 @@ export function MobileMailApp() {
                       runBulk(pickedItems, "archive");
                       exitSelect();
                     }}
-                    className="flex flex-col items-center gap-0.5 px-3 text-[11px] font-medium text-[#76ab19]"
+                    className="flex flex-col items-center gap-0.5 px-3 text-[12px] text-[#76ab19]"
                   >
                     <Archive className="h-5 w-5" />
                     Archive
@@ -721,7 +720,7 @@ export function MobileMailApp() {
                       runBulk(pickedItems, "trash");
                       exitSelect();
                     }}
-                    className="flex flex-col items-center gap-0.5 px-3 text-[11px] font-medium text-[#d63b2f]"
+                    className="flex flex-col items-center gap-0.5 px-3 text-[12px] text-[#d63b2f]"
                   >
                     <Trash2 className="h-5 w-5" />
                     Delete
@@ -732,7 +731,7 @@ export function MobileMailApp() {
                       runBulk(pickedItems, "read");
                       exitSelect();
                     }}
-                    className="flex flex-col items-center gap-0.5 px-3 text-[11px] font-medium text-[var(--primary)]"
+                    className="flex flex-col items-center gap-0.5 px-3 text-[12px] text-[var(--primary)]"
                   >
                     <MailOpen className="h-5 w-5" />
                     Mark read
@@ -746,35 +745,35 @@ export function MobileMailApp() {
         {tab === "triage" && triage ? (
           <div className="border-b border-[var(--border)] bg-[var(--card)] px-4 py-2">
             <div className="flex items-start justify-between gap-2">
-              <p className="min-w-0 text-[12px] text-[var(--muted)]">
+              <p className="min-w-0 text-[14px] text-[var(--muted)]">
                 {`${triage.count} triaged · ${triage.assistant?.needsReview ?? triage.needsReview.length} need you`}
               </p>
               <span className="flex shrink-0 gap-1.5">
                 <button
                   type="button"
                   onClick={() => setVipsOpen(true)}
-                  className="rounded-full border border-[#eab308] px-2.5 py-1 text-[11px] font-semibold text-[#b45309]"
+                  className="rounded-full border border-[#eab308] px-2.5 py-1 text-[12px] text-[#b45309]"
                 >
                   VIPs
                 </button>
                 <button
                   type="button"
                   onClick={() => setUnsubAgentOpen(true)}
-                  className="rounded-full border border-[#a855f7] px-2.5 py-1 text-[11px] font-semibold text-[#a855f7]"
+                  className="rounded-full border border-[#a855f7] px-2.5 py-1 text-[12px] text-[#a855f7]"
                 >
                   Unsub agent
                 </button>
                 <button
                   type="button"
                   onClick={toggleDense}
-                  className="rounded-full border border-[var(--border)] px-2.5 py-1 text-[11px] font-semibold text-[var(--primary)]"
+                  className="rounded-full border border-[var(--border)] px-2.5 py-1 text-[12px] text-[var(--primary)]"
                 >
                   {dense ? "Cozy" : "Compact"}
                 </button>
               </span>
             </div>
             {triage.assistant?.error ? (
-              <p className="mt-0.5 text-[11px] font-medium text-[#b45309]">
+              <p className="mt-0.5 text-[12px] text-[#b45309]">
                 {(triage.assistant.gemini ?? 0) + (triage.assistant.cached ?? 0) > 0
                   ? "Some new mail used rules this load — "
                   : "Gemini offline — rules only: "}
@@ -905,9 +904,7 @@ function IconBtn({
       aria-label={label}
       disabled={disabled}
       onClick={onClick}
-      className={`flex h-10 w-10 items-center justify-center rounded-full disabled:opacity-40 ${
-        light
-          ? "text-white active:bg-white/15"
+      className={`flex h-10 w-10 items-center justify-center rounded-full disabled:opacity-40 ${ light ?"text-white active:bg-white/15"
           : "text-[var(--fg)] active:bg-black/5 dark:active:bg-white/10"
       }`}
     >
@@ -931,9 +928,7 @@ function DrawerItem({
     <button
       type="button"
       onClick={onClick}
-      className={`flex w-full items-center gap-4 px-5 py-3.5 text-sm ${
-        active
-          ? "border-l-4 border-[var(--brand)] bg-[var(--brand-soft)] font-semibold text-[var(--fg-strong)]"
+      className={`flex w-full items-center gap-4 px-5 py-3.5 text-[14px] ${ active ? "border-l-4 border-[var(--brand)] bg-[var(--brand-soft)] font-bold text-[var(--fg-strong)]"
           : "border-l-4 border-transparent text-[var(--fg)]"
       }`}
     >
@@ -958,9 +953,7 @@ function BottomNavItem({
     <button
       type="button"
       onClick={onClick}
-      className={`flex flex-col items-center gap-0.5 py-2.5 text-[11px] ${
-        active
-          ? "font-semibold text-[var(--brand)]"
+      className={`flex flex-col items-center gap-0.5 py-2.5 text-[12px] ${ active ? "font-bold text-[var(--brand)]"
           : "text-[var(--muted)]"
       }`}
     >
@@ -983,7 +976,7 @@ function FooterAction({
     <button
       type="button"
       onClick={onClick}
-      className="flex flex-1 flex-col items-center gap-0.5 py-1 text-[11px] text-[var(--fg)]"
+      className="flex flex-1 flex-col items-center gap-0.5 py-1 text-[12px] text-[var(--fg)]"
     >
       {icon}
       {label}
@@ -993,13 +986,13 @@ function FooterAction({
 
 function EmptyState({ text }: { text: string }) {
   return (
-    <p className="py-20 text-center text-sm text-[var(--muted)]">{text}</p>
+    <p className="py-20 text-center text-[14px] text-[var(--muted)]">{text}</p>
   );
 }
 
 function Toast({ message }: { message: string }) {
   return (
-    <div className="fixed bottom-[calc(5.5rem+var(--safe-bottom))] left-1/2 z-50 max-w-[90%] -translate-x-1/2 rounded bg-[#1e242b] px-4 py-2.5 text-xs text-white shadow-lg">
+    <div className="fixed bottom-[calc(5.5rem+var(--safe-bottom))] left-1/2 z-50 max-w-[90%] -translate-x-1/2 rounded bg-[#1e242b] px-4 py-2.5 text-[12px] text-white shadow-lg">
       {message}
     </div>
   );
@@ -1094,7 +1087,7 @@ function SwipeMailRow({
         onTouchStart={onTouchStart}
         onTouchMove={onTouchMove}
         onTouchEnd={onTouchEnd}
-        className={`mail-row ${item.isUnread ? "unread" : ""} ${
+        className={`mail-row ${item.isUnread ?"unread" : ""} ${
           busy ? "opacity-50" : ""
         } ${checked ? "bg-[var(--primary-soft,rgba(52,152,217,0.1))]" : ""} ${
           dense ? "!py-1.5" : ""
@@ -1104,9 +1097,7 @@ function SwipeMailRow({
         {selectMode ? (
           <span
             aria-hidden
-            className={`mr-2 flex h-5 w-5 shrink-0 items-center justify-center self-center rounded-full border-2 ${
-              checked
-                ? "border-[var(--primary)] bg-[var(--primary)] text-white"
+            className={`mr-2 flex h-5 w-5 shrink-0 items-center justify-center self-center rounded-full border-2 ${ checked ?"border-[var(--primary)] bg-[var(--primary)] text-white"
                 : "border-[var(--border)]"
             }`}
           >
@@ -1114,14 +1105,14 @@ function SwipeMailRow({
           </span>
         ) : (
           <span
-            className={`mail-unread-dot ${item.isUnread ? "" : "empty"}`}
+            className={`mail-unread-dot ${item.isUnread ?"" : "empty"}`}
             aria-hidden
           />
         )}
         <div className="min-w-0 flex-1">
           <div className="flex items-baseline justify-between gap-2">
             <span
-              className={`mail-from truncate text-[var(--fg-strong)] ${dense ? "text-[15px]" : "text-[15px]"}`}
+              className={`mail-from truncate text-[var(--fg-strong)] ${dense ?"text-[17px]" : "text-[17px]"}`}
             >
               {item.threadSenders?.length
                 ? item.threadSenders.join(", ")
@@ -1132,21 +1123,21 @@ function SwipeMailRow({
                 </span>
               ) : null}
             </span>
-            <span className="shrink-0 text-[12px] text-[var(--muted)]">
+            <span className="shrink-0 text-[14px] text-[var(--muted)]">
               {formatMailTime(item.receivedAt)}
             </span>
           </div>
           {dense ? (
             // Compact: one line — category, the implied action, subject
-            <div className="flex items-baseline gap-1.5 truncate text-[12px] leading-snug">
+            <div className="flex items-baseline gap-1.5 truncate text-[14px] leading-snug">
               {g?.category ? (
-                <span className="shrink-0 rounded bg-[var(--card)] px-1 text-[11px] font-semibold text-[var(--muted)]">
+                <span className="shrink-0 rounded bg-[var(--card)] px-1 text-[12px] text-[var(--muted)]">
                   {g.category}
                 </span>
               ) : null}
               {g?.task ? (
                 <span
-                  className="shrink-0 font-semibold"
+                  className="shrink-0"
                   style={{ color: g.color }}
                 >
                   {g.task}
@@ -1158,10 +1149,10 @@ function SwipeMailRow({
             </div>
           ) : (
             <>
-              <div className="mail-subject truncate text-[15px] leading-snug text-[var(--fg)]">
+              <div className="mail-subject truncate text-[17px] leading-snug text-[var(--fg)]">
                 {item.subject}
               </div>
-              <div className="truncate text-[12px] leading-snug text-[var(--muted)]">
+              <div className="truncate text-[14px] leading-snug text-[var(--muted)]">
                 {item.snippet}
               </div>
             </>

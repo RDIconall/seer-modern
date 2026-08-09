@@ -116,9 +116,7 @@ export function UnsubAgentSheet({
       >
         <span
           aria-hidden
-          className={`mt-0.5 flex h-5 w-5 shrink-0 items-center justify-center rounded-full border-2 ${
-            picked.has(s.fromEmail)
-              ? "border-[#a855f7] bg-[#a855f7] text-white"
+          className={`mt-0.5 flex h-5 w-5 shrink-0 items-center justify-center rounded-full border-2 ${ picked.has(s.fromEmail) ?"border-[#a855f7] bg-[#a855f7] text-white"
               : "border-[var(--border)]"
           }`}
         >
@@ -126,14 +124,14 @@ export function UnsubAgentSheet({
         </span>
         <span className="min-w-0 flex-1">
           <span className="flex items-baseline gap-1.5">
-            <span className="truncate text-[15px] font-semibold">
+            <span className="truncate text-[17px] font-bold">
               {s.fromName || s.fromEmail}
             </span>
-            <span className="shrink-0 text-[11px] text-[var(--muted)]">
+            <span className="shrink-0 text-[12px] text-[var(--muted)]">
               · {s.count} in inbox
             </span>
           </span>
-          <span className="block text-[12px] leading-snug text-[var(--muted)]">
+          <span className="block text-[14px] leading-snug text-[var(--muted)]">
             {s.reason}
           </span>
         </span>
@@ -154,7 +152,7 @@ export function UnsubAgentSheet({
       />
       <div className="relative flex max-h-[85dvh] w-full max-w-md flex-col rounded-t-2xl bg-[var(--bg)] shadow-2xl sm:rounded-2xl">
         <div className="flex items-center justify-between px-5 pb-1 pt-4">
-          <h2 className="flex items-center gap-2 text-[15px] font-semibold">
+          <h2 className="flex items-center gap-2 text-[17px] font-bold">
             <BellOff className="h-4 w-4 text-[#a855f7]" />
             Unsubscribe agent
           </h2>
@@ -169,7 +167,7 @@ export function UnsubAgentSheet({
         </div>
 
         {loading ? (
-          <div className="flex flex-col items-center gap-2 px-5 py-12 text-sm text-[var(--muted)]">
+          <div className="flex flex-col items-center gap-2 px-5 py-12 text-[14px] text-[var(--muted)]">
             <Loader2 className="h-5 w-5 animate-spin text-[#a855f7]" />
             <span className="flex items-center gap-1">
               <Sparkles className="h-3.5 w-3.5" />
@@ -177,23 +175,23 @@ export function UnsubAgentSheet({
             </span>
           </div>
         ) : error ? (
-          <p className="mx-5 my-6 rounded-lg bg-red-500/10 px-3 py-2 text-sm text-red-600">
+          <p className="mx-5 my-6 rounded-lg bg-red-500/10 px-3 py-2 text-[14px] text-red-600">
             {error}
           </p>
         ) : suggestions.length === 0 ? (
-          <p className="px-5 py-10 text-center text-sm text-[var(--muted)]">
+          <p className="px-5 py-10 text-center text-[14px] text-[var(--muted)]">
             Nothing to cut — your {scanned} senders all look load-bearing.
           </p>
         ) : (
           <>
-            <p className="px-5 pb-2 text-[12px] text-[var(--muted)]">
+            <p className="px-5 pb-2 text-[14px] text-[var(--muted)]">
               {scanned} senders scanned · {suggestions.length} worth cutting.
               Uncheck any you want to keep.
             </p>
             <div className="min-h-0 flex-1 overflow-y-auto">
               {phoneDups.length > 0 ? (
                 <>
-                  <p className="flex items-center gap-1.5 bg-[var(--card)] px-4 py-1.5 text-[11px] font-bold uppercase tracking-wide text-[var(--muted)]">
+                  <p className="flex items-center gap-1.5 bg-[var(--card)] px-4 py-1.5 text-[12px] uppercase tracking-wide text-[var(--muted)]">
                     <Smartphone className="h-3.5 w-3.5" />
                     Your phone already tells you · {phoneDups.length}
                   </p>
@@ -202,7 +200,7 @@ export function UnsubAgentSheet({
               ) : null}
               {rest.length > 0 ? (
                 <>
-                  <p className="bg-[var(--card)] px-4 py-1.5 text-[11px] font-bold uppercase tracking-wide text-[var(--muted)]">
+                  <p className="bg-[var(--card)] px-4 py-1.5 text-[12px] uppercase tracking-wide text-[var(--muted)]">
                     Lists you never read · {rest.length}
                   </p>
                   <ul>{rest.map(row)}</ul>
@@ -214,7 +212,7 @@ export function UnsubAgentSheet({
                 type="button"
                 disabled={picked.size === 0 || running}
                 onClick={execute}
-                className="flex w-full items-center justify-center gap-2 rounded-xl bg-[#a855f7] py-3 text-[15px] font-semibold text-white disabled:opacity-50"
+                className="flex w-full items-center justify-center gap-2 rounded-xl bg-[#a855f7] py-3 text-[17px] font-bold text-white disabled:opacity-50"
               >
                 {running ? (
                   <Loader2 className="h-4 w-4 animate-spin" />
@@ -225,7 +223,7 @@ export function UnsubAgentSheet({
                   ? "Cutting them loose…"
                   : `Unsubscribe from ${picked.size} senders`}
               </button>
-              <p className="mt-2 text-center text-[11px] text-[var(--muted)]">
+              <p className="mt-2 text-center text-[12px] text-[var(--muted)]">
                 Real unsubscribes where the list supports it — every sender
                 muted (future mail auto-deletes) either way.
               </p>

@@ -78,7 +78,7 @@ function RowActions({
           onAction(rows, "archive");
         }}
         title="Archive the whole thread"
-        className="text-[11px] text-[var(--nav-muted)] hover:text-[var(--fg)]"
+        className="text-[12px] text-[var(--nav-muted)] hover:text-[var(--fg)]"
       >
         archive
       </button>
@@ -89,7 +89,7 @@ function RowActions({
           onAction(rows, "trash");
         }}
         title="Delete the whole thread"
-        className="text-[11px] text-[var(--nav-muted)] hover:text-[#d63b2f]"
+        className="text-[12px] text-[var(--nav-muted)] hover:text-[#d63b2f]"
       >
         delete
       </button>
@@ -141,10 +141,10 @@ function MatterCard({
                 setRenaming(false);
               }
             }}
-            className="min-w-0 flex-1 rounded border border-[var(--border)] bg-[var(--bg)] px-2 py-0.5 text-[15px] font-bold"
+            className="min-w-0 flex-1 rounded border border-[var(--border)] bg-[var(--bg)] px-2 py-0.5 text-[17px] font-bold"
           />
         ) : (
-          <h3 className="min-w-0 flex-1 text-[15px] font-bold leading-5 text-[var(--fg-strong)]">
+          <h3 className="min-w-0 flex-1 text-[17px] font-bold leading-5 text-[var(--fg-strong)]">
             {m.title}
           </h3>
         )}
@@ -155,7 +155,7 @@ function MatterCard({
               setDraft(m.title);
               setRenaming(true);
             }}
-            className="shrink-0 text-[11px] text-[var(--nav-muted)] hover:text-[var(--fg)]"
+            className="shrink-0 text-[12px] text-[var(--nav-muted)] hover:text-[var(--fg)]"
           >
             rename
           </button>
@@ -164,7 +164,7 @@ function MatterCard({
           <button
             type="button"
             onClick={() => onAction(allRows, "archive")}
-            className="shrink-0 text-[11px] text-[var(--nav-muted)] hover:text-[var(--fg)]"
+            className="shrink-0 text-[12px] text-[var(--nav-muted)] hover:text-[var(--fg)]"
           >
             archive all
           </button>
@@ -172,21 +172,21 @@ function MatterCard({
         <button
           type="button"
           onClick={onClose}
-          className="shrink-0 text-[11px] text-[var(--nav-muted)] hover:text-[var(--fg)]"
+          className="shrink-0 text-[12px] text-[var(--nav-muted)] hover:text-[var(--fg)]"
         >
           close
         </button>
       </div>
 
-      <p className="text-[12px] leading-5 text-[var(--muted)]">
+      <p className="text-[14px] leading-5 text-[var(--muted)]">
         {m.narrative}
       </p>
       {m.goal && m.goal !== m.narrative ? (
-        <p className="text-[12px] leading-5 text-[var(--muted)]">
+        <p className="text-[14px] leading-5 text-[var(--muted)]">
           Done when: {m.goal}
         </p>
       ) : null}
-      <p className="text-[12px] font-semibold leading-5 text-[var(--fg-strong)]">
+      <p className="text-[14px] leading-5 text-[var(--fg-strong)]">
         {m.nextAction && !/^none/i.test(m.nextAction)
           ? m.nextAction
           : "Waiting on someone else"}
@@ -195,7 +195,7 @@ function MatterCard({
         </span>
       </p>
       {m.crm ? (
-        <p className="text-[12px] leading-5 text-[var(--fg)]">
+        <p className="text-[14px] leading-5 text-[var(--fg)]">
           {[
             m.crm.code,
             m.crm.account,
@@ -214,7 +214,7 @@ function MatterCard({
           ) : null}
         </p>
       ) : null}
-      <p className="text-[12px] leading-5 text-[var(--muted)]">
+      <p className="text-[14px] leading-5 text-[var(--muted)]">
         {fixing && onFix ? (
           <select
             autoFocus
@@ -224,7 +224,7 @@ function MatterCard({
               onFix(m.id, e.target.value);
               setFixing(false);
             }}
-            className="rounded border border-[var(--border)] bg-[var(--bg)] px-1 text-[12px]"
+            className="rounded border border-[var(--border)] bg-[var(--bg)] px-1 text-[14px]"
           >
             {functions.map((f) => (
               <option key={f} value={f}>
@@ -261,7 +261,7 @@ function MatterCard({
         {(m.emails ?? []).map((e) => (
           <li
             key={e.id}
-            className="group flex items-baseline gap-2 text-[12px] leading-5"
+            className="group flex items-baseline gap-2 text-[14px] leading-5"
           >
             <button
               type="button"
@@ -317,11 +317,11 @@ function MatterRow({
           onClick={onOpenCard}
           className="flex w-full items-start gap-2 py-2 text-left"
         >
-          <span className={`mt-[3px] shrink-0 text-[11px] ${g.cls}`}>
+          <span className={`mt-[3px] shrink-0 text-[12px] ${g.cls}`}>
             {g.glyph}
           </span>
           <span className="min-w-0 flex-1">
-            <span className="block text-[15px] font-semibold leading-5 text-[var(--fg-strong)]">
+            <span className="block text-[17px] font-bold leading-5 text-[var(--fg-strong)]">
               {prefix ? (
                 <span className="text-[var(--nav-muted)]">{prefix} </span>
               ) : null}
@@ -333,7 +333,7 @@ function MatterRow({
                 </span>
               ) : null}
             </span>
-            <span className="mt-0.5 line-clamp-2 block text-[12px] leading-5 text-[var(--muted)]">
+            <span className="mt-0.5 line-clamp-2 block text-[14px] leading-5 text-[var(--muted)]">
               {m.narrative}
             </span>
           </span>
@@ -344,20 +344,20 @@ function MatterRow({
 
   return (
     <li className="group flex items-baseline gap-1.5">
-      <span className={`shrink-0 text-[11px] ${g.cls}`} title={m.owner}>
+      <span className={`shrink-0 text-[12px] ${g.cls}`} title={m.owner}>
         {g.glyph}
       </span>
       <button
         type="button"
         onClick={onOpenCard}
-        className="min-w-0 flex-1 truncate text-left text-[15px] leading-6"
+        className="min-w-0 flex-1 truncate text-left text-[17px] leading-6"
       >
         {prefix ? (
           <span className="text-[var(--nav-muted)]">{prefix} </span>
         ) : null}
-        <span className="font-semibold text-[var(--fg-strong)]">{m.title}</span>
+        <span className="text-[var(--fg-strong)]">{m.title}</span>
         {m.crm?.amount ? (
-          <span className="font-semibold text-[var(--brand)]">
+          <span className="text-[var(--brand)]">
             {" "}
             {formatAmount(m.crm.amount)}
           </span>
@@ -410,29 +410,27 @@ function FiledRow({
         >
           {selecting ? (
             <span
-              className={`mt-[3px] h-3.5 w-3.5 shrink-0 rounded-sm border ${
-                picked
-                  ? "border-[var(--brand)] bg-[var(--brand)]"
+              className={`mt-[3px] h-3.5 w-3.5 shrink-0 rounded-sm border ${ picked ?"border-[var(--brand)] bg-[var(--brand)]"
                   : "border-[var(--border)]"
               }`}
               aria-hidden
             />
           ) : null}
           <span className="min-w-0 flex-1">
-            <span className="line-clamp-2 block text-[12px] leading-5 text-[var(--fg)]">
+            <span className="line-clamp-2 block text-[14px] leading-5 text-[var(--fg)]">
               {prefix ? (
                 <span className="text-[var(--nav-muted)]">{prefix} </span>
               ) : null}
               {f.line}
             </span>
             {f.count && f.count > 1 ? (
-              <span className="text-[11px] text-[var(--nav-muted)]">
+              <span className="text-[12px] text-[var(--nav-muted)]">
                 {f.count} messages
               </span>
             ) : null}
           </span>
           {when ? (
-            <span className="mt-[2px] shrink-0 text-[11px] text-[var(--nav-muted)]">
+            <span className="mt-[2px] shrink-0 text-[12px] text-[var(--nav-muted)]">
               {when}
             </span>
           ) : null}
@@ -453,7 +451,7 @@ function FiledRow({
       <button
         type="button"
         onClick={() => onOpen(f.emailId)}
-        className="min-w-0 flex-1 truncate text-left text-[12px] leading-6 text-[var(--muted)] hover:text-[var(--fg)]"
+        className="min-w-0 flex-1 truncate text-left text-[14px] leading-6 text-[var(--muted)] hover:text-[var(--fg)]"
       >
         {prefix ? <span className="text-[var(--nav-muted)]">{prefix} </span> : null}
         {f.line}
@@ -463,7 +461,7 @@ function FiledRow({
         ) : null}
       </button>
       {when ? (
-        <span className="shrink-0 text-[11px] text-[var(--nav-muted)]">
+        <span className="shrink-0 text-[12px] text-[var(--nav-muted)]">
           {when}
         </span>
       ) : null}
@@ -582,7 +580,6 @@ export function BriefPanel({
     : 0;
   // Rows are conversations; coverage is counted in MESSAGES so it still
   // reconciles against the provider's own inbox total.
-  const filedRows = brief?.filed?.length ?? 0;
   const filedMessages =
     brief?.filed?.reduce((n, f) => n + (f.count ?? 1), 0) ?? 0;
   const accounted = inMatters + filedMessages + digestCount;
@@ -647,46 +644,48 @@ export function BriefPanel({
             // Phone: lead with the answer, not the database. One line that
             // says what needs you; the accounting lives underneath, small.
             <>
-              <p className="text-[15px] font-semibold leading-5 text-[var(--fg-strong)]">
+              <p className="text-[17px] font-bold leading-5 text-[var(--fg-strong)]">
                 {needsYou > 0
                   ? `${needsYou} need${needsYou === 1 ? "s" : ""} you`
                   : brief.matters.length > 0
                     ? "Nothing needs you"
                     : "Nothing open"}
               </p>
-              <p className="text-[11px] leading-5 text-[var(--nav-muted)]">
-                {brief.matters.length} matters · {filedRows} filed ·{" "}
-                {digestCount} to clear
-                {brief.unread ? ` · ${brief.unread} being read` : ""}
+              {/* One line that answers "is this my whole inbox?" — the
+                  internal bucket counts (matters/filed/to-clear/being-read)
+                  are Seer's own bookkeeping, not something to read. */}
+              <p className="text-[12px] leading-5 text-[var(--nav-muted)]">
+                {short === 0
+                  ? `All ${providerCount ?? total} messages placed`
+                  : `${short} of ${providerCount ?? total} not read yet`}
                 {building ? " · reading…" : ""}
               </p>
               {brief.clusterError ? (
-                <p className="text-[11px] font-semibold leading-5 text-[#b45309]">
+                <p className="text-[12px] leading-5 text-[#b45309]">
                   {brief.clusterError}
                 </p>
               ) : null}
             </>
           ) : (
             <div className="flex flex-wrap items-baseline gap-x-2">
-              <span className="text-[12px] font-semibold text-[var(--fg-strong)]">
+              <span className="text-[14px] text-[var(--fg-strong)]">
                 {accounted} of {providerCount ?? total} in the inbox
                 {brief.totalThreads ? ` · ${brief.totalThreads} threads` : ""}
               </span>
               <span
-                className={`text-[12px] ${short === 0 ? "text-[var(--muted)]" : "font-semibold text-[#b45309]"}`}
+                className={`text-[14px] ${short === 0 ? "text-[var(--muted)]" : "text-[#b45309]"}`}
               >
                 {short === 0
                   ? "· every message placed"
                   : `· ${short} not read yet`}
               </span>
-              <span className="text-[11px] text-[var(--nav-muted)]">
-                · {brief.matters.length} matters · {filedRows} filed ·{" "}
-                {digestCount} to clear
-                {brief.unread ? ` · ${brief.unread} still being read` : ""}
-                {building ? " · reading…" : ""}
-              </span>
+              {building ? (
+                <span className="text-[12px] text-[var(--nav-muted)]">
+                  · reading…
+                </span>
+              ) : null}
               {brief.clusterError ? (
-                <span className="text-[11px] font-semibold text-[#b45309]">
+                <span className="text-[12px] text-[#b45309]">
                   · {brief.clusterError}
                 </span>
               ) : null}
@@ -733,7 +732,7 @@ export function BriefPanel({
             const isOpen = expanded.has(s.fn);
             return (
               <section key={s.fn} className="mt-2">
-                <h2 className="text-[11px] font-semibold text-[var(--fg-strong)]">
+                <h2 className="text-[12px] text-[var(--fg-strong)]">
                   {s.fn}{" "}
                   <span className="font-normal text-[var(--nav-muted)]">
                     {s.count}
@@ -759,7 +758,7 @@ export function BriefPanel({
                           onClick={() =>
                             setExpanded((prev) => new Set(prev).add(s.fn))
                           }
-                          className="py-2 text-[12px] text-[var(--muted)] underline decoration-[var(--border)] underline-offset-2"
+                          className="py-2 text-[14px] text-[var(--muted)] underline decoration-[var(--border)] underline-offset-2"
                         >
                           {filedRowsHere.length} filed
                         </button>
@@ -774,7 +773,7 @@ export function BriefPanel({
                     return (
                       <div key={sub.label || "_"}>
                         {!fold && s.subs.length > 1 ? (
-                          <h3 className="mt-1 text-[11px] font-semibold text-[var(--nav-muted)]">
+                          <h3 className="mt-1 text-[12px] text-[var(--nav-muted)]">
                             {sub.label}{" "}
                             <span className="font-normal">
                               {sub.rows.length}
@@ -794,7 +793,7 @@ export function BriefPanel({
           {digestCount > 0 ? (
             <section className="mt-3 border-t border-[var(--border)] pt-1.5">
               <div className="flex items-baseline gap-2">
-                <h2 className="text-[11px] font-semibold text-[var(--fg-strong)]">
+                <h2 className="text-[12px] text-[var(--fg-strong)]">
                   The rest{" "}
                   <span className="text-[var(--nav-muted)]">
                     · {digestCount}
@@ -804,15 +803,15 @@ export function BriefPanel({
                 <button
                   type="button"
                   onClick={() => onClearHeadlines(brief.headlineIds)}
-                  className="text-[11px] text-[var(--nav-muted)] underline decoration-[var(--border)] underline-offset-2 hover:text-[var(--fg)]"
+                  className="text-[12px] text-[var(--nav-muted)] underline decoration-[var(--border)] underline-offset-2 hover:text-[var(--fg)]"
                 >
                   clear all {brief.headlineIds.length}
                 </button>
               </div>
               <ul className="mt-0.5">
                 {(brief.digest?.themes ?? []).map((t) => (
-                  <li key={t.theme} className="text-[12px] leading-6">
-                    <span className="font-semibold text-[var(--fg-strong)]">
+                  <li key={t.theme} className="text-[14px] leading-6">
+                    <span className="text-[var(--fg-strong)]">
                       {t.theme}
                     </span>
                     <span className="text-[var(--nav-muted)]">
@@ -827,7 +826,7 @@ export function BriefPanel({
           ) : null}
         </div>
       ) : (
-        <p className="px-4 pb-2 pt-0.5 text-[12px] text-[var(--muted)]">
+        <p className="px-4 pb-2 pt-0.5 text-[14px] text-[var(--muted)]">
           {building
             ? "Reading the inbox…"
             : "Nothing yet."}
@@ -837,7 +836,7 @@ export function BriefPanel({
       {/* Selection bar: act on threads, or make the selection a matter */}
       {picked.size > 0 ? (
         <div className="sticky bottom-0 z-10 flex flex-wrap items-center gap-2 border-t border-[var(--border)] bg-[var(--card)] px-4 py-2">
-          <span className="text-[12px] font-semibold">
+          <span className="text-[14px]">
             {picked.size} selected
           </span>
           {naming ? (
@@ -855,7 +854,7 @@ export function BriefPanel({
                 if (e.key === "Escape") setNaming(false);
               }}
               placeholder="Name the matter, then Enter"
-              className="min-w-[220px] flex-1 rounded border border-[var(--border)] bg-[var(--bg)] px-2 py-1 text-[12px]"
+              className="min-w-[220px] flex-1 rounded border border-[var(--border)] bg-[var(--bg)] px-2 py-1 text-[14px]"
             />
           ) : (
             <>
@@ -863,7 +862,7 @@ export function BriefPanel({
                 <button
                   type="button"
                   onClick={() => setNaming(true)}
-                  className="rounded-full bg-[var(--primary)] px-3 py-1 text-[12px] font-semibold text-white"
+                  className="rounded-full bg-[var(--primary)] px-3 py-1 text-[14px] text-white"
                 >
                   New matter
                 </button>
@@ -879,7 +878,7 @@ export function BriefPanel({
                       onAtlasAction(rows, "archive");
                       setPicked(new Set());
                     }}
-                    className="rounded-full border border-[var(--border)] px-3 py-1 text-[12px] font-semibold"
+                    className="rounded-full border border-[var(--border)] px-3 py-1 text-[14px]"
                   >
                     Archive threads
                   </button>
@@ -892,7 +891,7 @@ export function BriefPanel({
                       onAtlasAction(rows, "trash");
                       setPicked(new Set());
                     }}
-                    className="rounded-full px-3 py-1 text-[12px] font-semibold text-[#d63b2f]"
+                    className="rounded-full px-3 py-1 text-[14px] text-[#d63b2f]"
                   >
                     Delete threads
                   </button>
@@ -903,7 +902,7 @@ export function BriefPanel({
           <button
             type="button"
             onClick={() => setPicked(new Set())}
-            className="ml-auto text-[11px] text-[var(--nav-muted)]"
+            className="ml-auto text-[12px] text-[var(--nav-muted)]"
           >
             clear
           </button>

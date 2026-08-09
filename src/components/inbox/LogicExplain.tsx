@@ -55,7 +55,7 @@ function TeachRow({
             e.stopPropagation();
             onTeach(c.action);
           }}
-          className="rounded px-1.5 py-0.5 text-[11px] font-semibold text-white"
+          className="rounded px-1.5 py-0.5 text-[12px] text-white"
           style={{ backgroundColor: ACTION_META[c.action].color }}
         >
           {c.label}
@@ -72,12 +72,12 @@ export function LogicExplain({ guide }: { guide: Guide }) {
   return (
     <div className="flex min-w-0 items-center gap-1.5">
       {guide.category ? (
-        <span className="shrink-0 rounded bg-[var(--card)] px-1 text-[11px] font-semibold text-[var(--muted)]">
+        <span className="shrink-0 rounded bg-[var(--card)] px-1 text-[12px] text-[var(--muted)]">
           {guide.category}
         </span>
       ) : null}
       <span
-        className="truncate text-[11px] font-semibold"
+        className="truncate text-[12px]"
         style={{ color: guide.color }}
       >
         {text}
@@ -109,7 +109,7 @@ export function ReaderGuideBar({
         aria-hidden
       />
       <span
-        className="min-w-0 flex-1 truncate text-[12px] font-semibold"
+        className="min-w-0 flex-1 truncate text-[14px]"
         style={{ color: guide.color }}
       >
         {text}

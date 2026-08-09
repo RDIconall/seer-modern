@@ -161,7 +161,7 @@ function ActionChip({ item, h }: { item: EmailItem; h: Handlers }) {
         e.stopPropagation();
         doSuggested(item, h);
       }}
-      className="rounded px-2 py-0.5 text-[11px] font-bold text-white"
+      className="rounded px-2 py-0.5 text-[12px] text-white"
       style={{ backgroundColor: ACTION_META[a].color }}
       title="Do the suggested action"
     >
@@ -195,11 +195,11 @@ function GroupHeader({
         className="flex min-w-0 flex-1 items-center gap-1.5 text-left"
       >
         <ChevronDown
-          className={`h-3.5 w-3.5 shrink-0 transition-transform ${open ? "" : "-rotate-90"}`}
+          className={`h-3.5 w-3.5 shrink-0 transition-transform ${open ?"" : "-rotate-90"}`}
           style={{ color }}
         />
         <span
-          className="text-[11px] font-bold uppercase tracking-wide"
+          className="text-[12px] uppercase tracking-wide"
           style={{ color }}
         >
           {label}
@@ -267,24 +267,24 @@ function Row({
       >
         <div className="flex items-baseline justify-between gap-2">
           <span
-            className={`min-w-0 truncate text-[12px] ${emphasize ? "font-bold" : "font-semibold"}`}
+            className={`min-w-0 truncate text-[14px] ${emphasize ? "font-bold" : ""}`}
           >
             {senderLabel(item)}
           </span>
-          <span className="shrink-0 text-[11px] text-[var(--muted)]">
+          <span className="shrink-0 text-[12px] text-[var(--muted)]">
             {formatMailTime(item.receivedAt)}
           </span>
         </div>
         {showMeaning ? (
           <div
-            className="truncate text-[12px] font-medium"
+            className="truncate text-[14px]"
             style={{ color: g?.color ?? "var(--fg)" }}
           >
             {meaning}
           </div>
         ) : null}
         <div className="flex items-center gap-2">
-          <span className="min-w-0 flex-1 truncate text-[12px] text-[var(--muted)]">
+          <span className="min-w-0 flex-1 truncate text-[14px] text-[var(--muted)]">
             {subject}
           </span>
           <ActionChip item={item} h={h} />
@@ -300,8 +300,7 @@ function Row({
         if (active && el) el.scrollIntoView({ block: "nearest" });
       }}
       onClick={() => h.openReader(item.id)}
-      className={`cursor-pointer border-b border-[var(--border)] align-middle ${
-        active ? "bg-[var(--brand-soft)]" : "hover:bg-[var(--card)]"
+      className={`cursor-pointer border-b border-[var(--border)] align-middle ${ active ?"bg-[var(--brand-soft)]" : "hover:bg-[var(--card)]"
       }`}
     >
       <td
@@ -323,25 +322,25 @@ function Row({
         ) : null}
       </td>
       <td className={`max-w-0 truncate ${CELL}`}>
-        <span className={`text-[12px] ${emphasize ? "font-bold" : "font-semibold"}`}>
+        <span className={`text-[14px] ${emphasize ? "font-bold" : ""}`}>
           {senderLabel(item)}
         </span>
-        <span className="ml-1.5 text-[11px] text-[var(--muted)]">
+        <span className="ml-1.5 text-[12px] text-[var(--muted)]">
           {formatMailTime(item.receivedAt)}
         </span>
       </td>
       {/* Message: the AI's read leads WHEN it adds signal; the subject
           rides along muted. Hover shows the full why. */}
       <td
-        className={`max-w-0 truncate ${CELL} text-[12px]`}
+        className={`max-w-0 truncate ${CELL} text-[14px]`}
         title={why ? `${meaning ? `${meaning} — ` : ""}${why}` : meaning}
       >
         {showMeaning ? (
           <>
-            <span className="font-medium" style={{ color: g?.color ?? "var(--fg)" }}>
+            <span className="" style={{ color: g?.color ?? "var(--fg)" }}>
               {meaning}
             </span>
-            <span className="ml-2 text-[12px] text-[var(--muted)]">
+            <span className="ml-2 text-[14px] text-[var(--muted)]">
               {subject}
             </span>
           </>
@@ -376,7 +375,7 @@ function CorrectPicker({ item, h }: { item: EmailItem; h: Handlers }) {
         }}
         aria-label="Change"
         title="Change"
-        className="h-6 w-5 cursor-pointer appearance-none rounded-md border border-[var(--border)] bg-[var(--bg)] pl-1 text-[11px] font-bold text-[var(--muted)] hover:text-[var(--fg)]"
+        className="h-6 w-5 cursor-pointer appearance-none rounded-md border border-[var(--border)] bg-[var(--bg)] pl-1 text-[12px] text-[var(--muted)] hover:text-[var(--fg)]"
       >
         <option value="" hidden>
           ▾
@@ -681,7 +680,7 @@ export function TriageTable({
                 onClick={() =>
                   h.bulkSection(section, primaryMailAction(section.action))
                 }
-                className="shrink-0 text-[12px] font-semibold text-[var(--primary)]"
+                className="shrink-0 text-[14px] text-[var(--primary)]"
               >
                 {section.bulkLabel}
               </button>
@@ -731,7 +730,7 @@ export function TriageTable({
                 "trash",
               )
             }
-            className="shrink-0 text-[12px] font-semibold text-[var(--primary)]"
+            className="shrink-0 text-[14px] text-[var(--primary)]"
           >
             Clear all
           </button>
@@ -781,7 +780,7 @@ export function TriageTable({
                 "archive",
               )
             }
-            className="shrink-0 text-[12px] font-semibold text-[var(--primary)]"
+            className="shrink-0 text-[14px] text-[var(--primary)]"
           >
             Archive all
           </button>
@@ -854,14 +853,14 @@ export function TriageTable({
         mobile ? (
           <p
             key="needs-empty"
-            className="flex items-center gap-2 px-3 py-3 text-[12px] text-[var(--muted)]"
+            className="flex items-center gap-2 px-3 py-3 text-[14px] text-[var(--muted)]"
           >
             <CheckCircle2 className="h-4 w-4 text-[#0b8043]" /> Nothing needs
             you right now.
           </p>
         ) : (
           <tr key="needs-empty">
-            <td colSpan={SPAN} className="px-3 py-3 text-[12px] text-[var(--muted)]">
+            <td colSpan={SPAN} className="px-3 py-3 text-[14px] text-[var(--muted)]">
               Nothing needs you right now.
             </td>
           </tr>
@@ -890,8 +889,8 @@ export function TriageTable({
 
   return (
     <div>
-      <p className="flex items-baseline gap-2 border-b border-[var(--border)] bg-[var(--card)] px-3 py-2.5 text-[12px] font-medium">
-        <span className="font-bold text-[var(--fg-strong)]">
+      <p className="flex items-baseline gap-2 border-b border-[var(--border)] bg-[var(--card)] px-3 py-2.5 text-[14px]">
+        <span className="text-[var(--fg-strong)]">
           {zones.handledCount + zones.fyi.length} to clear
         </span>
         <span className="text-[var(--muted)]">
@@ -903,12 +902,12 @@ export function TriageTable({
           — the work itself lives in Atlas
         </span>
         {triage.assistant?.pending ? (
-          <span className="animate-pulse text-[11px] font-semibold text-[var(--primary)]">
+          <span className="animate-pulse text-[12px] text-[var(--primary)]">
             · AI reading {triage.assistant.pending} in background…
           </span>
         ) : null}
         {!mobile ? (
-          <span className="ml-auto shrink-0 text-[11px] font-normal text-[var(--nav-muted)]">
+          <span className="ml-auto shrink-0 text-[12px] font-normal text-[var(--nav-muted)]">
             ↑↓ move · space tick · ⇧ range · ⏎ open · e archive · d delete ·
             a do suggested · ⌘⏎ run ticked
           </span>
@@ -920,7 +919,7 @@ export function TriageTable({
       ) : (
         <table className="w-full table-fixed border-collapse">
           <thead>
-            <tr className="text-left text-[11px] font-bold uppercase tracking-wide text-[var(--muted)]">
+            <tr className="text-left text-[12px] uppercase tracking-wide text-[var(--muted)]">
               <th className={`w-9 ${TH} !px-2 text-center`}>
                 <input
                   type="checkbox"
@@ -950,13 +949,13 @@ export function TriageTable({
 
       {!mobile && picked.size > 0 ? (
         <div className="sticky bottom-0 z-20 flex items-center gap-2 border-t border-[var(--border)] bg-[var(--brand-soft)] px-3 py-2 shadow-[0_-2px_8px_rgba(10,45,40,0.08)]">
-          <span className="text-[12px] font-semibold text-[var(--fg-strong)]">
+          <span className="text-[14px] text-[var(--fg-strong)]">
             {picked.size} selected
           </span>
           <button
             type="button"
             onClick={() => runPickedAs("archive")}
-            className="rounded-md bg-[#0b8043] px-2.5 py-1 text-[12px] font-semibold text-white"
+            className="rounded-md bg-[#0b8043] px-2.5 py-1 text-[14px] text-white"
           >
             Archive
           </button>
@@ -964,7 +963,7 @@ export function TriageTable({
             type="button"
             onClick={() => runPickedAs("trash")}
             title="Delete only — never unsubscribes"
-            className="rounded-md bg-[#d63b2f] px-2.5 py-1 text-[12px] font-semibold text-white"
+            className="rounded-md bg-[#d63b2f] px-2.5 py-1 text-[14px] text-white"
           >
             Delete
           </button>
@@ -973,7 +972,7 @@ export function TriageTable({
               type="button"
               onClick={runPicked}
               title="Runs each row's suggestion — unsubscribe rows DO unsubscribe"
-              className="rounded-md border border-[var(--brand)] px-2.5 py-1 text-[12px] font-semibold text-[var(--brand)]"
+              className="rounded-md border border-[var(--brand)] px-2.5 py-1 text-[14px] text-[var(--brand)]"
             >
               Do as suggested
             </button>
@@ -981,7 +980,7 @@ export function TriageTable({
           <button
             type="button"
             onClick={() => setPicked(new Set())}
-            className="ml-auto text-[12px] text-[var(--muted)] hover:text-[var(--fg)]"
+            className="ml-auto text-[14px] text-[var(--muted)] hover:text-[var(--fg)]"
           >
             Clear
           </button>

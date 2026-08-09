@@ -32,15 +32,15 @@ export function CatchupCard({
       <div className="flex items-start gap-2.5">
         <Sunrise className="mt-0.5 h-4 w-4 shrink-0 text-[var(--brand)]" />
         <div className="min-w-0 flex-1">
-          <p className="text-[12px] font-bold text-[var(--fg-strong)]">
+          <p className="text-[14px] text-[var(--fg-strong)]">
             While you were away{" "}
             <span className="font-normal text-[var(--muted)]">
               (since {sinceLabel})
             </span>
           </p>
-          <p className="mt-0.5 text-[12px] text-[var(--fg)]">
+          <p className="mt-0.5 text-[14px] text-[var(--fg)]">
             {catchup.newCount} new ·{" "}
-            <span className="font-semibold">{catchup.needsYou} need you</span>
+            <span className="">{catchup.needsYou} need you</span>
             {catchup.fyi > 0 ? ` · ${catchup.fyi} FYI` : ""}
             {catchup.cleared > 0
               ? ` · ${catchup.cleared} ready to clear`
@@ -53,9 +53,9 @@ export function CatchupCard({
                   <button
                     type="button"
                     onClick={() => onOpen(h.id)}
-                    className="w-full truncate text-left text-[12px]"
+                    className="w-full truncate text-left text-[14px]"
                   >
-                    <span className="font-semibold text-[var(--fg-strong)]">
+                    <span className="text-[var(--fg-strong)]">
                       {h.who}
                     </span>{" "}
                     <span className="text-[var(--fg)]">— {h.line}</span>

@@ -79,12 +79,12 @@ export function ComposePanel({
         >
           <ChevronLeft className="h-6 w-6" />
         </button>
-        <h2 className="flex-1 text-[15px] font-medium">{title}</h2>
+        <h2 className="flex-1 text-[17px] font-bold">{title}</h2>
         <button
           type="button"
           disabled={sending}
           onClick={submit}
-          className="mr-2 inline-flex items-center gap-1.5 rounded-full bg-[var(--primary)] px-4 py-2 text-sm font-medium text-white disabled:opacity-50"
+          className="mr-2 inline-flex items-center gap-1.5 rounded-full bg-[var(--primary)] px-4 py-2 text-[14px] text-white disabled:opacity-50"
         >
           <Send className="h-4 w-4" />
           {sending ? "Sending" : "Send"}
@@ -92,7 +92,7 @@ export function ComposePanel({
       </header>
 
       <div className="flex flex-1 flex-col overflow-auto px-4">
-        <label className="flex items-center gap-3 border-b border-[var(--border)] py-3 text-sm">
+        <label className="flex items-center gap-3 border-b border-[var(--border)] py-3 text-[14px]">
           <span className="w-8 shrink-0 text-[var(--muted)]">To</span>
           <input
             value={to}
@@ -103,7 +103,7 @@ export function ComposePanel({
             inputMode="email"
           />
         </label>
-        <label className="flex items-center gap-3 border-b border-[var(--border)] py-3 text-sm">
+        <label className="flex items-center gap-3 border-b border-[var(--border)] py-3 text-[14px]">
           <span className="w-8 shrink-0 text-[var(--muted)]">Cc</span>
           <input
             value={cc}
@@ -113,7 +113,7 @@ export function ComposePanel({
             inputMode="email"
           />
         </label>
-        <label className="flex items-center gap-3 border-b border-[var(--border)] py-3 text-sm">
+        <label className="flex items-center gap-3 border-b border-[var(--border)] py-3 text-[14px]">
           <span className="w-8 shrink-0 text-[var(--muted)]">Subj</span>
           <input
             value={subject}
@@ -125,7 +125,7 @@ export function ComposePanel({
         <textarea
           value={body}
           onChange={(e) => setBody(e.target.value)}
-          className="mt-3 min-h-[45vh] flex-1 resize-none bg-transparent text-[15px] leading-relaxed outline-none"
+          className="mt-3 min-h-[45vh] flex-1 resize-none bg-transparent text-[17px] leading-relaxed outline-none"
           placeholder={
             draft.mode === "forward"
               ? "Add a note (optional)"
@@ -136,14 +136,14 @@ export function ComposePanel({
           autoFocus
         />
         {draft.mode !== "compose" ? (
-          <p className="mb-2 text-[11px] text-[var(--muted)]">
+          <p className="mb-2 text-[12px] text-[var(--muted)]">
             {draft.mode === "forward"
               ? "The original email is included below your note automatically."
               : "The original message is quoted below your reply automatically."}
           </p>
         ) : null}
         {error ? (
-          <p className="mb-4 rounded-lg bg-[#d63b2f]/10 px-3 py-2 text-sm text-[#d63b2f]">
+          <p className="mb-4 rounded-lg bg-[#d63b2f]/10 px-3 py-2 text-[14px] text-[#d63b2f]">
             {error}
           </p>
         ) : null}

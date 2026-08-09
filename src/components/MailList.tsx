@@ -37,16 +37,16 @@ export function MailList({ snippets }: { snippets?: boolean }) {
 
   if (error) {
     return (
-      <p className="rounded-lg border border-amber-500/40 bg-amber-500/10 px-4 py-3 text-sm text-amber-200">
+      <p className="rounded-lg border border-amber-500/40 bg-amber-500/10 px-4 py-3 text-[14px] text-amber-200">
         {error}
       </p>
     );
   }
   if (items === null) {
-    return <p className="text-sm text-zinc-400">Loading recent messages…</p>;
+    return <p className="text-[14px] text-zinc-400">Loading recent messages…</p>;
   }
   if (items.length === 0) {
-    return <p className="text-sm text-zinc-400">No messages returned.</p>;
+    return <p className="text-[14px] text-zinc-400">No messages returned.</p>;
   }
   return (
     <ul className="space-y-3 text-left">
@@ -55,13 +55,13 @@ export function MailList({ snippets }: { snippets?: boolean }) {
           key={m.id ?? i}
           className="rounded-lg border border-zinc-700/80 bg-zinc-900/50 px-4 py-3"
         >
-          <div className="font-medium text-zinc-100">{m.subject}</div>
-          <div className="mt-1 text-xs text-zinc-400">{m.from}</div>
+          <div className="text-zinc-100">{m.subject}</div>
+          <div className="mt-1 text-[12px] text-zinc-400">{m.from}</div>
           {m.snippet ? (
-            <div className="mt-2 line-clamp-3 text-xs text-zinc-500">{m.snippet}</div>
+            <div className="mt-2 line-clamp-3 text-[12px] text-zinc-500">{m.snippet}</div>
           ) : null}
           {m.receivedAt ? (
-            <div className="mt-1 text-xs text-zinc-500">
+            <div className="mt-1 text-[12px] text-zinc-500">
               {new Date(m.receivedAt).toLocaleString()}
             </div>
           ) : null}

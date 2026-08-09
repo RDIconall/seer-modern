@@ -273,16 +273,16 @@ export function DesktopMailApp() {
           <div className="flex items-center gap-2">
             {/* eslint-disable-next-line @next/next/no-img-element */}
             <img src="/seer-eye.png" alt="" width={26} height={26} />
-            <span className="seer-brand text-lg">Seer</span>
+            <span className="seer-brand text-[17px]">Seer</span>
           </div>
-          <div className="seer-tagline mt-0.5 text-[11px]">Fewer decisions.</div>
+          <div className="seer-tagline mt-0.5 text-[12px]">Fewer decisions.</div>
         </div>
 
         <div className="px-3 py-3">
           <button
             type="button"
             onClick={startCompose}
-            className="flex w-full items-center justify-center gap-2 rounded-md bg-[var(--brand)] px-3 py-2 text-sm font-medium text-white shadow-sm hover:bg-[var(--brand-strong)]"
+            className="flex w-full items-center justify-center gap-2 rounded-md bg-[var(--brand)] px-3 py-2 text-[14px] text-white shadow-sm hover:bg-[var(--brand-strong)]"
           >
             <PenSquare className="h-4 w-4" />
             Compose
@@ -295,9 +295,7 @@ export function DesktopMailApp() {
               key={folderTab}
               type="button"
               onClick={() => selectFolder(folderTab)}
-              className={`mb-0.5 flex w-full items-center gap-2.5 rounded-md px-3 py-2 text-sm ${
-                tab === folderTab
-                  ? "bg-[var(--brand-soft)] font-medium text-[var(--fg-strong)]"
+              className={`mb-0.5 flex w-full items-center gap-2.5 rounded-md px-3 py-2 text-[14px] ${ tab === folderTab ? "bg-[var(--brand-soft)] font-bold text-[var(--fg-strong)]"
                   : "text-[var(--fg)] hover:bg-[var(--row-hover)]"
               }`}
             >
@@ -308,7 +306,7 @@ export function DesktopMailApp() {
           <button
             type="button"
             onClick={() => setSettingsOpen(true)}
-            className="mb-0.5 flex w-full items-center gap-2.5 rounded-md px-3 py-2 text-sm text-[var(--fg)] hover:bg-[var(--row-hover)]"
+            className="mb-0.5 flex w-full items-center gap-2.5 rounded-md px-3 py-2 text-[14px] text-[var(--fg)] hover:bg-[var(--row-hover)]"
           >
             <Settings className="h-4 w-4" />
             Settings
@@ -322,24 +320,24 @@ export function DesktopMailApp() {
             className="w-full text-left"
           >
             <div
-              className="truncate text-xs font-medium"
+              className="truncate text-[12px]"
               title={accountEmail}
             >
               {accountEmail}
             </div>
             {accountLabel ? (
-              <div className="truncate text-[11px] text-[var(--primary)]">
+              <div className="truncate text-[12px] text-[var(--primary)]">
                 {accountLabel}
               </div>
             ) : null}
-            <div className="mt-0.5 text-[11px] text-[var(--muted)]">
+            <div className="mt-0.5 text-[12px] text-[var(--muted)]">
               Manage accounts
             </div>
           </button>
           <form action={logout} className="mt-2">
             <button
               type="submit"
-              className="flex w-full items-center gap-2 rounded-md px-2 py-1.5 text-sm text-[var(--muted)] hover:bg-[var(--row-hover)] hover:text-[var(--fg)]"
+              className="flex w-full items-center gap-2 rounded-md px-2 py-1.5 text-[14px] text-[var(--muted)] hover:bg-[var(--row-hover)] hover:text-[var(--fg)]"
             >
               <LogOut className="h-4 w-4" />
               Sign out
@@ -353,12 +351,12 @@ export function DesktopMailApp() {
           {/* Full-bleed teal deck — the preview docks beside it instead of floating over it */}
           <div className="seer-deck-bg flex min-w-0 flex-1 flex-col overflow-hidden">
             {error ? (
-              <p className="mx-6 mt-4 rounded-md bg-white/90 px-3 py-2 text-sm font-medium text-[#d63b2f]">
+              <p className="mx-6 mt-4 rounded-md bg-white/90 px-3 py-2 text-[14px] text-[#d63b2f]">
                 {error}
               </p>
             ) : null}
             {loading && !triage ? (
-              <p className="py-20 text-center text-sm text-white/90">
+              <p className="py-20 text-center text-[14px] text-white/90">
                 Loading cards…
               </p>
             ) : (
@@ -381,7 +379,7 @@ export function DesktopMailApp() {
           {readerId && reader ? (
             <aside className="flex w-[30rem] max-w-[46%] shrink-0 flex-col border-l border-[var(--border)] bg-[var(--bg)]">
               <div className="flex items-start justify-between gap-3 border-b border-[var(--border)] px-4 py-3">
-                <h2 className="min-w-0 flex-1 text-[15px] font-semibold leading-snug text-[var(--fg-strong)]">
+                <h2 className="min-w-0 flex-1 text-[17px] font-bold leading-snug text-[var(--fg-strong)]">
                   {reader.subject}
                 </h2>
                 <button
@@ -412,7 +410,7 @@ export function DesktopMailApp() {
                     }}
                   />
                 ) : (
-                  <pre className="whitespace-pre-wrap text-sm">
+                  <pre className="whitespace-pre-wrap text-[14px]">
                     {reader.textBody}
                   </pre>
                 )}
@@ -420,7 +418,7 @@ export function DesktopMailApp() {
             </aside>
           ) : null}
           {toast ? (
-            <div className="fixed bottom-6 left-1/2 z-50 -translate-x-1/2 rounded bg-[#1e242b] px-4 py-2 text-xs text-white">
+            <div className="fixed bottom-6 left-1/2 z-50 -translate-x-1/2 rounded bg-[#1e242b] px-4 py-2 text-[12px] text-white">
               {toast}
             </div>
           ) : null}
@@ -441,12 +439,12 @@ export function DesktopMailApp() {
       >
         <header className="shrink-0 border-b border-[var(--border)]">
           <div className="flex items-center justify-between gap-2 bg-[var(--brand)] px-4 py-3 text-white">
-            <h1 className="text-lg font-semibold">{listTitle}</h1>
+            <h1 className="text-[17px] font-bold">{listTitle}</h1>
             <div className="flex items-center gap-2">
               {tab !== "triage" && tab !== "atlas" && mailbox ? (
-                <span className="text-xs text-white/80">{mailbox.count}</span>
+                <span className="text-[12px] text-white/80">{mailbox.count}</span>
               ) : (tab === "triage" || tab === "atlas") && triage ? (
-                <span className="text-xs text-white/80">{triage.count}</span>
+                <span className="text-[12px] text-white/80">{triage.count}</span>
               ) : null}
             </div>
           </div>
@@ -462,37 +460,37 @@ export function DesktopMailApp() {
               value={search}
               onChange={(e) => setSearch(e.target.value)}
               placeholder="Search mail"
-              className="min-w-0 flex-1 bg-transparent text-sm outline-none placeholder:text-[var(--muted)]"
+              className="min-w-0 flex-1 bg-transparent text-[14px] outline-none placeholder:text-[var(--muted)]"
             />
           </form>
           {tab === "triage" && (triage?.assistant || triage?.history) ? (
-            <p className="flex items-start gap-2 bg-[var(--card)] px-4 py-2 text-[11px] text-[var(--muted)]">
+            <p className="flex items-start gap-2 bg-[var(--card)] px-4 py-2 text-[12px] text-[var(--muted)]">
               <span className="order-last ml-auto flex shrink-0 gap-1.5">
                 <button
                   type="button"
                   onClick={() => setVipsOpen(true)}
-                  className="rounded-full border border-[#eab308] px-2 py-0.5 text-[11px] font-semibold text-[#b45309]"
+                  className="rounded-full border border-[#eab308] px-2 py-0.5 text-[12px] text-[#b45309]"
                 >
                   VIPs
                 </button>
                 <button
                   type="button"
                   onClick={() => setUnsubAgentOpen(true)}
-                  className="rounded-full border border-[#a855f7] px-2 py-0.5 text-[11px] font-semibold text-[#a855f7]"
+                  className="rounded-full border border-[#a855f7] px-2 py-0.5 text-[12px] text-[#a855f7]"
                 >
                   Unsub agent
                 </button>
                 <button
                   type="button"
                   onClick={toggleDense}
-                  className="rounded-full border border-[var(--border)] px-2 py-0.5 text-[11px] font-semibold text-[var(--primary)]"
+                  className="rounded-full border border-[var(--border)] px-2 py-0.5 text-[12px] text-[var(--primary)]"
                 >
                   {dense ? "Cozy" : "Compact"}
                 </button>
               </span>
               {`${triage.count} triaged · ${triage.assistant?.needsReview ?? triage.needsReview.length} need you`}
               {triage.assistant?.error ? (
-                <span className="ml-2 font-medium text-[#b45309]">
+                <span className="ml-2 text-[#b45309]">
                   {(triage.assistant.gemini ?? 0) + (triage.assistant.cached ?? 0) > 0
                     ? "Some new mail used rules this load — "
                     : "Gemini offline — rules only: "}
@@ -505,7 +503,7 @@ export function DesktopMailApp() {
 
         <div className="flex-1 overflow-y-auto">
           {error ? (
-            <p className="mx-3 my-3 rounded-md bg-[#d63b2f]/10 px-3 py-2 text-sm text-[#d63b2f]">
+            <p className="mx-3 my-3 rounded-md bg-[#d63b2f]/10 px-3 py-2 text-[14px] text-[#d63b2f]">
               {error}
             </p>
           ) : null}
@@ -513,7 +511,7 @@ export function DesktopMailApp() {
           {loading &&
           (((tab === "triage" || tab === "atlas") && !triage) ||
             (tab !== "triage" && tab !== "atlas" && !mailbox)) ? (
-            <p className="py-12 text-center text-sm text-[var(--muted)]">Loading…</p>
+            <p className="py-12 text-center text-[14px] text-[var(--muted)]">Loading…</p>
           ) : null}
 
           {tab !== "triage" && tab !== "atlas" && mailbox ? (
@@ -531,7 +529,7 @@ export function DesktopMailApp() {
               <>
                 {picked.size > 0 ? (
                   <div className="sticky top-0 z-10 flex items-center gap-2 border-b border-[var(--border)] bg-[var(--brand-soft)] px-3 py-1.5">
-                    <span className="text-[12px] font-semibold">
+                    <span className="text-[14px]">
                       {picked.size} selected
                     </span>
                     <button
@@ -540,7 +538,7 @@ export function DesktopMailApp() {
                         runBulk(pickedItems, "archive");
                         setPicked(new Set());
                       }}
-                      className="rounded px-2 py-1 text-[12px] font-semibold text-[#76ab19] hover:bg-[var(--card)]"
+                      className="rounded px-2 py-1 text-[14px] text-[#76ab19] hover:bg-[var(--card)]"
                     >
                       Archive
                     </button>
@@ -550,7 +548,7 @@ export function DesktopMailApp() {
                         runBulk(pickedItems, "trash");
                         setPicked(new Set());
                       }}
-                      className="rounded px-2 py-1 text-[12px] font-semibold text-[#d63b2f] hover:bg-[var(--card)]"
+                      className="rounded px-2 py-1 text-[14px] text-[#d63b2f] hover:bg-[var(--card)]"
                     >
                       Delete
                     </button>
@@ -560,14 +558,14 @@ export function DesktopMailApp() {
                         runBulk(pickedItems, "read");
                         setPicked(new Set());
                       }}
-                      className="rounded px-2 py-1 text-[12px] font-semibold text-[var(--primary)] hover:bg-[var(--card)]"
+                      className="rounded px-2 py-1 text-[14px] text-[var(--primary)] hover:bg-[var(--card)]"
                     >
                       Mark read
                     </button>
                     <button
                       type="button"
                       onClick={() => setPicked(new Set())}
-                      className="ml-auto rounded px-2 py-1 text-[12px] text-[var(--muted)] hover:bg-[var(--card)]"
+                      className="ml-auto rounded px-2 py-1 text-[14px] text-[var(--muted)] hover:bg-[var(--card)]"
                     >
                       Clear
                     </button>
@@ -665,14 +663,14 @@ export function DesktopMailApp() {
         }
       >
         {!readerId ? (
-          <div className="flex flex-1 items-center justify-center text-sm text-[var(--muted)]">
+          <div className="flex flex-1 items-center justify-center text-[14px] text-[var(--muted)]">
             Select a message
           </div>
         ) : (
           <>
             <header className="shrink-0 border-b border-[var(--border)] px-6 py-3">
               <div className="flex flex-wrap items-center justify-between gap-x-4 gap-y-2">
-                <h2 className="min-w-0 flex-1 basis-60 text-xl font-semibold leading-snug text-[var(--fg-strong)]">
+                <h2 className="min-w-0 flex-1 basis-60 text-[17px] font-bold leading-snug text-[var(--fg-strong)]">
                   {reader?.subject ?? "…"}
                 </h2>
                 <ReaderToolbar
@@ -709,13 +707,13 @@ export function DesktopMailApp() {
 
             <div className="flex-1 overflow-y-auto">
               {!reader ? (
-                <p className="px-6 py-8 text-sm text-[var(--muted)]">Loading…</p>
+                <p className="px-6 py-8 text-[14px] text-[var(--muted)]">Loading…</p>
               ) : (
                 <>
                   <div className="border-b border-[var(--border)] px-6 py-4">
                     <div className="flex items-start gap-3">
                       <div
-                        className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full text-sm font-semibold text-white"
+                        className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full text-[14px] text-white"
                         style={{
                           backgroundColor:
                             reader.guide?.color ?? "var(--primary)",
@@ -724,12 +722,12 @@ export function DesktopMailApp() {
                         {mailInitial(reader.fromName || reader.fromEmail)}
                       </div>
                       <div className="min-w-0 flex-1">
-                        <div className="font-medium">{reader.fromName}</div>
-                        <div className="truncate text-sm text-[var(--muted)]">
+                        <div className="">{reader.fromName}</div>
+                        <div className="truncate text-[14px] text-[var(--muted)]">
                           {reader.fromEmail}
                         </div>
                         {reader.receivedAt ? (
-                          <div className="mt-0.5 text-xs text-[var(--muted)]">
+                          <div className="mt-0.5 text-[12px] text-[var(--muted)]">
                             {formatMailTime(reader.receivedAt)}
                           </div>
                         ) : null}
@@ -791,7 +789,7 @@ export function DesktopMailApp() {
                         dangerouslySetInnerHTML={{ __html: safeHtml }}
                       />
                     ) : (
-                      <pre className="whitespace-pre-wrap text-sm leading-relaxed">
+                      <pre className="whitespace-pre-wrap text-[14px] leading-relaxed">
                         {reader.textBody || reader.subject}
                       </pre>
                     )}
@@ -852,8 +850,7 @@ function DesktopMailRow({
         tabIndex={0}
         onClick={onOpen}
         onKeyDown={(e) => e.key === "Enter" && onOpen()}
-        className={`mail-row cursor-pointer pr-14 transition-colors ${
-          selected ? "bg-[var(--brand-soft)]" : ""
+        className={`mail-row cursor-pointer pr-14 transition-colors ${ selected ?"bg-[var(--brand-soft)]" : ""
         } ${checked ? "bg-[var(--primary-soft,rgba(52,152,217,0.1))]" : ""} ${
           busy ? "opacity-50" : ""
         } ${item.isUnread ? "unread" : ""}`}
@@ -866,9 +863,7 @@ function DesktopMailRow({
               e.stopPropagation();
               onToggleSelect();
             }}
-            className={`mr-1.5 flex h-4 w-4 shrink-0 items-center justify-center self-center rounded-full border-2 ${
-              checked
-                ? "border-[var(--primary)] bg-[var(--primary)] text-white"
+            className={`mr-1.5 flex h-4 w-4 shrink-0 items-center justify-center self-center rounded-full border-2 ${ checked ?"border-[var(--primary)] bg-[var(--primary)] text-white"
                 : "border-[var(--muted)]"
             }`}
           >
@@ -876,13 +871,13 @@ function DesktopMailRow({
           </button>
         ) : (
           <span
-            className={`mail-unread-dot ${item.isUnread ? "" : "empty"}`}
+            className={`mail-unread-dot ${item.isUnread ?"" : "empty"}`}
             aria-hidden
           />
         )}
         <div className="min-w-0 flex-1">
           <div className="flex items-baseline justify-between gap-2">
-            <span className="mail-from truncate text-[12px] text-[var(--fg-strong)]">
+            <span className="mail-from truncate text-[14px] text-[var(--fg-strong)]">
               {item.threadSenders?.length
                 ? item.threadSenders.join(", ")
                 : item.fromName || item.fromEmail}
@@ -892,20 +887,20 @@ function DesktopMailRow({
                 </span>
               ) : null}
             </span>
-            <span className="shrink-0 text-[11px] text-[var(--muted)]">
+            <span className="shrink-0 text-[12px] text-[var(--muted)]">
               {formatMailTime(item.receivedAt)}
             </span>
           </div>
           {dense ? (
-            <div className="flex items-baseline gap-1.5 truncate text-[12px] leading-snug">
+            <div className="flex items-baseline gap-1.5 truncate text-[14px] leading-snug">
               {g?.category ? (
-                <span className="shrink-0 rounded bg-[var(--card)] px-1 text-[11px] font-semibold text-[var(--muted)]">
+                <span className="shrink-0 rounded bg-[var(--card)] px-1 text-[12px] text-[var(--muted)]">
                   {g.category}
                 </span>
               ) : null}
               {g?.task ? (
                 <span
-                  className="shrink-0 font-semibold"
+                  className="shrink-0"
                   style={{ color: g.color }}
                 >
                   {g.task}
@@ -917,10 +912,10 @@ function DesktopMailRow({
             </div>
           ) : (
             <>
-              <div className="mail-subject truncate text-[12px] leading-snug">
+              <div className="mail-subject truncate text-[14px] leading-snug">
                 {item.subject}
               </div>
-              <div className="truncate text-[11px] leading-snug text-[var(--muted)]">
+              <div className="truncate text-[12px] leading-snug text-[var(--muted)]">
                 {item.snippet}
               </div>
             </>
@@ -1017,7 +1012,7 @@ function ToolbarButton({
       aria-label={label}
       disabled={disabled}
       onClick={onClick}
-      className="flex items-center gap-1.5 rounded-md px-2 py-1.5 text-xs text-[var(--fg)] hover:bg-[var(--row-hover)] disabled:opacity-40"
+      className="flex items-center gap-1.5 rounded-md px-2 py-1.5 text-[12px] text-[var(--fg)] hover:bg-[var(--row-hover)] disabled:opacity-40"
     >
       {children}
     </button>
@@ -1047,13 +1042,13 @@ function IconButton({
 
 function EmptyList({ text }: { text: string }) {
   return (
-    <p className="py-16 text-center text-sm text-[var(--muted)]">{text}</p>
+    <p className="py-16 text-center text-[14px] text-[var(--muted)]">{text}</p>
   );
 }
 
 function Toast({ message }: { message: string }) {
   return (
-    <div className="fixed bottom-6 left-1/2 z-50 max-w-md -translate-x-1/2 rounded-md bg-[#1e242b] px-4 py-2.5 text-xs text-white shadow-lg">
+    <div className="fixed bottom-6 left-1/2 z-50 max-w-md -translate-x-1/2 rounded-md bg-[#1e242b] px-4 py-2.5 text-[12px] text-white shadow-lg">
       {message}
     </div>
   );

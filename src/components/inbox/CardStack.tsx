@@ -247,8 +247,8 @@ export function CardStack({
     return (
       <div className="flex flex-1 flex-col items-center justify-center px-8 py-16 text-center">
         <CheckCircle2 className="mb-3 h-14 w-14 text-white opacity-90" />
-        <h2 className="text-xl font-semibold text-white">Deck clear</h2>
-        <p className="mt-2 max-w-xs text-sm text-white/85">
+        <h2 className="text-[17px] font-bold text-white">Deck clear</h2>
+        <p className="mt-2 max-w-xs text-[14px] text-white/85">
           You’ve worked through the card stack. Pull to refresh or check Mail
           for anything new.
         </p>
@@ -256,7 +256,7 @@ export function CardStack({
           <button
             type="button"
             onClick={onEmptyRefresh}
-            className="mt-6 rounded-md bg-[var(--accent)] px-5 py-2.5 text-sm font-semibold text-white shadow-sm"
+            className="mt-6 rounded-md bg-[var(--accent)] px-5 py-2.5 text-[14px] text-white shadow-sm"
           >
             Refresh cards
           </button>
@@ -276,11 +276,11 @@ export function CardStack({
   return (
     <div className="flex flex-1 flex-col px-4 pb-2 pt-2">
       <div className="mb-3 flex items-center justify-between rounded-md bg-white/15 px-3 py-2">
-        <div className="flex items-center gap-2 text-sm font-semibold text-white">
+        <div className="flex items-center gap-2 text-[14px] text-white">
           <Layers className="h-4 w-4" />
           <span>Cards</span>
         </div>
-        <span className="text-xs font-semibold text-white/90">
+        <span className="text-[12px] text-white/90">
           {visible.length} left
         </span>
       </div>
@@ -331,12 +331,12 @@ export function CardStack({
           onTouchEnd={onTouchEnd}
         >
           {archiveHint ? (
-            <div className="pointer-events-none absolute left-4 top-6 z-30 rounded-lg bg-[#76ab19] px-3 py-1 text-xs font-bold uppercase tracking-wide text-white">
+            <div className="pointer-events-none absolute left-4 top-6 z-30 rounded-lg bg-[#76ab19] px-3 py-1 text-[12px] uppercase tracking-wide text-white">
               Archive
             </div>
           ) : null}
           {trashHint ? (
-            <div className="pointer-events-none absolute right-4 top-6 z-30 rounded-lg bg-[#d63b2f] px-3 py-1 text-xs font-bold uppercase tracking-wide text-white">
+            <div className="pointer-events-none absolute right-4 top-6 z-30 rounded-lg bg-[#d63b2f] px-3 py-1 text-[12px] uppercase tracking-wide text-white">
               Delete
             </div>
           ) : null}
@@ -367,7 +367,7 @@ export function CardStack({
               type="button"
               disabled={currentBusy}
               onClick={() => doSuggested(current.item, current)}
-              className="mx-auto mt-4 flex w-full max-w-md items-center justify-center gap-2 rounded-xl bg-white/20 py-3 text-sm font-semibold text-white shadow-[inset_0_1px_0_rgba(255,255,255,0.25)] backdrop-blur-sm transition hover:bg-white/30 disabled:opacity-50"
+              className="mx-auto mt-4 flex w-full max-w-md items-center justify-center gap-2 rounded-xl bg-white/20 py-3 text-[14px] text-white shadow-[inset_0_1px_0_rgba(255,255,255,0.25)] backdrop-blur-sm transition hover:bg-white/30 disabled:opacity-50"
             >
               ✓ {SUGGEST_VERB[current.item.guide.action]} — as suggested
             </button>
@@ -440,12 +440,12 @@ export function CardStack({
               <Archive className="h-5 w-5" />
             </CardAction>
           </div>
-          <p className="pb-2 text-center text-[11px] text-white/80">
+          <p className="pb-2 text-center text-[12px] text-white/80">
             Swipe right to archive · left to delete — trackpad works too
           </p>
         </>
       ) : (
-        <p className="pb-4 pt-4 text-center text-[11px] text-white/80">
+        <p className="pb-4 pt-4 text-center text-[12px] text-white/80">
           One tap clears the whole group — or decide one by one
         </p>
       )}
@@ -475,8 +475,7 @@ function BulkCardFace({
   const extra = section.items.length - shown.length;
   return (
     <article
-      className={`seer-card-face flex min-h-[380px] flex-col rounded-[22px] p-5 ${
-        muted ? "pointer-events-none" : ""
+      className={`seer-card-face flex min-h-[380px] flex-col rounded-[22px] p-5 ${ muted ?"pointer-events-none" : ""
       }`}
     >
       <div className="flex items-center gap-3">
@@ -487,11 +486,11 @@ function BulkCardFace({
           <Zap className="h-6 w-6" />
         </div>
         <div className="min-w-0 flex-1">
-          <h3 className="text-[15px] font-semibold leading-snug">
+          <h3 className="text-[17px] font-bold leading-snug">
             {verb} all of these?
           </h3>
           <p
-            className="text-xs font-semibold uppercase tracking-wide"
+            className="text-[12px] uppercase tracking-wide"
             style={{ color: section.color }}
           >
             {section.label} · {section.items.length}
@@ -501,8 +500,8 @@ function BulkCardFace({
 
       <ul className="mt-4 flex-1 space-y-2 overflow-hidden">
         {shown.map((item) => (
-          <li key={item.id} className="flex items-baseline gap-2 text-[12px]">
-            <span className="max-w-[38%] shrink-0 truncate font-medium">
+          <li key={item.id} className="flex items-baseline gap-2 text-[14px]">
+            <span className="max-w-[38%] shrink-0 truncate">
               {item.fromName || item.fromEmail}
             </span>
             <span className="truncate text-[var(--muted)]">
@@ -511,7 +510,7 @@ function BulkCardFace({
           </li>
         ))}
         {extra > 0 ? (
-          <li className="text-[12px] font-medium text-[var(--muted)]">
+          <li className="text-[14px] text-[var(--muted)]">
             …and {extra} more
           </li>
         ) : null}
@@ -522,7 +521,7 @@ function BulkCardFace({
           <button
             type="button"
             onClick={onConfirm}
-            className="w-full rounded-xl py-3 text-[15px] font-semibold text-white"
+            className="w-full rounded-xl py-3 text-[17px] font-bold text-white"
             style={{ backgroundColor: section.color }}
           >
             {verb} all {section.items.length}
@@ -530,7 +529,7 @@ function BulkCardFace({
           <button
             type="button"
             onClick={onSkip}
-            className="w-full rounded-xl border border-[var(--border)] py-2.5 text-sm font-medium text-[var(--muted)]"
+            className="w-full rounded-xl border border-[var(--border)] py-2.5 text-[14px] text-[var(--muted)]"
           >
             Decide one by one
           </button>
@@ -575,24 +574,23 @@ function CardFace({
             }
           : undefined
       }
-      className={`seer-card-face flex min-h-[380px] flex-col rounded-[22px] p-6 ${
-        muted ? "pointer-events-none" : ""
+      className={`seer-card-face flex min-h-[380px] flex-col rounded-[22px] p-6 ${ muted ?"pointer-events-none" : ""
       }`}
     >
       {/* 1. Sender */}
       <div className="flex items-center gap-3">
         <div
-          className="flex h-12 w-12 shrink-0 items-center justify-center rounded-full text-base font-semibold text-white"
+          className="flex h-12 w-12 shrink-0 items-center justify-center rounded-full text-[14px] text-white"
           style={{ backgroundColor: accent }}
         >
           {mailInitial(item.fromName || item.fromEmail)}
         </div>
         <div className="min-w-0 flex-1">
-          <h3 className="truncate text-[20px] font-semibold">
+          <h3 className="truncate text-[17px] font-bold">
             {item.fromName || item.fromEmail}
           </h3>
           {g?.category ? (
-            <span className="text-[12px] font-medium text-[var(--muted)]">
+            <span className="text-[14px] text-[var(--muted)]">
               {g.category}
             </span>
           ) : null}
@@ -605,7 +603,7 @@ function CardFace({
           subject leads and the email preview carries the context. */}
       <div className="flex flex-1 flex-col items-start justify-center py-6">
         <h2
-          className="line-clamp-3 text-[20px] font-bold leading-tight"
+          className="line-clamp-3 text-[17px] font-bold leading-tight"
           style={{ color: accent }}
         >
           {g?.task && (g.source === "gemini" || g.ask)
@@ -613,12 +611,12 @@ function CardFace({
             : stripEmoji(item.subject)}
         </h2>
         {g?.ask && !(g.task ?? "").includes(g.ask.slice(0, 24)) ? (
-          <p className="mt-3 line-clamp-2 text-[15px] font-medium leading-snug text-[var(--fg)]">
+          <p className="mt-3 line-clamp-2 text-[17px] font-bold leading-snug text-[var(--fg)]">
             “{stripEmoji(g.ask)}”
           </p>
         ) : null}
         {item.snippet ? (
-          <p className="mt-3 line-clamp-3 text-[12px] leading-snug text-[var(--muted)]">
+          <p className="mt-3 line-clamp-3 text-[14px] leading-snug text-[var(--muted)]">
             {stripEmoji(item.snippet)}
           </p>
         ) : null}
@@ -655,7 +653,7 @@ function CardAction({
       >
         {children}
       </span>
-      <span className="text-[11px] font-medium text-white/85">{label}</span>
+      <span className="text-[12px] text-white/85">{label}</span>
     </button>
   );
 }
