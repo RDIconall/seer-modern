@@ -160,6 +160,21 @@ over the whole category, and every row keeps its own Archive and Delete. No
 grey text anywhere — every cell reads at foreground strength, which is what
 makes a table scannable. Columns: From, Subject, When, Actions.
 
+## CEO issue pass 2 (GitHub #17–#21)
+
+- **#17 Counts:** the Atlas top strip has a counts icon opening a small table —
+  Inbox / On the board / In Triage, each in **conversations and messages**.
+- **#18 / #20 From:** the Triage table now has distinct **From**, **Subject**,
+  and **Seer's read** columns. The native sender and subject come straight from
+  the provider (persisted on filed rows and digest items), no longer blended
+  with the AI summary. Blank From was stale data — the brief now carries the
+  native fields, filled on rebuild.
+- **#19 Columns:** the table is `table-fixed` with even spacing and drag-to-
+  resize handles on every column edge.
+- **#21 Smarter triage:** inside each category the deep read splits rows into
+  **Needs a call · maybe a matter** and **Safe to delete**, each with its own
+  bulk action, on top of per-row Archive/Delete.
+
 ## Changelog
 
 - 2026-08-09 — Export gains native From name / From email / Subject on every
