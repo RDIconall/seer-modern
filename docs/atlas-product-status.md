@@ -123,6 +123,27 @@ the deep read's verdict, message count and thread id. `?format=json` returns
 the same rows plus the accounting object. Linked as "Export CSV" from the
 inbox dashboard in both Atlas and Triage.
 
+## CEO issue pass (GitHub #10–#15)
+
+- **#10 Fonts:** matter names are content, so they render Regular 400; only
+  true headings (function columns, section titles) stay Bold 700.
+- **#11 Dashboard tile:** the always-on inbox stats tile is gone
+  (`InboxDashboard` deleted). The CSV export moved to a small link in the
+  Atlas top strip and the Triage header.
+- **#12 Catch-up:** the "while you were away" bar is collapsed to one icon in
+  the Atlas top strip; it opens a popover on demand (`CatchupCard` deleted,
+  folded into `AtlasBoard`).
+- **#13 Settled:** the Settled column is gone. Settling a matter archives its
+  conversations and closes it (already the server behaviour) — no parking lot.
+- **#14 Reader = Outlook:** the reader shows sender, recipients, subject, body
+  and a toolbar (reply / reply all / forward / archive / delete) that calls the
+  same provider actions. The Seer "The ask" callout and lifted-link chips — the
+  interim panel above the message — are removed; attachments and calendar RSVP
+  (both native to Outlook) stay.
+- **#15 Triage table:** Triage is a table, one row per conversation, each with
+  its own Archive and Delete (optimistic, undoable). Finished matters sit above
+  it as one-tap Close rows.
+
 ## Changelog
 
 - 2026-08-09 — One row, one home: a conversation owned by a matter can no
