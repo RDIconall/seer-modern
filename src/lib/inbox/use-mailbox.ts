@@ -13,6 +13,7 @@ import type {
 } from "@/lib/inbox/types";
 import type { ComposeDraft } from "@/components/inbox/ComposePanel";
 import type { Brief, Matter } from "@/lib/inbox/matters";
+import { withInboxAccounting } from "@/lib/inbox/inbox-accounting";
 import {
   actionThreadId,
   buildCardDeck,
@@ -451,21 +452,28 @@ export function useMailbox(initialTab: ViewTab = "inbox") {
   /** Headlines glanced → originals archived in one motion. */
   const clearHeadlines = useCallback(
     async (
-      ids: { id: string; threadId: string }[],
+      ids: { id: string; threadId: string; count?: number }[],
       reason?: string,
     ) => {
       if (ids.length === 0) return;
+      const removedCount = ids.reduce((n, row) => n + (row.count ?? 1), 0);
       const gone = new Set(ids.map((x) => x.id));
+      const goneThreads = new Set(ids.map((x) => x.threadId));
       for (const x of ids) {
         markActed(x.id, x.threadId);
         removeFromLists(x.id);
       }
-      setBrief((prev) =>
-        prev
-          ? {
+      setBrief((prev) => {
+        if (!prev) return prev;
+        const next: Brief = {
               ...prev,
               headlines: prev.headlines.filter((h) => !gone.has(h.id)),
               headlineIds: prev.headlineIds.filter((h) => !gone.has(h.id)),
+              filed: prev.filed?.filter(
+                (row) =>
+                  !gone.has(row.emailId) &&
+                  !goneThreads.has(row.threadId),
+              ),
               digest: prev.digest
                 ? {
                     ...prev.digest,
@@ -478,9 +486,22 @@ export function useMailbox(initialTab: ViewTab = "inbox") {
                       .filter((theme) => theme.emailIds.length > 0),
                   }
                 : prev.digest,
-            }
-          : prev,
-      );
+              totalInbox:
+                prev.totalInbox != null
+                  ? Math.max(0, prev.totalInbox - removedCount)
+                  : prev.totalInbox,
+              providerTotal: prev.providerTotal
+                ? {
+                    ...prev.providerTotal,
+                    messages: Math.max(
+                      0,
+                      prev.providerTotal.messages - removedCount,
+                    ),
+                  }
+                : prev.providerTotal,
+            };
+        return withInboxAccounting(next);
+      });
       try {
         const res = await fetch("/api/action/bulk", {
           method: "POST",

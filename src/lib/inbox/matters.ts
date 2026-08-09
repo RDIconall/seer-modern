@@ -24,6 +24,10 @@ import {
   matterCandidateFor,
   type MatterCandidate,
 } from "@/lib/inbox/triage-view";
+import {
+  buildInboxAccounting,
+  type InboxAccounting,
+} from "@/lib/inbox/inbox-accounting";
 import { loadMerchants } from "@/lib/store/merchants";
 import {
   CODE_PATTERN,
@@ -207,7 +211,7 @@ export type UnsureItem = {
  * treats any older brief as stale and rebuilds it, so a redesign never
  * leaves a stale Atlas on screen waiting for a manual refresh.
  */
-export const BRIEF_ENGINE = 12;
+export const BRIEF_ENGINE = 13;
 
 /**
  * The forecast lens — "what matters WHEN". A temporal view over the same
@@ -253,6 +257,8 @@ export type Brief = {
   pinned?: Matter[];
   /** "What matters when" — matter ids bucketed by the forecast lens */
   forecast?: Forecast;
+  /** Shared Atlas/Triage accounting; both dashboards render this object. */
+  accounting?: InboxAccounting;
   /** Deep reads still outstanding — Atlas says so rather than pretending */
   unread?: number;
   /** Clustering calls that errored — a silent 0-matters brief is a bug */
@@ -1592,6 +1598,16 @@ export async function buildBrief(
     forecast[bucketOf(m)].push(m.id);
   }
 
+  const accounting = buildInboxAccounting({
+    asOf: new Date().toISOString(),
+    providerTotal: providerTotal?.messages ?? items.length,
+    functions,
+    matters: cleanedMatters,
+    pinned,
+    filed: cleanedFiled,
+    digestIds: digestItems.map((item) => item.id),
+  });
+
   const brief: Brief = {
     builtAt: new Date().toISOString(),
     engine: BRIEF_ENGINE,
@@ -1599,6 +1615,7 @@ export async function buildBrief(
     matters: cleanedMatters,
     pinned,
     forecast,
+    accounting,
     headlines,
     // Clear-all now covers the whole digest (fyi + read-and-delete)
     headlineIds: digestItems.map((i) => ({

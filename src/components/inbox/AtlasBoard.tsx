@@ -24,6 +24,7 @@ import { CSS } from "@dnd-kit/utilities";
 import { GripVertical } from "lucide-react";
 import type { Brief, FiledEmail, Matter } from "@/lib/inbox/matters";
 import { formatAmount } from "@/lib/crm/registry";
+import { InboxDashboard } from "@/components/inbox/InboxDashboard";
 
 /**
  * ATLAS — the CEO whiteboard. Every matter is one bare name under its
@@ -514,22 +515,6 @@ export function AtlasBoard({
     onReorder(target, targetIds);
   }
 
-  const digestCount =
-    brief?.digest?.themes.reduce((n, t) => n + t.emailIds.length, 0) ??
-    brief?.headlines.length ??
-    0;
-  const inMatters = brief
-    ? new Set(
-        [...brief.matters, ...(brief.pinned ?? [])].flatMap((m) => m.emailIds),
-      ).size
-    : 0;
-  const filedMessages =
-    brief?.filed?.reduce((n, f) => n + (f.count ?? 1), 0) ?? 0;
-  const accounted = inMatters + filedMessages + digestCount;
-  const total = brief?.totalInbox ?? accounted;
-  const providerCount = brief?.providerTotal?.messages || undefined;
-  const short = Math.max(0, (providerCount ?? total) - accounted);
-
   if (!brief) {
     return (
       <p className="px-4 py-4 text-[14px] text-[var(--muted)]">
@@ -551,18 +536,12 @@ export function AtlasBoard({
 
   return (
     <div className="min-h-0 flex-1 overflow-y-auto">
-      <div className="flex items-baseline gap-2 border-b border-[var(--border)] px-4 py-2">
-        <span className="text-[12px] text-[var(--muted)]">
-          {short === 0
-            ? `All ${providerCount ?? total} messages placed`
-            : `${short} of ${providerCount ?? total} not read yet`}
-        </span>
-        {building ? (
-          <span className="text-[12px] text-[var(--nav-muted)]">
-            · reading…
-          </span>
-        ) : null}
-      </div>
+      <InboxDashboard brief={brief} />
+      {building ? (
+        <p className="px-4 pt-2 text-[12px] text-[var(--nav-muted)]">
+          Reading…
+        </p>
+      ) : null}
 
       <DndContext
         sensors={sensors}

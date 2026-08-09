@@ -10,6 +10,7 @@ import {
   titleTokensOf,
 } from "@/lib/store/closed-matters";
 import { appendLedger } from "@/lib/store/triage-ledger";
+import { withInboxAccounting } from "@/lib/inbox/inbox-accounting";
 import {
   addToMatter,
   createMatter,
@@ -69,7 +70,7 @@ export async function POST(req: Request) {
     matterIds?: string[];
   };
 
-  const brief = await loadBrief(session.email);
+  let brief = await loadBrief(session.email);
 
   // CLOSE — the loudest "this is done" signal. Archives the matter's
   // whole conversations, writes a durable closure record so it never
@@ -118,6 +119,17 @@ export async function POST(req: Request) {
       if (brief.pinned) {
         brief.pinned = brief.pinned.filter((m) => m.id !== body.matterId);
       }
+      const removedCount = new Set(matter.emailIds).size;
+      if (brief.totalInbox != null) {
+        brief.totalInbox = Math.max(0, brief.totalInbox - removedCount);
+      }
+      if (brief.providerTotal) {
+        brief.providerTotal.messages = Math.max(
+          0,
+          brief.providerTotal.messages - removedCount,
+        );
+      }
+      brief = withInboxAccounting(brief);
       await saveBrief(session.email, brief);
     }
     return NextResponse.json({
@@ -141,6 +153,7 @@ export async function POST(req: Request) {
       const p = brief.pinned?.find((x) => x.id === body.matterId);
       if (m) m.title = body.title.trim();
       if (p) p.title = body.title.trim();
+      brief = withInboxAccounting(brief);
       await saveBrief(session.email, brief);
     }
     return NextResponse.json({ ok: true, brief });
@@ -193,6 +206,7 @@ export async function POST(req: Request) {
       };
       brief.matters = [fresh, ...brief.matters];
       brief.filed = (brief.filed ?? []).filter((f) => !chosen.has(f.emailId));
+      brief = withInboxAccounting(brief);
       await saveBrief(session.email, brief);
     }
     return NextResponse.json({ ok: true, matterId: matter.id, brief });
@@ -216,6 +230,7 @@ export async function POST(req: Request) {
     await deleteMatter(session.email, body.matterId);
     if (brief) {
       brief.matters = brief.matters.filter((m) => m.id !== body.matterId);
+      brief = withInboxAccounting(brief);
       await saveBrief(session.email, brief);
     }
     return NextResponse.json({ ok: true, brief });
@@ -250,9 +265,11 @@ export async function POST(req: Request) {
         ),
       );
     }
-    const restoredBrief =
+    let restoredBrief =
       brief && closure ? restoreClosureMatter(brief, closure) : brief;
     if (restoredBrief && restoredBrief !== brief) {
+      restoredBrief = withInboxAccounting(restoredBrief);
+      brief = restoredBrief;
       await saveBrief(session.email, restoredBrief);
     }
     const closed = await reopenMatter(session.email, body.matterId);

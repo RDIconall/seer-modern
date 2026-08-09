@@ -50,7 +50,7 @@ these is not done, regardless of the logic behind it.
 |---|---|
 | "Triage clears; the matters view manages" | ✅ Triage rebuilt on the same `Brief`/deep-read brain as Atlas. Old `guide.action` `TriageTable` deleted; the "0 need you / 147 need you" contradiction is gone. `TriageDigest.tsx` |
 | "AI creates a brief of the FYI / read-and-delete mass so I don't deal with each one" | ✅ "What else happened": business-vocabulary themes, one sentence each with the dates/amounts that matter; expand for evidence; clear one category at a time. |
-| "Triage is where AI needs my help… fix matters" | ⚠️ **Promotion built** — deep-read matter dispositions that clustering missed appear as "Possible matters" with one-tap "Make matter". **Closure proposals not surfaced**: closure records are written on settle and the model computes `status: looks-closed` + `statusWhy`, but there's no inline "this looks closed — accept?" chip on the matter yet. |
+| "Triage is where AI needs my help… fix matters" | ✅ Both directions built: deep-read disagreements appear as "Possible matters" with one-tap "Make matter"; a `looks-closed` matter shows the evidence and a 44px "Settle matter" action in its panel. |
 
 ## The brain — read everything, think in units (§14, §15, §17, §24)
 
@@ -83,19 +83,19 @@ these is not done, regardless of the logic behind it.
 | Contact autocomplete in compose | ✅ `/api/contacts` ranks address book + person graph + mail graph. |
 | Send hardening | ✅ Bookkeeping no longer gates delivery; storage calls time-bounded; client reports real failures. |
 | Cleaned ledger + undo + reason-level autonomy ladder | ⚠️ APIs + stores built (`triage-ledger`, `autonomy`, `/api/triage/*`); **no ledger UI panel yet.** |
+| Shared inbox accounting dashboard | ✅ Same server-computed object renders in Atlas and Triage: as-of timestamp, provider total, messages mapped to matters by function category, Triage count, and pending shortfall. Invariant: total = Atlas + Triage + pending. |
 
 ---
 
 ## Open, in priority order
 
-1. **Closure proposals in the UI** — an inline "Looks closed — archive its N conversations?" chip on a matter whose `status` is `looks-closed`, wired to the existing close API. (Brain done; UI missing.)
-2. **Render the forecast lens** — Now / Next / Waiting / At risk / Quiet as the top layer of Atlas. (Data done; UI missing.)
-3. **Cleaned ledger panel** — surface `/api/triage/ledger` with one-tap undo. (API done; UI missing.)
-4. **Retire the snippet grader** from `cron/sync` and delete the dead classifier path once the reader/AssistBar no longer read `guide`.
-5. **Timeglass connector** — behind `WorkSignalAdapter`; lights up the liveness line and "quiet but alive". Needs credentials.
-6. **Drive / SharePoint file signals** — same seam; needs OAuth scopes.
-7. **Salesforce write-back** for matter handoff (activity/note on the opportunity).
-8. **Push notifications** for the "since you last opened" catch-up.
+1. **Render the forecast lens** — Now / Next / Waiting / At risk / Quiet as the top layer of Atlas. (Data done; UI missing.)
+2. **Cleaned ledger panel** — surface `/api/triage/ledger` with one-tap undo. (API done; UI missing.)
+3. **Retire the snippet grader** from `cron/sync` and delete the dead classifier path once the reader/AssistBar no longer read `guide`.
+4. **Timeglass connector** — behind `WorkSignalAdapter`; lights up the liveness line and "quiet but alive". Needs credentials.
+5. **Drive / SharePoint file signals** — same seam; needs OAuth scopes.
+6. **Salesforce write-back** for matter handoff (activity/note on the opportunity).
+7. **Push notifications** for the "since you last opened" catch-up.
 
 ---
 
@@ -108,3 +108,7 @@ these is not done, regardless of the logic behind it.
   (`AtlasBoard`/`MatterPanel`), collapsed the duplicate settled store into
   `closed-matters`, removed the 14-matter ceiling, added Postgres storage,
   model failover, contact autocomplete, and send hardening.
+- 2026-08-09 — Added the shared Atlas/Triage inbox dashboard with the
+  provider-total accounting invariant and category counts. Triage now includes
+  records-to-file, digest themes, and matter promotion; matter panels surface
+  evidence-backed closure proposals.

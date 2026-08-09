@@ -98,7 +98,19 @@ export function restoreClosureMatter(
 ): Brief {
   const matter = closure.matter;
   if (!matter || brief.matters.some((m) => m.id === matter.id)) return brief;
-  return { ...brief, matters: [matter, ...brief.matters] };
+  const added = new Set(matter.emailIds).size;
+  return {
+    ...brief,
+    matters: [matter, ...brief.matters],
+    totalInbox:
+      brief.totalInbox != null ? brief.totalInbox + added : brief.totalInbox,
+    providerTotal: brief.providerTotal
+      ? {
+          ...brief.providerTotal,
+          messages: brief.providerTotal.messages + added,
+        }
+      : brief.providerTotal,
+  };
 }
 
 /**

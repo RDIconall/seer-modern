@@ -3,6 +3,7 @@ import { classifyMessage } from "@/lib/inbox/classify";
 import { classifyInboxWithAssistant } from "@/lib/inbox/gemini-triage";
 import { getOrBuildMailHistory } from "@/lib/inbox/mail-history-store";
 import { buildBrief, loadBrief, saveBrief } from "@/lib/inbox/matters";
+import { withInboxAccounting } from "@/lib/inbox/inbox-accounting";
 import { saveMatterFix } from "@/lib/store/matter-fixes";
 import type { EmailItem } from "@/lib/inbox/types";
 import { getInboxSnapshot } from "@/lib/mail/inbox-snapshot";
@@ -43,12 +44,13 @@ export async function PATCH(req: Request) {
   }
   await saveMatterFix(session.email, matterId, orgUnit);
   // Reflect immediately in the stored brief — no rebuild needed
-  const brief = await loadBrief(session.email);
+  let brief = await loadBrief(session.email);
   if (brief) {
     const m = brief.matters.find((x) => x.id === matterId);
     if (m) {
       m.orgUnit = orgUnit;
       m.orgConfidence = 1;
+      brief = withInboxAccounting(brief);
       await saveBrief(session.email, brief);
     }
   }

@@ -227,6 +227,24 @@ export function MatterPanel({
       </header>
 
       <div className="min-h-0 flex-1 overflow-y-auto">
+        {m.status === "looks-closed" && !settled && onSettle ? (
+          <section className="border-b border-[var(--border)] bg-[var(--card)] px-4 py-3">
+            <p className="text-[17px] font-bold text-[var(--fg-strong)]">
+              This looks finished
+            </p>
+            <p className="mt-0.5 text-[14px] leading-5 text-[var(--muted)]">
+              {m.statusWhy || "The latest evidence says the goal is met."}
+            </p>
+            <button
+              type="button"
+              onClick={() => onSettle(m.id, true)}
+              className="mt-2 flex min-h-11 items-center rounded-full bg-[var(--brand)] px-4 text-[14px] font-bold text-white"
+            >
+              Settle matter
+            </button>
+          </section>
+        ) : null}
+
         {/* The next move leads — it is the reason to open a matter. */}
         <section className="border-b border-[var(--border)] px-4 py-3">
           <p className="text-[12px] text-[var(--nav-muted)]">

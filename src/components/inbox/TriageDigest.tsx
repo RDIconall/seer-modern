@@ -3,6 +3,19 @@
 import { useMemo, useState } from "react";
 import type { Brief } from "@/lib/inbox/matters";
 import { digestThemeRows } from "@/lib/inbox/triage-view";
+import { InboxDashboard } from "@/components/inbox/InboxDashboard";
+
+function orgRoot(orgUnit: string, functions: string[]): string {
+  const lower = orgUnit.toLowerCase();
+  let best = "";
+  for (const fn of functions) {
+    const fl = fn.toLowerCase();
+    if ((lower === fl || lower.startsWith(`${fl} —`)) && fl.length > best.length) {
+      best = fn;
+    }
+  }
+  return best || orgUnit;
+}
 
 function shortTime(iso?: string): string {
   if (!iso) return "";
@@ -47,7 +60,7 @@ export function TriageDigest({
     orgUnit?: string,
   ) => void;
   onClear: (
-    rows: { id: string; threadId: string }[],
+    rows: { id: string; threadId: string; count?: number }[],
     reason?: string,
   ) => void;
 }) {
@@ -56,8 +69,24 @@ export function TriageDigest({
     () => (brief?.filed ?? []).filter((f) => f.matterCandidate),
     [brief],
   );
+  const recordGroups = useMemo(() => {
+    const groups = new Map<string, NonNullable<Brief["filed"]>>();
+    for (const row of brief?.filed ?? []) {
+      if (row.matterCandidate) continue;
+      const key = orgRoot(row.orgUnit, brief?.functions ?? []);
+      groups.set(key, [...(groups.get(key) ?? []), row]);
+    }
+    return [...groups.entries()]
+      .map(([category, rows]) => ({ category, rows }))
+      .sort((a, b) => b.rows.length - a.rows.length);
+  }, [brief]);
   const themes = brief?.digest?.themes ?? [];
   const digestCount = themes.reduce((n, t) => n + t.emailIds.length, 0);
+  const recordCount = recordGroups.reduce(
+    (n, group) =>
+      n + group.rows.reduce((sum, row) => sum + (row.count ?? 1), 0),
+    0,
+  );
 
   if (!brief) {
     return (
@@ -68,7 +97,9 @@ export function TriageDigest({
   }
 
   return (
-    <div className="min-h-0 flex-1 overflow-y-auto px-4 py-3">
+    <div className="min-h-0 flex-1 overflow-y-auto">
+      <InboxDashboard brief={brief} />
+      <div className="px-4 py-3">
       <header className="mb-3">
         <h1 className="text-[17px] font-bold text-[var(--fg-strong)]">
           Triage
@@ -77,6 +108,7 @@ export function TriageDigest({
           {candidates.length
             ? `${candidates.length} possible matter${candidates.length === 1 ? "" : "s"} · `
             : ""}
+          {recordCount ? `${recordCount} records · ` : ""}
           {digestCount} updates summarized
           {brief.unread ? ` · ${brief.unread} still being read` : ""}
         </p>
@@ -122,6 +154,78 @@ export function TriageDigest({
                       Make matter
                     </button>
                   </div>
+                </li>
+              );
+            })}
+          </ul>
+        </section>
+      ) : null}
+
+      {recordGroups.length > 0 ? (
+        <section className="mb-5">
+          <h2 className="mb-1 text-[17px] font-bold text-[var(--fg-strong)]">
+            Records to file
+          </h2>
+          <ul className="divide-y divide-[var(--border)]">
+            {recordGroups.map((group) => {
+              const key = `records:${group.category}`;
+              const open = openThemes.has(key);
+              const rows = group.rows.map((row) => ({
+                id: row.emailId,
+                threadId: row.threadId,
+                count: row.count,
+              }));
+              return (
+                <li key={key} className="py-2">
+                  <div className="flex items-start gap-3">
+                    <button
+                      type="button"
+                      onClick={() =>
+                        setOpenThemes((prev) => {
+                          const next = new Set(prev);
+                          if (next.has(key)) next.delete(key);
+                          else next.add(key);
+                          return next;
+                        })
+                      }
+                      aria-expanded={open}
+                      className="min-w-0 flex-1 text-left"
+                    >
+                      <span className="text-[14px] font-bold text-[var(--fg-strong)]">
+                        {group.category}
+                      </span>
+                      <span className="ml-1 text-[12px] text-[var(--nav-muted)]">
+                        {group.rows.length}
+                      </span>
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => onClear(rows, `File: ${group.category}`)}
+                      className="shrink-0 py-0.5 text-[12px] font-bold text-[var(--brand)]"
+                    >
+                      File
+                    </button>
+                  </div>
+                  {open ? (
+                    <ul className="mt-1 border-l border-[var(--border)] pl-3">
+                      {group.rows.map((row) => (
+                        <li key={row.emailId}>
+                          <button
+                            type="button"
+                            onClick={() => onOpenEmail(row.emailId)}
+                            className="flex w-full gap-2 py-1 text-left"
+                          >
+                            <span className="line-clamp-2 min-w-0 flex-1 text-[14px] leading-5 text-[var(--fg)]">
+                              {row.line}
+                            </span>
+                            <span className="shrink-0 text-[12px] text-[var(--nav-muted)]">
+                              {shortTime(row.at)}
+                            </span>
+                          </button>
+                        </li>
+                      ))}
+                    </ul>
+                  ) : null}
                 </li>
               );
             })}
@@ -213,6 +317,7 @@ export function TriageDigest({
           </ul>
         )}
       </section>
+      </div>
     </div>
   );
 }
