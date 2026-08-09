@@ -1,0 +1,110 @@
+# Atlas / Seer — Living Product Status
+
+This is the source of truth for what was asked, what is built, and what is
+left. It is keyed to the product owner's own words (section numbers refer
+to `seer-thread.md` on `main`). Update it on every change: move rows to
+Built only when the code is deployed and verified, and add a dated line to
+the changelog at the bottom.
+
+Legend: ✅ built & deployed · ⚠️ partial (note what's missing) · ❌ not built.
+
+---
+
+## The standing UX bar (non-negotiable)
+
+Hold this on every screen before shipping. A screen that violates any of
+these is not done, regardless of the logic behind it.
+
+1. **Never truncate the primary object.** A matter title, a person's name,
+   the ask — these wrap or clamp to two lines. One-line `truncate` on the
+   thing the screen is about is a bug.
+2. **Real tap targets.** Anything tappable is ≥ 44px. No 12px text links
+   doing the job of a button.
+3. **One hierarchy per screen.** The most important thing is visually the
+   biggest/first. No stack of identical gray paragraphs.
+4. **The screen earns its space.** No half-empty viewport next to
+   truncated content. Density comes from content, not from cramming.
+5. **Actions, not narration.** The AI's suggestion is a thing you can do,
+   not a sentence describing what you could do.
+6. **Recency is always present.** A row you might act on shows its time.
+7. **One typeface (National 2), two weights (400/700), three sizes
+   (12/14/17).** No synthetic 600. No eyebrow micro-caps. No self-narration
+   ("Seer suggests…", confidence scores, rule ids).
+
+---
+
+## Atlas — turn the whole inbox into a living corpus (§18, §20, §21)
+
+| Ask (their words) | Status |
+|---|---|
+| "Classify the entire inbox into the org format… treat the inbox as a living corpus and I can see its entirety every time" | ✅ Deep read per email, filed into the function registry; coverage reconciled against the provider's own count. `matters.ts`, `AtlasBoard.tsx` |
+| "How do I know this is the full inbox?" → accounted-vs-provider header | ✅ One line: "All N placed" / "N not read yet". `AtlasBoard.tsx` |
+| "Remove the people/urgency/update filters… one level, don't make me click too much" | ✅ CEO whiteboard: function columns, bare matter names, no filters. `AtlasBoard.tsx` |
+| "You dumped 377 emails into operations — add a Salesforce lookup to pull codes" | ✅ Branches by study code / counterparty; CRM amounts on rows. Salesforce connected. |
+| "Click into a matter → feel like Pivotal Tracker: goal, next action…" | ✅ `MatterPanel`: next move leads, then state / goal / CRM / people. |
+| "…and what does AI suggest to do (or not do) with this email" | ✅ Restored — per-conversation suggestion renders on each row in `MatterPanel`. |
+
+## Triage — clear the non-matters, brief the FYI mass (§10, §18, §20)
+
+| Ask | Status |
+|---|---|
+| "Triage clears; the matters view manages" | ✅ Triage rebuilt on the same `Brief`/deep-read brain as Atlas. Old `guide.action` `TriageTable` deleted; the "0 need you / 147 need you" contradiction is gone. `TriageDigest.tsx` |
+| "AI creates a brief of the FYI / read-and-delete mass so I don't deal with each one" | ✅ "What else happened": business-vocabulary themes, one sentence each with the dates/amounts that matter; expand for evidence; clear one category at a time. |
+| "Triage is where AI needs my help… fix matters" | ⚠️ **Promotion built** — deep-read matter dispositions that clustering missed appear as "Possible matters" with one-tap "Make matter". **Closure proposals not surfaced**: closure records are written on settle and the model computes `status: looks-closed` + `statusWhy`, but there's no inline "this looks closed — accept?" chip on the matter yet. |
+
+## The brain — read everything, think in units (§14, §15, §17, §24)
+
+| Ask | Status |
+|---|---|
+| "Why keywords at all? Send everything for full meaning up front" | ⚠️ Deep read decides every email's fate; sender-shape delete rule dead. **Grader still runs in cron** (`classifyInboxWithAssistant` in `cron/sync`) to annotate `guide` text; nothing load-bearing depends on it. Full removal pending. |
+| "It's a state of what's going on in the work life" | ✅ Matters carry narrative / owner / urgency, carried day to day. |
+| "Smart summaries by tracking all the matters left in my inbox" | ⚠️ Clustering + memory built. **The forecast lens (Now/Next/Waiting/At risk/Quiet) is computed on every brief but rendered nowhere.** |
+| "The Abbott one — matters aren't getting threaded" | ✅ One concern = one matter; conversations under it. Covered by `mergeMatters` test. |
+| Context-full prompts ("Sandy is a board member, we just had a board meeting") | ✅ Context compiler feeds each read relationship / calendar / likely matter / CRM / behavior, with provenance. `brain/context.ts` |
+| "No reason to limit matters per person" | ✅ 14-matter prompt ceiling removed; chunking is cost-only. |
+
+## Mechanics (§13, §22, §23)
+
+| Ask | Status |
+|---|---|
+| "Archive from Atlas should close the thread" | ✅ Thread-wide. Matter **settle/close now writes a durable closure record** (no resurrection) and archives every thread; reopen restores. Row-level archive still archives without a closure record (correct — a single row isn't a matter closure). |
+| "Rename matters and create my own" | ✅ Survive every rebuild. |
+| "App checks my email for me… summarize new since I last opened" | ✅ 5-min cron + catch-up card. |
+| "Make it push" | ❌ Background sync yes; no push notifications. |
+| Salesforce connection | ✅ Live. Write-back handoff ❌ (handoff recorded locally only). |
+| Timeglass / files / notes ("also key to the brain") | ❌ `WorkSignalAdapter` seam built; no connector. Needs Timeglass MCP/API + Drive scopes. |
+
+## Beyond the original asks (built along the way)
+
+| Item | Status |
+|---|---|
+| Supabase Postgres as system of record | ✅ Primary store; Redis dual-write + read-through backfill; RLS-locked; verified via `/api/health?probe=storage`. |
+| Model-budget failover + honest error banner | ✅ Direct key → AI Gateway on quota/billing; brief carries a human `clusterError`. |
+| Contact autocomplete in compose | ✅ `/api/contacts` ranks address book + person graph + mail graph. |
+| Send hardening | ✅ Bookkeeping no longer gates delivery; storage calls time-bounded; client reports real failures. |
+| Cleaned ledger + undo + reason-level autonomy ladder | ⚠️ APIs + stores built (`triage-ledger`, `autonomy`, `/api/triage/*`); **no ledger UI panel yet.** |
+
+---
+
+## Open, in priority order
+
+1. **Closure proposals in the UI** — an inline "Looks closed — archive its N conversations?" chip on a matter whose `status` is `looks-closed`, wired to the existing close API. (Brain done; UI missing.)
+2. **Render the forecast lens** — Now / Next / Waiting / At risk / Quiet as the top layer of Atlas. (Data done; UI missing.)
+3. **Cleaned ledger panel** — surface `/api/triage/ledger` with one-tap undo. (API done; UI missing.)
+4. **Retire the snippet grader** from `cron/sync` and delete the dead classifier path once the reader/AssistBar no longer read `guide`.
+5. **Timeglass connector** — behind `WorkSignalAdapter`; lights up the liveness line and "quiet but alive". Needs credentials.
+6. **Drive / SharePoint file signals** — same seam; needs OAuth scopes.
+7. **Salesforce write-back** for matter handoff (activity/note on the opportunity).
+8. **Push notifications** for the "since you last opened" catch-up.
+
+---
+
+## Changelog
+
+- 2026-08-09 — Rebuilt the matter panel and board rows mobile-first (no
+  truncation of titles/asks, 44px targets, next-move-first hierarchy).
+  Rebuilt Triage on the deep-read brain (digest themes + matter promotion),
+  deleted the legacy `TriageTable`. Integrated the CEO whiteboard
+  (`AtlasBoard`/`MatterPanel`), collapsed the duplicate settled store into
+  `closed-matters`, removed the 14-matter ceiling, added Postgres storage,
+  model failover, contact autocomplete, and send hardening.
