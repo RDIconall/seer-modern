@@ -14,6 +14,10 @@ import type {
 import type { ComposeDraft } from "@/components/inbox/ComposePanel";
 import type { Brief, Matter } from "@/lib/inbox/matters";
 import {
+  applyTriageClear,
+  planTriageClear,
+} from "@/lib/inbox/triage-clear";
+import {
   actionThreadId,
   buildCardDeck,
   ensureFwd,
@@ -401,6 +405,12 @@ export function useMailbox(initialTab: ViewTab = "inbox") {
 
   // THE BRIEF — matters tracked across days + the headline digest
   const [brief, setBrief] = useState<Brief | null>(null);
+  // Always-current brief for handlers that must read it without re-binding
+  // (the optimistic Triage clear snapshots and rolls back from here).
+  const briefRef = useRef<Brief | null>(null);
+  useEffect(() => {
+    briefRef.current = brief;
+  }, [brief]);
   const [briefBuilding, setBriefBuilding] = useState(false);
   // The user's whiteboard arrangement — priority order per column and
   // which matters are settled. Overlays applied on the board by id, so
@@ -448,7 +458,12 @@ export function useMailbox(initialTab: ViewTab = "inbox") {
     }
   }, [brief?.builtAt]);
 
-  /** Triage's two verbs: delete puts mail in the trash, close archives it. */
+  /**
+   * Triage's two verbs: delete trashes, close archives. The rows leave the
+   * screen the instant you tap — the same optimistic model Atlas uses — and
+   * the provider round-trip runs behind it. If the server rejects the clear,
+   * the brief snapshot is restored so nothing silently disappears.
+   */
   const clearHeadlines = useCallback(
     async (
       ids: { id: string; threadId: string; count?: number }[],
@@ -456,32 +471,40 @@ export function useMailbox(initialTab: ViewTab = "inbox") {
       mode: "archive" | "trash" = "archive",
     ) => {
       if (ids.length === 0) return;
+      const rows = ids.map(({ id, threadId }) => ({ id, threadId }));
+      const verb = mode === "trash" ? "Deleted" : "Closed";
+
+      // Optimistic: prune the same way the server will, then confirm.
+      const snapshot = briefRef.current;
+      if (snapshot) {
+        const actions = planTriageClear(snapshot, rows);
+        setBrief(applyTriageClear(snapshot, actions));
+      }
+      for (const row of rows) {
+        markActed(row.id, row.threadId);
+        removeFromLists(row.id);
+      }
+      setToast(`${verb} ${ids.length}`);
+
       try {
         const res = await fetch("/api/triage/clear", {
           method: "POST",
           headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({
-            rows: ids.map(({ id, threadId }) => ({ id, threadId })),
-            reason,
-            mode,
-          }),
+          body: JSON.stringify({ rows, reason, mode }),
         });
         const json = await res.json().catch(() => ({}));
         if (!res.ok) {
           throw new Error(json.error ?? "Clear failed");
         }
+        // Reconcile with the server's authoritative accounting.
         if (json.brief) setBrief(json.brief);
-        for (const row of json.cleared ?? []) {
-          markActed(row.id, row.threadId);
-          removeFromLists(row.id);
+        if (json.failed) {
+          setToast(
+            `${verb} ${json.removedCount ?? json.processed}; ${json.failed} failed`,
+          );
         }
-        const verb = mode === "trash" ? "Deleted" : "Closed";
-        setToast(
-          json.failed
-            ? `${verb} ${json.removedCount ?? json.processed}; ${json.failed} failed`
-            : `${verb} ${json.removedCount ?? json.processed}`,
-        );
       } catch (e) {
+        if (snapshot) setBrief(snapshot);
         setToast(e instanceof Error ? e.message : "Clear failed");
       }
     },

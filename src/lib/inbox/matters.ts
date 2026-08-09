@@ -560,6 +560,92 @@ function counterparty(item: EmailItem, ownDomain: string): string {
 }
 
 /**
+ * A machine, not a person: portals and notifiers that fire one message per
+ * PO, alert, or approval step. A deep read can honestly call each of these
+ * "a matter", but twenty myBuy purchase-order notices are ONE standing
+ * relationship, not twenty matters — so promotions from these senders are
+ * collapsed by company instead of each becoming its own board card.
+ */
+const AUTOMATED_SENDER =
+  /(^|[._-])(no-?reply|do-?not-?reply|donotreply|notifications?|notify|alerts?|mailer|automated|autonotify|mybuy|ariba|coupa|concur|workday|servicenow|zendesk|jira|confluence)([._-]|@|$)/i;
+function isAutomatedSender(item: EmailItem): boolean {
+  return (
+    AUTOMATED_SENDER.test(item.fromEmail) ||
+    AUTOMATED_SENDER.test(item.fromName ?? "")
+  );
+}
+
+/**
+ * The registrable company behind a sender, ignoring subdomains: both
+ * no-reply@mybuy.roche.com and notifications@roche.com resolve to "Roche",
+ * so one company's automated mail collapses into one place.
+ */
+function senderCompany(item: EmailItem, ownDomain: string): string {
+  const domain = item.fromEmail.split("@")[1]?.toLowerCase() ?? "";
+  const labels = domain.split(".").filter(Boolean);
+  const root = labels.length >= 2 ? labels[labels.length - 2] : labels[0] ?? "";
+  if (!root || FREEMAIL.test(`${root}.`)) return counterparty(item, ownDomain);
+  return root.length <= 3
+    ? root.toUpperCase()
+    : root.charAt(0).toUpperCase() + root.slice(1);
+}
+
+/**
+ * Fold several promoted reads from one automated system into a single
+ * matter: one card titled for the sender, every notice a row inside it,
+ * the newest actionable ask as the next move.
+ */
+function collapseAutomatedSeeds(
+  seeds: { matter: Matter; item: EmailItem; understanding?: Understanding }[],
+  ownDomain: string,
+  at: string,
+): Matter {
+  const items = seeds.map((s) => s.item);
+  const company = senderCompany(items[0], ownDomain);
+  const nameCounts = new Map<string, number>();
+  for (const it of items) {
+    const n = stripEmoji(it.fromName || "").trim();
+    if (n && n.length <= 40) nameCounts.set(n, (nameCounts.get(n) ?? 0) + 1);
+  }
+  const display =
+    [...nameCounts.entries()].sort((a, b) => b[1] - a[1])[0]?.[0] || company;
+  const owner = seeds.some((s) => s.understanding?.owner === "you")
+    ? "you"
+    : "them";
+  const urgency = Math.max(1, ...seeds.map((s) => s.matter.urgency));
+  const rows = seeds
+    .map((s) => s.matter.emails?.[0])
+    .filter((e): e is MatterEmail => Boolean(e))
+    .sort((a, b) => ((a.at ?? "") < (b.at ?? "") ? 1 : -1));
+  const threadIds = [...new Set(seeds.flatMap((s) => s.matter.threadIds))];
+  const emailIds = [...new Set(seeds.flatMap((s) => s.matter.emailIds))];
+  const newest = [...seeds].sort((a, b) =>
+    a.item.receivedAt < b.item.receivedAt ? 1 : -1,
+  )[0];
+  const ask = newest.understanding?.ask?.trim();
+  return {
+    id: `read:auto:${company.toLowerCase()}`,
+    title: display,
+    category: "read",
+    orgUnit: seeds[0].matter.orgUnit,
+    orgConfidence: 0.7,
+    people: [],
+    narrative: `${rows.length} automated ${
+      rows.length === 1 ? "notice" : "notices"
+    } from ${display}`,
+    nextAction:
+      ask && !/^nothing/i.test(ask) ? ask.slice(0, 80) : "none — review or clear",
+    owner,
+    urgency,
+    status: owner === "them" ? "waiting" : "active",
+    emails: rows.slice(0, 60),
+    emailIds,
+    threadIds,
+    updatedAt: at,
+  };
+}
+
+/**
  * The CRM record behind a matter, resolved by the codes its emails cite.
  * Amounts and stages come from Salesforce, never from the model.
  */
@@ -612,11 +698,15 @@ function affinityKey(
   const hay = `${item.subject}\n${item.snippet}\n${item.guide?.task ?? ""}\n${u?.oneLine ?? ""}`;
   const codes = hay.match(CODE_PATTERN);
   if (codes?.length) {
+    // A KNOWN study/opportunity code is the strongest possible grouping key.
     for (const c of codes) {
       const known = labels.get(normalizeCode(c));
       if (known) return `code:${normalizeCode(c)}`;
     }
-    return `code:${normalizeCode(codes[0])}`;
+    // An UNKNOWN code — a raw PO number on a Roche myBuy notice, say — is
+    // unique per message. Grouping by it fragments one vendor's mail into
+    // dozens of singletons the model never sees together. Fall through to
+    // the counterparty so the whole relationship is read as one.
   }
   return `party:${counterparty(item, ownDomain).toLowerCase()}`;
 }
@@ -1465,6 +1555,14 @@ export async function buildBrief(
   const inMatters = new Set(livingMatters.flatMap((m) => m.threadIds));
   const filed: FiledEmail[] = [];
   const promoted: Matter[] = [];
+  // Promotions from an automated system, held back so one company's many
+  // notices become a single matter rather than one card per message.
+  type AutoSeed = {
+    matter: Matter;
+    item: EmailItem;
+    understanding?: Understanding;
+  };
+  const autoSeeds = new Map<string, AutoSeed[]>();
   const promotedAt = new Date().toISOString();
   for (const i of threadRows) {
     if (inMatters.has(i.threadId)) continue;
@@ -1502,37 +1600,59 @@ export async function buildBrief(
         delete closed[closure.matterId];
         closedDirty = true;
       }
-      promoted.push(
-        matterFromRead({
-          matterId,
-          candidate: {
-            ...candidate,
-            title: edits.renames[matterId]?.title ?? candidate.title,
-            emailIds: ids,
-          },
-          row: {
-            emailId: i.id,
-            threadId: i.threadId,
-            from: who,
-            line: baseFiled.line,
-            suggestion: baseFiled.suggestion,
-            subUnit: baseFiled.subUnit,
-            at: i.receivedAt,
-            count: ids.length,
-          },
-          understanding: u,
-          ...(closure
-            ? {
-                reopenedBecause: `New mail after you closed this (${closure.reason})`,
-              }
-            : {}),
-          at: promotedAt,
-        }),
-      );
+      const seed = matterFromRead({
+        matterId,
+        candidate: {
+          ...candidate,
+          title: edits.renames[matterId]?.title ?? candidate.title,
+          emailIds: ids,
+        },
+        row: {
+          emailId: i.id,
+          threadId: i.threadId,
+          from: who,
+          line: baseFiled.line,
+          suggestion: baseFiled.suggestion,
+          subUnit: baseFiled.subUnit,
+          at: i.receivedAt,
+          count: ids.length,
+        },
+        understanding: u,
+        ...(closure
+          ? {
+              reopenedBecause: `New mail after you closed this (${closure.reason})`,
+            }
+          : {}),
+        at: promotedAt,
+      });
+      // A human's promoted read stands alone. An automated sender's is held
+      // for collapse — but never when the user already renamed this exact
+      // thread's matter, since that is a deliberate one-off.
+      if (isAutomatedSender(i) && !edits.renames[matterId]) {
+        const key = senderCompany(i, ownDomain).toLowerCase();
+        autoSeeds.set(key, [
+          ...(autoSeeds.get(key) ?? []),
+          { matter: seed, item: i, understanding: u },
+        ]);
+      } else {
+        promoted.push(seed);
+      }
       continue;
     }
     filed.push(baseFiled);
   }
+
+  // Collapse each automated sender's promotions into one matter. A lone
+  // notice from a system stays a normal matter; several become "Roche myBuy
+  // — 14 purchase orders" with every thread inside it.
+  for (const [, seeds] of autoSeeds) {
+    if (seeds.length === 1) {
+      promoted.push(seeds[0].matter);
+      continue;
+    }
+    promoted.push(collapseAutomatedSeeds(seeds, ownDomain, promotedAt));
+  }
+
   if (closedDirty) {
     await saveClosedMatters(accountEmail, closed).catch(() => {});
   }
