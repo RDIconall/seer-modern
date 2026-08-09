@@ -116,6 +116,13 @@ longer appear twice.
 
 ## Changelog
 
+- 2026-08-09 — Fixed sending on Outlook. Microsoft answers `sendMail`, `reply`
+  and `replyAll` with **202 Accepted and no body**; the Graph client called
+  `res.json()` on that, threw "Unexpected end of JSON input", and the route
+  reported a failure for mail Microsoft had already accepted. Both mail clients
+  now treat an empty 2xx as success, and the recipient picker's trailing comma
+  is stripped before it becomes an empty address.
+
 - 2026-08-09 — Reading pane rebuilt: duplicate Archive/Delete removed, canned
   replies deleted, secondary actions collapsed into one overflow menu, header
   reduced from four stacked blocks to two lines. Triage clears optimistically.

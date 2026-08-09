@@ -52,8 +52,17 @@ async function graphFetch(
     }
     throw new Error(`Graph ${path}: ${res.status} ${err.slice(0, 300)}`);
   }
-  if (res.status === 204) return null;
-  return res.json();
+  // sendMail, reply and replyAll answer 202 Accepted with NO body. Calling
+  // res.json() on that throws "Unexpected end of JSON input", which the send
+  // route then reported as a failure — for mail Microsoft had already
+  // accepted. Success with an empty body is success.
+  const text = await res.text();
+  if (!text) return null;
+  try {
+    return JSON.parse(text) as unknown;
+  } catch {
+    return null;
+  }
 }
 
 type GraphMessage = {

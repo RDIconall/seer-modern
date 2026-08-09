@@ -111,8 +111,14 @@ async function gmailFetch(
       cache: "no-store",
     });
     if (res.ok) {
-      if (res.status === 204) return null;
-      return res.json();
+      // An empty 2xx body is a success, not a parse error.
+      const text = await res.text();
+      if (!text) return null;
+      try {
+        return JSON.parse(text) as unknown;
+      } catch {
+        return null;
+      }
     }
     const err = await res.text();
     if (res.status === 403 && /insufficient|ACCESS_TOKEN_SCOPE/i.test(err)) {
@@ -425,8 +431,11 @@ export async function sendGmailMessage(
   const sent = (await gmailFetch(accessToken, `/users/me/messages/send`, {
     method: "POST",
     body: JSON.stringify(body),
-  })) as { id: string; threadId: string };
-  return { id: sent.id, threadId: sent.threadId };
+  })) as { id?: string; threadId?: string } | null;
+  return {
+    id: sent?.id ?? "sent",
+    threadId: sent?.threadId ?? input.threadId ?? "",
+  };
 }
 
 export async function gmailAction(

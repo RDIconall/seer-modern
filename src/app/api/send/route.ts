@@ -22,6 +22,19 @@ function ensureFwd(subject: string) {
   return /^(fwd|fw):/i.test(subject) ? subject : `Fwd: ${subject}`;
 }
 
+/**
+ * "a@x.com, b@y.com," → "a@x.com, b@y.com". The recipient picker leaves a
+ * trailing comma after every pick, which becomes an empty address in the
+ * outgoing header.
+ */
+function addressList(raw?: string): string {
+  return (raw ?? "")
+    .split(/[,;]/)
+    .map((part) => part.trim())
+    .filter(Boolean)
+    .join(", ");
+}
+
 export async function POST(request: Request) {
   try {
     const session = await requireMailSession();
@@ -42,6 +55,8 @@ export async function POST(request: Request) {
 
     const mode: Mode = body.mode ?? "compose";
     const text = (body.body ?? "").trim();
+    const toList = addressList(body.to);
+    const ccList = addressList(body.cc) || undefined;
     // A forward's body IS the original message — a note on top is
     // optional. Compose/reply with nothing to say is still an error.
     if (!text && mode !== "forward") {
@@ -50,12 +65,12 @@ export async function POST(request: Request) {
 
     if (session.provider === "google") {
       if (mode === "compose") {
-        if (!body.to?.trim()) {
+        if (!toList) {
           return NextResponse.json({ error: "To required" }, { status: 400 });
         }
         const sent = await sendGmailMessage(session.accessToken, {
-          to: body.to.trim(),
-          cc: body.cc,
+          to: toList,
+          cc: ccList,
           subject: body.subject?.trim() || "(no subject)",
           body: text,
         });
@@ -80,13 +95,13 @@ export async function POST(request: Request) {
       ).slice(0, 20_000);
 
       if (mode === "forward") {
-        if (!body.to?.trim()) {
+        if (!toList) {
           return NextResponse.json({ error: "To required" }, { status: 400 });
         }
         const quoted = `${text ? `${text}\n\n` : ""}---------- Forwarded message ----------\nFrom: ${original.fromName} <${original.fromEmail}>\nDate: ${new Date(original.receivedAt).toLocaleString()}\nSubject: ${original.subject}\nTo: ${original.toEmail}\n\n${originalText}`;
         const sent = await sendGmailMessage(session.accessToken, {
-          to: body.to.trim(),
-          cc: body.cc,
+          to: toList,
+          cc: ccList,
           subject: ensureFwd(body.subject?.trim() || original.subject),
           body: quoted,
         });
@@ -129,11 +144,11 @@ export async function POST(request: Request) {
         .join("\n")}`;
 
       const sent = await sendGmailMessage(session.accessToken, {
-        to: body.to?.trim() || to,
+        to: toList || to,
         cc:
           mode === "replyAll"
-            ? body.cc?.trim() || original.ccEmail
-            : body.cc,
+            ? ccList || original.ccEmail
+            : ccList,
         subject: ensureRe(body.subject?.trim() || original.subject),
         body: quotedReply,
         threadId: original.threadId,
@@ -178,7 +193,7 @@ export async function POST(request: Request) {
     }
 
     if (mode === "forward") {
-      if (!body.to?.trim() || !body.replyToId) {
+      if (!toList || !body.replyToId) {
         return NextResponse.json(
           { error: "to and replyToId required" },
           { status: 400 },
@@ -190,8 +205,8 @@ export async function POST(request: Request) {
       );
       const quoted = `${text ? `${text}\n\n` : ""}---------- Forwarded message ----------\nFrom: ${original.fromName} <${original.fromEmail}>\nSubject: ${original.subject}\n\n${original.textBody || original.snippet}`;
       await sendGraphMessage(session.accessToken, {
-        to: body.to.trim(),
-        cc: body.cc,
+        to: toList,
+        cc: ccList,
         subject: ensureFwd(body.subject?.trim() || original.subject),
         body: quoted,
       });
@@ -205,12 +220,12 @@ export async function POST(request: Request) {
       return NextResponse.json({ ok: true });
     }
 
-    if (!body.to?.trim()) {
+    if (!toList) {
       return NextResponse.json({ error: "To required" }, { status: 400 });
     }
     await sendGraphMessage(session.accessToken, {
-      to: body.to.trim(),
-      cc: body.cc,
+      to: toList,
+      cc: ccList,
       subject: body.subject?.trim() || "(no subject)",
       body: text,
     });
