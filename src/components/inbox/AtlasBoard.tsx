@@ -21,9 +21,43 @@ import {
   verticalListSortingStrategy,
 } from "@dnd-kit/sortable";
 import { CSS } from "@dnd-kit/utilities";
-import { Download, GripVertical, Sunrise, X } from "lucide-react";
+import { BarChart3, Download, GripVertical, Sunrise, X } from "lucide-react";
 import type { Brief, FiledEmail, Matter } from "@/lib/inbox/matters";
 import { formatAmount } from "@/lib/crm/registry";
+
+/**
+ * Inbox / board / triage counts, in BOTH conversations and messages (#17).
+ * Conversations are threads; messages are the raw provider count. Computed
+ * from the stored brief so it always agrees with what is on the board.
+ */
+function boardCounts(brief: Brief) {
+  const matters = [...(brief.pinned ?? []), ...brief.matters];
+  const boardThreads = new Set(matters.flatMap((m) => m.threadIds));
+  const boardMessages = new Set(matters.flatMap((m) => m.emailIds)).size;
+
+  const triageThreads = new Set<string>();
+  let triageMessages = 0;
+  for (const f of brief.filed ?? []) {
+    triageThreads.add(f.threadId);
+    triageMessages += f.count ?? 1;
+  }
+  for (const theme of brief.digest?.themes ?? []) {
+    for (const item of theme.items ?? []) {
+      if (item.threadId) triageThreads.add(item.threadId);
+      triageMessages += 1;
+    }
+  }
+
+  return {
+    inbox: {
+      conversations: brief.providerTotal?.threads ?? brief.totalThreads ?? 0,
+      messages:
+        brief.providerTotal?.messages ?? brief.totalInbox ?? 0,
+    },
+    board: { conversations: boardThreads.size, messages: boardMessages },
+    triage: { conversations: triageThreads.size, messages: triageMessages },
+  };
+}
 
 /**
  * ATLAS — the CEO whiteboard. Every matter is one bare name under its
@@ -63,16 +97,20 @@ type BoardSection = {
  * a quarter of the whiteboard.
  */
 function AtlasTopBar({
+  brief,
   catchup,
   onOpenEmail,
   onDismissCatchup,
 }: {
+  brief: Brief;
   catchup?: CatchupData | null;
   onOpenEmail: (id: string) => void;
   onDismissCatchup?: () => void;
 }) {
   const [open, setOpen] = useState(false);
+  const [countsOpen, setCountsOpen] = useState(false);
   const hasCatchup = Boolean(catchup && catchup.newCount > 0);
+  const counts = useMemo(() => boardCounts(brief), [brief]);
   const sinceLabel = catchup
     ? new Date(catchup.since).toLocaleString([], {
         weekday: "short",
@@ -82,10 +120,27 @@ function AtlasTopBar({
     : "";
   return (
     <div className="relative flex items-center justify-end gap-1 px-4 py-2">
+      <button
+        type="button"
+        onClick={() => {
+          setCountsOpen((v) => !v);
+          setOpen(false);
+        }}
+        aria-label="Inbox counts"
+        aria-expanded={countsOpen}
+        className="flex items-center gap-1 rounded-full px-2 py-1 text-[12px] text-[var(--fg)] hover:bg-[var(--row-hover)] hover:text-[var(--fg-strong)]"
+      >
+        <BarChart3 className="h-4 w-4" />
+        <span className="font-bold">{counts.board.conversations}</span>
+        <span>/ {counts.inbox.conversations}</span>
+      </button>
       {hasCatchup ? (
         <button
           type="button"
-          onClick={() => setOpen((v) => !v)}
+          onClick={() => {
+            setOpen((v) => !v);
+            setCountsOpen(false);
+          }}
           aria-label="While you were away"
           aria-expanded={open}
           className="flex items-center gap-1 rounded-full px-2 py-1 text-[12px] text-[var(--brand)] hover:bg-[var(--row-hover)]"
@@ -96,19 +151,46 @@ function AtlasTopBar({
       ) : null}
       <a
         href="/api/export/inbox"
-        className="flex items-center gap-1 rounded-full px-2 py-1 text-[12px] text-[var(--muted)] hover:bg-[var(--row-hover)] hover:text-[var(--fg)]"
+        className="flex items-center gap-1 rounded-full px-2 py-1 text-[12px] text-[var(--fg)] hover:bg-[var(--row-hover)] hover:text-[var(--fg-strong)]"
         aria-label="Export inbox as CSV"
       >
         <Download className="h-4 w-4" />
         <span>Export</span>
       </a>
 
+      {countsOpen ? (
+        <div className="absolute right-4 top-full z-40 mt-1 w-72 max-w-[90vw] overflow-hidden rounded-xl border border-[var(--border)] bg-[var(--bg)] p-3 text-[var(--fg-strong)] shadow-lg">
+          <table className="w-full text-[13px]">
+            <thead>
+              <tr className="text-left text-[12px] font-bold">
+                <th className="pb-1"> </th>
+                <th className="pb-1 text-right">Conversations</th>
+                <th className="pb-1 text-right">Messages</th>
+              </tr>
+            </thead>
+            <tbody>
+              {[
+                { label: "Inbox", c: counts.inbox },
+                { label: "On the board", c: counts.board },
+                { label: "In Triage", c: counts.triage },
+              ].map((r) => (
+                <tr key={r.label}>
+                  <td className="py-0.5 font-bold">{r.label}</td>
+                  <td className="py-0.5 text-right">{r.c.conversations}</td>
+                  <td className="py-0.5 text-right">{r.c.messages}</td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      ) : null}
+
       {open && catchup ? (
         <div className="absolute right-4 top-full z-40 mt-1 w-80 max-w-[90vw] overflow-hidden rounded-xl border border-[var(--border)] bg-[var(--bg)] p-3 shadow-lg">
           <div className="flex items-start justify-between gap-2">
             <p className="text-[14px] font-bold text-[var(--fg-strong)]">
               While you were away{" "}
-              <span className="font-normal text-[var(--muted)]">
+              <span className="font-normal text-[var(--fg)]">
                 (since {sinceLabel})
               </span>
             </p>
@@ -119,7 +201,7 @@ function AtlasTopBar({
                 onDismissCatchup?.();
               }}
               aria-label="Dismiss"
-              className="shrink-0 text-[var(--muted)] hover:text-[var(--fg)]"
+              className="shrink-0 text-[var(--fg)] hover:text-[var(--fg-strong)]"
             >
               <X className="h-4 w-4" />
             </button>
@@ -597,6 +679,7 @@ export function AtlasBoard({
   return (
     <div className="min-h-0 flex-1 overflow-y-auto">
       <AtlasTopBar
+        brief={brief}
         catchup={catchup}
         onOpenEmail={onOpenEmail}
         onDismissCatchup={onDismissCatchup}
