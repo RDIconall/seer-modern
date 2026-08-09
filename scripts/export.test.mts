@@ -57,6 +57,7 @@ const brief = {
       fromName: "Audit Team",
       fromEmail: "audit@lab.com",
       subject: "Invoice 4471 for the Q2 audit",
+      known: true,
       line: "Receipt for the audit fee",
       suggestion: "Keep as record",
       count: 2,
@@ -149,6 +150,14 @@ check("the CSV header names the native columns", () => {
   assert.ok(header.includes("Subject"));
 });
 
+check("the relationship floor is visible: a known sender exports as yes", () => {
+  const rows = buildExportRows(brief);
+  assert.equal(rows[1].knownSender, "yes"); // the filed record from a contact
+  assert.equal(rows[2].knownSender, "");
+  const header = toCsv(rows).split("\r\n")[0];
+  assert.ok(header.includes("Known sender"));
+});
+
 check("the deep read's verdict is carried through", () => {
   const rows = buildExportRows(brief, {
     e1: { disposition: "matter" },
@@ -170,6 +179,7 @@ check("commas and quotes in a summary cannot break the CSV", () => {
       fromEmail: "a@x.com",
       subject: "Q2, revisited",
       summary: "line one\nline two",
+      knownSender: "",
       nextAction: "",
       disposition: "",
       owner: "",

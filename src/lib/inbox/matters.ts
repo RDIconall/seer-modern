@@ -184,6 +184,9 @@ export type FiledEmail = {
   subject?: string;
   /** The deep read's verdict: matter | record | fyi | disposable */
   disposition?: string;
+  /** True when the sender has a real relationship (VIP / written-to /
+   *  saved contact) — such rows are never bulk-deletable. */
+  known?: boolean;
   line: string;
   /** What Seer suggests doing with it */
   suggestion?: string;
@@ -235,7 +238,7 @@ export type UnsureItem = {
  * treats any older brief as stale and rebuilds it, so a redesign never
  * leaves a stale Atlas on screen waiting for a manual refresh.
  */
-export const BRIEF_ENGINE = 18;
+export const BRIEF_ENGINE = 19;
 
 /**
  * The forecast lens — "what matters WHEN". A temporal view over the same
@@ -992,8 +995,17 @@ export async function buildBrief(
   profile?: UserProfile | null,
   providerTotal?: { messages: number; threads: number } | null,
   understanding: UnderstandingMap = {},
+  /**
+   * THE RELATIONSHIP FLOOR — senders with a real relationship (VIP, a
+   * person you write to, a saved contact). Enforced in code, not in a
+   * prompt: their mail can NEVER enter the bulk delete list, whatever the
+   * read said. It stays visible in Triage's review bucket instead.
+   */
+  knownSenders: Set<string> = new Set(),
 ): Promise<Brief> {
   const prev = await loadBrief(accountEmail);
+  const isKnown = (i: EmailItem) =>
+    knownSenders.has(i.fromEmail.toLowerCase().trim());
 
   // The FYI / read-then-delete mass — summarized as a whole (the
   // digest), never worked one by one. THE DEEP READ DECIDES: an email is
@@ -1002,10 +1014,10 @@ export async function buildBrief(
   // mail — stays a matter candidate and remains visible. Headlines stay
   // as the per-line fallback for clients that predate the digest.
   const digestItems = items.filter(
-    (i) => digestVerdict(understanding[i.id]) !== null,
+    (i) => digestVerdict(understanding[i.id]) !== null && !isKnown(i),
   );
   const headlineItems = items.filter(
-    (i) => digestVerdict(understanding[i.id]) === "fyi",
+    (i) => digestVerdict(understanding[i.id]) === "fyi" && !isKnown(i),
   );
   const headlines: Headline[] = headlineItems.map((i) => ({
     id: i.id,
@@ -1603,6 +1615,7 @@ export async function buildBrief(
       fromEmail: i.fromEmail,
       subject: stripEmoji(i.subject),
       ...(u?.disposition ? { disposition: u.disposition } : {}),
+      ...(isKnown(i) ? { known: true } : {}),
       line: u
         ? headline(who, stripEmoji(u.oneLine)).slice(0, 140)
         : lineFor(i),

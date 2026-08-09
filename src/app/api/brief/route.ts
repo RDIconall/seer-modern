@@ -19,6 +19,9 @@ import { requireMailSession } from "@/lib/mail/session";
 import { loadUnderstanding } from "@/lib/store/understanding-store";
 import { loadUserProfile } from "@/lib/store/user-profile";
 import { getSenderOverride } from "@/lib/store/senders";
+import { knownSenders } from "@/lib/brain/relationships";
+import { loadPeople } from "@/lib/store/people";
+import { getPersonalContext } from "@/lib/inbox/personal-context";
 import { NextResponse, after } from "next/server";
 
 /** Deep enough to cover a real 500+ inbox in one pass */
@@ -155,6 +158,22 @@ export async function POST() {
 
     const understanding = await loadUnderstanding(session.email);
 
+    // THE RELATIONSHIP FLOOR — enforced in code when the brief partitions
+    // mail: a sender this user knows can never land in bulk delete.
+    const [floorPeople, floorPersonal] = await Promise.all([
+      loadPeople(session.email).catch(() => ({})),
+      getPersonalContext({
+        accountEmail: session.email,
+        accessToken: session.accessToken,
+        provider: session.provider,
+      }).catch(() => null),
+    ]);
+    const known = knownSenders({
+      people: floorPeople,
+      history,
+      personal: floorPersonal,
+    });
+
     after(async () => {
       try {
         const brief = await buildBrief(
@@ -163,6 +182,7 @@ export async function POST() {
           profile,
           providerTotal,
           understanding,
+          known,
         );
         console.log(
           `[seer] brief rebuilt: ${brief.matters.length} matters · ${brief.headlines.length} headlines`,

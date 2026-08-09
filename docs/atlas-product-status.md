@@ -175,7 +175,23 @@ makes a table scannable. Columns: From, Subject, When, Actions.
   **Needs a call · maybe a matter** and **Safe to delete**, each with its own
   bulk action, on top of per-row Archive/Delete.
 
+## The relationship floor
+
+The context compiler tells the model who a sender is (VIP, tier, reply
+behavior, saved contact, shared meetings, CRM). That is advice. The floor is
+law: `knownSenders` (`src/lib/brain/relationships.ts`) is a deterministic set —
+VIP, inner/known tier, anyone the user has written to, anyone in the saved
+address book — enforced in `buildBrief`. A known sender's mail can never enter
+the bulk delete list; it lands in Triage's review bucket, still one deliberate
+tap to delete. The export shows the flag in a "Known sender" column so the
+enforcement is auditable.
+
 ## Changelog
+
+- 2026-08-09 — Relationship floor: known senders (VIP / written-to / saved
+  contact / inner-known tier) are excluded from bulk delete in code, not just
+  in the prompt; Triage buckets them under review; export gains a
+  "Known sender" column.
 
 - 2026-08-09 — Export gains native From name / From email / Subject on every
   row (the triage gap the CEO flagged); brief persists these fields. Triage

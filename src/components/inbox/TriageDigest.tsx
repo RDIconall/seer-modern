@@ -154,9 +154,12 @@ export function TriageDigest({
     };
 
     for (const f of brief.filed ?? []) {
-      const bucket: Bucket = DELETE_DISPOSITIONS.has(f.disposition ?? "")
-        ? "delete"
-        : "review";
+      // A known sender (VIP / someone you write to / saved contact) is
+      // never bulk-deletable — the relationship floor puts them in review.
+      const bucket: Bucket =
+        !f.known && DELETE_DISPOSITIONS.has(f.disposition ?? "")
+          ? "delete"
+          : "review";
       push(orgRoot(f.orgUnit, functions), {
         id: f.emailId,
         threadId: f.threadId,

@@ -4,6 +4,7 @@ import { classifyInboxWithAssistant } from "@/lib/inbox/gemini-triage";
 import { getOrBuildMailHistory } from "@/lib/inbox/mail-history-store";
 import { BRIEF_ENGINE, buildBrief, loadBrief } from "@/lib/inbox/matters";
 import { compileEmailContext, type BrainSources } from "@/lib/brain/context";
+import { knownSenders } from "@/lib/brain/relationships";
 import { getPersonalContext } from "@/lib/inbox/personal-context";
 import { loadPeople } from "@/lib/store/people";
 import { loadSalesforce } from "@/lib/store/salesforce";
@@ -315,6 +316,21 @@ export async function GET(request: Request) {
         const providerTotal = isGoogle
           ? await getGmailInboxTotals(token)
           : await getGraphInboxTotals(token);
+        // THE RELATIONSHIP FLOOR — who this user actually knows, computed
+        // deterministically and enforced when the brief partitions mail.
+        const [floorPeople, floorPersonal] = await Promise.all([
+          loadPeople(acct.email).catch(() => ({})),
+          getPersonalContext({
+            accountEmail: acct.email,
+            accessToken: token,
+            provider: acct.provider,
+          }).catch(() => null),
+        ]);
+        const known = knownSenders({
+          people: floorPeople,
+          history,
+          personal: floorPersonal,
+        });
         try {
           await buildBrief(
             acct.email,
@@ -322,6 +338,7 @@ export async function GET(request: Request) {
             profile,
             providerTotal,
             understanding,
+            known,
           );
           briefRebuilt = true;
         } catch (e) {

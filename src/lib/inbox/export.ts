@@ -16,6 +16,8 @@ type Row = {
   summary: string;
   nextAction: string;
   disposition: string;
+  /** "yes" when the sender clears the relationship floor (VIP / written-to / contact) */
+  knownSender: string;
   owner: string;
   messages: number;
   lastAt: string;
@@ -92,6 +94,7 @@ export function buildExportRows(
         summary: c.line ?? "",
         nextAction: c.suggestion || matter.nextAction || "",
         disposition: u?.disposition ?? "",
+        knownSender: "",
         owner: matter.owner ?? "",
         messages: c.count ?? 1,
         lastAt: c.at ?? matter.updatedAt ?? "",
@@ -118,6 +121,7 @@ export function buildExportRows(
       summary: row.line,
       nextAction: row.suggestion ?? "",
       disposition: u?.disposition ?? "",
+      knownSender: row.known ? "yes" : "",
       owner: u?.owner ?? "",
       messages: row.count ?? 1,
       lastAt: row.at ?? "",
@@ -153,6 +157,7 @@ export function buildExportRows(
         summary: item.line || theme.line,
         nextAction: "Delete",
         disposition: u?.disposition ?? "",
+        knownSender: "",
         owner: u?.owner ?? "",
         messages: 1,
         lastAt: item.at ?? "",
@@ -177,6 +182,7 @@ const HEADERS: { key: keyof Row; label: string }[] = [
   { key: "summary", label: "What it is" },
   { key: "nextAction", label: "Next action" },
   { key: "disposition", label: "Deep read" },
+  { key: "knownSender", label: "Known sender" },
   { key: "owner", label: "Owner" },
   { key: "messages", label: "Messages" },
   { key: "lastAt", label: "Last message" },
