@@ -114,7 +114,21 @@ a single overflow menu. Sender name, address and time sit on one line. The
 canned "Say yes / Decline / Buy time" replies are gone, and Archive/Delete no
 longer appear twice.
 
+## Auditing what the app did
+
+`GET /api/export/inbox` returns a CSV of every conversation and where it
+landed — placement (Atlas matter / Triage close out / Triage delete), the
+matter or category name, function, org unit, the one-line read, next action,
+the deep read's verdict, message count and thread id. `?format=json` returns
+the same rows plus the accounting object. Linked as "Export CSV" from the
+inbox dashboard in both Atlas and Triage.
+
 ## Changelog
+
+- 2026-08-09 — One row, one home: a conversation owned by a matter can no
+  longer also appear in Triage. The digest is decided per message, so a thread
+  carrying live work plus one FYI reply was rendering in both places (the
+  accounting deduped, the screen did not). Added the inbox export.
 
 - 2026-08-09 — Fixed sending on Outlook. Microsoft answers `sendMail`, `reply`
   and `replyAll` with **202 Accepted and no body**; the Graph client called

@@ -103,11 +103,21 @@ export function InboxDashboard({ brief }: { brief: Brief }) {
         </div>
       ) : null}
 
-      <p className="mt-1 text-[12px] text-[var(--nav-muted)]">
-        {data.pending > 0
-          ? `${accounted} placed · ${data.pending} pending`
-          : `${accounted} placed · matches inbox`}
-      </p>
+      <div className="mt-1 flex items-baseline justify-between gap-3">
+        <p className="text-[12px] text-[var(--nav-muted)]">
+          {data.pending > 0
+            ? `${accounted} placed · ${data.pending} pending`
+            : `${accounted} placed · matches inbox`}
+        </p>
+        {/* Every conversation and where it landed, so the app's work can be
+            checked outside the app. */}
+        <a
+          href="/api/export/inbox"
+          className="shrink-0 text-[12px] font-bold text-[var(--brand)]"
+        >
+          Export CSV
+        </a>
+      </div>
     </section>
   );
 }
