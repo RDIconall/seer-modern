@@ -21,6 +21,7 @@ import {
   type ClosedMatters,
 } from "@/lib/store/closed-matters";
 import {
+  digestWithoutHomedThreads,
   matterCandidateFor,
   matterFromRead,
   type MatterCandidate,
@@ -212,7 +213,7 @@ export type UnsureItem = {
  * treats any older brief as stale and rebuilds it, so a redesign never
  * leaves a stale Atlas on screen waiting for a manual refresh.
  */
-export const BRIEF_ENGINE = 15;
+export const BRIEF_ENGINE = 16;
 
 /**
  * The forecast lens — "what matters WHEN". A temporal view over the same
@@ -1850,6 +1851,23 @@ export async function buildBrief(
     forecast[bucketOf(m)].push(m.id);
   }
 
+  // ONE ROW, ONE HOME. The digest is decided per MESSAGE, so a conversation
+  // carrying live work plus one FYI reply was landing in a matter AND in
+  // Triage's delete list. A thread that has a home in Atlas is not in Triage,
+  // whatever its individual messages say.
+  const homedThreads = new Set(
+    [...pinned, ...cleanedMatters].flatMap((m) => m.threadIds),
+  );
+  const homed = (threadId?: string) =>
+    Boolean(threadId && homedThreads.has(threadId));
+  const visibleDigestItems = digestItems.filter((i) => !homed(i.threadId));
+  const visibleDigest = digestWithoutHomedThreads(
+    digest,
+    homedThreads,
+    threadOfMessage,
+  );
+  const visibleHeadlines = headlines.filter((h) => !homed(h.threadId));
+
   const accounting = buildInboxAccounting({
     asOf: new Date().toISOString(),
     providerTotal: providerTotal?.messages ?? items.length,
@@ -1857,7 +1875,7 @@ export async function buildBrief(
     matters: cleanedMatters,
     pinned,
     filed: cleanedFiled,
-    digestIds: digestItems.map((item) => item.id),
+    digestIds: visibleDigestItems.map((item) => item.id),
   });
 
   const brief: Brief = {
@@ -1868,9 +1886,9 @@ export async function buildBrief(
     pinned,
     forecast,
     accounting,
-    headlines,
+    headlines: visibleHeadlines,
     // Clear-all now covers the whole digest (fyi + read-and-delete)
-    headlineIds: digestItems.map((i) => ({
+    headlineIds: visibleDigestItems.map((i) => ({
       id: i.id,
       threadId: i.threadId,
     })),
@@ -1885,7 +1903,7 @@ export async function buildBrief(
       0,
     ),
     filed: cleanedFiled,
-    digest,
+    digest: visibleDigest,
     unsure,
     unread: items.filter((i) => !understanding[i.id]).length,
     ...(clusterFailures > 0 ? { clusterFailures } : {}),

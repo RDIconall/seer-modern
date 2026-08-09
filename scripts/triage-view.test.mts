@@ -1,6 +1,7 @@
 import assert from "node:assert/strict";
 import {
   digestThemeRows,
+  digestWithoutHomedThreads,
   matterCandidateFor,
   matterFromRead,
 } from "../src/lib/inbox/triage-view.ts";
@@ -209,6 +210,55 @@ check("a reopened promotion carries the reason it came back", () => {
 
   assert.equal(matter.status, "reopened");
   assert.equal(matter.statusWhy, "New mail after you closed this (done)");
+});
+
+check("a conversation in a matter never also sits in Triage", () => {
+  const digest = digestWithoutHomedThreads(
+    {
+      summary: "",
+      themes: [
+        {
+          theme: "Newsletters",
+          line: "Weekly reading.",
+          emailIds: ["m-live", "m-noise"],
+          items: [
+            { id: "m-live", threadId: "t-live", line: "FYI reply", at: "" },
+            { id: "m-noise", threadId: "t-noise", line: "Newsletter", at: "" },
+          ],
+        },
+      ],
+    },
+    new Set(["t-live"]),
+    new Map([
+      ["m-live", "t-live"],
+      ["m-noise", "t-noise"],
+    ]),
+  );
+
+  assert.deepEqual(digest.themes[0].emailIds, ["m-noise"]);
+  assert.deepEqual(
+    digest.themes[0].items?.map((i) => i.id),
+    ["m-noise"],
+  );
+});
+
+check("a theme left with nothing of its own disappears", () => {
+  const digest = digestWithoutHomedThreads(
+    {
+      summary: "",
+      themes: [
+        {
+          theme: "Newsletters",
+          line: "Weekly reading.",
+          emailIds: ["m-live"],
+          items: [{ id: "m-live", threadId: "t-live", line: "FYI", at: "" }],
+        },
+      ],
+    },
+    new Set(["t-live"]),
+    new Map([["m-live", "t-live"]]),
+  );
+  assert.equal(digest.themes.length, 0);
 });
 
 check("a digest theme clears only its own conversations", () => {

@@ -1,4 +1,4 @@
-import type { Matter } from "@/lib/inbox/matters";
+import type { Digest, Matter } from "@/lib/inbox/matters";
 import type { Understanding } from "@/lib/inbox/understanding";
 
 export type MatterCandidate = {
@@ -106,6 +106,35 @@ export function matterFromRead(input: {
     emailIds: candidate.emailIds,
     threadIds: [row.threadId],
     updatedAt: input.at,
+  };
+}
+
+/**
+ * ONE ROW, ONE HOME.
+ *
+ * The digest is decided per MESSAGE, but a matter owns a whole CONVERSATION.
+ * A thread carrying live work plus one "FYI" reply therefore showed up in
+ * Atlas as a matter and again in Triage's delete list. A thread with a home
+ * in Atlas is not in Triage, whatever its individual messages say.
+ */
+export function digestWithoutHomedThreads(
+  digest: Digest,
+  homedThreads: Set<string>,
+  threadOfMessage: Map<string, string>,
+): Digest {
+  const homed = (threadId?: string) =>
+    Boolean(threadId && homedThreads.has(threadId));
+  return {
+    summary: digest.summary,
+    themes: digest.themes
+      .map((theme) => ({
+        ...theme,
+        emailIds: theme.emailIds.filter(
+          (id) => !homed(threadOfMessage.get(id)),
+        ),
+        items: theme.items?.filter((item) => !homed(item.threadId)),
+      }))
+      .filter((theme) => theme.emailIds.length > 0),
   };
 }
 
