@@ -400,11 +400,25 @@ export function useMailbox(initialTab: ViewTab = "inbox") {
   // THE BRIEF — matters tracked across days + the headline digest
   const [brief, setBrief] = useState<Brief | null>(null);
   const [briefBuilding, setBriefBuilding] = useState(false);
+  // The user's whiteboard arrangement — priority order per column and
+  // which matters are settled. Overlays applied on the board by id, so
+  // they survive every brief rebuild without touching the brief itself.
+  const [matterOrder, setMatterOrder] = useState<Record<string, string[]>>({});
+  const [settledMatters, setSettledMatters] = useState<
+    Record<string, { at: string }>
+  >({});
   useEffect(() => {
     fetch("/api/brief", { cache: "no-store" })
       .then((r) => r.json())
       .then((j) => {
         if (j?.brief) setBrief(j.brief);
+      })
+      .catch(() => {});
+    fetch("/api/matters", { cache: "no-store" })
+      .then((r) => r.json())
+      .then((j) => {
+        if (j?.order) setMatterOrder(j.order);
+        if (j?.settled) setSettledMatters(j.settled);
       })
       .catch(() => {});
   }, []);
@@ -573,12 +587,12 @@ export function useMailbox(initialTab: ViewTab = "inbox") {
   }, []);
 
   const createMatter = useCallback(
-    async (title: string, emailIds: string[]) => {
+    async (title: string, emailIds: string[], orgUnit?: string) => {
       try {
         const res = await fetch("/api/matters", {
           method: "POST",
           headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ action: "create", title, emailIds }),
+          body: JSON.stringify({ action: "create", title, emailIds, orgUnit }),
         });
         const json = await res.json();
         if (!res.ok) throw new Error(json.error);
@@ -614,6 +628,49 @@ export function useMailbox(initialTab: ViewTab = "inbox") {
       setToast("Fix failed");
     }
   }, []);
+
+  /** Persist the user's own priority order for one whiteboard column. */
+  const reorderMatters = useCallback(
+    async (orgUnit: string, matterIds: string[]) => {
+      setMatterOrder((prev) => ({ ...prev, [orgUnit]: matterIds }));
+      try {
+        await fetch("/api/matters", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ action: "order", orgUnit, matterIds }),
+        });
+      } catch {
+        setToast("Could not save order");
+      }
+    },
+    [],
+  );
+
+  /** Close a matter into Settled (or reopen it) — a client overlay by id. */
+  const settleMatter = useCallback(
+    async (matterId: string, settled: boolean) => {
+      setSettledMatters((prev) => {
+        const next = { ...prev };
+        if (settled) next[matterId] = { at: new Date().toISOString() };
+        else delete next[matterId];
+        return next;
+      });
+      try {
+        await fetch("/api/matters", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            action: settled ? "settle" : "unsettle",
+            matterId,
+          }),
+        });
+        setToast(settled ? "Settled" : "Reopened");
+      } catch {
+        setToast(settled ? "Could not settle" : "Could not reopen");
+      }
+    },
+    [],
+  );
 
   useEffect(() => {
     fetch("/api/catchup", { cache: "no-store" })
@@ -1340,6 +1397,10 @@ export function useMailbox(initialTab: ViewTab = "inbox") {
     atlasAction,
     renameMatter,
     createMatter,
+    matterOrder,
+    settledMatters,
+    reorderMatters,
+    settleMatter,
     openReader,
     closeReader,
     startCompose,

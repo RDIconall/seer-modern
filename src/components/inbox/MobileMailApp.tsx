@@ -39,7 +39,8 @@ import { DelegateSheet } from "@/components/inbox/DelegateSheet";
 import { PullToRefresh } from "@/components/inbox/PullToRefresh";
 import { UnsubAgentSheet } from "@/components/inbox/UnsubAgentSheet";
 import { VipSheet } from "@/components/inbox/VipSheet";
-import { BriefPanel } from "@/components/inbox/BriefPanel";
+import { AtlasBoard } from "@/components/inbox/AtlasBoard";
+import { MatterPanel } from "@/components/inbox/MatterPanel";
 import { CatchupCard } from "@/components/inbox/CatchupCard";
 import { TriageTable } from "@/components/inbox/TriageTable";
 import { ScheduleSheet } from "@/components/inbox/ScheduleSheet";
@@ -114,12 +115,15 @@ export function MobileMailApp() {
     dismissCatchup,
     brief,
     briefBuilding,
-    rebuildBrief,
     clearHeadlines,
     fixMatter,
     atlasAction,
     renameMatter,
     createMatter,
+    matterOrder,
+    settledMatters,
+    reorderMatters,
+    settleMatter,
     openReader,
     closeReader,
     startCompose,
@@ -136,6 +140,16 @@ export function MobileMailApp() {
   const [drawer, setDrawer] = useState(false);
   const [searchOpen, setSearchOpen] = useState(false);
   const [settingsOpen, setSettingsOpen] = useState(false);
+  // Atlas: the matter open full-screen over the board (null = none).
+  const [openMatterId, setOpenMatterId] = useState<string | null>(null);
+  const openMatter = useMemo(() => {
+    if (!openMatterId || !brief) return null;
+    return (
+      [...(brief.pinned ?? []), ...brief.matters].find(
+        (m) => m.id === openMatterId,
+      ) ?? null
+    );
+  }, [openMatterId, brief]);
   const searchRef = useRef<HTMLInputElement>(null);
   const deckCards = useMemo(() => buildDeckCards(triage), [triage]);
 
@@ -175,6 +189,7 @@ export function MobileMailApp() {
   };
   useEffect(() => {
     exitSelect();
+    if (tab !== "atlas") setOpenMatterId(null);
   }, [tab]);
   const pickedItems = useMemo(
     () =>
@@ -411,6 +426,27 @@ export function MobileMailApp() {
             />
           </footer>
         ) : null}
+        {toast ? <Toast message={toast} /> : null}
+      </div>
+    );
+  }
+
+  // Atlas: a matter opens full-screen over the board; its conversations
+  // open the reader (which takes over above), and back returns here.
+  if (tab === "atlas" && openMatter) {
+    return (
+      <div className="app-shell fixed inset-0 z-50 flex flex-col bg-[var(--bg)]">
+        <MatterPanel
+          m={openMatter}
+          functions={brief?.functions ?? []}
+          settled={Boolean(settledMatters[openMatter.id])}
+          onOpen={openReader}
+          onClose={() => setOpenMatterId(null)}
+          onFix={fixMatter}
+          onAtlasAction={atlasAction}
+          onRename={renameMatter}
+          onSettle={settleMatter}
+        />
         {toast ? <Toast message={toast} /> : null}
       </div>
     );
@@ -788,7 +824,7 @@ export function MobileMailApp() {
         ) : null}
 
         {tab === "atlas" ? (
-          <div>
+          <div className="flex flex-1 flex-col">
             {catchup ? (
               <CatchupCard
                 catchup={catchup}
@@ -796,18 +832,20 @@ export function MobileMailApp() {
                 onDismiss={dismissCatchup}
               />
             ) : null}
-            <BriefPanel
-              full
+            <AtlasBoard
               mobile
               brief={brief}
               building={briefBuilding}
-              onRebuild={rebuildBrief}
-              onOpen={openReader}
-              onClearHeadlines={clearHeadlines}
-              onFixMatter={fixMatter}
-              onAtlasAction={atlasAction}
-              onRenameMatter={renameMatter}
+              matterOrder={matterOrder}
+              settled={settledMatters}
+              activeMatterId={openMatterId}
+              onOpenMatter={setOpenMatterId}
+              onOpenEmail={openReader}
+              onMoveMatter={fixMatter}
+              onReorder={reorderMatters}
+              onSettle={settleMatter}
               onCreateMatter={createMatter}
+              onClearHeadlines={clearHeadlines}
             />
           </div>
         ) : null}

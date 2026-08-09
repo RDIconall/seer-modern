@@ -5,6 +5,7 @@ import {
   Archive,
   Map,
   Check,
+  ChevronLeft,
   Forward,
   Inbox,
   Layers,
@@ -28,7 +29,8 @@ import { DelegateSheet } from "@/components/inbox/DelegateSheet";
 import { ScheduleSheet } from "@/components/inbox/ScheduleSheet";
 import { UnsubAgentSheet } from "@/components/inbox/UnsubAgentSheet";
 import { VipSheet } from "@/components/inbox/VipSheet";
-import { BriefPanel } from "@/components/inbox/BriefPanel";
+import { AtlasBoard } from "@/components/inbox/AtlasBoard";
+import { MatterPanel } from "@/components/inbox/MatterPanel";
 import { CatchupCard } from "@/components/inbox/CatchupCard";
 import { TriageTable } from "@/components/inbox/TriageTable";
 import { AssistBar } from "@/components/inbox/AssistBar";
@@ -111,12 +113,15 @@ export function DesktopMailApp() {
     dismissCatchup,
     brief,
     briefBuilding,
-    rebuildBrief,
     clearHeadlines,
     fixMatter,
     atlasAction,
     renameMatter,
     createMatter,
+    matterOrder,
+    settledMatters,
+    reorderMatters,
+    settleMatter,
     openReader,
     closeReader,
     startCompose,
@@ -131,6 +136,20 @@ export function DesktopMailApp() {
 
   const searchParams = useSearchParams();
   const [settingsOpen, setSettingsOpen] = useState(false);
+  // Atlas: which matter is open in the docked panel (null = message/none).
+  const [openMatterId, setOpenMatterId] = useState<string | null>(null);
+  const openMatter = useMemo(() => {
+    if (!openMatterId || !brief) return null;
+    return (
+      [...(brief.pinned ?? []), ...brief.matters].find(
+        (m) => m.id === openMatterId,
+      ) ?? null
+    );
+  }, [openMatterId, brief]);
+  // Leaving Atlas closes the matter panel.
+  useEffect(() => {
+    if (tab !== "atlas") setOpenMatterId(null);
+  }, [tab]);
 
   // Density: compact rows (persisted, shared key with mobile)
   const [dense, setDense] = useState<boolean>(() => {
@@ -608,7 +627,7 @@ export function DesktopMailApp() {
           ) : null}
 
           {tab === "atlas" ? (
-            <div className="min-h-0 flex-1 overflow-y-auto">
+            <div className="flex min-h-0 flex-1 flex-col overflow-y-auto">
               {catchup ? (
                 <CatchupCard
                   catchup={catchup}
@@ -616,17 +635,22 @@ export function DesktopMailApp() {
                   onDismiss={dismissCatchup}
                 />
               ) : null}
-              <BriefPanel
-                full
+              <AtlasBoard
                 brief={brief}
                 building={briefBuilding}
-                onRebuild={rebuildBrief}
-                onOpen={openReader}
-                onClearHeadlines={clearHeadlines}
-                onFixMatter={fixMatter}
-                onAtlasAction={atlasAction}
-                onRenameMatter={renameMatter}
+                matterOrder={matterOrder}
+                settled={settledMatters}
+                activeMatterId={openMatterId}
+                onOpenMatter={(id) => {
+                  closeReader();
+                  setOpenMatterId(id);
+                }}
+                onOpenEmail={openReader}
+                onMoveMatter={fixMatter}
+                onReorder={reorderMatters}
+                onSettle={settleMatter}
                 onCreateMatter={createMatter}
+                onClearHeadlines={clearHeadlines}
               />
             </div>
           ) : null}
@@ -652,9 +676,11 @@ export function DesktopMailApp() {
         </div>
       </section>
 
-      {/* Right pane — reading. In triage the table owns the width, so the
-          reader appears as a docked panel only while a message is open. */}
-      {(tab === "triage" || tab === "atlas") && !readerId ? null : (
+      {/* Right pane — reading. In triage/atlas the list owns the width, so
+          the reader (or matter) is a docked panel only while one is open. */}
+      {(tab === "triage" || tab === "atlas") &&
+      !readerId &&
+      !(tab === "atlas" && openMatter) ? null : (
       <main
         className={
           tab === "triage" || tab === "atlas"
@@ -662,7 +688,19 @@ export function DesktopMailApp() {
             : "flex min-w-0 flex-1 flex-col overflow-hidden"
         }
       >
-        {!readerId ? (
+        {!readerId && tab === "atlas" && openMatter ? (
+          <MatterPanel
+            m={openMatter}
+            functions={brief?.functions ?? []}
+            settled={Boolean(settledMatters[openMatter.id])}
+            onOpen={openReader}
+            onClose={() => setOpenMatterId(null)}
+            onFix={fixMatter}
+            onAtlasAction={atlasAction}
+            onRename={renameMatter}
+            onSettle={settleMatter}
+          />
+        ) : !readerId ? (
           <div className="flex flex-1 items-center justify-center text-[14px] text-[var(--muted)]">
             Select a message
           </div>
@@ -670,6 +708,16 @@ export function DesktopMailApp() {
           <>
             <header className="shrink-0 border-b border-[var(--border)] px-6 py-3">
               <div className="flex flex-wrap items-center justify-between gap-x-4 gap-y-2">
+                {tab === "atlas" && openMatterId ? (
+                  <button
+                    type="button"
+                    onClick={closeReader}
+                    aria-label="Back to matter"
+                    className="rounded-md p-1.5 text-[var(--muted)] hover:bg-[var(--row-hover)] hover:text-[var(--fg-strong)]"
+                  >
+                    <ChevronLeft className="h-5 w-5" />
+                  </button>
+                ) : null}
                 <h2 className="min-w-0 flex-1 basis-60 text-[17px] font-bold leading-snug text-[var(--fg-strong)]">
                   {reader?.subject ?? "…"}
                 </h2>
@@ -692,7 +740,7 @@ export function DesktopMailApp() {
                     runAction(readerId, "trash", reader?.fromEmail, readerThreadId)
                   }
                 />
-                {tab === "triage" ? (
+                {tab === "triage" || (tab === "atlas" && !openMatterId) ? (
                   <button
                     type="button"
                     onClick={closeReader}
