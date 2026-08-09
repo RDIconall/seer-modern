@@ -304,6 +304,28 @@ signals update the relevant matter:
 The update must explain what changed since the prior state. Matter
 identity remains stable; user-created matters and names always win.
 
+**Granularity, not a ceiling.** One real-world concern is one matter, and
+that is the *only* rule governing how many matters exist. A person is
+related to matters **many-to-many**: the same counterparty can own several
+distinct concerns (an operating plan, an audit item, a hiring decision, a
+personal introduction are four matters), and a single matter can involve
+many people. There is no fixed cap on matters per account or per person.
+
+The current implementation's numeric limit (at most 14 matters per model
+call) and its affinity chunking — which routes all of one counterparty's
+mail into a single capped call — are cost/latency controls that currently
+double as a quality ceiling, structurally squeezing prolific relationships
+toward too few matters. The redesign separates the two:
+
+- **Cost control (keep):** chunk and paginate work for latency and budget.
+- **Quality ceiling (remove):** a chunk's cap must never force two
+  genuinely distinct concerns to merge. Distinct concerns that overflow a
+  chunk are carried to the next pass, not collapsed.
+
+Merging remains driven only by identity — the same concern, a shared
+conversation, or a shared code — exactly the existing `mergeMatters`
+logic, with no arbitrary limit on how many distinct matters survive.
+
 #### Stage C — forecast the portfolio
 
 The forecast orders matters by consequence and dependency, not email
@@ -453,6 +475,64 @@ For the initial Salesforce integration:
 
 Writing an activity/note back to Salesforce is a later adapter capability.
 The initial handoff can be read-only and auditable.
+
+## What is stored
+
+Everything is per-account and isolated by account key. Durable truth is
+kept; raw content is not.
+
+### 1. Operating model (who the user is)
+
+One record per account, ground truth that survives every rebuild:
+
+- category hierarchy and descriptions
+- explicit roles: customers, board, team, advisers, vendors, family
+- protected people and protected classes of work
+- corrections, renames, and rejected suggestions
+- exemplars — the user's own labeled work
+- source authority map (which system is authoritative for which fields)
+- per-reason autonomy policy
+
+This unifies today's scattered profile, sender overrides, functions,
+people tiers, matter fixes, and learning stores.
+
+### 2. Graph (people, orgs, matters, artifacts)
+
+Nodes for people, organizations, matters, documents, meetings, and
+system-of-record records. Edges carry
+`{ type, source, confidence, firstSeen, lastConfirmed, expiresAt? }` and
+are resolved by exact keys (email, domain, code, threadId, filename).
+Person↔matter and matter↔person are both many-to-many.
+
+### 3. Understanding records (one deep read per email)
+
+Cached forever, keyed by message id + `version`: the full `Understanding`
+shape above, including `disposition`, `expires`, `matterCandidates`, and
+the `contextRefs` used to produce it. The expensive artifact; caching it
+is what makes re-grading cheap.
+
+### 4. Matters and lifecycle
+
+The brief: each matter with narrative, goal, next action, owner, status,
+urgency, artifacts, CRM/system facts, people, and `updatedAt`; plus
+**closure records** (`MatterClosure`) that persist so nothing silently
+resurrects, and user renames/manual matters that always win.
+
+### 5. Signals and the ledger (what happened)
+
+- Normalized `Signal` records from every source, retained as summaries and
+  pruned by recency and relevance (never raw bodies/screenshots by default)
+- The append-only **action ledger**
+  (`{ decision, contextRefs, action, source, corrected?, undone? }`) that
+  powers undo, learning, and audit
+
+### Caches, not truth
+
+The inbox snapshot (~1 minute), provider labels, and OAuth tokens are
+caches/credentials, not sources of truth. Situational context expires;
+explicit facts and matters persist. Files, notes, and Timeglass are stored
+as metadata and summaries, with content fetched on demand under the user's
+grant.
 
 ## Matter lifecycle
 
@@ -783,6 +863,9 @@ Migration proceeds in dependency order:
 - add quiet-but-alive and at-risk detection
 - add Salesforce/system-of-record handoff
 - produce Now/Next/Waiting/At risk forecast
+- remove the numeric matter cap (at most 14 per call) and the affinity
+  cap's quality ceiling; keep chunking as cost control only, carrying
+  overflow concerns to the next pass instead of merging them
 
 ### Phase 5 — Triage autonomy
 
