@@ -136,7 +136,22 @@ export function SettingsPanel({
       token: "Salesforce rejected the login. Check the Consumer Key.",
       signin: "Sign in to Seer first, then connect Salesforce.",
       access_denied: "Salesforce access was declined.",
+      redirect_uri_mismatch: `The Callback URL in the Connected App must be exactly ${window.location.origin}/api/salesforce/callback`,
     };
+    // Salesforce's own reason, passed through — "redirect_uri_mismatch" is
+    // a five-second fix; a generic rejection is a guessing game.
+    if (note.startsWith("token:")) {
+      const reason = decodeURIComponent(note.slice("token:".length));
+      const hint = /redirect_uri/i.test(reason)
+        ? ` The Callback URL must be exactly ${window.location.origin}/api/salesforce/callback`
+        : /client identifier|client_id|invalid_client_id/i.test(reason)
+          ? " Check the Consumer Key, and give a new Connected App ~10 minutes to propagate."
+          : /client secret|client_secret/i.test(reason)
+            ? " Turn off “Require Secret for Web Server Flow”, or paste the Consumer Secret above."
+            : "";
+      setSfNote(`Salesforce said: ${reason}.${hint}`);
+      return;
+    }
     setSfNote(SF_NOTES[note] ?? `Salesforce: ${note}`);
   }, []);
 
