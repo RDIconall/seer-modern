@@ -1,20 +1,14 @@
 "use client";
 
 import type { ReaderMessage } from "@/lib/inbox/types";
-import {
-  Calendar,
-  Check,
-  ExternalLink,
-  HelpCircle,
-  Paperclip,
-  X,
-} from "lucide-react";
+import { Calendar, Check, HelpCircle, Paperclip, X } from "lucide-react";
 
 /**
- * Substance only: the ask, an invitation you can answer, links lifted out
- * of the body, and attachments. Nothing here narrates and nothing repeats
- * the toolbar — the canned "Say yes / Decline / Buy time" replies are gone,
- * and every secondary action lives in the reader's overflow menu.
+ * Only what Outlook itself shows around a message: its attachments and, when
+ * the mail is a real calendar invite, inline accept / maybe / decline. The
+ * Seer-specific "The ask" callout and the links lifted out of the body — the
+ * interim panel between the header and the message — are gone. Everything the
+ * assistant can do lives in the reader's overflow menu instead.
  */
 function prettySize(bytes: number): string {
   if (bytes >= 1_000_000) return `${(bytes / 1_000_000).toFixed(1)} MB`;
@@ -34,32 +28,15 @@ export function AssistBar({
   rsvping?: boolean;
   onRsvp?: (response: "accepted" | "declined" | "tentative") => void;
 }) {
-  const keyActions = reader.keyActions ?? [];
   const invite = reader.calendarEvent;
-  const ask = reader.guide?.ask;
   const attachments = reader.attachments ?? [];
 
-  if (
-    attachments.length === 0 &&
-    !ask &&
-    !(invite && onRsvp) &&
-    keyActions.length === 0
-  ) {
+  if (attachments.length === 0 && !(invite && onRsvp)) {
     return null;
   }
 
   return (
     <div className="space-y-2">
-      {ask ? (
-        <div className="rounded-xl border-l-4 border-[var(--primary)] bg-[var(--primary-soft,rgba(52,152,217,0.08))] px-3 py-2.5">
-          <div className="text-[12px] uppercase tracking-wide text-[var(--primary)]">
-            The ask
-          </div>
-          <p className="mt-0.5 text-[17px] font-bold leading-snug">
-            “{ask}”
-          </p>
-        </div>
-      ) : null}
       {invite && onRsvp ? (
         <div className="rounded-xl border border-[var(--border)] bg-[var(--card)] px-3 py-2.5">
           <div className="mb-2 flex items-center gap-1.5 text-[14px]">
@@ -109,22 +86,6 @@ export function AssistBar({
               </button>
             </div>
           )}
-        </div>
-      ) : null}
-      {keyActions.length > 0 ? (
-        <div className="flex flex-wrap gap-1.5">
-          {keyActions.map((k) => (
-            <a
-              key={k.url}
-              href={k.url}
-              target="_blank"
-              rel="noopener noreferrer"
-              className="inline-flex items-center gap-1 rounded-full bg-[var(--primary)] px-3 py-1.5 text-[14px] text-white"
-            >
-              <ExternalLink className="h-3.5 w-3.5" />
-              {k.label}
-            </a>
-          ))}
         </div>
       ) : null}
       {attachments.length > 0 && messageId ? (
