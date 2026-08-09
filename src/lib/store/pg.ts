@@ -37,10 +37,17 @@ function getPool(): Pool | null {
     pool = null;
     return pool;
   }
+  // Supabase's pooled endpoint presents a cert not in the runtime's CA
+  // bundle. `sslmode=require` in the connection string forces node-pg to
+  // verify it, which then overrides our ssl option and fails with
+  // "self-signed certificate in certificate chain". Strip sslmode so the
+  // explicit { rejectUnauthorized: false } below is what takes effect.
+  const sanitized = cs.replace(/([?&])sslmode=[^&]*(&|$)/i, (_m, pre, post) =>
+    pre === "?" && post === "" ? "" : pre === "?" ? "?" : post,
+  );
   pool = new Pool({
-    connectionString: cs,
-    // Supabase requires TLS; the pooled endpoint presents a cert chain the
-    // serverless runtime doesn't always have — accept it explicitly.
+    connectionString: sanitized,
+    // TLS on, certificate verification off — Supabase over the pooler.
     ssl: { rejectUnauthorized: false },
     // Serverless: keep the footprint small; the transaction pooler fans out.
     max: 3,
@@ -54,6 +61,7 @@ function getPool(): Pool | null {
 }
 
 let schemaReady: Promise<boolean> | null = null;
+let lastSchemaError: string | null = null;
 
 /** Create the schema once per instance. Idempotent; safe to await often. */
 function ensureSchema(): Promise<boolean> {
@@ -61,27 +69,33 @@ function ensureSchema(): Promise<boolean> {
   schemaReady = (async () => {
     const p = getPool();
     if (!p) return false;
+    // Statements run one at a time: some poolers reject multi-statement
+    // simple queries, and a REVOKE on a role that doesn't exist must not
+    // sink the CREATE TABLE.
+    const stmts = [
+      `create table if not exists seer_kv (
+         key text primary key,
+         value jsonb not null,
+         expires_at timestamptz,
+         updated_at timestamptz not null default now()
+       )`,
+      `alter table seer_kv enable row level security`,
+    ];
     try {
-      await p.query(`
-        create table if not exists seer_kv (
-          key text primary key,
-          value jsonb not null,
-          expires_at timestamptz,
-          updated_at timestamptz not null default now()
-        );
-        alter table seer_kv enable row level security;
-        revoke all on seer_kv from anon, authenticated;
-      `);
-      return true;
+      for (const s of stmts) await p.query(s);
     } catch (e) {
-      console.error(
-        "[seer] pg ensureSchema failed:",
-        e instanceof Error ? e.message : e,
-      );
-      // Don't wedge the instance on a transient failure — let it retry.
-      schemaReady = null;
+      lastSchemaError = e instanceof Error ? e.message.slice(0, 200) : String(e);
+      console.error("[seer] pg ensureSchema failed:", lastSchemaError);
+      schemaReady = null; // transient — let the next call retry
       return false;
     }
+    // Best-effort hardening; never fail schema readiness if the roles or
+    // grants differ on this Postgres.
+    await p
+      .query(`revoke all on seer_kv from anon, authenticated`)
+      .catch(() => {});
+    lastSchemaError = null;
+    return true;
   })();
   return schemaReady;
 }
@@ -142,7 +156,9 @@ export async function pgHealth(): Promise<{
   const p = getPool();
   if (!p) return { ok: false, error: "no connection string" };
   try {
-    if (!(await ensureSchema())) return { ok: false, error: "schema" };
+    if (!(await ensureSchema())) {
+      return { ok: false, error: lastSchemaError ?? "schema not ready" };
+    }
     const r = await p.query<{ n: string }>("select count(*)::text as n from seer_kv");
     return { ok: true, keys: Number(r.rows[0]?.n ?? 0) };
   } catch (e) {
