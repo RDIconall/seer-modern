@@ -182,6 +182,8 @@ export type FiledEmail = {
   fromName?: string;
   fromEmail?: string;
   subject?: string;
+  /** The deep read's verdict: matter | record | fyi | disposable */
+  disposition?: string;
   line: string;
   /** What Seer suggests doing with it */
   suggestion?: string;
@@ -213,6 +215,10 @@ export type Digest = {
       fromName?: string;
       fromEmail?: string;
       subject?: string;
+      /** Function the message rolls up to, for category grouping in Triage */
+      orgUnit?: string;
+      /** The deep read's verdict: fyi | disposable */
+      disposition?: string;
     }[];
   }[];
 };
@@ -229,7 +235,7 @@ export type UnsureItem = {
  * treats any older brief as stale and rebuilds it, so a redesign never
  * leaves a stale Atlas on screen waiting for a manual refresh.
  */
-export const BRIEF_ENGINE = 17;
+export const BRIEF_ENGINE = 18;
 
 /**
  * The forecast lens — "what matters WHEN". A temporal view over the same
@@ -1596,6 +1602,7 @@ export async function buildBrief(
       fromName: personName(i),
       fromEmail: i.fromEmail,
       subject: stripEmoji(i.subject),
+      ...(u?.disposition ? { disposition: u.disposition } : {}),
       line: u
         ? headline(who, stripEmoji(u.oneLine)).slice(0, 140)
         : lineFor(i),
@@ -1770,6 +1777,8 @@ export async function buildBrief(
                 fromName: stripEmoji(item.fromName || item.fromEmail),
                 fromEmail: item.fromEmail,
                 subject: stripEmoji(item.subject),
+                orgUnit: orgUnitFor(item, functions, u).unit,
+                disposition: String(u?.disposition ?? "disposable"),
                 line: stripEmoji(
                   u?.oneLine ||
                     item.guide?.task ||
@@ -1787,6 +1796,8 @@ export async function buildBrief(
                 fromName: string;
                 fromEmail: string;
                 subject: string;
+                orgUnit: string;
+                disposition: string;
                 line: string;
                 at: string;
               } => Boolean(item),
