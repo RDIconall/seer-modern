@@ -212,7 +212,7 @@ export type UnsureItem = {
  * treats any older brief as stale and rebuilds it, so a redesign never
  * leaves a stale Atlas on screen waiting for a manual refresh.
  */
-export const BRIEF_ENGINE = 14;
+export const BRIEF_ENGINE = 15;
 
 /**
  * The forecast lens — "what matters WHEN". A temporal view over the same

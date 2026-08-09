@@ -105,7 +105,22 @@ to do its own job.
 
 ---
 
+## Reading pane
+
+One action row, then the message. Reply is the only labelled button; reply
+all, forward, archive and delete are icons; everything secondary — draft a
+reply, delegate, block time, unsubscribe, and correcting a wrong call — is in
+a single overflow menu. Sender name, address and time sit on one line. The
+canned "Say yes / Decline / Buy time" replies are gone, and Archive/Delete no
+longer appear twice.
+
 ## Changelog
+
+- 2026-08-09 — Reading pane rebuilt: duplicate Archive/Delete removed, canned
+  replies deleted, secondary actions collapsed into one overflow menu, header
+  reduced from four stacked blocks to two lines. Triage clears optimistically.
+  Unknown codes (raw PO numbers) no longer fragment a vendor's mail, and
+  automated senders collapse into one matter per company.
 
 - 2026-08-09 — Triage reduced to its two real verbs. Reads that name work are
   promoted to matters automatically instead of waiting behind a "Make matter"
