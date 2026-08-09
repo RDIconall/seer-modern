@@ -44,13 +44,19 @@ these is not done, regardless of the logic behind it.
 | "Click into a matter → feel like Pivotal Tracker: goal, next action…" | ✅ `MatterPanel`: next move leads, then state / goal / CRM / people. |
 | "…and what does AI suggest to do (or not do) with this email" | ✅ Restored — per-conversation suggestion renders on each row in `MatterPanel`. |
 
-## Triage — clear the non-matters, brief the FYI mass (§10, §18, §20)
+## Triage — delete and close, nothing else (§10, §18, §20)
+
+**The rule:** Triage holds exactly two kinds of thing — mail to **delete** and
+work to **close**. Anything with live work in it is already a matter in Atlas.
+Triage never asks "should this be a matter?"; that question is the app refusing
+to do its own job.
 
 | Ask | Status |
 |---|---|
-| "Triage clears; the matters view manages" | ✅ Triage rebuilt on the same `Brief`/deep-read brain as Atlas. Old `guide.action` `TriageTable` deleted; the "0 need you / 147 need you" contradiction is gone. `TriageDigest.tsx` |
-| "AI creates a brief of the FYI / read-and-delete mass so I don't deal with each one" | ✅ "What else happened": business-vocabulary themes, one sentence each with the dates/amounts that matter; expand for evidence; clear one category at a time. |
-| "Triage is where AI needs my help… fix matters" | ✅ Both directions built: deep-read disagreements appear as "Possible matters" with one-tap "Make matter"; a `looks-closed` matter shows the evidence and a 44px "Settle matter" action in its panel. |
+| "It should show me emails to delete, matters or emails to close" | ✅ Two sections, two verbs. Delete trashes; Close archives a record or settles a matter. `TriageDigest.tsx` |
+| "Everything else should already be a matter" | ✅ A deep read with `disposition: "matter"` is promoted into a real matter during the brief build (`matterFromRead`). "Possible matters" is gone — there is nothing to approve. |
+| "AI creates a brief of the FYI / read-and-delete mass so I don't deal with each one" | ✅ Digest categories in business vocabulary, one sentence each, chunked 60 at a time so a large inbox actually gets categories instead of one "Inbox updates" bucket. A failed chunk falls back to sender grouping, never to a fake summary. |
+| Matter closure | ✅ `looks-closed` matters appear in Triage's Close out list with the evidence and a one-tap Close, as well as inside the matter panel. |
 
 ## The brain — read everything, think in units (§14, §15, §17, §24)
 
@@ -101,6 +107,10 @@ these is not done, regardless of the logic behind it.
 
 ## Changelog
 
+- 2026-08-09 — Triage reduced to its two real verbs. Reads that name work are
+  promoted to matters automatically instead of waiting behind a "Make matter"
+  button; Delete now trashes rather than archives; the digest is chunked so it
+  stops collapsing two thirds of the inbox into one meaningless theme.
 - 2026-08-09 — Rebuilt the matter panel and board rows mobile-first (no
   truncation of titles/asks, 44px targets, next-move-first hierarchy).
   Rebuilt Triage on the deep-read brain (digest themes + matter promotion),
