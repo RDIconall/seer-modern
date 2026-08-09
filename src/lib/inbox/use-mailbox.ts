@@ -448,11 +448,12 @@ export function useMailbox(initialTab: ViewTab = "inbox") {
     }
   }, [brief?.builtAt]);
 
-  /** Headlines glanced → originals archived in one motion. */
+  /** Triage's two verbs: delete puts mail in the trash, close archives it. */
   const clearHeadlines = useCallback(
     async (
       ids: { id: string; threadId: string; count?: number }[],
       reason?: string,
+      mode: "archive" | "trash" = "archive",
     ) => {
       if (ids.length === 0) return;
       try {
@@ -462,6 +463,7 @@ export function useMailbox(initialTab: ViewTab = "inbox") {
           body: JSON.stringify({
             rows: ids.map(({ id, threadId }) => ({ id, threadId })),
             reason,
+            mode,
           }),
         });
         const json = await res.json().catch(() => ({}));
@@ -473,10 +475,11 @@ export function useMailbox(initialTab: ViewTab = "inbox") {
           markActed(row.id, row.threadId);
           removeFromLists(row.id);
         }
+        const verb = mode === "trash" ? "Deleted" : "Closed";
         setToast(
           json.failed
-            ? `Cleared ${json.removedCount ?? json.processed}; ${json.failed} failed`
-            : `Cleared ${json.removedCount ?? json.processed}`,
+            ? `${verb} ${json.removedCount ?? json.processed}; ${json.failed} failed`
+            : `${verb} ${json.removedCount ?? json.processed}`,
         );
       } catch (e) {
         setToast(e instanceof Error ? e.message : "Clear failed");

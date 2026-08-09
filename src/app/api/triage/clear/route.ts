@@ -28,6 +28,8 @@ export async function POST(request: Request) {
   const body = (await request.json().catch(() => ({}))) as {
     rows?: TriageClearRequest[];
     reason?: string;
+    /** "trash" is Triage's delete; "archive" closes something out. */
+    mode?: "archive" | "trash";
   };
   if (!body.rows?.length) {
     return NextResponse.json({ error: "No rows" }, { status: 400 });
@@ -38,15 +40,16 @@ export async function POST(request: Request) {
   }
 
   const actions = planTriageClear(brief, body.rows);
+  const mode = body.mode === "trash" ? "trash" : "archive";
   const run = async (action: (typeof actions)[number]) => {
     if (action.threadId) {
       return session.provider === "google"
-        ? gmailThreadAction(session.accessToken, action.threadId, "archive")
-        : graphThreadAction(session.accessToken, action.threadId, "archive");
+        ? gmailThreadAction(session.accessToken, action.threadId, mode)
+        : graphThreadAction(session.accessToken, action.threadId, mode);
     }
     return session.provider === "google"
-      ? gmailAction(session.accessToken, action.id, "archive")
-      : graphAction(session.accessToken, action.id, "archive");
+      ? gmailAction(session.accessToken, action.id, mode)
+      : graphAction(session.accessToken, action.id, mode);
   };
 
   const results = await Promise.allSettled(actions.map(run));
@@ -71,7 +74,7 @@ export async function POST(request: Request) {
   await Promise.allSettled([
     appendLedger(session.email, {
       kind: "sweep",
-      summary: `Cleared ${removedCount} — ${reason}`,
+      summary: `${mode === "trash" ? "Deleted" : "Closed"} ${removedCount} — ${reason}`,
       reason,
       source: "confirmed",
       emailIds: succeeded.map((action) => action.id),

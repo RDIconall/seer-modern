@@ -605,7 +605,7 @@ export function DesktopMailApp() {
               brief={brief}
               building={briefBuilding}
               onOpenEmail={openReader}
-              onCreateMatter={createMatter}
+              onSettle={settleMatter}
               onClear={clearHeadlines}
             />
           ) : null}
