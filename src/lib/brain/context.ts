@@ -17,6 +17,7 @@ import {
 } from "@/lib/crm/registry";
 import type { ActionMemory } from "@/lib/store/action-memory";
 import type { PeopleDb } from "@/lib/store/people";
+import { latestSignalFor, type WorkSignal } from "@/lib/brain/signals";
 
 /**
  * THE CONTEXT COMPILER — the center of the Seer brain.
@@ -63,6 +64,12 @@ export type BrainSources = {
   salesforce?: SalesforceRegistry | null;
   actionMemory?: ActionMemory | null;
   priorMatters?: PriorMatter[];
+  /**
+   * Recent work signals (Timeglass, Drive, notes) — what the user has
+   * actually been doing. Empty until a connector is added; when present,
+   * they prove a matter is alive even when its mail has gone silent.
+   */
+  workSignals?: WorkSignal[];
 };
 
 export type CompiledContext = { text: string; refs: string[] };
@@ -231,6 +238,21 @@ export function compileEmailContext(
     if (crm) {
       lines.push(`CRM: ${crm.text} [system]`);
       refs.push(crm.ref);
+    }
+  }
+
+  // WORK — proof the user is actively working this concern (Timeglass,
+  // Drive, notes). Joins by counterparty and any code in the email.
+  if (sources.workSignals?.length) {
+    const codes = (hay.match(CODE_PATTERN) ?? []).map((c) => normalizeCode(c));
+    const sig = latestSignalFor(sources.workSignals, [counterparty, ...codes]);
+    if (sig) {
+      const when = sig.at.slice(0, 10);
+      const mins = sig.minutes ? ` (${sig.minutes}m)` : "";
+      lines.push(
+        `WORK: you ${sig.kind} "${sig.label}"${mins} on ${when} — this concern is active [observed]`,
+      );
+      refs.push(`work:${sig.source}:${sig.ref ?? sig.label}`);
     }
   }
 
