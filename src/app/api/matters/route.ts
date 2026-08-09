@@ -7,6 +7,12 @@ import {
   loadMatterEdits,
   renameMatter,
 } from "@/lib/store/manual-matters";
+import { loadMatterOrder, saveMatterOrder } from "@/lib/store/matter-order";
+import {
+  loadSettledMatters,
+  settleMatter,
+  unsettleMatter,
+} from "@/lib/store/settled-matters";
 import { NextResponse } from "next/server";
 
 /**
@@ -19,7 +25,12 @@ export async function GET() {
   if (!session) {
     return NextResponse.json({ error: "Not signed in" }, { status: 401 });
   }
-  return NextResponse.json({ edits: await loadMatterEdits(session.email) });
+  const [edits, order, settled] = await Promise.all([
+    loadMatterEdits(session.email),
+    loadMatterOrder(session.email),
+    loadSettledMatters(session.email),
+  ]);
+  return NextResponse.json({ edits, order, settled });
 }
 
 export async function POST(req: Request) {
@@ -28,12 +39,20 @@ export async function POST(req: Request) {
     return NextResponse.json({ error: "Not signed in" }, { status: 401 });
   }
   const body = (await req.json().catch(() => ({}))) as {
-    action?: "create" | "rename" | "add" | "delete";
+    action?:
+      | "create"
+      | "rename"
+      | "add"
+      | "delete"
+      | "order"
+      | "settle"
+      | "unsettle";
     matterId?: string;
     title?: string;
     orgUnit?: string;
     goal?: string;
     emailIds?: string[];
+    matterIds?: string[];
   };
 
   const brief = await loadBrief(session.email);
@@ -129,6 +148,39 @@ export async function POST(req: Request) {
       await saveBrief(session.email, brief);
     }
     return NextResponse.json({ ok: true, brief });
+  }
+
+  // The user's priority order within one column of the whiteboard.
+  if (body.action === "order") {
+    if (!body.orgUnit || !body.matterIds) {
+      return NextResponse.json(
+        { error: "orgUnit and matterIds required" },
+        { status: 400 },
+      );
+    }
+    const order = await saveMatterOrder(
+      session.email,
+      body.orgUnit,
+      body.matterIds,
+    );
+    return NextResponse.json({ ok: true, order });
+  }
+
+  // Close a matter into the Settled column (or reopen it).
+  if (body.action === "settle") {
+    if (!body.matterId) {
+      return NextResponse.json({ error: "matterId required" }, { status: 400 });
+    }
+    const settled = await settleMatter(session.email, body.matterId);
+    return NextResponse.json({ ok: true, settled });
+  }
+
+  if (body.action === "unsettle") {
+    if (!body.matterId) {
+      return NextResponse.json({ error: "matterId required" }, { status: 400 });
+    }
+    const settled = await unsettleMatter(session.email, body.matterId);
+    return NextResponse.json({ ok: true, settled });
   }
 
   return NextResponse.json({ error: "Unknown action" }, { status: 400 });
