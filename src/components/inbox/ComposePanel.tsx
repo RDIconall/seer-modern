@@ -1,7 +1,112 @@
 "use client";
 
 import { ChevronLeft, Send } from "lucide-react";
-import { useState } from "react";
+import { useEffect, useRef, useState } from "react";
+
+type Contact = { name?: string; email: string };
+
+/**
+ * Recipient field with contact suggestions. Addresses are comma-separated,
+ * so completion applies to the LAST entry only — picking someone leaves
+ * the ones already typed alone.
+ */
+function RecipientField({
+  label,
+  value,
+  onChange,
+  placeholder,
+}: {
+  label: string;
+  value: string;
+  onChange: (v: string) => void;
+  placeholder: string;
+}) {
+  const [open, setOpen] = useState(false);
+  const [matches, setMatches] = useState<Contact[]>([]);
+  const boxRef = useRef<HTMLDivElement>(null);
+
+  const lastEntry = value.split(",").pop()?.trim() ?? "";
+
+  useEffect(() => {
+    if (!open) return;
+    const q = lastEntry;
+    // An exact address is already chosen — nothing left to suggest.
+    if (q.includes("@") && q.endsWith(" ")) {
+      setMatches([]);
+      return;
+    }
+    const id = setTimeout(async () => {
+      try {
+        const res = await fetch(`/api/contacts?q=${encodeURIComponent(q)}`, {
+          cache: "no-store",
+        });
+        if (!res.ok) return;
+        const json = (await res.json()) as { contacts?: Contact[] };
+        setMatches(json.contacts ?? []);
+      } catch {
+        /* suggestions are optional */
+      }
+    }, 150);
+    return () => clearTimeout(id);
+  }, [lastEntry, open]);
+
+  useEffect(() => {
+    const onDown = (e: MouseEvent) => {
+      if (!boxRef.current?.contains(e.target as Node)) setOpen(false);
+    };
+    document.addEventListener("mousedown", onDown);
+    return () => document.removeEventListener("mousedown", onDown);
+  }, []);
+
+  const pick = (c: Contact) => {
+    const parts = value.split(",");
+    parts[parts.length - 1] = ` ${c.email}`;
+    onChange(`${parts.join(",").replace(/^\s+/, "")}, `);
+    setMatches([]);
+  };
+
+  return (
+    <div ref={boxRef} className="relative border-b border-[var(--border)]">
+      <label className="flex items-center gap-3 py-3 text-[14px]">
+        <span className="w-8 shrink-0 text-[var(--muted)]">{label}</span>
+        <input
+          value={value}
+          onChange={(e) => {
+            onChange(e.target.value);
+            setOpen(true);
+          }}
+          onFocus={() => setOpen(true)}
+          className="min-w-0 flex-1 bg-transparent outline-none"
+          placeholder={placeholder}
+          autoComplete="off"
+          inputMode="email"
+        />
+      </label>
+      {open && matches.length > 0 ? (
+        <ul className="absolute left-0 right-0 top-full z-10 max-h-64 overflow-auto rounded-b border border-[var(--border)] bg-[var(--card)] shadow-lg">
+          {matches.map((c) => (
+            <li key={c.email}>
+              <button
+                type="button"
+                onClick={() => pick(c)}
+                className="flex w-full flex-col items-start px-3 py-2 text-left hover:bg-[var(--row-hover)]"
+              >
+                {c.name ? (
+                  <span className="text-[14px] text-[var(--fg-strong)]">
+                    {c.name}
+                  </span>
+                ) : null}
+                <span className="text-[12px] text-[var(--muted)]">
+                  {c.email}
+                </span>
+              </button>
+            </li>
+          ))}
+        </ul>
+      ) : null}
+    </div>
+  );
+}
 
 export type ComposeMode = "compose" | "reply" | "replyAll" | "forward";
 
@@ -58,7 +163,28 @@ export function ComposePanel({
           archiveOriginal: draft.archiveOriginal,
         }),
       });
-      const json = await res.json();
+      // An empty body (a timed-out or killed function) makes res.json()
+      // throw "Unexpected end of JSON input", which tells the user nothing.
+      // Read the text first and report what actually happened.
+      const raw = await res.text();
+      let json: { error?: string } = {};
+      if (raw) {
+        try {
+          json = JSON.parse(raw) as { error?: string };
+        } catch {
+          throw new Error(
+            res.ok
+              ? "Sent, but the reply from the server was unreadable."
+              : `Send failed (${res.status})`,
+          );
+        }
+      } else if (!res.ok) {
+        throw new Error(
+          res.status === 504
+            ? "The server took too long. Check Sent before retrying."
+            : `Send failed (${res.status})`,
+        );
+      }
       if (!res.ok) throw new Error(json.error ?? "Send failed");
       onSent();
     } catch (e) {
@@ -92,27 +218,13 @@ export function ComposePanel({
       </header>
 
       <div className="flex flex-1 flex-col overflow-auto px-4">
-        <label className="flex items-center gap-3 border-b border-[var(--border)] py-3 text-[14px]">
-          <span className="w-8 shrink-0 text-[var(--muted)]">To</span>
-          <input
-            value={to}
-            onChange={(e) => setTo(e.target.value)}
-            className="min-w-0 flex-1 bg-transparent outline-none"
-            placeholder="Recipients"
-            autoComplete="email"
-            inputMode="email"
-          />
-        </label>
-        <label className="flex items-center gap-3 border-b border-[var(--border)] py-3 text-[14px]">
-          <span className="w-8 shrink-0 text-[var(--muted)]">Cc</span>
-          <input
-            value={cc}
-            onChange={(e) => setCc(e.target.value)}
-            className="min-w-0 flex-1 bg-transparent outline-none"
-            placeholder="Cc"
-            inputMode="email"
-          />
-        </label>
+        <RecipientField
+          label="To"
+          value={to}
+          onChange={setTo}
+          placeholder="Recipients"
+        />
+        <RecipientField label="Cc" value={cc} onChange={setCc} placeholder="Cc" />
         <label className="flex items-center gap-3 border-b border-[var(--border)] py-3 text-[14px]">
           <span className="w-8 shrink-0 text-[var(--muted)]">Subj</span>
           <input

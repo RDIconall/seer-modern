@@ -11,6 +11,9 @@ import { NextResponse } from "next/server";
 
 type Mode = "compose" | "reply" | "replyAll" | "forward";
 
+/** Sending talks to Gmail/Graph and then does bookkeeping — give it room. */
+export const maxDuration = 60;
+
 function ensureRe(subject: string) {
   return /^re:/i.test(subject) ? subject : `Re: ${subject}`;
 }
@@ -138,13 +141,14 @@ export async function POST(request: Request) {
         references: original.messageIdHeader || undefined,
       });
       // Replied = handled: remember the thread (cards flip to "done"
-      // instantly) and archive the original — inbox stays small.
-      await recordRepliedThread(session.email, original.threadId).catch(
-        () => {},
-      );
-      await gmailAction(session.accessToken, body.replyToId, "archive").catch(
-        () => {},
-      );
+      // instantly) and archive the original — inbox stays small. The mail
+      // has ALREADY been sent by this point, so neither write may gate the
+      // response: a slow store must never turn a delivered reply into a
+      // "send failed" for the user.
+      await Promise.allSettled([
+        recordRepliedThread(session.email, original.threadId),
+        gmailAction(session.accessToken, body.replyToId, "archive"),
+      ]);
       return NextResponse.json({ ok: true, ...sent, archived: true });
     }
 
@@ -166,12 +170,10 @@ export async function POST(request: Request) {
         text,
         mode === "replyAll",
       );
-      await recordRepliedThread(session.email, original.threadId).catch(
-        () => {},
-      );
-      await graphAction(session.accessToken, body.replyToId, "archive").catch(
-        () => {},
-      );
+      await Promise.allSettled([
+        recordRepliedThread(session.email, original.threadId),
+        graphAction(session.accessToken, body.replyToId, "archive"),
+      ]);
       return NextResponse.json({ ok: true, archived: true });
     }
 
