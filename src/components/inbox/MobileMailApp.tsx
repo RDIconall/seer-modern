@@ -45,10 +45,8 @@ import { CatchupCard } from "@/components/inbox/CatchupCard";
 import { TriageDigest } from "@/components/inbox/TriageDigest";
 import { ScheduleSheet } from "@/components/inbox/ScheduleSheet";
 import { AssistBar } from "@/components/inbox/AssistBar";
-import {
-  LogicExplain,
-  ReaderGuideBar,
-} from "@/components/inbox/LogicExplain";
+import { ReaderMore } from "@/components/inbox/ReaderMore";
+import { LogicExplain } from "@/components/inbox/LogicExplain";
 import { SettingsPanel } from "@/components/inbox/SettingsPanel";
 import { useMailbox } from "@/lib/inbox/use-mailbox";
 import {
@@ -308,74 +306,64 @@ export function MobileMailApp() {
           >
             <Trash2 className="h-5 w-5" />
           </IconBtn>
+          {reader ? (
+            <ReaderMore
+              light
+              guide={g}
+              drafting={drafting}
+              onDraft={() => draftReply()}
+              onDelegate={
+                readerId ? () => openDelegate(readerId, reader.subject) : undefined
+              }
+              onSchedule={
+                readerId
+                  ? () =>
+                      openSchedule(
+                        readerId,
+                        reader.subject,
+                        g?.ask,
+                        reader.fromName,
+                      )
+                  : undefined
+              }
+              onUnsubscribe={
+                readerId
+                  ? () => unsubscribe(readerId, reader.fromEmail, reader.threadId)
+                  : undefined
+              }
+              onTeach={(a) =>
+                teachSender(
+                  reader.fromEmail,
+                  a,
+                  readerId ?? undefined,
+                  reader.threadId,
+                )
+              }
+            />
+          ) : null}
         </header>
 
         <div className="flex-1 overflow-auto">
-          <div className="border-b border-[var(--border)] px-4 py-3">
-            <div className="flex items-start gap-3">
-              <span
-                className={`mail-unread-dot mt-2 ${reader ?"" : "empty"}`}
-                aria-hidden
-              />
-              <div className="min-w-0 flex-1">
-                <div className="truncate text-[17px] font-bold text-[var(--fg-strong)]">
-                  {reader?.fromName ?? "…"}
-                </div>
-                <div className="truncate text-[12px] text-[var(--muted)]">
-                  {reader?.fromEmail}
-                </div>
-              </div>
-            </div>
-            {g ? (
-              <ReaderGuideBar
-                guide={g}
-                onTeach={
-                  reader
-                    ? (a) =>
-                        teachSender(
-                          reader.fromEmail,
-                          a,
-                          readerId ?? undefined,
-                          reader.threadId,
-                        )
-                    : undefined
-                }
-              />
-            ) : null}
-            {reader ? (
+          {/* Who and when, on one line. */}
+          <div className="flex items-baseline gap-2 px-4 pb-1 pt-3">
+            <span className="min-w-0 shrink text-[14px] font-bold text-[var(--fg-strong)]">
+              {reader?.fromName ?? "…"}
+            </span>
+            <span className="min-w-0 flex-1 truncate text-[12px] text-[var(--muted)]">
+              {reader?.fromEmail}
+            </span>
+          </div>
+          {reader ? (
+            <div className="px-4">
               <AssistBar
                 reader={reader}
                 messageId={readerId ?? undefined}
-                drafting={drafting}
-                onDraft={draftReply}
                 rsvping={rsvping}
                 onRsvp={rsvp}
-                onUnsubscribe={
-                  readerId
-                    ? () =>
-                        unsubscribe(readerId, reader?.fromEmail, reader?.threadId)
-                    : undefined
-                }
-                onDelegate={
-                  readerId
-                    ? () => openDelegate(readerId, reader?.subject)
-                    : undefined
-                }
-                onSchedule={
-                  readerId && reader
-                    ? () =>
-                        openSchedule(
-                          readerId,
-                          reader.subject,
-                          g?.ask,
-                          reader.fromName,
-                        )
-                    : undefined
-                }
               />
-            ) : null}
-          </div>
-          <div className="px-4 py-4">
+            </div>
+          ) : null}
+          <div className="px-4 pb-4 pt-3">
             {!reader ? (
               <p className="text-[14px] text-[var(--muted)]">Loading…</p>
             ) : safeHtml ? (

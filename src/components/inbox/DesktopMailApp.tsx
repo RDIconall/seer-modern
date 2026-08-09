@@ -34,6 +34,7 @@ import { MatterPanel } from "@/components/inbox/MatterPanel";
 import { CatchupCard } from "@/components/inbox/CatchupCard";
 import { TriageDigest } from "@/components/inbox/TriageDigest";
 import { AssistBar } from "@/components/inbox/AssistBar";
+import { ReaderMore } from "@/components/inbox/ReaderMore";
 import {
   LogicExplain,
   ReaderGuideBar,
@@ -45,7 +46,6 @@ import {
   buildDeckCards,
   ensureRe,
   formatMailTime,
-  mailInitial,
   type EmailItem,
   type ViewTab,
 } from "@/lib/inbox/types";
@@ -676,6 +676,49 @@ export function DesktopMailApp() {
                     readerId &&
                     runAction(readerId, "trash", reader?.fromEmail, readerThreadId)
                   }
+                  more={
+                    reader ? (
+                      <ReaderMore
+                        guide={reader.guide}
+                        drafting={drafting}
+                        onDraft={() => draftReply()}
+                        onDelegate={
+                          readerId
+                            ? () => openDelegate(readerId, reader.subject)
+                            : undefined
+                        }
+                        onSchedule={
+                          readerId
+                            ? () =>
+                                openSchedule(
+                                  readerId,
+                                  reader.subject,
+                                  reader.guide?.ask,
+                                  reader.fromName,
+                                )
+                            : undefined
+                        }
+                        onUnsubscribe={
+                          readerId
+                            ? () =>
+                                unsubscribe(
+                                  readerId,
+                                  reader.fromEmail,
+                                  reader.threadId,
+                                )
+                            : undefined
+                        }
+                        onTeach={(a) =>
+                          teachSender(
+                            reader.fromEmail,
+                            a,
+                            readerId ?? undefined,
+                            reader.threadId,
+                          )
+                        }
+                      />
+                    ) : null
+                  }
                 />
                 {tab === "triage" || (tab === "atlas" && !openMatterId) ? (
                   <button
@@ -695,79 +738,32 @@ export function DesktopMailApp() {
                 <p className="px-6 py-8 text-[14px] text-[var(--muted)]">Loading…</p>
               ) : (
                 <>
-                  <div className="border-b border-[var(--border)] px-6 py-4">
-                    <div className="flex items-start gap-3">
-                      <div
-                        className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full text-[14px] text-white"
-                        style={{
-                          backgroundColor:
-                            reader.guide?.color ?? "var(--primary)",
-                        }}
-                      >
-                        {mailInitial(reader.fromName || reader.fromEmail)}
-                      </div>
-                      <div className="min-w-0 flex-1">
-                        <div className="">{reader.fromName}</div>
-                        <div className="truncate text-[14px] text-[var(--muted)]">
-                          {reader.fromEmail}
-                        </div>
-                        {reader.receivedAt ? (
-                          <div className="mt-0.5 text-[12px] text-[var(--muted)]">
-                            {formatMailTime(reader.receivedAt)}
-                          </div>
-                        ) : null}
-                      </div>
-                    </div>
-                    {reader.guide ? (
-                      <ReaderGuideBar
-                        guide={reader.guide}
-                        onTeach={(a) =>
-                          teachSender(
-                            reader.fromEmail,
-                            a,
-                            readerId ?? undefined,
-                            reader.threadId,
-                          )
-                        }
-                      />
+                  {/* One line for who and when. Name, address and time used
+                      to stack three deep above every message. */}
+                  <div className="flex items-baseline gap-2 px-6 pb-2 pt-3">
+                    <span className="shrink-0 text-[14px] font-bold text-[var(--fg-strong)]">
+                      {reader.fromName || reader.fromEmail}
+                    </span>
+                    <span className="min-w-0 flex-1 truncate text-[14px] text-[var(--muted)]">
+                      {reader.fromEmail}
+                    </span>
+                    {reader.receivedAt ? (
+                      <span className="shrink-0 text-[12px] text-[var(--muted)]">
+                        {formatMailTime(reader.receivedAt)}
+                      </span>
                     ) : null}
+                  </div>
+
+                  <div className="px-6">
                     <AssistBar
                       reader={reader}
                       messageId={readerId ?? undefined}
-                      drafting={drafting}
-                      onDraft={draftReply}
                       rsvping={rsvping}
                       onRsvp={rsvp}
-                      onUnsubscribe={
-                        readerId
-                          ? () =>
-                              unsubscribe(
-                                readerId,
-                                reader?.fromEmail,
-                                reader?.threadId,
-                              )
-                          : undefined
-                      }
-                      onDelegate={
-                        readerId
-                          ? () => openDelegate(readerId, reader?.subject)
-                          : undefined
-                      }
-                      onSchedule={
-                        readerId && reader
-                          ? () =>
-                              openSchedule(
-                                readerId,
-                                reader.subject,
-                                reader.guide?.ask,
-                                reader.fromName,
-                              )
-                          : undefined
-                      }
                     />
                   </div>
 
-                  <div className="px-6 py-5">
+                  <div className="px-6 pb-5 pt-3">
                     {safeHtml ? (
                       <div
                         className="prose prose-sm max-w-none text-[var(--fg)] dark:prose-invert"
@@ -938,6 +934,11 @@ function DesktopMailRow({
   );
 }
 
+/**
+ * Reply is the one action worth a word. The rest are universally known
+ * icons, so spelling them out only widened the bar and pushed the message
+ * further down the screen.
+ */
 function ReaderToolbar({
   disabled,
   onReply,
@@ -945,6 +946,7 @@ function ReaderToolbar({
   onForward,
   onArchive,
   onDelete,
+  more,
 }: {
   disabled?: boolean;
   onReply: () => void;
@@ -952,6 +954,7 @@ function ReaderToolbar({
   onForward: () => void;
   onArchive: () => void;
   onDelete: () => void;
+  more?: ReactNode;
 }) {
   return (
     <div className="flex shrink-0 items-center gap-0.5">
@@ -961,21 +964,18 @@ function ReaderToolbar({
       </ToolbarButton>
       <ToolbarButton disabled={disabled} label="Reply all" onClick={onReplyAll}>
         <ReplyAll className="h-4 w-4" />
-        <span>Reply all</span>
       </ToolbarButton>
       <ToolbarButton disabled={disabled} label="Forward" onClick={onForward}>
         <Forward className="h-4 w-4" />
-        <span>Forward</span>
       </ToolbarButton>
       <div className="mx-1 h-5 w-px bg-[var(--border)]" />
       <ToolbarButton disabled={disabled} label="Archive" onClick={onArchive}>
         <Archive className="h-4 w-4" />
-        <span>Archive</span>
       </ToolbarButton>
       <ToolbarButton disabled={disabled} label="Delete" onClick={onDelete}>
         <Trash2 className="h-4 w-4" />
-        <span>Delete</span>
       </ToolbarButton>
+      {more}
     </div>
   );
 }
@@ -995,9 +995,10 @@ function ToolbarButton({
     <button
       type="button"
       aria-label={label}
+      title={label}
       disabled={disabled}
       onClick={onClick}
-      className="flex items-center gap-1.5 rounded-md px-2 py-1.5 text-[12px] text-[var(--fg)] hover:bg-[var(--row-hover)] disabled:opacity-40"
+      className="flex h-9 items-center gap-1.5 rounded-md px-2 text-[12px] text-[var(--fg)] hover:bg-[var(--row-hover)] disabled:opacity-40"
     >
       {children}
     </button>

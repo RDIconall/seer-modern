@@ -130,6 +130,14 @@ body {
   color: #fff;
 }
 
+/* The reader's overflow menu opens from inside that colored header, which
+   paints every button white. The menu is its own surface, on the app's
+   background — its items keep the app's text colour. */
+.reader-menu button,
+.outlook-header .reader-menu button {
+  color: var(--fg);
+}
+
 .bottom-nav {
   padding-bottom: max(0.35rem, var(--safe-bottom));
 }
