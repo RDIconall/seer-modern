@@ -15,7 +15,7 @@ import { z } from "zod";
  * from older versions are re-read.
  */
 
-export const UNDERSTANDING_VERSION = 2;
+export const UNDERSTANDING_VERSION = 3;
 
 /**
  * What an email is FOR — the deep read's own verdict on disposal, which
@@ -131,7 +131,7 @@ const recordSchema = z.object({
   disposition: z
     .enum(["matter", "record", "fyi", "disposable"])
     .describe(
-      'what this email is FOR: "matter" = evidence of ongoing work that needs tracking (an ask, a negotiation, a decision, anyone waiting on the user); "record" = keep but no live story (receipt, executed contract, statement, confirmation the user may search for later); "fyi" = worth one glance then gone (a notice, a status update); "disposable" = never needed the user\'s eyes (marketing, inert notice, machine noise). When in doubt between matter and record, prefer matter. Anything the user must act on, sign, or answer is ALWAYS matter.',
+      'what this email is FOR. Most of a real inbox is fyi/disposable — be decisive: "matter" = a live concern with a counterparty that needs tracking (a real ask of the user, a negotiation, a decision, a signature, anyone waiting on them); "record" = no live story but worth finding later (receipt, executed contract, invoice, statement, confirmation number); "fyi" = one glance then gone (status update, notification, digest, newsletter with one useful fact); "disposable" = never needed their eyes (marketing, promotions, inert policy/ToS notices, automated noise, social/network notifications). A message is NOT a matter merely because it is work-related or from a real company.',
     ),
   expires: z
     .string()
@@ -163,12 +163,12 @@ Rules:
   · Awarded, running work with a study code is operations — studies. Pricing or feasibility requests are sales — new requests. Payment chases are finance (ar/ap).
 - orgConfidence: be honest. Below 0.6 means you truly could not tell.
 - importance: what happens if this is ignored for a week.
-- disposition: the single most important field — it decides where this email lives. Judge it from the MEANING, never the sender's shape (a no-reply address can carry an approval request; a person can send pure noise):
-  · matter = ongoing work to track: an ask of the user, a negotiation, a decision, a signature, an approval/regulatory/legal deadline, or anyone waiting on the user. If owner is "you", disposition is matter.
-  · record = keep but no live story: a receipt, an executed contract, a statement, a confirmation number — something the user might search for later.
-  · fyi = one glance then gone: a status update or notice with nothing to keep and nothing to do.
-  · disposable = never needed eyes: marketing, inert policy/ToS notices, machine noise.
-  When torn between matter and record, choose matter. Never mark an email with a real ask, a signature, or an approval/regulatory deadline as fyi or disposable.
+- disposition: the single most important field — it decides where this email lives. Judge it from the MEANING, never the sender's shape (a no-reply address can carry an approval request; a person can send pure noise). BE DECISIVE: in a real executive inbox most mail is fyi or disposable, a minority are records, and only a genuine live concern is a matter. Marking everything a matter is the same as marking nothing.
+  · matter = a LIVE concern with a counterparty that must be tracked: a real ask of the user, a negotiation, a decision they owe, a signature, an approval/regulatory/legal deadline, or someone waiting on their reply. Being work-related is NOT enough — there must be something unresolved.
+  · record = no live story, but findable later: a receipt, an executed contract, an invoice, a statement, a confirmation number.
+  · fyi = one glance then gone: status updates, notifications, reports, newsletters carrying a single useful fact, "we shipped it", "here's the weekly".
+  · disposable = never needed their eyes: marketing, promotions, event invitations from vendors, inert policy/ToS updates, automated noise, social-network notifications (LinkedIn messages/connections), recruiting spam.
+  Hard floor: an email with a real ask of the user, an awaiting signature, or an approval/regulatory/government deadline is ALWAYS a matter, whatever it looks like. Everything else earns "matter" only by being genuinely unresolved.
 - expires: set the ISO date only when relevance genuinely dies on its own (a delivery/check-in window, an event, a code). Bills, invoices, contracts, and records never expire.
 - Never invent a fact, a date, or a document name. If the body doesn't say it, leave it out.`;
 

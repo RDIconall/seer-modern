@@ -29,6 +29,32 @@ function orgRoot(orgUnit: string, functions: string[]): string {
   return best || orgUnit;
 }
 
+/**
+ * The sub-branch code is a prefix ONLY when the line doesn't already open
+ * with it. Rendering both is what produced "Liisa Johns Liisa Johns
+ * shared a lead…" — the counterparty name printed twice in a row.
+ */
+function codePrefix(code: string | undefined, line: string): string | null {
+  if (!code) return null;
+  const c = code.trim().toLowerCase();
+  if (!c) return null;
+  return line.trim().toLowerCase().startsWith(c) ? null : code;
+}
+
+/** "3h", "2d", "Jun 4" — you cannot triage without recency. */
+function shortTime(iso?: string): string {
+  if (!iso) return "";
+  const t = new Date(iso).getTime();
+  if (Number.isNaN(t)) return "";
+  const mins = Math.floor((Date.now() - t) / 60000);
+  if (mins < 60) return `${Math.max(1, mins)}m`;
+  const hours = Math.floor(mins / 60);
+  if (hours < 24) return `${hours}h`;
+  const days = Math.floor(hours / 24);
+  if (days < 7) return `${days}d`;
+  return new Date(t).toLocaleDateString([], { month: "short", day: "numeric" });
+}
+
 /** you = solid marker in the one accent; them/team = quiet glyphs */
 function ownerGlyph(owner: string): { glyph: string; cls: string } {
   if (owner === "you") return { glyph: "●", cls: "text-[var(--brand)]" };
@@ -265,17 +291,57 @@ function MatterRow({
   onOpenCard,
   code,
   onAction,
+  mobile,
 }: {
   m: Matter;
   onOpenCard: () => void;
   code?: string;
   onAction?: (rows: AtlasRow[], action: "archive" | "trash") => void;
+  mobile?: boolean;
 }) {
   const g = ownerGlyph(m.owner);
   const rows: AtlasRow[] = (m.emails ?? []).map((e) => ({
     id: e.id,
     threadId: e.threadId,
   }));
+  const prefix = codePrefix(code, m.title);
+
+  // Mobile: a card that answers "what is this and does it need me" in two
+  // lines, with a 44px tap target — not a one-line row guillotined at 50
+  // characters.
+  if (mobile) {
+    return (
+      <li>
+        <button
+          type="button"
+          onClick={onOpenCard}
+          className="flex w-full items-start gap-2 py-2 text-left"
+        >
+          <span className={`mt-[3px] shrink-0 text-[11px] ${g.cls}`}>
+            {g.glyph}
+          </span>
+          <span className="min-w-0 flex-1">
+            <span className="block text-[15px] font-semibold leading-5 text-[var(--fg-strong)]">
+              {prefix ? (
+                <span className="text-[var(--nav-muted)]">{prefix} </span>
+              ) : null}
+              {m.title}
+              {m.crm?.amount ? (
+                <span className="text-[var(--brand)]">
+                  {" "}
+                  {formatAmount(m.crm.amount)}
+                </span>
+              ) : null}
+            </span>
+            <span className="mt-0.5 line-clamp-2 block text-[12px] leading-5 text-[var(--muted)]">
+              {m.narrative}
+            </span>
+          </span>
+        </button>
+      </li>
+    );
+  }
+
   return (
     <li className="group flex items-baseline gap-1.5">
       <span className={`shrink-0 text-[11px] ${g.cls}`} title={m.owner}>
@@ -286,8 +352,8 @@ function MatterRow({
         onClick={onOpenCard}
         className="min-w-0 flex-1 truncate text-left text-[15px] leading-6"
       >
-        {code ? (
-          <span className="text-[var(--nav-muted)]">{code} </span>
+        {prefix ? (
+          <span className="text-[var(--nav-muted)]">{prefix} </span>
         ) : null}
         <span className="font-semibold text-[var(--fg-strong)]">{m.title}</span>
         {m.crm?.amount ? (
@@ -312,6 +378,8 @@ function FiledRow({
   picked,
   onPick,
   onAction,
+  mobile,
+  selecting,
 }: {
   f: FiledEmail;
   onOpen: (id: string) => void;
@@ -319,7 +387,60 @@ function FiledRow({
   picked: boolean;
   onPick: (id: string) => void;
   onAction?: (rows: AtlasRow[], action: "archive" | "trash") => void;
+  mobile?: boolean;
+  selecting?: boolean;
 }) {
+  const prefix = codePrefix(code, f.line);
+  const when = shortTime(f.at);
+
+  // Mobile: two readable lines and a time, no checkbox gutter. Selection
+  // is entered by long-press (the native pattern), not by putting a
+  // 12px checkbox in front of all 391 rows.
+  if (mobile) {
+    return (
+      <li>
+        <button
+          type="button"
+          onClick={() => (selecting ? onPick(f.emailId) : onOpen(f.emailId))}
+          onContextMenu={(e) => {
+            e.preventDefault();
+            onPick(f.emailId);
+          }}
+          className="flex w-full items-start gap-2 py-2 text-left"
+        >
+          {selecting ? (
+            <span
+              className={`mt-[3px] h-3.5 w-3.5 shrink-0 rounded-sm border ${
+                picked
+                  ? "border-[var(--brand)] bg-[var(--brand)]"
+                  : "border-[var(--border)]"
+              }`}
+              aria-hidden
+            />
+          ) : null}
+          <span className="min-w-0 flex-1">
+            <span className="line-clamp-2 block text-[12px] leading-5 text-[var(--fg)]">
+              {prefix ? (
+                <span className="text-[var(--nav-muted)]">{prefix} </span>
+              ) : null}
+              {f.line}
+            </span>
+            {f.count && f.count > 1 ? (
+              <span className="text-[11px] text-[var(--nav-muted)]">
+                {f.count} messages
+              </span>
+            ) : null}
+          </span>
+          {when ? (
+            <span className="mt-[2px] shrink-0 text-[11px] text-[var(--nav-muted)]">
+              {when}
+            </span>
+          ) : null}
+        </button>
+      </li>
+    );
+  }
+
   return (
     <li className="group flex items-baseline gap-1.5">
       <input
@@ -334,13 +455,18 @@ function FiledRow({
         onClick={() => onOpen(f.emailId)}
         className="min-w-0 flex-1 truncate text-left text-[12px] leading-6 text-[var(--muted)] hover:text-[var(--fg)]"
       >
-        {code ? <span className="text-[var(--nav-muted)]">{code} </span> : null}
+        {prefix ? <span className="text-[var(--nav-muted)]">{prefix} </span> : null}
         {f.line}
         {/* One row per conversation, Gmail-style: how many messages deep */}
         {f.count && f.count > 1 ? (
           <span className="text-[var(--nav-muted)]"> · {f.count}</span>
         ) : null}
       </button>
+      {when ? (
+        <span className="shrink-0 text-[11px] text-[var(--nav-muted)]">
+          {when}
+        </span>
+      ) : null}
       {onAction ? (
         <RowActions
           rows={[{ id: f.emailId, threadId: f.threadId }]}
@@ -362,6 +488,7 @@ export function BriefPanel({
   onRenameMatter,
   onCreateMatter,
   full,
+  mobile,
 }: {
   brief: Brief | null;
   building: boolean;
@@ -374,11 +501,15 @@ export function BriefPanel({
   onCreateMatter?: (title: string, emailIds: string[]) => void;
   /** Atlas mode: full-page scale, org-only, everything at one level */
   full?: boolean;
+  /** Phone layout: cards, no checkbox gutter, filed collapsed by default */
+  mobile?: boolean;
 }) {
   const [openMatter, setOpenMatter] = useState<string | null>(null);
   const [picked, setPicked] = useState<Set<string>>(new Set());
   const [naming, setNaming] = useState(false);
   const [newTitle, setNewTitle] = useState("");
+  /** Mobile: which sections have had their filed rows expanded */
+  const [expanded, setExpanded] = useState<Set<string>>(new Set());
   const functions = useMemo(() => brief?.functions ?? [], [brief]);
 
   const togglePick = (id: string) =>
@@ -458,6 +589,13 @@ export function BriefPanel({
   const total = brief?.totalInbox ?? accounted;
   const providerCount = brief?.providerTotal?.messages || undefined;
   const short = Math.max(0, (providerCount ?? total) - accounted);
+  // The one number a phone screen should lead with.
+  const needsYou = brief
+    ? (brief.forecast?.now?.length ??
+      [...brief.matters, ...(brief.pinned ?? [])].filter(
+        (m) => m.owner === "you",
+      ).length)
+    : 0;
 
   if (!full) return null;
 
@@ -482,6 +620,7 @@ export function BriefPanel({
             m={r.matter}
             code={showCode ? subLabel : undefined}
             onAction={onAtlasAction}
+            mobile={mobile}
             onOpenCard={() => setOpenMatter(r.key)}
           />
         )
@@ -494,33 +633,67 @@ export function BriefPanel({
           picked={picked.has(r.filed.emailId)}
           onPick={togglePick}
           onAction={onAtlasAction}
+          mobile={mobile}
+          selecting={picked.size > 0}
         />
       ),
     );
 
   return (
     <div className="border-b border-[var(--border)]">
-      <div className="flex flex-wrap items-baseline gap-x-2 px-4 pt-2">
+      <div className="px-4 pt-2">
         {brief ? (
-          <>
-            <span className="text-[12px] font-semibold text-[var(--fg-strong)]">
-              {accounted} of {providerCount ?? total} in the inbox
-              {brief.totalThreads ? ` · ${brief.totalThreads} threads` : ""}
-            </span>
-            <span
-              className={`text-[12px] ${short === 0 ? "text-[var(--muted)]" : "font-semibold text-[#b45309]"}`}
-            >
-              {short === 0
-                ? "· every message placed"
-                : `· ${short} not read yet`}
-            </span>
-            <span className="text-[11px] text-[var(--nav-muted)]">
-              · {brief.matters.length} matters · {filedRows} filed ·{" "}
-              {digestCount} to clear
-              {brief.unread ? ` · ${brief.unread} still being read` : ""}
-              {building ? " · reading…" : ""}
-            </span>
-          </>
+          mobile ? (
+            // Phone: lead with the answer, not the database. One line that
+            // says what needs you; the accounting lives underneath, small.
+            <>
+              <p className="text-[15px] font-semibold leading-5 text-[var(--fg-strong)]">
+                {needsYou > 0
+                  ? `${needsYou} need${needsYou === 1 ? "s" : ""} you`
+                  : brief.matters.length > 0
+                    ? "Nothing needs you"
+                    : "Nothing open"}
+              </p>
+              <p className="text-[11px] leading-5 text-[var(--nav-muted)]">
+                {brief.matters.length} matters · {filedRows} filed ·{" "}
+                {digestCount} to clear
+                {brief.unread ? ` · ${brief.unread} being read` : ""}
+                {building ? " · reading…" : ""}
+              </p>
+              {brief.clusterFailures ? (
+                <p className="text-[11px] font-semibold leading-5 text-[#b45309]">
+                  {brief.clusterFailures} grouping{" "}
+                  {brief.clusterFailures === 1 ? "call" : "calls"} failed — some
+                  work may be missing
+                </p>
+              ) : null}
+            </>
+          ) : (
+            <div className="flex flex-wrap items-baseline gap-x-2">
+              <span className="text-[12px] font-semibold text-[var(--fg-strong)]">
+                {accounted} of {providerCount ?? total} in the inbox
+                {brief.totalThreads ? ` · ${brief.totalThreads} threads` : ""}
+              </span>
+              <span
+                className={`text-[12px] ${short === 0 ? "text-[var(--muted)]" : "font-semibold text-[#b45309]"}`}
+              >
+                {short === 0
+                  ? "· every message placed"
+                  : `· ${short} not read yet`}
+              </span>
+              <span className="text-[11px] text-[var(--nav-muted)]">
+                · {brief.matters.length} matters · {filedRows} filed ·{" "}
+                {digestCount} to clear
+                {brief.unread ? ` · ${brief.unread} still being read` : ""}
+                {building ? " · reading…" : ""}
+              </span>
+              {brief.clusterFailures ? (
+                <span className="text-[11px] font-semibold text-[#b45309]">
+                  · {brief.clusterFailures} grouping calls failed
+                </span>
+              ) : null}
+            </div>
+          )
         ) : null}
       </div>
 
@@ -550,36 +723,80 @@ export function BriefPanel({
             ),
           )}
 
-          {sections.map((s) => (
-            <section key={s.fn} className="mt-2">
-              <h2 className="text-[11px] font-bold uppercase tracking-widest text-[var(--fg-strong)]">
-                {s.fn}{" "}
-                <span className="text-[var(--nav-muted)]">· {s.count}</span>
-              </h2>
-              {s.subs.map((sub) => {
-                // A heading above a single row is noise — fold the code into
-                // the row instead of spending a line on it.
-                const fold = sub.rows.length === 1 || !sub.label;
-                return (
-                  <div key={sub.label || "_"}>
-                    {!fold && s.subs.length > 1 ? (
-                      <h3 className="mt-1 text-[11px] font-semibold uppercase tracking-wide text-[var(--nav-muted)]">
-                        {sub.label}{" "}
-                        <span className="font-normal">· {sub.rows.length}</span>
-                      </h3>
+          {sections.map((s) => {
+            // On a phone, matters lead and the filed pile hides behind a
+            // count. 391 rows is a destination you choose, not the default
+            // scroll.
+            const allRows = s.subs.flatMap((sub) =>
+              sub.rows.map((r) => ({ r, sub })),
+            );
+            const matterRows = allRows.filter((x) => x.r.kind === "matter");
+            const filedRowsHere = allRows.filter((x) => x.r.kind === "filed");
+            const isOpen = expanded.has(s.fn);
+            return (
+              <section key={s.fn} className="mt-2">
+                <h2 className="text-[11px] font-semibold text-[var(--fg-strong)]">
+                  {s.fn}{" "}
+                  <span className="font-normal text-[var(--nav-muted)]">
+                    {s.count}
+                  </span>
+                </h2>
+                {mobile ? (
+                  <>
+                    <ul>
+                      {matterRows.map((x) =>
+                        renderRows([x.r], x.sub.label, true),
+                      )}
+                    </ul>
+                    {filedRowsHere.length > 0 ? (
+                      isOpen ? (
+                        <ul>
+                          {filedRowsHere.map((x) =>
+                            renderRows([x.r], x.sub.label, true),
+                          )}
+                        </ul>
+                      ) : (
+                        <button
+                          type="button"
+                          onClick={() =>
+                            setExpanded((prev) => new Set(prev).add(s.fn))
+                          }
+                          className="py-2 text-[12px] text-[var(--muted)] underline decoration-[var(--border)] underline-offset-2"
+                        >
+                          {filedRowsHere.length} filed
+                        </button>
+                      )
                     ) : null}
-                    <ul>{renderRows(sub.rows, sub.label, fold)}</ul>
-                  </div>
-                );
-              })}
-            </section>
-          ))}
+                  </>
+                ) : (
+                  s.subs.map((sub) => {
+                    // A heading above a single row is noise — fold the code
+                    // into the row instead of spending a line on it.
+                    const fold = sub.rows.length === 1 || !sub.label;
+                    return (
+                      <div key={sub.label || "_"}>
+                        {!fold && s.subs.length > 1 ? (
+                          <h3 className="mt-1 text-[11px] font-semibold text-[var(--nav-muted)]">
+                            {sub.label}{" "}
+                            <span className="font-normal">
+                              {sub.rows.length}
+                            </span>
+                          </h3>
+                        ) : null}
+                        <ul>{renderRows(sub.rows, sub.label, fold)}</ul>
+                      </div>
+                    );
+                  })
+                )}
+              </section>
+            );
+          })}
 
           {/* THE REST — categories only, no essay */}
           {digestCount > 0 ? (
             <section className="mt-3 border-t border-[var(--border)] pt-1.5">
               <div className="flex items-baseline gap-2">
-                <h2 className="text-[11px] font-bold uppercase tracking-widest text-[var(--fg-strong)]">
+                <h2 className="text-[11px] font-semibold text-[var(--fg-strong)]">
                   The rest{" "}
                   <span className="text-[var(--nav-muted)]">
                     · {digestCount}

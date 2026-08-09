@@ -799,6 +799,7 @@ export function MobileMailApp() {
             ) : null}
             <BriefPanel
               full
+              mobile
               brief={brief}
               building={briefBuilding}
               onRebuild={rebuildBrief}

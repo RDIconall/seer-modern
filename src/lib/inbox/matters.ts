@@ -70,6 +70,8 @@ export type MatterEmail = {
   suggestion: string;
   /** Inbox messages collapsed into this row */
   count?: number;
+  /** Newest message time in this conversation (ISO) */
+  at?: string;
 };
 
 export type Matter = {
@@ -146,6 +148,8 @@ export type FiledEmail = {
   count?: number;
   /** Every message id behind the row — the coverage denominator */
   messageIds?: string[];
+  /** Newest message time in this conversation (ISO) */
+  at?: string;
 };
 
 /** The FYI / read-and-delete mass, summarized AS A WHOLE */
@@ -215,6 +219,8 @@ export type Brief = {
   forecast?: Forecast;
   /** Deep reads still outstanding — Atlas says so rather than pretending */
   unread?: number;
+  /** Clustering calls that errored — a silent 0-matters brief is a bug */
+  clusterFailures?: number;
 };
 
 const briefSchema = z.object({
@@ -940,8 +946,13 @@ export async function buildBrief(
   // saw enough to recognize the matter, so all of them fell through to
   // filing. Group by relationship first: every conversation with the
   // same counterparty or study code goes to the SAME call.
-  const CHUNK = 100;
-  const MAX_CHUNKS = 8;
+  // 100 conversations per call, each carrying a deep read, routinely blew
+  // the 150s budget — and every chunk failing silently produced a brief
+  // with ZERO matters and 391 filed rows. Smaller calls finish.
+  const CHUNK = 45;
+  const MAX_CHUNKS = 16;
+  /** Parallel model calls — enough to be quick, few enough to not trip limits */
+  const CLUSTER_CONCURRENCY = 4;
   const chunks = packByAffinity(
     threadRows,
     (r) => affinityKey(r, labels, ownDomain, readOf(r.threadId)),
@@ -1071,28 +1082,52 @@ export async function buildBrief(
   // Matters and the digest are independent bounded calls. Asking one
   // response to cluster work, file hundreds of ids, and write the digest
   // repeatedly exceeded the 120-second limit on a 500-message inbox.
-  const [chunkOutputs, { output: digestOutput }] = await Promise.all([
-    Promise.all(
-      chunks.map((batch, n) =>
-        generateText({
-          model,
-          temperature: 0,
-          maxRetries: 1,
-          abortSignal: AbortSignal.timeout(150_000),
-          output: Output.object({ schema: matterSchema }),
-          system: profileBlock ? `${SYSTEM}\n\n${profileBlock}` : SYSTEM,
-          prompt: JSON.stringify(payloadFor(batch)),
-        })
-          .then((r) => r.output)
-          .catch((error) => {
-            console.error(
-              `[seer] matter chunk ${n + 1}/${chunks.length} failed:`,
-              error instanceof Error ? error.message : error,
-            );
-            return { summary: "", matters: [] };
-          }),
+  // Chunk failures must never masquerade as "no matters" — count them so
+  // a total wipeout can be detected and the previous brief preserved.
+  let clusterFailures = 0;
+  const runChunk = async (batch: EmailItem[], n: number) => {
+    try {
+      const r = await generateText({
+        model,
+        temperature: 0,
+        maxRetries: 1,
+        abortSignal: AbortSignal.timeout(150_000),
+        output: Output.object({ schema: matterSchema }),
+        system: profileBlock ? `${SYSTEM}\n\n${profileBlock}` : SYSTEM,
+        prompt: JSON.stringify(payloadFor(batch)),
+      });
+      return r.output;
+    } catch (error) {
+      clusterFailures += 1;
+      console.error(
+        `[seer] matter chunk ${n + 1}/${chunks.length} failed:`,
+        error instanceof Error ? error.message : error,
+      );
+      return { summary: "", matters: [] };
+    }
+  };
+  /** Bounded parallelism — 16 simultaneous calls is how you get rate-limited. */
+  const runAllChunks = async () => {
+    const out: Awaited<ReturnType<typeof runChunk>>[] = new Array(chunks.length);
+    let cursor = 0;
+    const worker = async () => {
+      for (;;) {
+        const n = cursor++;
+        if (n >= chunks.length) return;
+        out[n] = await runChunk(chunks[n], n);
+      }
+    };
+    await Promise.all(
+      Array.from(
+        { length: Math.min(CLUSTER_CONCURRENCY, chunks.length) },
+        worker,
       ),
-    ),
+    );
+    return out;
+  };
+
+  const [chunkOutputs, { output: digestOutput }] = await Promise.all([
+    runAllChunks(),
     digestItems.length
       ? generateText({
           model,
@@ -1177,6 +1212,7 @@ export async function buildBrief(
               ? headline(who, stripEmoji(u.oneLine)).slice(0, 140)
               : lineFor(i),
             suggestion: u ? askSuggestion(u) : suggestionFor(i),
+            at: i.receivedAt,
             ...(count > 1 ? { count } : {}),
           };
         }),
@@ -1193,6 +1229,35 @@ export async function buildBrief(
         (b.crm?.amount ?? 0) - (a.crm?.amount ?? 0),
     );
 
+  // TOTAL CLUSTERING FAILURE — every chunk errored, so this brief has no
+  // matters for a reason that has nothing to do with the inbox. Publishing
+  // it would wipe Atlas to "0 matters · 391 filed". Carry the last good
+  // matters forward instead, re-pointed at the mail that's still here.
+  const totalFailure = chunks.length > 0 && clusterFailures === chunks.length;
+  const carried: Matter[] =
+    totalFailure && (prev?.matters?.length ?? 0) > 0
+      ? (prev?.matters ?? [])
+          .map((m) => {
+            const threadIds = (m.threadIds ?? []).filter((t) =>
+              threadMsgs.has(t),
+            );
+            return {
+              ...m,
+              threadIds,
+              emailIds: threadIds.flatMap(messageIdsOf),
+            };
+          })
+          .filter((m) => m.emailIds.length > 0)
+      : [];
+  if (totalFailure) {
+    console.error(
+      `[seer] all ${chunks.length} matter chunks failed — ${
+        carried.length ? `carrying ${carried.length} previous matters` : "no previous matters to carry"
+      }`,
+    );
+  }
+  const baseMatters = carried.length > 0 ? carried : matters;
+
   // ---- LIFECYCLE (event-driven, never a timer) ----------------------
   // A closed CRM stage PROPOSES closure (status only — never auto-acts).
   // A durable closure record SUPPRESSES a resurrected matter, unless new
@@ -1208,7 +1273,7 @@ export async function buildBrief(
   };
   let closedDirty = false;
   const livingMatters: Matter[] = [];
-  for (const m of matters) {
+  for (const m of baseMatters) {
     let status = m.status;
     let statusWhy = m.statusWhy;
     if (m.crm?.stage && CLOSED_STAGE.test(m.crm.stage)) {
@@ -1261,6 +1326,7 @@ export async function buildBrief(
         ? headline(who, stripEmoji(u.oneLine)).slice(0, 140)
         : lineFor(i),
       suggestion: u ? askSuggestion(u) : suggestionFor(i),
+      at: i.receivedAt,
       ...(ids.length > 1 ? { count: ids.length, messageIds: ids } : {}),
     });
   }
@@ -1455,6 +1521,7 @@ export async function buildBrief(
     digest,
     unsure,
     unread: items.filter((i) => !understanding[i.id]).length,
+    ...(clusterFailures > 0 ? { clusterFailures } : {}),
   };
   await kvSet(keyFor(accountEmail), brief);
   return brief;
