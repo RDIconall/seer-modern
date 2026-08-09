@@ -139,13 +139,13 @@ function MatterRow({
       <button
         type="button"
         onClick={onOpen}
-        className="min-w-0 flex-1 truncate text-left text-[14px] leading-7"
+        className="min-w-0 flex-1 py-1 text-left text-[14px] leading-5"
       >
         <span
           className={
             greyed
-              ? "text-[var(--muted)]"
-              : "font-bold text-[var(--fg-strong)]"
+              ? "line-clamp-2 text-[var(--muted)]"
+              : "line-clamp-2 font-bold text-[var(--fg-strong)]"
           }
         >
           {m.title}
@@ -193,12 +193,14 @@ function FiledRow({
       <button
         type="button"
         onClick={onOpen}
-        className="min-w-0 flex-1 truncate text-left text-[14px] leading-7 text-[var(--muted)] hover:text-[var(--fg)]"
+        className="min-w-0 flex-1 py-1 text-left text-[14px] leading-5 text-[var(--muted)] hover:text-[var(--fg)]"
       >
-        {f.matterCandidate?.title ?? f.line}
-        {f.count && f.count > 1 ? (
-          <span className="text-[var(--nav-muted)]"> · {f.count}</span>
-        ) : null}
+        <span className="line-clamp-2 block">
+          {f.matterCandidate?.title ?? f.line}
+          {f.count && f.count > 1 ? (
+            <span className="text-[var(--nav-muted)]"> · {f.count}</span>
+          ) : null}
+        </span>
       </button>
     </li>
   );
@@ -624,13 +626,13 @@ export function AtlasBoard({
                                   e.preventDefault();
                                   setMoveFor(r.id);
                                 }}
-                                className="min-w-0 flex-1 truncate text-left text-[17px] leading-8"
+                                className="min-w-0 flex-1 py-2 text-left text-[17px] leading-6"
                               >
                                 <span
                                   className={
                                     section.kind === "settled"
-                                      ? "text-[var(--muted)]"
-                                      : "font-bold text-[var(--fg-strong)]"
+                                      ? "line-clamp-2 text-[var(--muted)]"
+                                      : "line-clamp-2 font-bold text-[var(--fg-strong)]"
                                   }
                                 >
                                   {r.matter.title}
@@ -642,9 +644,12 @@ export function AtlasBoard({
                               <button
                                 type="button"
                                 onClick={() => onOpenEmail(r.filed.emailId)}
-                                className="min-w-0 flex-1 truncate text-left text-[14px] leading-8 text-[var(--muted)]"
+                                className="min-w-0 flex-1 py-2 text-left text-[14px] leading-5 text-[var(--muted)]"
                               >
-                                {r.filed.matterCandidate?.title ?? r.filed.line}
+                                <span className="line-clamp-2 block">
+                                  {r.filed.matterCandidate?.title ??
+                                    r.filed.line}
+                                </span>
                               </button>
                             </li>
                           ),
