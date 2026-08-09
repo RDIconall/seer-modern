@@ -1,4 +1,8 @@
-import { getTriageModel } from "@/lib/inbox/gemini-triage";
+import {
+  getFallbackModel,
+  getTriageModel,
+  isModelBudgetError,
+} from "@/lib/inbox/gemini-triage";
 import { collapseThreads } from "@/lib/inbox/thread-collapse";
 import { stripEmoji, type EmailItem } from "@/lib/inbox/types";
 import type {
@@ -34,8 +38,22 @@ import {
 const STUDY_CODE =
   /\b(RCD[_-]?\d{3,5}|LMD[_-]?\d{3,5}|RD\d{6,7}|TGRP\d{1,3}|RFQ[ #-]?\d{4,6})\b/i;
 import { profilePromptBlock, type UserProfile } from "@/lib/store/user-profile";
-import { generateText, Output } from "ai";
+import { generateText, Output, type LanguageModel } from "ai";
 import { z } from "zod";
+
+/** A model error, reduced to a short human sentence for the UI. */
+function cleanModelError(msg: string): string {
+  if (/prepayment|credits? (are )?depleted|billing|payment required|402/i.test(msg)) {
+    return "AI credits are depleted — top up the Gemini key (or connect the AI Gateway) to group new mail.";
+  }
+  if (/quota|rate limit|429|RESOURCE_EXHAUSTED/i.test(msg)) {
+    return "AI quota hit — grouping will catch up on the next sync.";
+  }
+  if (/timed? ?out|abort|deadline/i.test(msg)) {
+    return "AI timed out — grouping will retry on the next sync.";
+  }
+  return "Some grouping calls failed — grouping will retry on the next sync.";
+}
 
 /**
  * MATTERS — the inbox as a unit, not a pile of emails. What stays in
@@ -221,6 +239,8 @@ export type Brief = {
   unread?: number;
   /** Clustering calls that errored — a silent 0-matters brief is a bug */
   clusterFailures?: number;
+  /** Human explanation when clustering degraded (billing, quota, timeout) */
+  clusterError?: string;
 };
 
 const briefSchema = z.object({
@@ -1085,23 +1105,46 @@ export async function buildBrief(
   // Chunk failures must never masquerade as "no matters" — count them so
   // a total wipeout can be detected and the previous brief preserved.
   let clusterFailures = 0;
+  let clusterError: string | undefined;
+  const fallback = getFallbackModel();
+  const callModel = (m: LanguageModel | string, batch: EmailItem[]) =>
+    generateText({
+      model: m,
+      temperature: 0,
+      maxRetries: 1,
+      abortSignal: AbortSignal.timeout(150_000),
+      output: Output.object({ schema: matterSchema }),
+      system: profileBlock ? `${SYSTEM}\n\n${profileBlock}` : SYSTEM,
+      prompt: JSON.stringify(payloadFor(batch)),
+    });
   const runChunk = async (batch: EmailItem[], n: number) => {
     try {
-      const r = await generateText({
-        model,
-        temperature: 0,
-        maxRetries: 1,
-        abortSignal: AbortSignal.timeout(150_000),
-        output: Output.object({ schema: matterSchema }),
-        system: profileBlock ? `${SYSTEM}\n\n${profileBlock}` : SYSTEM,
-        prompt: JSON.stringify(payloadFor(batch)),
-      });
+      const r = await callModel(model, batch);
       return r.output;
     } catch (error) {
+      const msg = error instanceof Error ? error.message : String(error);
+      // The direct key is out of quota or credits — try the gateway's
+      // separate billing pool before giving up on this chunk.
+      if (fallback && isModelBudgetError(msg)) {
+        try {
+          const r = await callModel(fallback.model, batch);
+          return r.output;
+        } catch (e2) {
+          const m2 = e2 instanceof Error ? e2.message : String(e2);
+          clusterFailures += 1;
+          clusterError ??= cleanModelError(m2);
+          console.error(
+            `[seer] matter chunk ${n + 1}/${chunks.length} failed (direct+gateway):`,
+            m2,
+          );
+          return { summary: "", matters: [] };
+        }
+      }
       clusterFailures += 1;
+      clusterError ??= cleanModelError(msg);
       console.error(
         `[seer] matter chunk ${n + 1}/${chunks.length} failed:`,
-        error instanceof Error ? error.message : error,
+        msg,
       );
       return { summary: "", matters: [] };
     }
@@ -1522,6 +1565,7 @@ export async function buildBrief(
     unsure,
     unread: items.filter((i) => !understanding[i.id]).length,
     ...(clusterFailures > 0 ? { clusterFailures } : {}),
+    ...(clusterError ? { clusterError } : {}),
   };
   await kvSet(keyFor(accountEmail), brief);
   return brief;

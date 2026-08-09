@@ -1,4 +1,8 @@
-import { getTriageModel } from "@/lib/inbox/gemini-triage";
+import {
+  getFallbackModel,
+  getTriageModel,
+  isModelBudgetError,
+} from "@/lib/inbox/gemini-triage";
 import { stripEmoji } from "@/lib/inbox/types";
 import type { MailMessageListItem } from "@/lib/mail/types";
 import { generateText, Output } from "ai";
@@ -219,8 +223,12 @@ export async function readEmails(
 ): Promise<Understanding[]> {
   if (items.length === 0) return [];
   const { model } = await getTriageModel();
+  const fallback = getFallbackModel();
   const deadline = opts.deadlineMs ?? Date.now() + 120_000;
   const concurrency = opts.concurrency ?? 3;
+  // Once the direct key is out of credits every call fails the same way;
+  // flip to the gateway pool for the rest of this pass after the first hit.
+  let useFallback = false;
 
   const batches: ReadInput[][] = [];
   for (let i = 0; i < items.length; i += PER_CALL) {
@@ -263,17 +271,32 @@ export async function readEmails(
       };
 
       try {
-        const { output } = await generateText({
-          model,
-          temperature: 0,
-          maxRetries: 1,
-          abortSignal: AbortSignal.timeout(
-            Math.max(15_000, Math.min(90_000, deadline - Date.now())),
-          ),
-          output: Output.object({ schema: batchSchema }),
-          system: SYSTEM,
-          prompt: JSON.stringify(payload),
-        });
+        const runRead = (m: typeof model) =>
+          generateText({
+            model: m,
+            temperature: 0,
+            maxRetries: 1,
+            abortSignal: AbortSignal.timeout(
+              Math.max(15_000, Math.min(90_000, deadline - Date.now())),
+            ),
+            output: Output.object({ schema: batchSchema }),
+            system: SYSTEM,
+            prompt: JSON.stringify(payload),
+          });
+
+        let output;
+        try {
+          output = (await runRead(useFallback && fallback ? fallback.model : model))
+            .output;
+        } catch (err) {
+          const msg = err instanceof Error ? err.message : String(err);
+          if (fallback && !useFallback && isModelBudgetError(msg)) {
+            useFallback = true; // direct key is dead — switch the whole pass
+            output = (await runRead(fallback.model)).output;
+          } else {
+            throw err;
+          }
+        }
 
         const byId = new Map(batch.map((m) => [m.id, m]));
         for (const r of output.records) {

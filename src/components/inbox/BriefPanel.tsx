@@ -660,11 +660,9 @@ export function BriefPanel({
                 {brief.unread ? ` · ${brief.unread} being read` : ""}
                 {building ? " · reading…" : ""}
               </p>
-              {brief.clusterFailures ? (
+              {brief.clusterError ? (
                 <p className="text-[11px] font-semibold leading-5 text-[#b45309]">
-                  {brief.clusterFailures} grouping{" "}
-                  {brief.clusterFailures === 1 ? "call" : "calls"} failed — some
-                  work may be missing
+                  {brief.clusterError}
                 </p>
               ) : null}
             </>
@@ -687,9 +685,9 @@ export function BriefPanel({
                 {brief.unread ? ` · ${brief.unread} still being read` : ""}
                 {building ? " · reading…" : ""}
               </span>
-              {brief.clusterFailures ? (
+              {brief.clusterError ? (
                 <span className="text-[11px] font-semibold text-[#b45309]">
-                  · {brief.clusterFailures} grouping calls failed
+                  · {brief.clusterError}
                 </span>
               ) : null}
             </div>
