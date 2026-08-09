@@ -49,6 +49,8 @@ export type Understanding = {
   /** What is wanted, or "nothing — informational" */
   ask: string;
   owner: "you" | "team" | "them" | "nobody";
+  /** Evidence ids the context compiler fed this read (person:/matter:/crm:/calendar:) */
+  contextRefs?: string[];
   /** ISO date, only when the email actually states one */
   deadline?: string;
   /** Extracted deterministically from the body, never model-authored */
@@ -143,6 +145,13 @@ const batchSchema = z.object({ records: z.array(recordSchema) });
 
 const SYSTEM = `You read a CEO's email and record what it MEANS. One record per email. You are the only thing standing between this person and a mountain of mail, so be concrete: name the document, the company, the number, the date.
 
+Some emails carry a CONTEXT block — evidence the assistant already knows about the sender and the work this email belongs to. USE IT:
+- Facts marked [explicit] (the user said so) and [system] (a CRM record) OUTRANK your own reading. A [explicit] VIP or board member is never disposable; a [system] open opportunity means the money is real.
+- [calendar] and [observed] facts are true measurements — a recent shared meeting, how fast the user replies, what they usually do with this sender.
+- [inference] is a scored hint (e.g. the matter this email likely continues) — weigh it, don't obey it.
+- NO context block, or "no prior relationship on record", is itself evidence: an unknown sender with no history, no CRM record and no calendar tie is more likely fyi/disposable — unless the body itself carries a real ask, a signature, or an approval/regulatory/legal deadline, which always wins.
+Never repeat the context block back; use it to judge owner, importance, and disposition.
+
 Rules:
 - oneLine: what the email actually says, not a restatement of the subject. "Bilal sent the UC Davis mutual CDA for your signature via Adobe Sign" — not "Signature request".
 - ask: the specific thing wanted from the user, imperative ("Sign the UC Davis mutual CDA"), or exactly "nothing — informational" when nothing is owed.
@@ -191,6 +200,12 @@ export type ReadOptions = {
   /** Parallel model calls */
   concurrency?: number;
   onProgress?: (done: number) => void;
+  /**
+   * The compiled context packet per message id — sender relationship,
+   * calendar, likely matter, CRM facts, behavior. Fed into the read so
+   * the model judges each email AS this user, with provenance.
+   */
+  contextById?: Map<string, { text: string; refs: string[] }>;
 };
 
 /**
@@ -234,13 +249,17 @@ export async function readEmails(
 
       const payload = {
         functions: opts.functions,
-        emails: batch.map((m, k) => ({
-          id: m.id,
-          from: stripEmoji(m.fromName || m.fromEmail),
-          fromEmail: m.fromEmail,
-          subject: stripEmoji(m.subject),
-          body: stripEmoji(bodies[k] ?? "").slice(0, BODY_CHARS),
-        })),
+        emails: batch.map((m, k) => {
+          const ctx = opts.contextById?.get(m.id);
+          return {
+            id: m.id,
+            from: stripEmoji(m.fromName || m.fromEmail),
+            fromEmail: m.fromEmail,
+            subject: stripEmoji(m.subject),
+            body: stripEmoji(bodies[k] ?? "").slice(0, BODY_CHARS),
+            ...(ctx?.text ? { context: ctx.text } : {}),
+          };
+        }),
       };
 
       try {
@@ -308,6 +327,10 @@ export async function readEmails(
               confidence: r.orgConfidence,
             },
             importance: r.importance,
+            ...(() => {
+              const refs = opts.contextById?.get(r.id)?.refs;
+              return refs && refs.length ? { contextRefs: refs } : {};
+            })(),
             disposition: r.disposition,
             ...(r.expires && /^\d{4}-\d{2}-\d{2}/.test(r.expires)
               ? { expires: r.expires.slice(0, 10) }
