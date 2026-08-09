@@ -22,6 +22,7 @@ import {
 } from "@/lib/store/closed-matters";
 import {
   matterCandidateFor,
+  matterFromRead,
   type MatterCandidate,
 } from "@/lib/inbox/triage-view";
 import {
@@ -211,7 +212,7 @@ export type UnsureItem = {
  * treats any older brief as stale and rebuilds it, so a redesign never
  * leaves a stale Atlas on screen waiting for a manual refresh.
  */
-export const BRIEF_ENGINE = 13;
+export const BRIEF_ENGINE = 14;
 
 /**
  * The forecast lens — "what matters WHEN". A temporal view over the same
@@ -1195,43 +1196,122 @@ export async function buildBrief(
     return out;
   };
 
-  const [chunkOutputs, { output: digestOutput }] = await Promise.all([
-    runAllChunks(),
-    digestItems.length
-      ? generateText({
-          model,
-          temperature: 0,
-          maxRetries: 1,
-          abortSignal: AbortSignal.timeout(120_000),
-          output: Output.object({ schema: digestSchema }),
-          system: DIGEST_SYSTEM,
-          prompt: JSON.stringify(
-            digestItems.map((i) => ({
-              id: i.id,
-              from: stripEmoji(i.fromName || i.fromEmail),
-              subject: stripEmoji(i.subject),
-              gist: stripEmoji(i.guide?.task ?? i.snippet.slice(0, 120)),
-            })),
+  // THE DIGEST, CHUNKED. One call carrying 300+ ids never came back inside
+  // the timeout, and the catch below then published the whole disposable
+  // inbox as a single "Inbox updates" theme — 62% of the mail described by
+  // a sentence that says nothing. Small calls finish, and a chunk that
+  // fails only costs its own 60 messages.
+  type DigestTheme = { theme: string; line: string; emailIds: string[] };
+  const DIGEST_CHUNK = 60;
+  const DIGEST_CONCURRENCY = 3;
+  const digestChunks: EmailItem[][] = [];
+  for (let i = 0; i < digestItems.length; i += DIGEST_CHUNK) {
+    digestChunks.push(digestItems.slice(i, i + DIGEST_CHUNK));
+  }
+  const callDigest = (m: LanguageModel | string, batch: EmailItem[]) =>
+    generateText({
+      model: m,
+      temperature: 0,
+      maxRetries: 1,
+      abortSignal: AbortSignal.timeout(90_000),
+      output: Output.object({ schema: digestSchema }),
+      system: DIGEST_SYSTEM,
+      prompt: JSON.stringify(
+        batch.map((i) => ({
+          id: i.id,
+          from: stripEmoji(i.fromName || i.fromEmail),
+          subject: stripEmoji(i.subject),
+          gist: stripEmoji(
+            understanding[i.id]?.oneLine ||
+              i.guide?.task ||
+              i.snippet.slice(0, 120),
           ),
-        }).catch((error) => {
-          console.error(
-            "[seer] digest generation failed; preserving corpus:",
-            error instanceof Error ? error.message : error,
-          );
-          return {
-            output: {
-              summary: `${digestItems.length} FYI updates were grouped for clearing; open the theme below only if you need the individual details.`,
-              themes: [
-                {
-                  theme: "Inbox updates",
-                  line: "Routine FYI and read-then-delete messages; no individual review required.",
-                  emailIds: digestItems.map((i) => i.id),
-                },
-              ],
-            },
-          };
-        })
-      : Promise.resolve({ output: { summary: "", themes: [] } }),
+        })),
+      ),
+    });
+  /**
+   * A failed chunk still has to name its mail. Grouping by sender beats
+   * "Inbox updates": the user can see it is 40 Slack notifications and
+   * delete them without opening one.
+   */
+  const themesBySender = (batch: EmailItem[]): DigestTheme[] => {
+    const groups = new Map<string, EmailItem[]>();
+    for (const i of batch) {
+      const key =
+        stripEmoji(i.fromName).trim() ||
+        i.fromEmail.split("@")[1] ||
+        "Other senders";
+      groups.set(key, [...(groups.get(key) ?? []), i]);
+    }
+    return [...groups.entries()].map(([theme, rows]) => ({
+      theme,
+      line: `${rows.length} message${rows.length === 1 ? "" : "s"} from ${theme} — none of them ask you for anything.`,
+      emailIds: rows.map((r) => r.id),
+    }));
+  };
+  const runDigestChunk = async (batch: EmailItem[], n: number) => {
+    try {
+      return (await callDigest(model, batch)).output;
+    } catch (error) {
+      const msg = error instanceof Error ? error.message : String(error);
+      if (fallback && isModelBudgetError(msg)) {
+        try {
+          return (await callDigest(fallback.model, batch)).output;
+        } catch {
+          /* fall through to sender grouping */
+        }
+      }
+      console.error(
+        `[seer] digest chunk ${n + 1}/${digestChunks.length} failed:`,
+        msg,
+      );
+      return { summary: "", themes: themesBySender(batch) };
+    }
+  };
+  const runDigest = async () => {
+    const out: { summary: string; themes: DigestTheme[] }[] = new Array(
+      digestChunks.length,
+    );
+    let cursor = 0;
+    const worker = async () => {
+      for (;;) {
+        const n = cursor++;
+        if (n >= digestChunks.length) return;
+        out[n] = await runDigestChunk(digestChunks[n], n);
+      }
+    };
+    await Promise.all(
+      Array.from(
+        { length: Math.min(DIGEST_CONCURRENCY, digestChunks.length) },
+        worker,
+      ),
+    );
+    // Chunks name categories independently; the same category from two
+    // calls is one category on screen.
+    const byName = new Map<string, DigestTheme>();
+    for (const theme of out.flatMap((o) => o.themes)) {
+      const name = theme.theme.trim();
+      if (!name) continue;
+      const existing = byName.get(name.toLowerCase());
+      if (existing) existing.emailIds.push(...theme.emailIds);
+      else
+        byName.set(name.toLowerCase(), {
+          theme: name,
+          line: theme.line,
+          emailIds: [...theme.emailIds],
+        });
+    }
+    return {
+      summary: out.map((o) => o.summary).find(Boolean) ?? "",
+      themes: [...byName.values()].sort(
+        (a, b) => b.emailIds.length - a.emailIds.length,
+      ),
+    };
+  };
+
+  const [chunkOutputs, digestOutput] = await Promise.all([
+    runAllChunks(),
+    runDigest(),
   ]);
 
   // Every chunk's matters, with their cited ids resolved to conversations
@@ -1370,17 +1450,22 @@ export async function buildBrief(
     }
     livingMatters.push({ ...m, status, statusWhy });
   }
-  if (closedDirty) {
-    await saveClosedMatters(accountEmail, closed).catch(() => {});
-  }
 
   // TOTAL COVERAGE — the model returns only meaningful matters. Every
   // remaining graded email is filed into the org tree locally, avoiding
   // an enormous structured response that times out on large inboxes.
   // Filed rows are CONVERSATIONS. Filing message by message is what put
   // the same Abbott request on screen four times.
+  //
+  // A READ THAT SAYS "MATTER" IS A MATTER. Triage used to park these as
+  // "possible matters" waiting for a click — the app asking the user to
+  // do the one job it exists to do. If the deep read named the work, it
+  // goes on the board itself. What stays behind in Triage is only what
+  // should be deleted or closed.
   const inMatters = new Set(livingMatters.flatMap((m) => m.threadIds));
   const filed: FiledEmail[] = [];
+  const promoted: Matter[] = [];
+  const promotedAt = new Date().toISOString();
   for (const i of threadRows) {
     if (inMatters.has(i.threadId)) continue;
     const u = readOf(i.threadId);
@@ -1399,10 +1484,57 @@ export async function buildBrief(
       ...(ids.length > 1 ? { count: ids.length, messageIds: ids } : {}),
     };
     const candidate = matterCandidateFor(baseFiled, u);
-    filed.push({
-      ...baseFiled,
-      ...(candidate ? { matterCandidate: candidate } : {}),
-    });
+    const matterId = `read:${i.threadId}`;
+    const closure = candidate
+      ? Object.values(closed).find((c) =>
+          matchesClosure(
+            { id: matterId, title: candidate.title, threadIds: [i.threadId] },
+            c,
+          ),
+        )
+      : undefined;
+    // Closed and quiet stays closed; new mail after the closure reopens it.
+    const suppressed = Boolean(
+      closure && !(newestMailOf([i.threadId]) > closure.closedAt),
+    );
+    if (candidate && !suppressed) {
+      if (closure) {
+        delete closed[closure.matterId];
+        closedDirty = true;
+      }
+      promoted.push(
+        matterFromRead({
+          matterId,
+          candidate: {
+            ...candidate,
+            title: edits.renames[matterId]?.title ?? candidate.title,
+            emailIds: ids,
+          },
+          row: {
+            emailId: i.id,
+            threadId: i.threadId,
+            from: who,
+            line: baseFiled.line,
+            suggestion: baseFiled.suggestion,
+            subUnit: baseFiled.subUnit,
+            at: i.receivedAt,
+            count: ids.length,
+          },
+          understanding: u,
+          ...(closure
+            ? {
+                reopenedBecause: `New mail after you closed this (${closure.reason})`,
+              }
+            : {}),
+          at: promotedAt,
+        }),
+      );
+      continue;
+    }
+    filed.push(baseFiled);
+  }
+  if (closedDirty) {
+    await saveClosedMatters(accountEmail, closed).catch(() => {});
   }
   const unsure: UnsureItem[] = [];
 
@@ -1569,7 +1701,7 @@ export async function buildBrief(
     signatureThreads.has(threadId) || manualThreads.has(threadId);
   const cleanedMatters = [
     ...manualMatters,
-    ...livingMatters.map((m) => {
+    ...[...livingMatters, ...promoted].map((m) => {
       const threadIds = m.threadIds.filter((t) => !spokenFor(t));
       return {
         ...m,

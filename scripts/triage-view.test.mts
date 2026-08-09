@@ -2,6 +2,7 @@ import assert from "node:assert/strict";
 import {
   digestThemeRows,
   matterCandidateFor,
+  matterFromRead,
 } from "../src/lib/inbox/triage-view.ts";
 import { restoreClosureMatter } from "../src/lib/store/closed-matters.ts";
 
@@ -109,6 +110,105 @@ check("a matter disposition still surfaces when the model omits its title", () =
     },
   );
   assert.equal(candidate?.title, "Sandy requested the revised board forecast");
+});
+
+check("a promoted read becomes a matter, not a question in Triage", () => {
+  const matter = matterFromRead({
+    matterId: "read:t1",
+    candidate: {
+      title: "Roche anti-TPO pricing",
+      why: "Roche is waiting for a priced proposal.",
+      orgUnit: "sales — new requests",
+      emailIds: ["m0", "m1"],
+    },
+    row: {
+      emailId: "m1",
+      threadId: "t1",
+      from: "Anna Roche",
+      line: "Anna Roche — pricing for the anti-TPO study",
+      suggestion: "Send Roche the anti-TPO pricing",
+      at: "2026-08-09T00:00:00Z",
+      count: 2,
+    },
+    understanding: {
+      id: "m1",
+      threadId: "t1",
+      version: 4,
+      readAt: "2026-08-09T00:00:00Z",
+      kind: "pricing request",
+      oneLine: "Roche requested pricing",
+      ask: "Send Roche the anti-TPO pricing",
+      owner: "you",
+      entities: ["Roche"],
+      org: { unit: "sales — new requests", confidence: 0.95 },
+      importance: 3,
+      disposition: "matter",
+    },
+    at: "2026-08-09T01:00:00Z",
+  });
+
+  assert.equal(matter.id, "read:t1");
+  assert.equal(matter.title, "Roche anti-TPO pricing");
+  assert.equal(matter.nextAction, "Send Roche the anti-TPO pricing");
+  assert.equal(matter.owner, "you");
+  assert.equal(matter.status, "active");
+  assert.deepEqual(matter.emailIds, ["m0", "m1"]);
+  assert.deepEqual(matter.threadIds, ["t1"]);
+  assert.equal(matter.emails?.[0].count, 2);
+});
+
+check("a promoted read whose ask is nothing still lands with no next action", () => {
+  const matter = matterFromRead({
+    matterId: "read:t2",
+    candidate: {
+      title: "Site contract renewal",
+      why: "The contract lapses this quarter.",
+      orgUnit: "legal",
+      emailIds: ["m2"],
+    },
+    row: {
+      emailId: "m2",
+      threadId: "t2",
+      from: "Legal",
+      line: "Legal — contract renewal",
+    },
+    understanding: {
+      id: "m2",
+      threadId: "t2",
+      version: 4,
+      readAt: "2026-08-09T00:00:00Z",
+      kind: "contract",
+      oneLine: "Contract renewal",
+      ask: "nothing — informational",
+      owner: "them",
+      entities: [],
+      org: { unit: "legal", confidence: 1 },
+      importance: 2,
+      disposition: "matter",
+    },
+    at: "2026-08-09T01:00:00Z",
+  });
+
+  assert.equal(matter.nextAction, "none — yours to define");
+  assert.equal(matter.status, "waiting");
+});
+
+check("a reopened promotion carries the reason it came back", () => {
+  const matter = matterFromRead({
+    matterId: "read:t3",
+    candidate: {
+      title: "Abbott audit follow-up",
+      why: "Abbott replied after the audit closed.",
+      orgUnit: "quality",
+      emailIds: ["m3"],
+    },
+    row: { emailId: "m3", threadId: "t3", from: "Abbott", line: "Abbott — audit" },
+    reopenedBecause: "New mail after you closed this (done)",
+    at: "2026-08-09T01:00:00Z",
+  });
+
+  assert.equal(matter.status, "reopened");
+  assert.equal(matter.statusWhy, "New mail after you closed this (done)");
 });
 
 check("a digest theme clears only its own conversations", () => {

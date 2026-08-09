@@ -1,3 +1,4 @@
+import type { Matter } from "@/lib/inbox/matters";
 import type { Understanding } from "@/lib/inbox/understanding";
 
 export type MatterCandidate = {
@@ -16,9 +17,9 @@ type FiledCandidateInput = {
 };
 
 /**
- * A deep read said this is ongoing work, but the clustering pass did not
- * place it in a matter. Triage surfaces that disagreement as one decision:
- * make the suggested matter, or leave it filed.
+ * A deep read said this is ongoing work that the clustering pass did not
+ * place. The read wins: this becomes a matter on the board rather than a
+ * question in Triage.
  */
 export function matterCandidateFor(
   row: FiledCandidateInput,
@@ -44,6 +45,67 @@ export function matterCandidateFor(
     orgUnit: row.orgUnit,
     emailIds:
       row.messageIds?.length ? [...new Set(row.messageIds)] : [row.emailId],
+  };
+}
+
+/**
+ * Turn a promoted read into a real matter. One conversation, one matter —
+ * the clustering pass merges it with its siblings on the next rebuild if
+ * they belong together.
+ */
+export function matterFromRead(input: {
+  matterId: string;
+  candidate: MatterCandidate;
+  row: {
+    emailId: string;
+    threadId: string;
+    from: string;
+    line: string;
+    suggestion?: string;
+    subUnit?: string;
+    at?: string;
+    count?: number;
+  };
+  understanding?: Understanding;
+  /** Set when this thread was closed before and new mail brought it back. */
+  reopenedBecause?: string;
+  at: string;
+}): Matter {
+  const { candidate, row, understanding: u } = input;
+  const ask = u?.ask?.trim();
+  return {
+    id: input.matterId,
+    title: candidate.title,
+    category: "read",
+    orgUnit: candidate.orgUnit,
+    ...(row.subUnit ? { subUnit: row.subUnit } : {}),
+    orgConfidence: 0.7,
+    people: [],
+    narrative: candidate.why,
+    nextAction:
+      ask && !/^nothing/i.test(ask) ? ask.slice(0, 80) : "none — yours to define",
+    owner: u?.owner ?? "you",
+    urgency: Math.min(3, Math.max(1, u?.importance ?? 2)),
+    status: input.reopenedBecause
+      ? "reopened"
+      : u?.owner === "them"
+        ? "waiting"
+        : "active",
+    ...(input.reopenedBecause ? { statusWhy: input.reopenedBecause } : {}),
+    emails: [
+      {
+        id: row.emailId,
+        threadId: row.threadId,
+        from: row.from,
+        line: row.line,
+        suggestion: row.suggestion ?? "Your call",
+        ...(row.at ? { at: row.at } : {}),
+        ...(row.count && row.count > 1 ? { count: row.count } : {}),
+      },
+    ],
+    emailIds: candidate.emailIds,
+    threadIds: [row.threadId],
+    updatedAt: input.at,
   };
 }
 
