@@ -13,7 +13,6 @@ import type {
 } from "@/lib/inbox/types";
 import type { ComposeDraft } from "@/components/inbox/ComposePanel";
 import type { Brief, Matter } from "@/lib/inbox/matters";
-import { withInboxAccounting } from "@/lib/inbox/inbox-accounting";
 import {
   actionThreadId,
   buildCardDeck,
@@ -456,76 +455,33 @@ export function useMailbox(initialTab: ViewTab = "inbox") {
       reason?: string,
     ) => {
       if (ids.length === 0) return;
-      const removedCount = ids.reduce((n, row) => n + (row.count ?? 1), 0);
-      const gone = new Set(ids.map((x) => x.id));
-      const goneThreads = new Set(ids.map((x) => x.threadId));
-      for (const x of ids) {
-        markActed(x.id, x.threadId);
-        removeFromLists(x.id);
-      }
-      setBrief((prev) => {
-        if (!prev) return prev;
-        const next: Brief = {
-              ...prev,
-              headlines: prev.headlines.filter((h) => !gone.has(h.id)),
-              headlineIds: prev.headlineIds.filter((h) => !gone.has(h.id)),
-              filed: prev.filed?.filter(
-                (row) =>
-                  !gone.has(row.emailId) &&
-                  !goneThreads.has(row.threadId),
-              ),
-              digest: prev.digest
-                ? {
-                    ...prev.digest,
-                    themes: prev.digest.themes
-                      .map((theme) => ({
-                        ...theme,
-                        emailIds: theme.emailIds.filter((id) => !gone.has(id)),
-                        items: theme.items?.filter((item) => !gone.has(item.id)),
-                      }))
-                      .filter((theme) => theme.emailIds.length > 0),
-                  }
-                : prev.digest,
-              totalInbox:
-                prev.totalInbox != null
-                  ? Math.max(0, prev.totalInbox - removedCount)
-                  : prev.totalInbox,
-              providerTotal: prev.providerTotal
-                ? {
-                    ...prev.providerTotal,
-                    messages: Math.max(
-                      0,
-                      prev.providerTotal.messages - removedCount,
-                    ),
-                  }
-                : prev.providerTotal,
-            };
-        return withInboxAccounting(next);
-      });
       try {
-        const res = await fetch("/api/action/bulk", {
+        const res = await fetch("/api/triage/clear", {
           method: "POST",
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify({
-            items: ids.map((x) => ({
-              id: x.id,
-              threadId: x.threadId,
-              action: "archive",
-            })),
-            ...(reason ? { reason, source: "confirmed" } : {}),
+            rows: ids.map(({ id, threadId }) => ({ id, threadId })),
+            reason,
           }),
         });
+        const json = await res.json().catch(() => ({}));
         if (!res.ok) {
-          const json = await res.json().catch(() => ({}));
           throw new Error(json.error ?? "Clear failed");
         }
-        setToast(`Glanced — ${ids.length} filed`);
-      } catch {
-        setToast("Clear failed — refreshing");
-        load();
+        if (json.brief) setBrief(json.brief);
+        for (const row of json.cleared ?? []) {
+          markActed(row.id, row.threadId);
+          removeFromLists(row.id);
+        }
+        setToast(
+          json.failed
+            ? `Cleared ${json.removedCount ?? json.processed}; ${json.failed} failed`
+            : `Cleared ${json.removedCount ?? json.processed}`,
+        );
+      } catch (e) {
+        setToast(e instanceof Error ? e.message : "Clear failed");
       }
     },
-    // eslint-disable-next-line react-hooks/exhaustive-deps
     [markActed, removeFromLists],
   );
 
@@ -648,6 +604,7 @@ export function useMailbox(initialTab: ViewTab = "inbox") {
 
   /** The user's org call is ground truth — fix it once, Seer learns. */
   const fixMatter = useCallback(async (matterId: string, orgUnit: string) => {
+    const before = brief;
     setBrief((prev) =>
       prev
         ? {
@@ -659,16 +616,20 @@ export function useMailbox(initialTab: ViewTab = "inbox") {
         : prev,
     );
     try {
-      await fetch("/api/brief", {
+      const res = await fetch("/api/brief", {
         method: "PATCH",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ matterId, orgUnit }),
       });
+      const json = await res.json();
+      if (!res.ok) throw new Error(json.error ?? "Fix failed");
+      if (json.brief) setBrief(json.brief);
       setToast(`Filed under ${orgUnit}`);
     } catch {
+      setBrief(before);
       setToast("Fix failed");
     }
-  }, []);
+  }, [brief]);
 
   /** Persist the user's own priority order for one whiteboard column. */
   const reorderMatters = useCallback(
@@ -692,31 +653,6 @@ export function useMailbox(initialTab: ViewTab = "inbox") {
   /** Close a matter into Settled (or reopen it) — a client overlay by id. */
   const settleMatter = useCallback(
     async (matterId: string, settled: boolean) => {
-      const snapshot = brief
-        ? [...(brief.pinned ?? []), ...brief.matters].find(
-            (m) => m.id === matterId,
-          ) ?? settledMatters[matterId]?.matter
-        : settledMatters[matterId]?.matter;
-      const beforeSettled = settledMatters;
-      const beforeBrief = brief;
-      if (!settled && snapshot) {
-        setBrief((prev) =>
-          prev && !prev.matters.some((m) => m.id === snapshot.id)
-            ? { ...prev, matters: [snapshot, ...prev.matters] }
-            : prev,
-        );
-      }
-      setSettledMatters((prev) => {
-        const next = { ...prev };
-        if (settled) {
-          next[matterId] = {
-            at: new Date().toISOString(),
-            matter: snapshot,
-          };
-        }
-        else delete next[matterId];
-        return next;
-      });
       try {
         const res = await fetch("/api/matters", {
           method: "POST",
@@ -733,13 +669,11 @@ export function useMailbox(initialTab: ViewTab = "inbox") {
         setToast(settled ? "Settled" : "Reopened");
         return true;
       } catch {
-        setSettledMatters(beforeSettled);
-        setBrief(beforeBrief);
         setToast(settled ? "Could not settle" : "Could not reopen");
         return false;
       }
     },
-    [brief, settledMatters],
+    [],
   );
 
   useEffect(() => {

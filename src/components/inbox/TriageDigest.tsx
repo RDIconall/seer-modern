@@ -170,6 +170,10 @@ export function TriageDigest({
             {recordGroups.map((group) => {
               const key = `records:${group.category}`;
               const open = openThemes.has(key);
+              const messageCount = group.rows.reduce(
+                (n, row) => n + (row.count ?? 1),
+                0,
+              );
               const rows = group.rows.map((row) => ({
                 id: row.emailId,
                 threadId: row.threadId,
@@ -195,7 +199,7 @@ export function TriageDigest({
                         {group.category}
                       </span>
                       <span className="ml-1 text-[12px] text-[var(--nav-muted)]">
-                        {group.rows.length}
+                        {messageCount}
                       </span>
                     </button>
                     <button
