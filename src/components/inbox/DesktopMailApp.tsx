@@ -32,7 +32,7 @@ import { VipSheet } from "@/components/inbox/VipSheet";
 import { AtlasBoard } from "@/components/inbox/AtlasBoard";
 import { MatterPanel } from "@/components/inbox/MatterPanel";
 import { CatchupCard } from "@/components/inbox/CatchupCard";
-import { TriageTable } from "@/components/inbox/TriageTable";
+import { TriageDigest } from "@/components/inbox/TriageDigest";
 import { AssistBar } from "@/components/inbox/AssistBar";
 import {
   LogicExplain,
@@ -128,8 +128,6 @@ export function DesktopMailApp() {
     startReply,
     draftReply,
     drafting,
-    nudge,
-    nudging,
     rsvp,
     rsvping,
   } = mb;
@@ -143,29 +141,15 @@ export function DesktopMailApp() {
     return (
       [...(brief.pinned ?? []), ...brief.matters].find(
         (m) => m.id === openMatterId,
-      ) ?? null
+      ) ??
+      settledMatters[openMatterId]?.matter ??
+      null
     );
-  }, [openMatterId, brief]);
+  }, [openMatterId, brief, settledMatters]);
   // Leaving Atlas closes the matter panel.
   useEffect(() => {
     if (tab !== "atlas") setOpenMatterId(null);
   }, [tab]);
-
-  // Density: compact rows (persisted, shared key with mobile)
-  const [dense, setDense] = useState<boolean>(() => {
-    if (typeof window === "undefined") return false;
-    return window.localStorage.getItem("seer:dense") === "1";
-  });
-  const toggleDense = () => {
-    setDense((d) => {
-      try {
-        window.localStorage.setItem("seer:dense", d ? "0" : "1");
-      } catch {
-        /* ignore */
-      }
-      return !d;
-    });
-  };
 
   const [unsubAgentOpen, setUnsubAgentOpen] = useState(false);
   const [vipsOpen, setVipsOpen] = useState(false);
@@ -462,8 +446,10 @@ export function DesktopMailApp() {
             <div className="flex items-center gap-2">
               {tab !== "triage" && tab !== "atlas" && mailbox ? (
                 <span className="text-[12px] text-white/80">{mailbox.count}</span>
-              ) : (tab === "triage" || tab === "atlas") && triage ? (
-                <span className="text-[12px] text-white/80">{triage.count}</span>
+              ) : (tab === "triage" || tab === "atlas") && brief ? (
+                <span className="text-[12px] text-white/80">
+                  {brief.providerTotal?.messages ?? brief.totalInbox ?? 0}
+                </span>
               ) : null}
             </div>
           </div>
@@ -482,42 +468,6 @@ export function DesktopMailApp() {
               className="min-w-0 flex-1 bg-transparent text-[14px] outline-none placeholder:text-[var(--muted)]"
             />
           </form>
-          {tab === "triage" && (triage?.assistant || triage?.history) ? (
-            <p className="flex items-start gap-2 bg-[var(--card)] px-4 py-2 text-[12px] text-[var(--muted)]">
-              <span className="order-last ml-auto flex shrink-0 gap-1.5">
-                <button
-                  type="button"
-                  onClick={() => setVipsOpen(true)}
-                  className="rounded-full border border-[#eab308] px-2 py-0.5 text-[12px] text-[#b45309]"
-                >
-                  VIPs
-                </button>
-                <button
-                  type="button"
-                  onClick={() => setUnsubAgentOpen(true)}
-                  className="rounded-full border border-[#a855f7] px-2 py-0.5 text-[12px] text-[#a855f7]"
-                >
-                  Unsub agent
-                </button>
-                <button
-                  type="button"
-                  onClick={toggleDense}
-                  className="rounded-full border border-[var(--border)] px-2 py-0.5 text-[12px] text-[var(--primary)]"
-                >
-                  {dense ? "Cozy" : "Compact"}
-                </button>
-              </span>
-              {`${triage.count} triaged · ${triage.assistant?.needsReview ?? triage.needsReview.length} need you`}
-              {triage.assistant?.error ? (
-                <span className="ml-2 text-[#b45309]">
-                  {(triage.assistant.gemini ?? 0) + (triage.assistant.cached ?? 0) > 0
-                    ? "Some new mail used rules this load — "
-                    : "Gemini offline — rules only: "}
-                  {triage.assistant.error.slice(0, 110)}
-                </span>
-              ) : null}
-            </p>
-          ) : null}
         </header>
 
         <div className="flex-1 overflow-y-auto">
@@ -528,7 +478,7 @@ export function DesktopMailApp() {
           ) : null}
 
           {loading &&
-          (((tab === "triage" || tab === "atlas") && !triage) ||
+          (((tab === "triage" || tab === "atlas") && !brief) ||
             (tab !== "triage" && tab !== "atlas" && !mailbox)) ? (
             <p className="py-12 text-center text-[14px] text-[var(--muted)]">Loading…</p>
           ) : null}
@@ -622,10 +572,6 @@ export function DesktopMailApp() {
             )
           ) : null}
 
-          {tab === "triage" && triage && triage.count === 0 ? (
-            <EmptyList text="Nothing to triage" />
-          ) : null}
-
           {tab === "atlas" ? (
             <div className="flex min-h-0 flex-1 flex-col overflow-y-auto">
               {catchup ? (
@@ -650,28 +596,18 @@ export function DesktopMailApp() {
                 onReorder={reorderMatters}
                 onSettle={settleMatter}
                 onCreateMatter={createMatter}
-                onClearHeadlines={clearHeadlines}
               />
             </div>
           ) : null}
 
-          {tab === "triage" && triage && triage.count > 0 ? (
-            <>
-          <TriageTable
-              triage={triage}
-              mobile={false}
-              h={{
-                openReader,
-                runAction,
-                bulkSection,
-                unsubscribe,
-                teach: teachSender,
-                nudge,
-                nudging,
-                busyId,
-              }}
+          {tab === "triage" ? (
+            <TriageDigest
+              brief={brief}
+              building={briefBuilding}
+              onOpenEmail={openReader}
+              onCreateMatter={createMatter}
+              onClear={clearHeadlines}
             />
-            </>
           ) : null}
         </div>
       </section>

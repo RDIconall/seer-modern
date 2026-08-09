@@ -51,11 +51,6 @@ export function MatterPanel({
   const [fixing, setFixing] = useState(false);
   const [renaming, setRenaming] = useState(false);
   const [draft, setDraft] = useState(m.title);
-  const allRows: PanelRow[] = (m.emails ?? []).map((e) => ({
-    id: e.id,
-    threadId: e.threadId,
-  }));
-
   return (
     <div className="flex h-full flex-col overflow-hidden">
       <header className="flex shrink-0 items-center gap-2 border-b border-[var(--border)] px-4 py-3">
@@ -102,7 +97,7 @@ export function MatterPanel({
               setDraft(m.title);
               setRenaming(true);
             }}
-            className="shrink-0 text-[11px] text-[var(--nav-muted)] hover:text-[var(--fg)]"
+            className="shrink-0 text-[12px] text-[var(--nav-muted)] hover:text-[var(--fg)]"
           >
             rename
           </button>
@@ -111,63 +106,33 @@ export function MatterPanel({
           <button
             type="button"
             onClick={() => onSettle(m.id, !settled)}
-            className="shrink-0 text-[11px] text-[var(--nav-muted)] hover:text-[var(--fg)]"
+            className="shrink-0 text-[12px] text-[var(--nav-muted)] hover:text-[var(--fg)]"
           >
             {settled ? "reopen" : "settle"}
-          </button>
-        ) : null}
-        {onAtlasAction && allRows.length > 0 ? (
-          <button
-            type="button"
-            onClick={() => onAtlasAction(allRows, "archive")}
-            className="shrink-0 text-[11px] text-[var(--nav-muted)] hover:text-[var(--fg)]"
-          >
-            archive all
           </button>
         ) : null}
       </header>
 
       <div className="min-h-0 flex-1 overflow-y-auto px-4 py-3">
-        <dl className="space-y-1 text-[13px] leading-6">
-          <div className="flex gap-2">
-            <dt className="w-[92px] shrink-0 text-[11px] font-semibold uppercase tracking-wide text-[var(--nav-muted)]">
-              Goal
-            </dt>
-            <dd className="min-w-0 flex-1 text-[var(--fg)]">
-              {m.goal || m.narrative}
-            </dd>
-          </div>
-          <div className="flex gap-2">
-            <dt className="w-[92px] shrink-0 text-[11px] font-semibold uppercase tracking-wide text-[var(--nav-muted)]">
-              State
-            </dt>
-            <dd className="min-w-0 flex-1 text-[var(--muted)]">{m.narrative}</dd>
-          </div>
-          <div className="flex gap-2">
-            <dt className="w-[92px] shrink-0 text-[11px] font-semibold uppercase tracking-wide text-[var(--nav-muted)]">
-              Next
-            </dt>
-            <dd className="min-w-0 flex-1 font-semibold text-[var(--fg-strong)]">
-              {m.nextAction && !/^none/i.test(m.nextAction)
-                ? m.nextAction
-                : "Nothing — waiting on someone else"}
-              <span className="ml-1.5 font-normal text-[var(--muted)]">
-                (
-                {m.owner === "you"
-                  ? "yours"
-                  : m.owner === "them"
-                    ? "their court"
-                    : "team"}
-                )
-              </span>
-            </dd>
-          </div>
+        <div className="space-y-1 text-[14px] leading-5">
+          <p className="text-[var(--muted)]">{m.narrative}</p>
+          {m.goal && m.goal !== m.narrative ? (
+            <p className="text-[var(--muted)]">Done when: {m.goal}</p>
+          ) : null}
+          <p className="font-bold text-[var(--fg-strong)]">
+            {m.nextAction && !/^none/i.test(m.nextAction)
+              ? m.nextAction
+              : "Waiting on someone else"}
+            <span className="ml-1.5 font-normal text-[var(--muted)]">
+              {m.owner === "you"
+                ? "yours"
+                : m.owner === "them"
+                  ? "their court"
+                  : "team"}
+            </span>
+          </p>
           {m.crm ? (
-            <div className="flex gap-2">
-              <dt className="w-[92px] shrink-0 text-[11px] font-semibold uppercase tracking-wide text-[var(--nav-muted)]">
-                Salesforce
-              </dt>
-              <dd className="min-w-0 flex-1 text-[var(--fg)]">
+            <p className="text-[var(--fg)]">
                 {[
                   m.crm.code,
                   m.crm.account,
@@ -181,17 +146,12 @@ export function MatterPanel({
                 {m.crm.investigators?.length ? (
                   <span className="text-[var(--muted)]">
                     {" "}
-                    · sites: {m.crm.investigators.join(", ")}
+                    · {m.crm.investigators.join(", ")}
                   </span>
                 ) : null}
-              </dd>
-            </div>
+            </p>
           ) : null}
-          <div className="flex gap-2">
-            <dt className="w-[92px] shrink-0 text-[11px] font-semibold uppercase tracking-wide text-[var(--nav-muted)]">
-              Filed
-            </dt>
-            <dd className="min-w-0 flex-1 text-[var(--muted)]">
+          <p className="text-[12px] text-[var(--muted)]">
               {fixing && onFix ? (
                 <select
                   autoFocus
@@ -201,7 +161,7 @@ export function MatterPanel({
                     onFix(m.id, e.target.value);
                     setFixing(false);
                   }}
-                  className="rounded border border-[var(--border)] bg-[var(--bg)] px-1 py-0.5 text-[13px]"
+                  className="rounded border border-[var(--border)] bg-[var(--bg)] px-1 py-0.5 text-[12px]"
                 >
                   {functions.map((f) => (
                     <option key={f} value={f}>
@@ -213,7 +173,7 @@ export function MatterPanel({
                 <button
                   type="button"
                   onClick={() => onFix && setFixing(true)}
-                  title={onFix ? "Wrong place? Fix it — Seer learns" : undefined}
+                  title={onFix ? "Change category" : undefined}
                   className={
                     onFix
                       ? "underline decoration-dotted decoration-[var(--border)] underline-offset-2 hover:text-[var(--fg)]"
@@ -232,11 +192,10 @@ export function MatterPanel({
                     .map((p) => `${p.name.split(" ")[0]} (${p.relationship})`)
                     .join(", ")}`
                 : ""}
-            </dd>
-          </div>
-        </dl>
+          </p>
+        </div>
 
-        <p className="mt-3 text-[11px] font-semibold uppercase tracking-wide text-[var(--nav-muted)]">
+        <p className="mt-3 text-[12px] text-[var(--nav-muted)]">
           {m.emails?.length ?? m.threadIds.length} conversation
           {(m.emails?.length ?? m.threadIds.length) === 1 ? "" : "s"}
         </p>
@@ -244,7 +203,7 @@ export function MatterPanel({
           {(m.emails ?? []).map((e) => (
             <li
               key={e.id}
-              className="group flex items-baseline gap-2 text-[13px] leading-6"
+              className="group flex items-baseline gap-2 text-[14px] leading-5"
             >
               <button
                 type="button"
@@ -256,7 +215,7 @@ export function MatterPanel({
                   <span className="text-[var(--nav-muted)]"> · {e.count}</span>
                 ) : null}
               </button>
-              <span className="shrink-0 text-[11px] text-[var(--muted)]">
+              <span className="shrink-0 text-[12px] text-[var(--muted)]">
                 {e.suggestion}
               </span>
               {onAtlasAction ? (
@@ -270,7 +229,7 @@ export function MatterPanel({
                       )
                     }
                     title="Archive the whole thread"
-                    className="text-[11px] text-[var(--nav-muted)] hover:text-[var(--fg)]"
+                    className="text-[12px] text-[var(--nav-muted)] hover:text-[var(--fg)]"
                   >
                     archive
                   </button>
@@ -283,7 +242,7 @@ export function MatterPanel({
                       )
                     }
                     title="Delete the whole thread"
-                    className="text-[11px] text-[var(--nav-muted)] hover:text-[#d63b2f]"
+                    className="text-[12px] text-[var(--nav-muted)] hover:text-[#d63b2f]"
                   >
                     delete
                   </button>

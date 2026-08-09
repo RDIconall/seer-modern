@@ -42,7 +42,7 @@ import { VipSheet } from "@/components/inbox/VipSheet";
 import { AtlasBoard } from "@/components/inbox/AtlasBoard";
 import { MatterPanel } from "@/components/inbox/MatterPanel";
 import { CatchupCard } from "@/components/inbox/CatchupCard";
-import { TriageTable } from "@/components/inbox/TriageTable";
+import { TriageDigest } from "@/components/inbox/TriageDigest";
 import { ScheduleSheet } from "@/components/inbox/ScheduleSheet";
 import { AssistBar } from "@/components/inbox/AssistBar";
 import {
@@ -130,8 +130,6 @@ export function MobileMailApp() {
     startReply,
     draftReply,
     drafting,
-    nudge,
-    nudging,
     rsvp,
     rsvping,
   } = useMailbox();
@@ -147,27 +145,13 @@ export function MobileMailApp() {
     return (
       [...(brief.pinned ?? []), ...brief.matters].find(
         (m) => m.id === openMatterId,
-      ) ?? null
+      ) ??
+      settledMatters[openMatterId]?.matter ??
+      null
     );
-  }, [openMatterId, brief]);
+  }, [openMatterId, brief, settledMatters]);
   const searchRef = useRef<HTMLInputElement>(null);
   const deckCards = useMemo(() => buildDeckCards(triage), [triage]);
-
-  // Density: compact rows fit ~2x more triage on screen (persisted)
-  const [dense, setDense] = useState<boolean>(() => {
-    if (typeof window === "undefined") return false;
-    return window.localStorage.getItem("seer:dense") === "1";
-  });
-  const toggleDense = () => {
-    setDense((d) => {
-      try {
-        window.localStorage.setItem("seer:dense", d ? "0" : "1");
-      } catch {
-        /* ignore */
-      }
-      return !d;
-    });
-  };
 
   const [unsubAgentOpen, setUnsubAgentOpen] = useState(false);
   const [vipsOpen, setVipsOpen] = useState(false);
@@ -660,7 +644,8 @@ export function MobileMailApp() {
         ) : null}
 
         {loading &&
-        (((tab === "triage" || tab === "cards" || tab === "atlas") && !triage) ||
+        (((tab === "cards" && !triage) ||
+          ((tab === "triage" || tab === "atlas") && !brief)) ||
           (tab !== "triage" && tab !== "cards" && tab !== "atlas" && !mailbox)) ? (
           <p className="py-16 text-center text-[14px] text-[var(--muted)]">
             Loading…
@@ -778,51 +763,6 @@ export function MobileMailApp() {
           )
         ) : null}
 
-        {tab === "triage" && triage ? (
-          <div className="border-b border-[var(--border)] bg-[var(--card)] px-4 py-2">
-            <div className="flex items-start justify-between gap-2">
-              <p className="min-w-0 text-[14px] text-[var(--muted)]">
-                {`${triage.count} triaged · ${triage.assistant?.needsReview ?? triage.needsReview.length} need you`}
-              </p>
-              <span className="flex shrink-0 gap-1.5">
-                <button
-                  type="button"
-                  onClick={() => setVipsOpen(true)}
-                  className="rounded-full border border-[#eab308] px-2.5 py-1 text-[12px] text-[#b45309]"
-                >
-                  VIPs
-                </button>
-                <button
-                  type="button"
-                  onClick={() => setUnsubAgentOpen(true)}
-                  className="rounded-full border border-[#a855f7] px-2.5 py-1 text-[12px] text-[#a855f7]"
-                >
-                  Unsub agent
-                </button>
-                <button
-                  type="button"
-                  onClick={toggleDense}
-                  className="rounded-full border border-[var(--border)] px-2.5 py-1 text-[12px] text-[var(--primary)]"
-                >
-                  {dense ? "Cozy" : "Compact"}
-                </button>
-              </span>
-            </div>
-            {triage.assistant?.error ? (
-              <p className="mt-0.5 text-[12px] text-[#b45309]">
-                {(triage.assistant.gemini ?? 0) + (triage.assistant.cached ?? 0) > 0
-                  ? "Some new mail used rules this load — "
-                  : "Gemini offline — rules only: "}
-                {triage.assistant.error.slice(0, 110)}
-              </p>
-            ) : null}
-          </div>
-        ) : null}
-
-        {tab === "triage" && triage && triage.count === 0 ? (
-          <EmptyState text="Nothing to triage" />
-        ) : null}
-
         {tab === "atlas" ? (
           <div className="flex flex-1 flex-col">
             {catchup ? (
@@ -845,28 +785,18 @@ export function MobileMailApp() {
               onReorder={reorderMatters}
               onSettle={settleMatter}
               onCreateMatter={createMatter}
-              onClearHeadlines={clearHeadlines}
             />
           </div>
         ) : null}
 
-        {tab === "triage" && triage && triage.count > 0 ? (
-          <>
-        <TriageTable
-              triage={triage}
-              mobile={true}
-              h={{
-                openReader,
-                runAction,
-                bulkSection,
-                unsubscribe,
-                teach: teachSender,
-                nudge,
-                nudging,
-                busyId,
-              }}
+        {tab === "triage" ? (
+          <TriageDigest
+            brief={brief}
+            building={briefBuilding}
+            onOpenEmail={openReader}
+            onCreateMatter={createMatter}
+            onClear={clearHeadlines}
             />
-          </>
         ) : null}
       </PullToRefresh>
 

@@ -1,4 +1,5 @@
 import { accountKey, kvGet, kvSet } from "@/lib/store/kv";
+import type { Matter } from "@/lib/inbox/matters";
 
 /**
  * CLOSED MATTERS — durable closure records so a finished concern never
@@ -20,6 +21,8 @@ export type MatterClosure = {
   closedAt: string;
   reason: string;
   by: "user" | "system" | "seer";
+  /** Snapshot keeps the matter visible in the whiteboard's Settled column. */
+  matter?: Matter;
   /** Where it was handed off, if it left for a system of record */
   handoff?: { provider: string; recordId?: string; url?: string };
 };

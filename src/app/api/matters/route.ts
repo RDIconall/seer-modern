@@ -2,7 +2,12 @@ import { loadBrief, saveBrief, type Matter } from "@/lib/inbox/matters";
 import { requireMailSession } from "@/lib/mail/session";
 import { gmailThreadAction } from "@/lib/mail/gmail";
 import { graphThreadAction } from "@/lib/mail/graph";
-import { closeMatter, titleTokensOf } from "@/lib/store/closed-matters";
+import {
+  closeMatter,
+  loadClosedMatters,
+  reopenMatter,
+  titleTokensOf,
+} from "@/lib/store/closed-matters";
 import { appendLedger } from "@/lib/store/triage-ledger";
 import {
   addToMatter,
@@ -12,11 +17,6 @@ import {
   renameMatter,
 } from "@/lib/store/manual-matters";
 import { loadMatterOrder, saveMatterOrder } from "@/lib/store/matter-order";
-import {
-  loadSettledMatters,
-  settleMatter,
-  unsettleMatter,
-} from "@/lib/store/settled-matters";
 import { NextResponse } from "next/server";
 
 /**
@@ -29,11 +29,17 @@ export async function GET() {
   if (!session) {
     return NextResponse.json({ error: "Not signed in" }, { status: 401 });
   }
-  const [edits, order, settled] = await Promise.all([
+  const [edits, order, closed] = await Promise.all([
     loadMatterEdits(session.email),
     loadMatterOrder(session.email),
-    loadSettledMatters(session.email),
+    loadClosedMatters(session.email),
   ]);
+  const settled = Object.fromEntries(
+    Object.entries(closed).map(([id, closure]) => [
+      id,
+      { at: closure.closedAt, matter: closure.matter },
+    ]),
+  );
   return NextResponse.json({ edits, order, settled });
 }
 
@@ -67,7 +73,7 @@ export async function POST(req: Request) {
   // CLOSE — the loudest "this is done" signal. Archives the matter's
   // whole conversations, writes a durable closure record so it never
   // resurrects, and logs it to the Cleaned ledger so it can be undone.
-  if (body.action === "close") {
+  if (body.action === "close" || body.action === "settle") {
     if (!body.matterId) {
       return NextResponse.json({ error: "matterId required" }, { status: 400 });
     }
@@ -83,14 +89,21 @@ export async function POST(req: Request) {
     await Promise.allSettled(
       threadIds.map((t) => runThread(session.accessToken, t, "archive")),
     );
-    await closeMatter(session.email, {
+    const closed = await closeMatter(session.email, {
       matterId: matter.id,
       titleTokens: titleTokensOf(matter.title),
       threadIds,
       reason: body.reason?.slice(0, 200) ?? matter.statusWhy ?? "You closed it",
       by: "user",
+      matter,
       ...(body.handoff ? { handoff: body.handoff } : {}),
     });
+    const settled = Object.fromEntries(
+      Object.entries(closed).map(([id, closure]) => [
+        id,
+        { at: closure.closedAt, matter: closure.matter },
+      ]),
+    );
     const entry = await appendLedger(session.email, {
       kind: body.handoff ? "matter-handoff" : "matter-closed",
       summary: `Closed "${matter.title}"${body.handoff ? ` — handed to ${body.handoff.provider}` : ""}`,
@@ -106,7 +119,12 @@ export async function POST(req: Request) {
       }
       await saveBrief(session.email, brief);
     }
-    return NextResponse.json({ ok: true, ledgerId: entry.id, brief });
+    return NextResponse.json({
+      ok: true,
+      ledgerId: entry.id,
+      brief,
+      settled,
+    });
   }
 
   if (body.action === "rename") {
@@ -218,20 +236,26 @@ export async function POST(req: Request) {
     return NextResponse.json({ ok: true, order });
   }
 
-  // Close a matter into the Settled column (or reopen it).
-  if (body.action === "settle") {
-    if (!body.matterId) {
-      return NextResponse.json({ error: "matterId required" }, { status: 400 });
-    }
-    const settled = await settleMatter(session.email, body.matterId);
-    return NextResponse.json({ ok: true, settled });
-  }
-
   if (body.action === "unsettle") {
     if (!body.matterId) {
       return NextResponse.json({ error: "matterId required" }, { status: 400 });
     }
-    const settled = await unsettleMatter(session.email, body.matterId);
+    const before = await loadClosedMatters(session.email);
+    const closure = before[body.matterId];
+    if (closure && session.provider === "google") {
+      await Promise.allSettled(
+        closure.threadIds.map((threadId) =>
+          gmailThreadAction(session.accessToken, threadId, "restore"),
+        ),
+      );
+    }
+    const closed = await reopenMatter(session.email, body.matterId);
+    const settled = Object.fromEntries(
+      Object.entries(closed).map(([id, closure]) => [
+        id,
+        { at: closure.closedAt, matter: closure.matter },
+      ]),
+    );
     return NextResponse.json({ ok: true, settled });
   }
 

@@ -21,6 +21,8 @@ import {
   primaryMailAction,
 } from "@/lib/inbox/types";
 
+export type SettledMatter = { at: string; matter?: Matter };
+
 /**
  * Superhuman-style speed:
  * - stale-while-revalidate: last known data renders instantly from
@@ -405,7 +407,7 @@ export function useMailbox(initialTab: ViewTab = "inbox") {
   // they survive every brief rebuild without touching the brief itself.
   const [matterOrder, setMatterOrder] = useState<Record<string, string[]>>({});
   const [settledMatters, setSettledMatters] = useState<
-    Record<string, { at: string }>
+    Record<string, SettledMatter>
   >({});
   useEffect(() => {
     fetch("/api/brief", { cache: "no-store" })
@@ -448,8 +450,12 @@ export function useMailbox(initialTab: ViewTab = "inbox") {
 
   /** Headlines glanced → originals archived in one motion. */
   const clearHeadlines = useCallback(
-    async (ids: { id: string; threadId: string }[]) => {
+    async (
+      ids: { id: string; threadId: string }[],
+      reason?: string,
+    ) => {
       if (ids.length === 0) return;
+      const gone = new Set(ids.map((x) => x.id));
       for (const x of ids) {
         markActed(x.id, x.threadId);
         removeFromLists(x.id);
@@ -458,10 +464,19 @@ export function useMailbox(initialTab: ViewTab = "inbox") {
         prev
           ? {
               ...prev,
-              headlines: [],
-              headlineIds: [],
+              headlines: prev.headlines.filter((h) => !gone.has(h.id)),
+              headlineIds: prev.headlineIds.filter((h) => !gone.has(h.id)),
               digest: prev.digest
-                ? { ...prev.digest, themes: [] }
+                ? {
+                    ...prev.digest,
+                    themes: prev.digest.themes
+                      .map((theme) => ({
+                        ...theme,
+                        emailIds: theme.emailIds.filter((id) => !gone.has(id)),
+                        items: theme.items?.filter((item) => !gone.has(item.id)),
+                      }))
+                      .filter((theme) => theme.emailIds.length > 0),
+                  }
                 : prev.digest,
             }
           : prev,
@@ -476,6 +491,7 @@ export function useMailbox(initialTab: ViewTab = "inbox") {
               threadId: x.threadId,
               action: "archive",
             })),
+            ...(reason ? { reason, source: "confirmed" } : {}),
           }),
         });
         setToast(`Glanced — ${ids.length} filed`);
@@ -649,27 +665,41 @@ export function useMailbox(initialTab: ViewTab = "inbox") {
   /** Close a matter into Settled (or reopen it) — a client overlay by id. */
   const settleMatter = useCallback(
     async (matterId: string, settled: boolean) => {
+      const snapshot = brief
+        ? [...(brief.pinned ?? []), ...brief.matters].find(
+            (m) => m.id === matterId,
+          )
+        : undefined;
       setSettledMatters((prev) => {
         const next = { ...prev };
-        if (settled) next[matterId] = { at: new Date().toISOString() };
+        if (settled) {
+          next[matterId] = {
+            at: new Date().toISOString(),
+            matter: snapshot,
+          };
+        }
         else delete next[matterId];
         return next;
       });
       try {
-        await fetch("/api/matters", {
+        const res = await fetch("/api/matters", {
           method: "POST",
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify({
-            action: settled ? "settle" : "unsettle",
+            action: settled ? "close" : "unsettle",
             matterId,
           }),
         });
+        const json = await res.json();
+        if (!res.ok) throw new Error(json.error ?? "Matter update failed");
+        if (json.settled) setSettledMatters(json.settled);
+        if (json.brief) setBrief(json.brief);
         setToast(settled ? "Settled" : "Reopened");
       } catch {
         setToast(settled ? "Could not settle" : "Could not reopen");
       }
     },
-    [],
+    [brief],
   );
 
   useEffect(() => {
@@ -679,7 +709,6 @@ export function useMailbox(initialTab: ViewTab = "inbox") {
         if (j && j.quiet === false) setCatchup(j);
       })
       .catch(() => {});
-    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
   const accountEmail =

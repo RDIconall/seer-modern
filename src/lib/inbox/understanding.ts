@@ -19,7 +19,7 @@ import { z } from "zod";
  * from older versions are re-read.
  */
 
-export const UNDERSTANDING_VERSION = 3;
+export const UNDERSTANDING_VERSION = 4;
 
 /**
  * What an email is FOR — the deep read's own verdict on disposal, which
@@ -67,6 +67,13 @@ export type Understanding = {
   importance: number;
   /** What this email is FOR — the disposal verdict Atlas partitions on */
   disposition: Disposition;
+  /**
+   * When disposition= matter, name the underlying concern rather than the
+   * email or requested action ("Roche anti-TPO pricing", not "Send pricing").
+   * Triage uses this to offer a one-click matter when clustering misses it.
+   */
+  matterTitle?: string;
+  matterWhy?: string;
   /**
    * ISO date when this email's relevance dies on its own (a delivery
    * window, an event date, a check-in, a code). Only set when the body
@@ -137,6 +144,18 @@ const recordSchema = z.object({
     .describe(
       'what this email is FOR. Most of a real inbox is fyi/disposable — be decisive: "matter" = a live concern with a counterparty that needs tracking (a real ask of the user, a negotiation, a decision, a signature, anyone waiting on them); "record" = no live story but worth finding later (receipt, executed contract, invoice, statement, confirmation number); "fyi" = one glance then gone (status update, notification, digest, newsletter with one useful fact); "disposable" = never needed their eyes (marketing, promotions, inert policy/ToS notices, automated noise, social/network notifications). A message is NOT a matter merely because it is work-related or from a real company.',
     ),
+  matterTitle: z
+    .string()
+    .optional()
+    .describe(
+      'ONLY when disposition="matter": 2-7 words naming the ongoing real-world concern, not the email and not an imperative action (e.g. "Roche anti-TPO pricing", "Abbott sample requests")',
+    ),
+  matterWhy: z
+    .string()
+    .optional()
+    .describe(
+      'ONLY when disposition="matter": one concrete sentence explaining what remains unresolved and who is waiting',
+    ),
   expires: z
     .string()
     .optional()
@@ -173,6 +192,7 @@ Rules:
   · fyi = one glance then gone: status updates, notifications, reports, newsletters carrying a single useful fact, "we shipped it", "here's the weekly".
   · disposable = never needed their eyes: marketing, promotions, event invitations from vendors, inert policy/ToS updates, automated noise, social-network notifications (LinkedIn messages/connections), recruiting spam.
   Hard floor: an email with a real ask of the user, an awaiting signature, or an approval/regulatory/government deadline is ALWAYS a matter, whatever it looks like. Everything else earns "matter" only by being genuinely unresolved.
+- matterTitle / matterWhy: required in substance whenever disposition is matter. Name the enduring concern, not the message or task. "Roche anti-TPO pricing", not "Send Roche pricing". State what remains unresolved and who is waiting.
 - expires: set the ISO date only when relevance genuinely dies on its own (a delivery/check-in window, an event, a code). Bills, invoices, contracts, and records never expire.
 - Never invent a fact, a date, or a document name. If the body doesn't say it, leave it out.`;
 
@@ -355,6 +375,14 @@ export async function readEmails(
               return refs && refs.length ? { contextRefs: refs } : {};
             })(),
             disposition: r.disposition,
+            ...(r.disposition === "matter" && r.matterTitle?.trim()
+              ? {
+                  matterTitle: stripEmoji(r.matterTitle).slice(0, 100),
+                  matterWhy: stripEmoji(
+                    r.matterWhy?.trim() || r.oneLine,
+                  ).slice(0, 200),
+                }
+              : {}),
             ...(r.expires && /^\d{4}-\d{2}-\d{2}/.test(r.expires)
               ? { expires: r.expires.slice(0, 10) }
               : {}),

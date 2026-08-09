@@ -130,9 +130,9 @@ function MatterRow({
         <GripVertical className="h-3.5 w-3.5" />
       </button>
       {greyed ? (
-        <span className="shrink-0 text-[11px] text-[var(--nav-muted)]">·</span>
+        <span className="shrink-0 text-[12px] text-[var(--nav-muted)]">·</span>
       ) : (
-        <span className={`shrink-0 text-[11px] ${g.cls}`} title={m.owner}>
+        <span className={`shrink-0 text-[12px] ${g.cls}`} title={m.owner}>
           {g.glyph}
         </span>
       )}
@@ -145,13 +145,13 @@ function MatterRow({
           className={
             greyed
               ? "text-[var(--muted)]"
-              : "font-semibold text-[var(--fg-strong)]"
+              : "font-bold text-[var(--fg-strong)]"
           }
         >
           {m.title}
         </span>
         {!greyed && m.crm?.amount ? (
-          <span className="font-semibold text-[var(--brand)]">
+          <span className="font-bold text-[var(--brand)]">
             {" "}
             {formatAmount(m.crm.amount)}
           </span>
@@ -193,9 +193,9 @@ function FiledRow({
       <button
         type="button"
         onClick={onOpen}
-        className="min-w-0 flex-1 truncate text-left text-[13px] leading-7 text-[var(--muted)] hover:text-[var(--fg)]"
+        className="min-w-0 flex-1 truncate text-left text-[14px] leading-7 text-[var(--muted)] hover:text-[var(--fg)]"
       >
-        {f.line}
+        {f.matterCandidate?.title ?? f.line}
         {f.count && f.count > 1 ? (
           <span className="text-[var(--nav-muted)]"> · {f.count}</span>
         ) : null}
@@ -224,7 +224,7 @@ function Column({
   );
   return (
     <section className="mb-4">
-      <h2 className="text-[11px] font-bold uppercase tracking-widest text-[var(--fg-strong)]">
+      <h2 className="text-[17px] font-bold text-[var(--fg-strong)]">
         {section.label}{" "}
         <span className="text-[var(--nav-muted)]">· {section.rows.length}</span>
       </h2>
@@ -278,13 +278,12 @@ export function AtlasBoard({
   onReorder,
   onSettle,
   onCreateMatter,
-  onClearHeadlines,
   mobile,
 }: {
   brief: Brief | null;
   building: boolean;
   matterOrder: Record<string, string[]>;
-  settled: Record<string, { at: string }>;
+  settled: Record<string, { at: string; matter?: Matter }>;
   activeMatterId: string | null;
   onOpenMatter: (id: string) => void;
   onOpenEmail: (id: string) => void;
@@ -292,7 +291,6 @@ export function AtlasBoard({
   onReorder: (orgUnit: string, matterIds: string[]) => void;
   onSettle: (matterId: string, settled: boolean) => void;
   onCreateMatter: (title: string, emailIds: string[], orgUnit?: string) => void;
-  onClearHeadlines: (ids: { id: string; threadId: string }[]) => void;
   mobile?: boolean;
 }) {
   const [activeId, setActiveId] = useState<string | null>(null);
@@ -321,6 +319,13 @@ export function AtlasBoard({
   const sections = useMemo<BoardSection[]>(() => {
     if (!brief) return [];
     const allMatters = [...(brief.pinned ?? []), ...brief.matters];
+    const seenMatterIds = new Set(allMatters.map((m) => m.id));
+    for (const value of Object.values(settled)) {
+      if (value.matter && !seenMatterIds.has(value.matter.id)) {
+        allMatters.push(value.matter);
+        seenMatterIds.add(value.matter.id);
+      }
+    }
     const settledSection: BoardSection = {
       key: SETTLED,
       label: "Settled",
@@ -358,11 +363,13 @@ export function AtlasBoard({
       key: TRIAGE,
       label: "Triage",
       kind: "triage",
-      rows: (brief.filed ?? []).map((f) => ({
-        kind: "filed" as const,
-        id: f.emailId,
-        filed: f,
-      })),
+      rows: (brief.filed ?? [])
+        .filter((f) => f.matterCandidate)
+        .map((f) => ({
+          kind: "filed" as const,
+          id: f.emailId,
+          filed: f,
+        })),
     };
 
     const result = [...fnSections];
@@ -436,7 +443,12 @@ export function AtlasBoard({
     // A Triage row dragged into a function column becomes a matter.
     if (a?.type === "filed" && a.filed) {
       if (target === TRIAGE || target === SETTLED) return;
-      onCreateMatter(titleFromLine(a.filed.line), [a.filed.emailId], target);
+      const candidate = a.filed.matterCandidate;
+      onCreateMatter(
+        candidate?.title ?? titleFromLine(a.filed.line),
+        candidate?.emailIds ?? [a.filed.emailId],
+        target,
+      );
       return;
     }
 
@@ -506,19 +518,17 @@ export function AtlasBoard({
 
   if (!brief) {
     return (
-      <p className="px-4 py-4 text-[13px] text-[var(--muted)]">
-        {building
-          ? "Reading the inbox…"
-          : "No board yet — Seer builds it in the background."}
+      <p className="px-4 py-4 text-[14px] text-[var(--muted)]">
+        {building ? "Reading the inbox…" : "Nothing yet."}
       </p>
     );
   }
 
   const activeMatter =
     activeId?.startsWith("matter:")
-      ? [...(brief.pinned ?? []), ...brief.matters].find(
-          (m) => m.id === activeId.slice("matter:".length),
-        )
+      ? [...(brief.pinned ?? []), ...brief.matters]
+          .find((m) => m.id === activeId.slice("matter:".length)) ??
+        settled[activeId.slice("matter:".length)]?.matter
       : null;
   const activeFiled =
     activeId?.startsWith("filed:")
@@ -527,22 +537,14 @@ export function AtlasBoard({
 
   return (
     <div className="min-h-0 flex-1 overflow-y-auto">
-      <div className="flex flex-wrap items-baseline gap-x-2 gap-y-0.5 border-b border-[var(--border)] px-4 py-2">
-        <span className="text-[11px] font-bold uppercase tracking-widest text-[var(--fg-strong)]">
-          Atlas
-        </span>
-        <span className="text-[12px] text-[var(--fg-strong)]">
-          {accounted} of {providerCount ?? total} in the inbox
-        </span>
-        <span
-          className={`text-[12px] ${
-            short === 0 ? "text-[var(--muted)]" : "font-semibold text-[#b45309]"
-          }`}
-        >
-          {short === 0 ? "· every message placed" : `· ${short} not read yet`}
+      <div className="flex items-baseline gap-2 border-b border-[var(--border)] px-4 py-2">
+        <span className="text-[12px] text-[var(--muted)]">
+          {short === 0
+            ? `All ${providerCount ?? total} messages placed`
+            : `${short} of ${providerCount ?? total} not read yet`}
         </span>
         {building ? (
-          <span className="text-[11px] text-[var(--nav-muted)]">
+          <span className="text-[12px] text-[var(--nav-muted)]">
             · reading…
           </span>
         ) : null}
@@ -571,7 +573,7 @@ export function AtlasBoard({
                           return next;
                         })
                       }
-                      className="flex w-full items-baseline gap-2 text-left text-[11px] font-bold uppercase tracking-widest text-[var(--fg-strong)]"
+                      className="flex w-full items-baseline gap-2 text-left text-[17px] font-bold text-[var(--fg-strong)]"
                     >
                       {section.label}
                       <span className="text-[var(--nav-muted)]">
@@ -590,7 +592,7 @@ export function AtlasBoard({
                               className="flex items-baseline gap-1.5"
                             >
                               <span
-                                className={`shrink-0 text-[11px] ${
+                                className={`shrink-0 text-[12px] ${
                                   section.kind === "settled"
                                     ? "text-[var(--nav-muted)]"
                                     : ownerGlyph(r.matter.owner).cls
@@ -610,13 +612,13 @@ export function AtlasBoard({
                                   e.preventDefault();
                                   setMoveFor(r.id);
                                 }}
-                                className="min-w-0 flex-1 truncate text-left text-[15px] leading-8"
+                                className="min-w-0 flex-1 truncate text-left text-[17px] leading-8"
                               >
                                 <span
                                   className={
                                     section.kind === "settled"
                                       ? "text-[var(--muted)]"
-                                      : "font-semibold text-[var(--fg-strong)]"
+                                      : "font-bold text-[var(--fg-strong)]"
                                   }
                                 >
                                   {r.matter.title}
@@ -630,7 +632,7 @@ export function AtlasBoard({
                                 onClick={() => onOpenEmail(r.filed.emailId)}
                                 className="min-w-0 flex-1 truncate text-left text-[14px] leading-8 text-[var(--muted)]"
                               >
-                                {r.filed.line}
+                                {r.filed.matterCandidate?.title ?? r.filed.line}
                               </button>
                             </li>
                           ),
@@ -654,50 +656,16 @@ export function AtlasBoard({
 
         <DragOverlay>
           {activeMatter ? (
-            <span className="rounded bg-[var(--card)] px-2 py-1 text-[14px] font-semibold text-[var(--fg-strong)] shadow-lg ring-1 ring-[var(--border)]">
+            <span className="rounded bg-[var(--card)] px-2 py-1 text-[14px] font-bold text-[var(--fg-strong)] shadow-lg ring-1 ring-[var(--border)]">
               {activeMatter.title}
             </span>
           ) : activeFiled ? (
-            <span className="rounded bg-[var(--card)] px-2 py-1 text-[13px] text-[var(--muted)] shadow-lg ring-1 ring-[var(--border)]">
+            <span className="rounded bg-[var(--card)] px-2 py-1 text-[14px] text-[var(--muted)] shadow-lg ring-1 ring-[var(--border)]">
               {activeFiled.line}
             </span>
           ) : null}
         </DragOverlay>
       </DndContext>
-
-      {/* THE REST — the FYI mass, summarized, with one clear-all */}
-      {digestCount > 0 ? (
-        <section className="mx-4 mb-4 border-t border-[var(--border)] pt-2">
-          <div className="flex items-baseline gap-2">
-            <h2 className="text-[11px] font-bold uppercase tracking-widest text-[var(--fg-strong)]">
-              The rest, summarized{" "}
-              <span className="text-[var(--nav-muted)]">· {digestCount}</span>
-            </h2>
-            <span className="flex-1" />
-            <button
-              type="button"
-              onClick={() => onClearHeadlines(brief.headlineIds)}
-              className="text-[11px] text-[var(--nav-muted)] underline decoration-[var(--border)] underline-offset-2 hover:text-[var(--fg)]"
-            >
-              clear all {brief.headlineIds.length}
-            </button>
-          </div>
-          <ul className="mt-0.5">
-            {(brief.digest?.themes ?? []).map((t) => (
-              <li key={t.theme} className="text-[13px] leading-7">
-                <span className="font-semibold text-[var(--fg-strong)]">
-                  {t.theme}
-                </span>
-                <span className="text-[var(--nav-muted)]">
-                  {" "}
-                  ({t.emailIds.length})
-                </span>
-                <span className="text-[var(--muted)]"> — {t.line}</span>
-              </li>
-            ))}
-          </ul>
-        </section>
-      ) : null}
 
       {/* Mobile move-to sheet: long-press a matter, pick a new home */}
       {moveFor ? (
@@ -709,7 +677,7 @@ export function AtlasBoard({
             className="absolute inset-0 bg-black/40"
           />
           <div className="relative z-10 max-h-[70vh] w-full overflow-y-auto rounded-t-2xl bg-[var(--bg)] pb-[var(--safe-bottom)] pt-2 shadow-xl">
-            <p className="px-4 py-2 text-[11px] font-bold uppercase tracking-widest text-[var(--nav-muted)]">
+            <p className="px-4 py-2 text-[12px] font-bold text-[var(--nav-muted)]">
               Move to
             </p>
             {settled[moveFor] ? (
@@ -719,7 +687,7 @@ export function AtlasBoard({
                   onSettle(moveFor, false);
                   setMoveFor(null);
                 }}
-                className="block w-full px-4 py-3 text-left text-[15px] font-semibold text-[var(--brand)]"
+                className="block w-full px-4 py-3 text-left text-[17px] font-bold text-[var(--brand)]"
               >
                 Reopen
               </button>
@@ -733,7 +701,7 @@ export function AtlasBoard({
                   onMoveMatter(moveFor, f);
                   setMoveFor(null);
                 }}
-                className="block w-full px-4 py-3 text-left text-[15px] text-[var(--fg)]"
+                className="block w-full px-4 py-3 text-left text-[17px] text-[var(--fg)]"
               >
                 {f}
               </button>
@@ -745,7 +713,7 @@ export function AtlasBoard({
                   onSettle(moveFor, true);
                   setMoveFor(null);
                 }}
-                className="block w-full border-t border-[var(--border)] px-4 py-3 text-left text-[15px] text-[var(--muted)]"
+                className="block w-full border-t border-[var(--border)] px-4 py-3 text-left text-[17px] text-[var(--muted)]"
               >
                 Settled
               </button>

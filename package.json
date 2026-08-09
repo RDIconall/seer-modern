@@ -7,7 +7,7 @@
     "build": "next build --turbopack",
     "start": "next start",
     "lint": "eslint",
-    "test": "tsx scripts/merge-matters.test.mts"
+    "test": "tsx scripts/merge-matters.test.mts && tsx scripts/triage-view.test.mts"
   },
   "dependencies": {
     "@ai-sdk/google": "^4.0.18",

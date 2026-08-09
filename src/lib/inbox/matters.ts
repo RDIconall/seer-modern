@@ -20,6 +20,10 @@ import {
   saveClosedMatters,
   type ClosedMatters,
 } from "@/lib/store/closed-matters";
+import {
+  matterCandidateFor,
+  type MatterCandidate,
+} from "@/lib/inbox/triage-view";
 import { loadMerchants } from "@/lib/store/merchants";
 import {
   CODE_PATTERN,
@@ -174,13 +178,21 @@ export type FiledEmail = {
   messageIds?: string[];
   /** Newest message time in this conversation (ISO) */
   at?: string;
+  /** Deep read says this is ongoing work that clustering failed to place. */
+  matterCandidate?: MatterCandidate;
 };
 
 /** The FYI / read-and-delete mass, summarized AS A WHOLE */
 export type Digest = {
   /** One paragraph covering everything below — read this, skip the rest */
   summary: string;
-  themes: { theme: string; line: string; emailIds: string[] }[];
+  themes: {
+    theme: string;
+    line: string;
+    emailIds: string[];
+    /** Individual evidence, available only when the user expands a theme. */
+    items?: { id: string; threadId: string; line: string; at: string }[];
+  }[];
 };
 
 /** Where the AI could not make the call — the user's actual triage work */
@@ -195,7 +207,7 @@ export type UnsureItem = {
  * treats any older brief as stale and rebuilds it, so a redesign never
  * leaves a stale Atlas on screen waiting for a manual refresh.
  */
-export const BRIEF_ENGINE = 10;
+export const BRIEF_ENGINE = 12;
 
 /**
  * The forecast lens — "what matters WHEN". A temporal view over the same
@@ -418,7 +430,9 @@ HOW TO CLASSIFY orgUnit (the categories are function × workflow stage, NOT topi
 3. CLASSIFY BY THE PRIMARY DELIVERABLE — the action that unblocks the counterparty — not by every document mentioned. "Send CDA and feasibility response" is "sales — new requests" (the feasibility answer is the ask; the CDA is packaging). A PO arriving as part of an award is contracting; an invoice or payment chase on already-awarded work is "finance (ar/ap)".
 4. labeledExamples in the payload are the user's OWN past categorizations of similar work — they are ground truth for how the user carves up their world. When an example closely matches, follow it over your own instinct.
 - people: the humans IN the matter with relationship typing "role — lifecycle/closeness": "client — new" (first deal), "client — senior, close" (long history, warm), "vendor", "team" (works for the user), "board", "regulator", "prospect", "family". Use the previous matters and the user profile to keep relationship labels consistent — a person keeps the same relationship across matters unless the evidence changed.
-- Return AT MOST 14 matters — the most consequential; fold minor items into related matters or file the rest.
+- Return every consequential matter supported by the evidence. Do not impose
+  a numeric ceiling. Fold messages only when they are the same real-world
+  concern; never file ongoing work merely to keep the list short.
 
 - Return ONLY the consequential matters. Do not return filing records for emails that do not belong to a matter; the application files those separately.
 - userOrgCorrections in the payload are the user's OWN fixes to earlier org calls — absolute ground truth, follow them exactly for those matters and let them teach you the pattern for similar ones.
@@ -1366,7 +1380,7 @@ export async function buildBrief(
     const u = readOf(i.threadId);
     const ids = messageIdsOf(i.threadId);
     const who = personName(i);
-    filed.push({
+    const baseFiled: FiledEmail = {
       emailId: i.id,
       threadId: i.threadId,
       orgUnit: orgUnitFor(i, functions, u).unit,
@@ -1377,6 +1391,11 @@ export async function buildBrief(
       suggestion: u ? askSuggestion(u) : suggestionFor(i),
       at: i.receivedAt,
       ...(ids.length > 1 ? { count: ids.length, messageIds: ids } : {}),
+    };
+    const candidate = matterCandidateFor(baseFiled, u);
+    filed.push({
+      ...baseFiled,
+      ...(candidate ? { matterCandidate: candidate } : {}),
     });
   }
   const unsure: UnsureItem[] = [];
@@ -1447,13 +1466,43 @@ export async function buildBrief(
   }
 
   const digestIdSet = new Set(digestItems.map((i) => i.id));
+  const digestById = new Map(digestItems.map((i) => [i.id, i]));
   const digest: Digest = {
     summary: digestOutput.summary,
     themes: digestOutput.themes
-      .map((t) => ({
-        ...t,
-        emailIds: t.emailIds.filter((id) => digestIdSet.has(id)),
-      }))
+      .map((t) => {
+        const emailIds = t.emailIds.filter((id) => digestIdSet.has(id));
+        return {
+          ...t,
+          emailIds,
+          items: emailIds
+            .map((id) => {
+              const item = digestById.get(id);
+              if (!item) return null;
+              const u = understanding[id];
+              return {
+                id,
+                threadId: item.threadId,
+                line: stripEmoji(
+                  u?.oneLine ||
+                    item.guide?.task ||
+                    item.subject,
+                ).slice(0, 180),
+                at: item.receivedAt,
+              };
+            })
+            .filter(
+              (
+                item,
+              ): item is {
+                id: string;
+                threadId: string;
+                line: string;
+                at: string;
+              } => Boolean(item),
+            ),
+        };
+      })
       .filter((t) => t.emailIds.length > 0),
   };
 
