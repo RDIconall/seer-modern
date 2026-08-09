@@ -43,10 +43,16 @@ import { z } from "zod";
 
 /** A model error, reduced to a short human sentence for the UI. */
 function cleanModelError(msg: string): string {
-  if (/prepayment|credits? (are )?depleted|billing|payment required|402/i.test(msg)) {
-    return "AI credits are depleted — top up the Gemini key (or connect the AI Gateway) to group new mail.";
+  // Both budgets exhausted: the direct Gemini key's prepayment credits AND
+  // the Vercel AI Gateway free tier ("rate-limited — upgrade to paid").
+  if (
+    /prepayment|credits?\b|billing|payment required|402|free tier|upgrade to paid|GatewayRateLimit/i.test(
+      msg,
+    )
+  ) {
+    return "AI credits are out — add credits to the Gemini key or the Vercel AI Gateway to group new mail.";
   }
-  if (/quota|rate limit|429|RESOURCE_EXHAUSTED/i.test(msg)) {
+  if (/quota|rate.?limit|429|RESOURCE_EXHAUSTED/i.test(msg)) {
     return "AI quota hit — grouping will catch up on the next sync.";
   }
   if (/timed? ?out|abort|deadline/i.test(msg)) {
