@@ -51,7 +51,7 @@
   --color-background: var(--bg);
   --color-foreground: var(--fg);
   --font-sans: var(--font-seer);
-  --font-mono: var(--font-seer-mono);
+  --font-mono: ui-monospace, monospace;
 }
 
 html,

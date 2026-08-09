@@ -285,7 +285,7 @@ export function MobileMailApp() {
             <ChevronLeft className="h-6 w-6" />
           </IconBtn>
           <div className="min-w-0 flex-1 px-1">
-            <div className="truncate text-[16px] font-semibold text-white">
+            <div className="truncate text-[15px] font-semibold text-white">
               {reader?.subject ?? "…"}
             </div>
           </div>
@@ -982,7 +982,7 @@ function FooterAction({
     <button
       type="button"
       onClick={onClick}
-      className="flex flex-1 flex-col items-center gap-0.5 py-1 text-[10px] text-[var(--fg)]"
+      className="flex flex-1 flex-col items-center gap-0.5 py-1 text-[11px] text-[var(--fg)]"
     >
       {icon}
       {label}
@@ -1120,7 +1120,7 @@ function SwipeMailRow({
         <div className="min-w-0 flex-1">
           <div className="flex items-baseline justify-between gap-2">
             <span
-              className={`mail-from truncate text-[var(--fg-strong)] ${dense ? "text-[14px]" : "text-[15px]"}`}
+              className={`mail-from truncate text-[var(--fg-strong)] ${dense ? "text-[15px]" : "text-[15px]"}`}
             >
               {item.threadSenders?.length
                 ? item.threadSenders.join(", ")
@@ -1137,9 +1137,9 @@ function SwipeMailRow({
           </div>
           {dense ? (
             // Compact: one line — category, the implied action, subject
-            <div className="flex items-baseline gap-1.5 truncate text-[13px] leading-snug">
+            <div className="flex items-baseline gap-1.5 truncate text-[12px] leading-snug">
               {g?.category ? (
-                <span className="shrink-0 rounded bg-[var(--card)] px-1 text-[10px] font-semibold text-[var(--muted)]">
+                <span className="shrink-0 rounded bg-[var(--card)] px-1 text-[11px] font-semibold text-[var(--muted)]">
                   {g.category}
                 </span>
               ) : null}
@@ -1157,10 +1157,10 @@ function SwipeMailRow({
             </div>
           ) : (
             <>
-              <div className="mail-subject truncate text-[14px] leading-snug text-[var(--fg)]">
+              <div className="mail-subject truncate text-[15px] leading-snug text-[var(--fg)]">
                 {item.subject}
               </div>
-              <div className="truncate text-[13px] leading-snug text-[var(--muted)]">
+              <div className="truncate text-[12px] leading-snug text-[var(--muted)]">
                 {item.snippet}
               </div>
             </>

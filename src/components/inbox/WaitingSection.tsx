@@ -54,7 +54,7 @@ export function WaitingSection({
         <button
           type="button"
           onClick={() => setCollapsed((c) => !c)}
-          className="flex min-w-0 flex-1 items-center gap-1.5 text-left text-[13px] font-semibold text-[#b45309]"
+          className="flex min-w-0 flex-1 items-center gap-1.5 text-left text-[12px] font-semibold text-[#b45309]"
         >
           <Hourglass className="h-3.5 w-3.5" />
           Waiting on · {visible.length}
@@ -72,7 +72,7 @@ export function WaitingSection({
             >
               <div className="min-w-0 flex-1">
                 <div className="flex items-baseline gap-1.5">
-                  <span className="truncate text-[14px] font-semibold text-[var(--fg-strong)]">
+                  <span className="truncate text-[15px] font-semibold text-[var(--fg-strong)]">
                     {item.toName || item.to}
                   </span>
                   <span className="shrink-0 text-[11px] font-medium text-[#b45309]">

@@ -471,21 +471,21 @@ export function DesktopMailApp() {
                 <button
                   type="button"
                   onClick={() => setVipsOpen(true)}
-                  className="rounded-full border border-[#eab308] px-2 py-0.5 text-[10px] font-semibold text-[#b45309]"
+                  className="rounded-full border border-[#eab308] px-2 py-0.5 text-[11px] font-semibold text-[#b45309]"
                 >
                   VIPs
                 </button>
                 <button
                   type="button"
                   onClick={() => setUnsubAgentOpen(true)}
-                  className="rounded-full border border-[#a855f7] px-2 py-0.5 text-[10px] font-semibold text-[#a855f7]"
+                  className="rounded-full border border-[#a855f7] px-2 py-0.5 text-[11px] font-semibold text-[#a855f7]"
                 >
                   Unsub agent
                 </button>
                 <button
                   type="button"
                   onClick={toggleDense}
-                  className="rounded-full border border-[var(--border)] px-2 py-0.5 text-[10px] font-semibold text-[var(--primary)]"
+                  className="rounded-full border border-[var(--border)] px-2 py-0.5 text-[11px] font-semibold text-[var(--primary)]"
                 >
                   {dense ? "Cozy" : "Compact"}
                 </button>
@@ -882,7 +882,7 @@ function DesktopMailRow({
         )}
         <div className="min-w-0 flex-1">
           <div className="flex items-baseline justify-between gap-2">
-            <span className="mail-from truncate text-[13px] text-[var(--fg-strong)]">
+            <span className="mail-from truncate text-[12px] text-[var(--fg-strong)]">
               {item.threadSenders?.length
                 ? item.threadSenders.join(", ")
                 : item.fromName || item.fromEmail}
@@ -899,7 +899,7 @@ function DesktopMailRow({
           {dense ? (
             <div className="flex items-baseline gap-1.5 truncate text-[12px] leading-snug">
               {g?.category ? (
-                <span className="shrink-0 rounded bg-[var(--card)] px-1 text-[9px] font-semibold text-[var(--muted)]">
+                <span className="shrink-0 rounded bg-[var(--card)] px-1 text-[11px] font-semibold text-[var(--muted)]">
                   {g.category}
                 </span>
               ) : null}

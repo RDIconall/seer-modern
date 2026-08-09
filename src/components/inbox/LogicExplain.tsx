@@ -72,7 +72,7 @@ export function LogicExplain({ guide }: { guide: Guide }) {
   return (
     <div className="flex min-w-0 items-center gap-1.5">
       {guide.category ? (
-        <span className="shrink-0 rounded bg-[var(--card)] px-1 text-[10px] font-semibold text-[var(--muted)]">
+        <span className="shrink-0 rounded bg-[var(--card)] px-1 text-[11px] font-semibold text-[var(--muted)]">
           {guide.category}
         </span>
       ) : null}
@@ -109,7 +109,7 @@ export function ReaderGuideBar({
         aria-hidden
       />
       <span
-        className="min-w-0 flex-1 truncate text-[13px] font-semibold"
+        className="min-w-0 flex-1 truncate text-[12px] font-semibold"
         style={{ color: guide.color }}
       >
         {text}

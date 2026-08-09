@@ -267,7 +267,7 @@ function Row({
       >
         <div className="flex items-baseline justify-between gap-2">
           <span
-            className={`min-w-0 truncate text-[13px] ${emphasize ? "font-bold" : "font-semibold"}`}
+            className={`min-w-0 truncate text-[12px] ${emphasize ? "font-bold" : "font-semibold"}`}
           >
             {senderLabel(item)}
           </span>
@@ -277,7 +277,7 @@ function Row({
         </div>
         {showMeaning ? (
           <div
-            className="truncate text-[13px] font-medium"
+            className="truncate text-[12px] font-medium"
             style={{ color: g?.color ?? "var(--fg)" }}
           >
             {meaning}
@@ -323,7 +323,7 @@ function Row({
         ) : null}
       </td>
       <td className={`max-w-0 truncate ${CELL}`}>
-        <span className={`text-[13px] ${emphasize ? "font-bold" : "font-semibold"}`}>
+        <span className={`text-[12px] ${emphasize ? "font-bold" : "font-semibold"}`}>
           {senderLabel(item)}
         </span>
         <span className="ml-1.5 text-[11px] text-[var(--muted)]">
@@ -333,7 +333,7 @@ function Row({
       {/* Message: the AI's read leads WHEN it adds signal; the subject
           rides along muted. Hover shows the full why. */}
       <td
-        className={`max-w-0 truncate ${CELL} text-[13px]`}
+        className={`max-w-0 truncate ${CELL} text-[12px]`}
         title={why ? `${meaning ? `${meaning} — ` : ""}${why}` : meaning}
       >
         {showMeaning ? (
@@ -376,7 +376,7 @@ function CorrectPicker({ item, h }: { item: EmailItem; h: Handlers }) {
         }}
         aria-label="Change"
         title="Change"
-        className="h-6 w-5 cursor-pointer appearance-none rounded-md border border-[var(--border)] bg-[var(--bg)] pl-1 text-[10px] font-bold text-[var(--muted)] hover:text-[var(--fg)]"
+        className="h-6 w-5 cursor-pointer appearance-none rounded-md border border-[var(--border)] bg-[var(--bg)] pl-1 text-[11px] font-bold text-[var(--muted)] hover:text-[var(--fg)]"
       >
         <option value="" hidden>
           ▾
@@ -854,14 +854,14 @@ export function TriageTable({
         mobile ? (
           <p
             key="needs-empty"
-            className="flex items-center gap-2 px-3 py-3 text-[13px] text-[var(--muted)]"
+            className="flex items-center gap-2 px-3 py-3 text-[12px] text-[var(--muted)]"
           >
             <CheckCircle2 className="h-4 w-4 text-[#0b8043]" /> Nothing needs
             you right now.
           </p>
         ) : (
           <tr key="needs-empty">
-            <td colSpan={SPAN} className="px-3 py-3 text-[13px] text-[var(--muted)]">
+            <td colSpan={SPAN} className="px-3 py-3 text-[12px] text-[var(--muted)]">
               Nothing needs you right now.
             </td>
           </tr>
@@ -890,7 +890,7 @@ export function TriageTable({
 
   return (
     <div>
-      <p className="flex items-baseline gap-2 border-b border-[var(--border)] bg-[var(--card)] px-3 py-2.5 text-[13px] font-medium">
+      <p className="flex items-baseline gap-2 border-b border-[var(--border)] bg-[var(--card)] px-3 py-2.5 text-[12px] font-medium">
         <span className="font-bold text-[var(--fg-strong)]">
           {zones.handledCount + zones.fyi.length} to clear
         </span>
@@ -908,7 +908,7 @@ export function TriageTable({
           </span>
         ) : null}
         {!mobile ? (
-          <span className="ml-auto shrink-0 text-[10px] font-normal text-[var(--nav-muted)]">
+          <span className="ml-auto shrink-0 text-[11px] font-normal text-[var(--nav-muted)]">
             ↑↓ move · space tick · ⇧ range · ⏎ open · e archive · d delete ·
             a do suggested · ⌘⏎ run ticked
           </span>
@@ -920,7 +920,7 @@ export function TriageTable({
       ) : (
         <table className="w-full table-fixed border-collapse">
           <thead>
-            <tr className="text-left text-[10px] font-bold uppercase tracking-wide text-[var(--muted)]">
+            <tr className="text-left text-[11px] font-bold uppercase tracking-wide text-[var(--muted)]">
               <th className={`w-9 ${TH} !px-2 text-center`}>
                 <input
                   type="checkbox"

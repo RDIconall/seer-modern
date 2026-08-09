@@ -73,7 +73,7 @@ export function VipSheet({
       />
       <div className="relative flex max-h-[85dvh] w-full max-w-md flex-col rounded-t-2xl bg-[var(--bg)] shadow-2xl sm:rounded-2xl">
         <div className="flex items-center justify-between px-5 pb-1 pt-4">
-          <h2 className="flex items-center gap-2 text-[16px] font-semibold">
+          <h2 className="flex items-center gap-2 text-[15px] font-semibold">
             <Crown className="h-4 w-4 text-[#eab308]" />
             VIPs
           </h2>
@@ -118,7 +118,7 @@ export function VipSheet({
                     >
                       <Crown className="h-4 w-4 shrink-0 text-[#eab308]" />
                       <div className="min-w-0 flex-1">
-                        <div className="truncate text-[14px] font-semibold">
+                        <div className="truncate text-[15px] font-semibold">
                           {v.name || v.email}
                         </div>
                         <div className="truncate text-[11px] text-[var(--muted)]">
@@ -151,7 +151,7 @@ export function VipSheet({
                       className="flex items-center gap-2.5 border-b border-[var(--border)] px-4 py-2.5"
                     >
                       <div className="min-w-0 flex-1">
-                        <div className="truncate text-[14px] font-medium">
+                        <div className="truncate text-[15px] font-medium">
                           {s.email}
                         </div>
                         <div className="truncate text-[11px] text-[var(--muted)]">

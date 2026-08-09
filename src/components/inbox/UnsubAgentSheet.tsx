@@ -126,7 +126,7 @@ export function UnsubAgentSheet({
         </span>
         <span className="min-w-0 flex-1">
           <span className="flex items-baseline gap-1.5">
-            <span className="truncate text-[14px] font-semibold">
+            <span className="truncate text-[15px] font-semibold">
               {s.fromName || s.fromEmail}
             </span>
             <span className="shrink-0 text-[11px] text-[var(--muted)]">
@@ -154,7 +154,7 @@ export function UnsubAgentSheet({
       />
       <div className="relative flex max-h-[85dvh] w-full max-w-md flex-col rounded-t-2xl bg-[var(--bg)] shadow-2xl sm:rounded-2xl">
         <div className="flex items-center justify-between px-5 pb-1 pt-4">
-          <h2 className="flex items-center gap-2 text-[16px] font-semibold">
+          <h2 className="flex items-center gap-2 text-[15px] font-semibold">
             <BellOff className="h-4 w-4 text-[#a855f7]" />
             Unsubscribe agent
           </h2>

@@ -962,14 +962,14 @@ export function SettingsPanel({
                 value={bbUrl}
                 onChange={(e) => setBbUrl(e.target.value)}
                 placeholder="https://…​.share.zrok.io"
-                className="mb-2 w-full rounded-lg border border-[var(--border)] bg-[var(--card)] px-3 py-2 text-[13px]"
+                className="mb-2 w-full rounded-lg border border-[var(--border)] bg-[var(--card)] px-3 py-2 text-[12px]"
               />
               <input
                 type="password"
                 value={bbPassword}
                 onChange={(e) => setBbPassword(e.target.value)}
                 placeholder="Server password (BlueBubbles → API & Webhooks)"
-                className="mb-2 w-full rounded-lg border border-[var(--border)] bg-[var(--card)] px-3 py-2 text-[13px]"
+                className="mb-2 w-full rounded-lg border border-[var(--border)] bg-[var(--card)] px-3 py-2 text-[12px]"
               />
               <div className="flex flex-wrap items-center gap-2">
                 <button

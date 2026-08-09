@@ -487,7 +487,7 @@ function BulkCardFace({
           <Zap className="h-6 w-6" />
         </div>
         <div className="min-w-0 flex-1">
-          <h3 className="text-[17px] font-semibold leading-snug">
+          <h3 className="text-[15px] font-semibold leading-snug">
             {verb} all of these?
           </h3>
           <p
@@ -501,7 +501,7 @@ function BulkCardFace({
 
       <ul className="mt-4 flex-1 space-y-2 overflow-hidden">
         {shown.map((item) => (
-          <li key={item.id} className="flex items-baseline gap-2 text-[13px]">
+          <li key={item.id} className="flex items-baseline gap-2 text-[12px]">
             <span className="max-w-[38%] shrink-0 truncate font-medium">
               {item.fromName || item.fromEmail}
             </span>
@@ -588,7 +588,7 @@ function CardFace({
           {mailInitial(item.fromName || item.fromEmail)}
         </div>
         <div className="min-w-0 flex-1">
-          <h3 className="truncate text-[18px] font-semibold">
+          <h3 className="truncate text-[20px] font-semibold">
             {item.fromName || item.fromEmail}
           </h3>
           {g?.category ? (
@@ -605,7 +605,7 @@ function CardFace({
           subject leads and the email preview carries the context. */}
       <div className="flex flex-1 flex-col items-start justify-center py-6">
         <h2
-          className="line-clamp-3 text-[24px] font-bold leading-tight"
+          className="line-clamp-3 text-[20px] font-bold leading-tight"
           style={{ color: accent }}
         >
           {g?.task && (g.source === "gemini" || g.ask)
@@ -618,7 +618,7 @@ function CardFace({
           </p>
         ) : null}
         {item.snippet ? (
-          <p className="mt-3 line-clamp-3 text-[13px] leading-snug text-[var(--muted)]">
+          <p className="mt-3 line-clamp-3 text-[12px] leading-snug text-[var(--muted)]">
             {stripEmoji(item.snippet)}
           </p>
         ) : null}
@@ -655,7 +655,7 @@ function CardAction({
       >
         {children}
       </span>
-      <span className="text-[10px] font-medium text-white/85">{label}</span>
+      <span className="text-[11px] font-medium text-white/85">{label}</span>
     </button>
   );
 }

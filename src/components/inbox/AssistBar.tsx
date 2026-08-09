@@ -83,7 +83,7 @@ export function AssistBar({
               <Paperclip className="h-3.5 w-3.5 shrink-0 text-[var(--primary)]" />
               <span className="truncate">{a.filename}</span>
               {a.size > 0 ? (
-                <span className="shrink-0 text-[10px] text-[var(--muted)]">
+                <span className="shrink-0 text-[11px] text-[var(--muted)]">
                   {prettySize(a.size)}
                 </span>
               ) : null}
@@ -93,10 +93,10 @@ export function AssistBar({
       ) : null}
       {ask ? (
         <div className="rounded-xl border-l-4 border-[var(--primary)] bg-[var(--primary-soft,rgba(52,152,217,0.08))] px-3 py-2.5">
-          <div className="text-[10px] font-semibold uppercase tracking-wide text-[var(--primary)]">
+          <div className="text-[11px] font-semibold uppercase tracking-wide text-[var(--primary)]">
             The ask
           </div>
-          <p className="mt-0.5 text-[14px] font-medium leading-snug">
+          <p className="mt-0.5 text-[15px] font-medium leading-snug">
             “{ask}”
           </p>
         </div>

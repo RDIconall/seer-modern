@@ -32,7 +32,7 @@ export function CatchupCard({
       <div className="flex items-start gap-2.5">
         <Sunrise className="mt-0.5 h-4 w-4 shrink-0 text-[var(--brand)]" />
         <div className="min-w-0 flex-1">
-          <p className="text-[13px] font-bold text-[var(--fg-strong)]">
+          <p className="text-[12px] font-bold text-[var(--fg-strong)]">
             While you were away{" "}
             <span className="font-normal text-[var(--muted)]">
               (since {sinceLabel})

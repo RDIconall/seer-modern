@@ -115,10 +115,10 @@ function MatterCard({
                 setRenaming(false);
               }
             }}
-            className="min-w-0 flex-1 rounded border border-[var(--border)] bg-[var(--bg)] px-2 py-0.5 text-[14px] font-bold"
+            className="min-w-0 flex-1 rounded border border-[var(--border)] bg-[var(--bg)] px-2 py-0.5 text-[15px] font-bold"
           />
         ) : (
-          <h3 className="min-w-0 flex-1 text-[14px] font-bold leading-5 text-[var(--fg-strong)]">
+          <h3 className="min-w-0 flex-1 text-[15px] font-bold leading-5 text-[var(--fg-strong)]">
             {m.title}
           </h3>
         )}
@@ -152,15 +152,15 @@ function MatterCard({
         </button>
       </div>
 
-      <p className="text-[13px] leading-5 text-[var(--muted)]">
+      <p className="text-[12px] leading-5 text-[var(--muted)]">
         {m.narrative}
       </p>
       {m.goal && m.goal !== m.narrative ? (
-        <p className="text-[13px] leading-5 text-[var(--muted)]">
+        <p className="text-[12px] leading-5 text-[var(--muted)]">
           Done when: {m.goal}
         </p>
       ) : null}
-      <p className="text-[13px] font-semibold leading-5 text-[var(--fg-strong)]">
+      <p className="text-[12px] font-semibold leading-5 text-[var(--fg-strong)]">
         {m.nextAction && !/^none/i.test(m.nextAction)
           ? m.nextAction
           : "Waiting on someone else"}
@@ -169,7 +169,7 @@ function MatterCard({
         </span>
       </p>
       {m.crm ? (
-        <p className="text-[13px] leading-5 text-[var(--fg)]">
+        <p className="text-[12px] leading-5 text-[var(--fg)]">
           {[
             m.crm.code,
             m.crm.account,
@@ -235,7 +235,7 @@ function MatterCard({
         {(m.emails ?? []).map((e) => (
           <li
             key={e.id}
-            className="group flex items-baseline gap-2 text-[13px] leading-5"
+            className="group flex items-baseline gap-2 text-[12px] leading-5"
           >
             <button
               type="button"
@@ -284,7 +284,7 @@ function MatterRow({
       <button
         type="button"
         onClick={onOpenCard}
-        className="min-w-0 flex-1 truncate text-left text-[14px] leading-6"
+        className="min-w-0 flex-1 truncate text-left text-[15px] leading-6"
       >
         {code ? (
           <span className="text-[var(--nav-muted)]">{code} </span>
@@ -332,7 +332,7 @@ function FiledRow({
       <button
         type="button"
         onClick={() => onOpen(f.emailId)}
-        className="min-w-0 flex-1 truncate text-left text-[13px] leading-6 text-[var(--muted)] hover:text-[var(--fg)]"
+        className="min-w-0 flex-1 truncate text-left text-[12px] leading-6 text-[var(--muted)] hover:text-[var(--fg)]"
       >
         {code ? <span className="text-[var(--nav-muted)]">{code} </span> : null}
         {f.line}
@@ -596,7 +596,7 @@ export function BriefPanel({
               </div>
               <ul className="mt-0.5">
                 {(brief.digest?.themes ?? []).map((t) => (
-                  <li key={t.theme} className="text-[13px] leading-6">
+                  <li key={t.theme} className="text-[12px] leading-6">
                     <span className="font-semibold text-[var(--fg-strong)]">
                       {t.theme}
                     </span>
@@ -640,7 +640,7 @@ export function BriefPanel({
                 if (e.key === "Escape") setNaming(false);
               }}
               placeholder="Name the matter, then Enter"
-              className="min-w-[220px] flex-1 rounded border border-[var(--border)] bg-[var(--bg)] px-2 py-1 text-[13px]"
+              className="min-w-[220px] flex-1 rounded border border-[var(--border)] bg-[var(--bg)] px-2 py-1 text-[12px]"
             />
           ) : (
             <>

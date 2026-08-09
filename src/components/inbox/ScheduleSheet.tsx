@@ -92,7 +92,7 @@ export function ScheduleSheet({
       />
       <div className="relative w-full max-w-md rounded-t-2xl bg-[var(--bg)] p-5 shadow-2xl sm:rounded-2xl">
         <div className="mb-1 flex items-center justify-between">
-          <h2 className="flex items-center gap-2 text-[16px] font-semibold">
+          <h2 className="flex items-center gap-2 text-[15px] font-semibold">
             <CalendarClock className="h-4 w-4 text-[var(--primary)]" />
             Schedule it
           </h2>
@@ -108,10 +108,10 @@ export function ScheduleSheet({
 
         {ask ? (
           <div className="mb-3 rounded-xl border-l-4 border-[var(--primary)] bg-[var(--primary-soft,rgba(52,152,217,0.08))] px-3 py-2">
-            <div className="text-[10px] font-semibold uppercase tracking-wide text-[var(--primary)]">
+            <div className="text-[11px] font-semibold uppercase tracking-wide text-[var(--primary)]">
               What needs doing
             </div>
-            <p className="mt-0.5 text-[13px] font-medium leading-snug">
+            <p className="mt-0.5 text-[12px] font-medium leading-snug">
               “{ask}”
             </p>
           </div>
