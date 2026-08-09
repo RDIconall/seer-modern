@@ -690,6 +690,39 @@ export function mergeMatters<M extends MergeableMatter>(
     .filter((m) => m.threads.length > 0);
 }
 
+/**
+ * ONE BRAIN: the deep read decides an email's fate. A message is only
+ * ever cleared into the digest when it has actually been READ and that
+ * read says it is fyi/disposable — never on a snippet grade or a
+ * sender-shape rule. Unread mail is "not triaged yet", so it stays a
+ * matter candidate and remains visible rather than being guessed away.
+ *
+ * The protected floor is belt-and-suspenders over the read: anything the
+ * user must act on, sign, or that a real person is waiting on is never
+ * digestible, whatever the disposition field said.
+ */
+function protectedFromDigest(u: Understanding): boolean {
+  if (u.owner === "you") return true;
+  if (u.signature) return true;
+  if (u.ask && !/^nothing/i.test(u.ask.trim())) return true;
+  return false;
+}
+
+/**
+ * The digest verdict for one message: "fyi" | "disposable" when the read
+ * clears it, or null when it must stay in Atlas (unread, protected, or a
+ * matter/record). Null is the safe default — silence keeps mail.
+ */
+function digestVerdict(
+  u: Understanding | undefined,
+): "fyi" | "disposable" | null {
+  if (!u) return null; // not read = not triaged
+  if (protectedFromDigest(u)) return null;
+  if (u.disposition === "fyi") return "fyi";
+  if (u.disposition === "disposable") return "disposable";
+  return null; // matter or record — belongs in Atlas
+}
+
 /** What to do, straight from the read: the ask, or its absence. */
 function askSuggestion(u: Understanding): string {
   if (u.signature) return `Sign: ${u.signature.document}`;
@@ -753,14 +786,16 @@ export async function buildBrief(
   const prev = await loadBrief(accountEmail);
 
   // The FYI / read-then-delete mass — summarized as a whole (the
-  // digest), never worked one by one. Headlines stay as the per-line
-  // fallback for clients that predate the digest.
-  const DIGEST_ACTIONS = new Set(["read_and_delete", "glance_promo"]);
-  const digestItems = items.filter((i) =>
-    DIGEST_ACTIONS.has(i.guide?.action ?? ""),
+  // digest), never worked one by one. THE DEEP READ DECIDES: an email is
+  // only digested when it has been read and that read says fyi/disposable
+  // and it is not protected. Everything else — including not-yet-read
+  // mail — stays a matter candidate and remains visible. Headlines stay
+  // as the per-line fallback for clients that predate the digest.
+  const digestItems = items.filter(
+    (i) => digestVerdict(understanding[i.id]) !== null,
   );
   const headlineItems = items.filter(
-    (i) => i.guide?.action === "read_and_delete",
+    (i) => digestVerdict(understanding[i.id]) === "fyi",
   );
   const headlines: Headline[] = headlineItems.map((i) => ({
     id: i.id,
@@ -774,8 +809,9 @@ export async function buildBrief(
 
   // Matters get everything else that's still in the inbox, ordered by
   // importance then recency.
+  const digestIds = new Set(digestItems.map((i) => i.id));
   const allMatterCandidates = items
-    .filter((i) => !DIGEST_ACTIONS.has(i.guide?.action ?? ""))
+    .filter((i) => !digestIds.has(i.id))
     .sort(
       (a, b) =>
         (b.guide?.importance ?? 1) - (a.guide?.importance ?? 1) ||

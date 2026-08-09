@@ -15,7 +15,15 @@ import { z } from "zod";
  * from older versions are re-read.
  */
 
-export const UNDERSTANDING_VERSION = 1;
+export const UNDERSTANDING_VERSION = 2;
+
+/**
+ * What an email is FOR — the deep read's own verdict on disposal, which
+ * is what Atlas partitions on (matter / record / fyi / disposable). This
+ * is the "one brain" principle: the full-body read decides an email's
+ * fate, not a snippet grader or a sender-shape rule.
+ */
+export type Disposition = "matter" | "record" | "fyi" | "disposable";
 
 /** Bodies are trimmed here — beyond this, signature blocks and quoted
  * history dominate and add tokens without adding meaning. */
@@ -51,6 +59,15 @@ export type Understanding = {
   /** The model's org call, validated against the user's registry */
   org: { unit: string; confidence: number };
   importance: number;
+  /** What this email is FOR — the disposal verdict Atlas partitions on */
+  disposition: Disposition;
+  /**
+   * ISO date when this email's relevance dies on its own (a delivery
+   * window, an event date, a check-in, a code). Only set when the body
+   * states or clearly implies one — this is how urgency expires without
+   * keyword regexes.
+   */
+  expires?: string;
 };
 
 export type UnderstandingMap = Record<string, Understanding>;
@@ -109,6 +126,17 @@ const recordSchema = z.object({
     .describe(
       "3 = costs money or a relationship today; 2 = real work owed; 1 = worth knowing; 0 = disposable",
     ),
+  disposition: z
+    .enum(["matter", "record", "fyi", "disposable"])
+    .describe(
+      'what this email is FOR: "matter" = evidence of ongoing work that needs tracking (an ask, a negotiation, a decision, anyone waiting on the user); "record" = keep but no live story (receipt, executed contract, statement, confirmation the user may search for later); "fyi" = worth one glance then gone (a notice, a status update); "disposable" = never needed the user\'s eyes (marketing, inert notice, machine noise). When in doubt between matter and record, prefer matter. Anything the user must act on, sign, or answer is ALWAYS matter.',
+    ),
+  expires: z
+    .string()
+    .optional()
+    .describe(
+      "ISO date (YYYY-MM-DD) when this email's relevance dies on its own — a delivery/check-in window, an event date, a verification code. Only set when the body states or clearly implies one; leave out for anything durable (bills, contracts, records).",
+    ),
 });
 
 const batchSchema = z.object({ records: z.array(recordSchema) });
@@ -126,6 +154,13 @@ Rules:
   · Awarded, running work with a study code is operations — studies. Pricing or feasibility requests are sales — new requests. Payment chases are finance (ar/ap).
 - orgConfidence: be honest. Below 0.6 means you truly could not tell.
 - importance: what happens if this is ignored for a week.
+- disposition: the single most important field — it decides where this email lives. Judge it from the MEANING, never the sender's shape (a no-reply address can carry an approval request; a person can send pure noise):
+  · matter = ongoing work to track: an ask of the user, a negotiation, a decision, a signature, an approval/regulatory/legal deadline, or anyone waiting on the user. If owner is "you", disposition is matter.
+  · record = keep but no live story: a receipt, an executed contract, a statement, a confirmation number — something the user might search for later.
+  · fyi = one glance then gone: a status update or notice with nothing to keep and nothing to do.
+  · disposable = never needed eyes: marketing, inert policy/ToS notices, machine noise.
+  When torn between matter and record, choose matter. Never mark an email with a real ask, a signature, or an approval/regulatory deadline as fyi or disposable.
+- expires: set the ISO date only when relevance genuinely dies on its own (a delivery/check-in window, an event, a code). Bills, invoices, contracts, and records never expire.
 - Never invent a fact, a date, or a document name. If the body doesn't say it, leave it out.`;
 
 /** Amounts belong to a regex, not a model — models paraphrase numbers. */
@@ -273,6 +308,10 @@ export async function readEmails(
               confidence: r.orgConfidence,
             },
             importance: r.importance,
+            disposition: r.disposition,
+            ...(r.expires && /^\d{4}-\d{2}-\d{2}/.test(r.expires)
+              ? { expires: r.expires.slice(0, 10) }
+              : {}),
           });
         }
         opts.onProgress?.(out.length);

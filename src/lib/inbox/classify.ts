@@ -825,11 +825,17 @@ function classifyByRelationship(
         ctx,
       );
     }
+    // RETIRED: the old "bulk/noreply → delete_now" rule trashed mail on
+    // sender SHAPE, and no-reply senders carry real work (Qualio
+    // approvals, IRB notices, SharePoint comments, DMV renewals). The
+    // deep read now decides an email's fate from its MEANING; a rules
+    // fallback must never delete unread mail on shape. Keep it instead —
+    // skim once — until a read grades it.
     return hit(
-      "delete_now",
-      "MED",
-      "Bulk/noreply pattern — don't read, delete",
-      "bulk-delete",
+      "read_and_archive",
+      "LOW",
+      "Bulk/noreply pattern — kept until it's read for meaning",
+      "bulk-keep-until-read",
       ctx,
     );
   }
