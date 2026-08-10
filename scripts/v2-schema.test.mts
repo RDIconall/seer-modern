@@ -15,6 +15,7 @@ const EXPECTED_TABLES = [
   "people",
   "relationship_evidence",
   "matters",
+  "matter_codes",
   "matter_conversations",
   "conversation_decisions",
   "decision_evidence",

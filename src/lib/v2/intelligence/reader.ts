@@ -1,6 +1,7 @@
 import type { AccountId, ConversationId } from "../db/types";
 import type { Conversation } from "../providers/types";
 import { compileContext, type ContextInput } from "./context";
+import { counterpartyOf } from "./matter-key";
 import {
   ensureMatter,
   linkConversationToMatter,
@@ -115,9 +116,25 @@ export async function readConversation(
   // has no matter to belong to and would be misfiled.
   let matterId = compiled.candidateMatterId;
   if (safety.home === "matter") {
+    // Tie on what this is ABOUT: codes in the subject/name/body plus the
+    // counterparty. Sender type is irrelevant — an automated portal notice
+    // about an event belongs to that event's unit of work.
+    const tieText = [
+      input.conversation.subject,
+      read.matterRef ?? "",
+      read.summary,
+      input.conversation.messages[0]?.bodyText?.slice(0, 400) ?? "",
+    ].join(" ");
     matterId = await ensureMatter(
       input.accountId,
       read.matterRef?.trim() || input.conversation.subject || read.summary,
+      {
+        text: tieText,
+        counterparty: counterpartyOf(
+          input.conversation.messages[input.conversation.messages.length - 1]?.from.email ?? "",
+          input.context.ownDomain,
+        ),
+      },
     );
     await linkConversationToMatter(matterId, input.conversationId);
   }

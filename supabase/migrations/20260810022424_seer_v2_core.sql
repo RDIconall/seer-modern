@@ -132,6 +132,14 @@ create table if not exists seer.matters (
   updated_at timestamptz not null default now()
 );
 
+-- Codes a matter is known by (study/event/document ids). These are the most
+-- reliable signal that two conversations are the same unit of work.
+create table if not exists seer.matter_codes (
+  matter_id uuid not null references seer.matters (id) on delete cascade,
+  code text not null,
+  primary key (matter_id, code)
+);
+
 create table if not exists seer.matter_conversations (
   matter_id uuid not null references seer.matters (id) on delete cascade,
   conversation_id uuid not null references seer.conversations (id) on delete cascade,
@@ -269,6 +277,7 @@ alter table seer.messages enable row level security;
 alter table seer.people enable row level security;
 alter table seer.relationship_evidence enable row level security;
 alter table seer.matters enable row level security;
+alter table seer.matter_codes enable row level security;
 alter table seer.matter_conversations enable row level security;
 alter table seer.conversation_decisions enable row level security;
 alter table seer.decision_evidence enable row level security;

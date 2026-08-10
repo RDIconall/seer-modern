@@ -1,4 +1,6 @@
+import type { PoolClient } from "pg";
 import { inTransaction } from "../db/transaction";
+import { extractCodes, resolveMatterMatch } from "./matter-key";
 import type { AccountId, ConversationId, Home, Owner } from "../db/types";
 import {
   CONTEXT_VERSION,
@@ -126,9 +128,49 @@ export async function saveDecision(
 export async function ensureMatter(
   accountId: AccountId,
   title: string,
+  tie?: { text: string; counterparty: string },
 ): Promise<string> {
   const clean = title.trim().slice(0, 120) || "Untitled matter";
   return inTransaction(async (client) => {
+    // Tie this conversation to the unit of work it belongs to: a shared study
+    // or event code is proof; otherwise the counterparty must match and the
+    // requests must overlap. Falls back to exact title when no tie info given.
+    if (tie) {
+      const open = await client.query<{
+        id: string;
+        title: string;
+        counterparty: string | null;
+        codes: string[] | null;
+      }>(
+        `select m.id, m.title, m.org_unit as counterparty,
+                array_remove(array_agg(distinct mc.code), null) as codes
+           from seer.matters m
+           left join seer.matter_codes mc on mc.matter_id = m.id
+          where m.account_id = $1 and m.status <> 'closed'
+          group by m.id, m.title, m.org_unit`,
+        [accountId],
+      );
+      const match = resolveMatterMatch(
+        { title: clean, text: tie.text, counterparty: tie.counterparty },
+        open.rows.map((r) => ({
+          matterId: r.id,
+          title: r.title,
+          codes: r.codes ?? [],
+          counterparty: r.counterparty ?? "",
+        })),
+      );
+      if (match) {
+        await recordCodes(client, match.matterId, extractCodes(tie.text));
+        return match.matterId;
+      }
+      const created = await client.query<{ id: string }>(
+        "insert into seer.matters (account_id, title, org_unit) values ($1, $2, $3) returning id",
+        [accountId, clean, tie.counterparty || null],
+      );
+      await recordCodes(client, created.rows[0].id, extractCodes(tie.text));
+      return created.rows[0].id;
+    }
+
     const existing = await client.query<{ id: string }>(
       "select id from seer.matters where account_id = $1 and lower(title) = lower($2) and status <> 'closed' limit 1",
       [accountId, clean],
@@ -140,6 +182,20 @@ export async function ensureMatter(
     );
     return created.rows[0].id;
   });
+}
+
+/** Remember the codes a matter is known by, so later mail ties to it. */
+async function recordCodes(
+  client: PoolClient,
+  matterId: string,
+  codes: string[],
+): Promise<void> {
+  for (const code of codes) {
+    await client.query(
+      "insert into seer.matter_codes (matter_id, code) values ($1, $2) on conflict do nothing",
+      [matterId, code],
+    );
+  }
 }
 
 /** Link a conversation to a matter (idempotent). */
