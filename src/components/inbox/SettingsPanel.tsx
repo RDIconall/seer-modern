@@ -136,7 +136,22 @@ export function SettingsPanel({
       token: "Salesforce rejected the login. Check the Consumer Key.",
       signin: "Sign in to Seer first, then connect Salesforce.",
       access_denied: "Salesforce access was declined.",
+      redirect_uri_mismatch: `The Callback URL in the Connected App must be exactly ${window.location.origin}/api/salesforce/callback`,
     };
+    // Salesforce's own reason, passed through — "redirect_uri_mismatch" is
+    // a five-second fix; a generic rejection is a guessing game.
+    if (note.startsWith("token:")) {
+      const reason = decodeURIComponent(note.slice("token:".length));
+      const hint = /redirect_uri/i.test(reason)
+        ? ` The Callback URL must be exactly ${window.location.origin}/api/salesforce/callback`
+        : /client identifier|client_id|invalid_client_id/i.test(reason)
+          ? " Check the Consumer Key, and give a new Connected App ~10 minutes to propagate."
+          : /client secret|client_secret/i.test(reason)
+            ? " Turn off “Require Secret for Web Server Flow”, or paste the Consumer Secret above."
+            : "";
+      setSfNote(`Salesforce said: ${reason}.${hint}`);
+      return;
+    }
     setSfNote(SF_NOTES[note] ?? `Salesforce: ${note}`);
   }, []);
 
@@ -480,7 +495,7 @@ export function SettingsPanel({
           >
             <ChevronLeft className="h-6 w-6" />
           </button>
-          <div className="flex items-center gap-2 text-[15px] font-medium">
+          <div className="flex items-center gap-2 text-[17px] font-bold">
             <Settings className="h-4 w-4" />
             Settings
           </div>
@@ -488,20 +503,20 @@ export function SettingsPanel({
 
         <div className="flex-1 overflow-auto px-4 py-4">
           {error ? (
-            <p className="mb-3 rounded-lg bg-[#d63b2f]/10 px-3 py-2 text-sm text-[#d63b2f]">
+            <p className="mb-3 rounded-lg bg-[#d63b2f]/10 px-3 py-2 text-[14px] text-[#d63b2f]">
               {error}
             </p>
           ) : null}
 
           {data?.sessionError ? (
-            <div className="mb-3 rounded-lg bg-[var(--accent)]/10 px-3 py-2 text-sm text-[var(--accent)]">
+            <div className="mb-3 rounded-lg bg-[var(--accent)]/10 px-3 py-2 text-[14px] text-[var(--accent)]">
               Session issue with {data.active?.email ?? "your account"}.
               {data.active ? (
                 <button
                   type="button"
                   disabled={busy === data.active.id}
                   onClick={() => reconnect(data.active!.id)}
-                  className="mt-2 flex w-full items-center justify-center gap-2 rounded-lg bg-[#c96a10] px-3 py-2 text-sm font-medium text-white disabled:opacity-50"
+                  className="mt-2 flex w-full items-center justify-center gap-2 rounded-lg bg-[#c96a10] px-3 py-2 text-[14px] text-white disabled:opacity-50"
                 >
                   {busy === data.active.id ? (
                     <Loader2 className="h-4 w-4 animate-spin" />
@@ -515,23 +530,23 @@ export function SettingsPanel({
           ) : null}
 
           <section className="mb-6">
-            <h2 className="mb-2 text-xs font-medium uppercase tracking-wide text-[var(--muted)]">
+            <h2 className="mb-2 text-[12px] uppercase tracking-wide text-[var(--muted)]">
               Active account
             </h2>
             {data?.active ? (
               <div className="rounded-xl border border-[var(--border)] bg-[var(--card)] px-4 py-3">
                 <div className="flex items-center gap-3">
-                  <div className="flex h-11 w-11 items-center justify-center rounded-full bg-[var(--brand)] text-sm font-semibold text-white">
+                  <div className="flex h-11 w-11 items-center justify-center rounded-full bg-[var(--brand)] text-[14px] text-white">
                     {(data.active.name || data.active.email)[0]?.toUpperCase()}
                   </div>
                   <div className="min-w-0 flex-1">
-                    <div className="truncate font-medium">
+                    <div className="truncate">
                       {data.active.name || data.active.email}
                     </div>
-                    <div className="truncate text-sm text-[var(--muted)]">
+                    <div className="truncate text-[14px] text-[var(--muted)]">
                       {data.active.email}
                     </div>
-                    <div className="mt-0.5 text-xs text-[var(--primary)]">
+                    <div className="mt-0.5 text-[12px] text-[var(--primary)]">
                       {data.active.label}
                     </div>
                   </div>
@@ -539,19 +554,19 @@ export function SettingsPanel({
                 </div>
               </div>
             ) : !data ? (
-              <div className="flex items-center gap-2 text-sm text-[var(--muted)]">
+              <div className="flex items-center gap-2 text-[14px] text-[var(--muted)]">
                 <Loader2 className="h-4 w-4 animate-spin" />
                 Loading…
               </div>
             ) : (
-              <p className="text-sm text-[var(--muted)]">
+              <p className="text-[14px] text-[var(--muted)]">
                 No account connected yet. Add Gmail or Outlook below.
               </p>
             )}
           </section>
 
           <section className="mb-6">
-            <h2 className="mb-2 text-xs font-medium uppercase tracking-wide text-[var(--muted)]">
+            <h2 className="mb-2 text-[12px] uppercase tracking-wide text-[var(--muted)]">
               Add account
             </h2>
             <div className="space-y-2">
@@ -559,7 +574,7 @@ export function SettingsPanel({
                 <form action={googleAction}>
                   <button
                     type="submit"
-                    className="flex w-full items-center gap-3 rounded-xl border border-[var(--border)] bg-[var(--bg)] px-4 py-3 text-left text-sm font-medium hover:bg-[var(--card)]"
+                    className="flex w-full items-center gap-3 rounded-xl border border-[var(--border)] bg-[var(--bg)] px-4 py-3 text-left text-[14px] hover:bg-[var(--card)]"
                   >
                     <Plus className="h-4 w-4 text-[var(--primary)]" />
                     <Mail className="h-4 w-4" />
@@ -567,7 +582,7 @@ export function SettingsPanel({
                   </button>
                 </form>
               ) : (
-                <p className="rounded-xl border border-dashed border-[var(--border)] px-4 py-3 text-xs text-[var(--muted)]">
+                <p className="rounded-xl border border-dashed border-[var(--border)] px-4 py-3 text-[12px] text-[var(--muted)]">
                   Gmail OAuth is not configured on this deployment.
                 </p>
               )}
@@ -575,7 +590,7 @@ export function SettingsPanel({
                 <form action={microsoftAction}>
                   <button
                     type="submit"
-                    className="flex w-full items-center gap-3 rounded-xl border border-[var(--border)] bg-[var(--bg)] px-4 py-3 text-left text-sm font-medium hover:bg-[var(--card)]"
+                    className="flex w-full items-center gap-3 rounded-xl border border-[var(--border)] bg-[var(--bg)] px-4 py-3 text-left text-[14px] hover:bg-[var(--card)]"
                   >
                     <Plus className="h-4 w-4 text-[var(--primary)]" />
                     <Mail className="h-4 w-4" />
@@ -583,19 +598,19 @@ export function SettingsPanel({
                   </button>
                 </form>
               ) : (
-                <p className="rounded-xl border border-dashed border-[var(--border)] px-4 py-3 text-xs text-[var(--muted)]">
+                <p className="rounded-xl border border-dashed border-[var(--border)] px-4 py-3 text-[12px] text-[var(--muted)]">
                   Outlook OAuth is not configured on this deployment.
                 </p>
               )}
             </div>
-            <p className="mt-2 text-[11px] leading-relaxed text-[var(--muted)]">
+            <p className="mt-2 text-[12px] leading-relaxed text-[var(--muted)]">
               Connecting signs you in with that provider and saves it here so
               you can switch mailboxes.
             </p>
           </section>
 
           <section className="mb-6">
-            <h2 className="mb-2 flex items-center gap-1.5 text-xs font-medium uppercase tracking-wide text-[var(--muted)]">
+            <h2 className="mb-2 flex items-center gap-1.5 text-[12px] uppercase tracking-wide text-[var(--muted)]">
               <BookUser className="h-3.5 w-3.5" />
               About you — AI memory
             </h2>
@@ -607,14 +622,14 @@ export function SettingsPanel({
               placeholder={
                 "Who you are, in your own words: role, companies, family, current priorities, VIP people, what counts as urgent for you…"
               }
-              className="w-full resize-y rounded-xl border border-[var(--border)] bg-[var(--bg)] px-3 py-2.5 text-sm leading-relaxed outline-none focus:border-[var(--primary)]"
+              className="w-full resize-y rounded-xl border border-[var(--border)] bg-[var(--bg)] px-3 py-2.5 text-[14px] leading-relaxed outline-none focus:border-[var(--primary)]"
             />
             <div className="mt-2 flex gap-2">
               <button
                 type="button"
                 disabled={profileBusy !== null || !profileText.trim()}
                 onClick={() => saveProfile({ text: profileText })}
-                className="flex flex-1 items-center justify-center gap-2 rounded-xl bg-[var(--primary)] px-4 py-2.5 text-sm font-medium text-white disabled:opacity-50"
+                className="flex flex-1 items-center justify-center gap-2 rounded-xl bg-[var(--primary)] px-4 py-2.5 text-[14px] text-white disabled:opacity-50"
               >
                 {profileBusy === "text" ? (
                   <Loader2 className="h-4 w-4 animate-spin" />
@@ -626,7 +641,7 @@ export function SettingsPanel({
                   type="button"
                   disabled={profileBusy !== null}
                   onClick={() => saveProfile({ clear: true })}
-                  className="rounded-xl border border-[var(--border)] px-4 py-2.5 text-sm font-medium text-[#d63b2f] disabled:opacity-50"
+                  className="rounded-xl border border-[var(--border)] px-4 py-2.5 text-[14px] text-[#d63b2f] disabled:opacity-50"
                 >
                   {profileBusy === "clear" ? (
                     <Loader2 className="h-4 w-4 animate-spin" />
@@ -643,13 +658,13 @@ export function SettingsPanel({
                 value={docUrl}
                 onChange={(e) => setDocUrl(e.target.value)}
                 placeholder="…or paste a Google Doc link about you"
-                className="min-w-0 flex-1 rounded-xl border border-[var(--border)] bg-[var(--bg)] px-3 py-2.5 text-sm outline-none focus:border-[var(--primary)]"
+                className="min-w-0 flex-1 rounded-xl border border-[var(--border)] bg-[var(--bg)] px-3 py-2.5 text-[14px] outline-none focus:border-[var(--primary)]"
               />
               <button
                 type="button"
                 disabled={profileBusy !== null || !docUrl.trim()}
                 onClick={() => saveProfile({ docUrl })}
-                className="flex items-center gap-2 rounded-xl border border-[var(--border)] px-4 py-2.5 text-sm font-medium disabled:opacity-50"
+                className="flex items-center gap-2 rounded-xl border border-[var(--border)] px-4 py-2.5 text-[14px] disabled:opacity-50"
               >
                 {profileBusy === "doc" ? (
                   <Loader2 className="h-4 w-4 animate-spin" />
@@ -661,11 +676,11 @@ export function SettingsPanel({
             </div>
 
             {profileNote ? (
-              <p className="mt-2 text-[11px] font-medium text-[var(--primary)]">
+              <p className="mt-2 text-[12px] text-[var(--primary)]">
                 {profileNote}
               </p>
             ) : null}
-            <p className="mt-2 text-[11px] leading-relaxed text-[var(--muted)]">
+            <p className="mt-2 text-[12px] leading-relaxed text-[var(--muted)]">
               {profileMeta
                 ? `Saved ${new Date(profileMeta.updatedAt).toLocaleDateString()}${
                     profileMeta.source === "google-doc"
@@ -681,7 +696,7 @@ export function SettingsPanel({
           </section>
 
           <section className="mb-6">
-            <h2 className="mb-2 flex items-center gap-1.5 text-xs font-medium uppercase tracking-wide text-[var(--muted)]">
+            <h2 className="mb-2 flex items-center gap-1.5 text-[12px] uppercase tracking-wide text-[var(--muted)]">
               <UserRoundPlus className="h-3.5 w-3.5" />
               Delegate to EA
             </h2>
@@ -691,14 +706,14 @@ export function SettingsPanel({
                 value={eaEmail}
                 onChange={(e) => setEaEmail(e.target.value)}
                 placeholder="assistant@company.com"
-                className="min-w-0 flex-1 rounded-xl border border-[var(--border)] bg-[var(--bg)] px-3 py-2.5 text-sm outline-none focus:border-[var(--primary)]"
+                className="min-w-0 flex-1 rounded-xl border border-[var(--border)] bg-[var(--bg)] px-3 py-2.5 text-[14px] outline-none focus:border-[var(--primary)]"
               />
               <input
                 type="text"
                 value={eaName}
                 onChange={(e) => setEaName(e.target.value)}
                 placeholder="Name (optional)"
-                className="min-w-0 flex-1 rounded-xl border border-[var(--border)] bg-[var(--bg)] px-3 py-2.5 text-sm outline-none focus:border-[var(--primary)]"
+                className="min-w-0 flex-1 rounded-xl border border-[var(--border)] bg-[var(--bg)] px-3 py-2.5 text-[14px] outline-none focus:border-[var(--primary)]"
               />
             </div>
             <div className="mt-2 flex gap-2">
@@ -706,7 +721,7 @@ export function SettingsPanel({
                 type="button"
                 disabled={eaBusy || !eaEmail.trim()}
                 onClick={() => saveEa({ email: eaEmail, name: eaName })}
-                className="flex flex-1 items-center justify-center gap-2 rounded-xl bg-[var(--primary)] px-4 py-2.5 text-sm font-medium text-white disabled:opacity-50"
+                className="flex flex-1 items-center justify-center gap-2 rounded-xl bg-[var(--primary)] px-4 py-2.5 text-[14px] text-white disabled:opacity-50"
               >
                 {eaBusy ? <Loader2 className="h-4 w-4 animate-spin" /> : null}
                 Save EA
@@ -716,46 +731,46 @@ export function SettingsPanel({
                   type="button"
                   disabled={eaBusy}
                   onClick={() => saveEa({ clear: true })}
-                  className="rounded-xl border border-[var(--border)] px-4 py-2.5 text-sm font-medium text-[#d63b2f] disabled:opacity-50"
+                  className="rounded-xl border border-[var(--border)] px-4 py-2.5 text-[14px] text-[#d63b2f] disabled:opacity-50"
                 >
                   Clear
                 </button>
               ) : null}
             </div>
-            <p className="mt-2 text-[11px] leading-relaxed text-[var(--muted)]">
+            <p className="mt-2 text-[12px] leading-relaxed text-[var(--muted)]">
               The Delegate action on cards forwards the email here with a short
               handoff note, then archives it — off your plate, on theirs.
             </p>
           </section>
 
           <section className="mb-6">
-            <h2 className="mb-2 text-xs font-medium uppercase tracking-wide text-[var(--muted)]">
+            <h2 className="mb-2 text-[12px] uppercase tracking-wide text-[var(--muted)]">
               Integration health
             </h2>
             <div className="rounded-xl border border-[var(--border)] bg-[var(--bg)] px-4 py-3">
               {healthBusy && !health ? (
-                <p className="text-[12px] text-[var(--muted)]">Checking…</p>
+                <p className="text-[14px] text-[var(--muted)]">Checking…</p>
               ) : health ? (
                 <ul className="space-y-1.5">
                   {health.checks.map((c) => (
-                    <li key={c.name} className="flex items-start gap-2 text-[12px]">
+                    <li key={c.name} className="flex items-start gap-2 text-[14px]">
                       <span
-                        className={`mt-1 h-2 w-2 shrink-0 rounded-full ${c.ok ? "bg-[#0b8043]" : "bg-[#d93025]"}`}
+                        className={`mt-1 h-2 w-2 shrink-0 rounded-full ${c.ok ?"bg-[#0b8043]" : "bg-[#d93025]"}`}
                         aria-hidden
                       />
-                      <span className="font-medium">{c.name}</span>
+                      <span className="">{c.name}</span>
                       <span className="min-w-0 flex-1 truncate text-right text-[var(--muted)]">
                         {c.detail}
                       </span>
                     </li>
                   ))}
                   {health.engine ? (
-                    <li className="flex items-start gap-2 border-t border-[var(--border)] pt-1.5 text-[12px]">
+                    <li className="flex items-start gap-2 border-t border-[var(--border)] pt-1.5 text-[14px]">
                       <span
-                        className={`mt-1 h-2 w-2 shrink-0 rounded-full ${health.engine.error ? "bg-[#f9ab00]" : "bg-[#0b8043]"}`}
+                        className={`mt-1 h-2 w-2 shrink-0 rounded-full ${health.engine.error ?"bg-[#f9ab00]" : "bg-[#0b8043]"}`}
                         aria-hidden
                       />
-                      <span className="font-medium">AI engine</span>
+                      <span className="">AI engine</span>
                       <span className="min-w-0 flex-1 truncate text-right text-[var(--muted)]">
                         {health.engine.error ?? health.engine.model ?? "idle"}
                       </span>
@@ -763,7 +778,7 @@ export function SettingsPanel({
                   ) : null}
                 </ul>
               ) : (
-                <p className="text-[12px] text-[var(--muted)]">
+                <p className="text-[14px] text-[var(--muted)]">
                   Could not check — sign in first.
                 </p>
               )}
@@ -771,29 +786,29 @@ export function SettingsPanel({
                 type="button"
                 disabled={healthBusy}
                 onClick={loadHealth}
-                className="mt-2 text-[12px] font-semibold text-[var(--primary)] disabled:opacity-50"
+                className="mt-2 text-[14px] text-[var(--primary)] disabled:opacity-50"
               >
                 {healthBusy ? "Checking…" : "Re-check"}
               </button>
             </div>
-            <p className="mt-2 text-[11px] leading-relaxed text-[var(--muted)]">
+            <p className="mt-2 text-[12px] leading-relaxed text-[var(--muted)]">
               Live probes of every Google API Seer depends on. Red means that
               feature is silently degraded — the detail says exactly why.
             </p>
           </section>
 
           <section className="mb-6">
-            <h2 className="mb-2 text-xs font-medium uppercase tracking-wide text-[var(--muted)]">
+            <h2 className="mb-2 text-[12px] uppercase tracking-wide text-[var(--muted)]">
               Salesforce
             </h2>
             <div className="rounded-xl border border-[var(--border)] bg-[var(--bg)] px-4 py-3">
-              <p className="mb-2 text-[12px] leading-relaxed text-[var(--muted)]">
+              <p className="mb-2 text-[14px] leading-relaxed text-[var(--muted)]">
                 Your pipeline is the truth mail can only hint at. Connected,
                 Atlas names branches by real study and opportunity codes,
                 weights matters by their actual dollar value, and recognizes
                 the investigators running awarded work.
               </p>
-              <p className="mb-2 text-[12px]">
+              <p className="mb-2 text-[14px]">
                 {sf?.connection ? (
                   <span className="text-[#0b8043]">
                     Signed in as{" "}
@@ -822,7 +837,7 @@ export function SettingsPanel({
                 {sf?.canConnect ? (
                   <a
                     href="/api/salesforce/connect"
-                    className="rounded-full bg-[#0176d3] px-4 py-1.5 text-[12px] font-semibold text-white"
+                    className="rounded-full bg-[#0176d3] px-4 py-1.5 text-[14px] text-white"
                   >
                     {sf.connection
                       ? "Reconnect Salesforce"
@@ -834,7 +849,7 @@ export function SettingsPanel({
                     type="button"
                     disabled={sfBusy != null}
                     onClick={() => sfAction("disconnect")}
-                    className="rounded-full px-3 py-1.5 text-[12px] font-medium text-[#d63b2f] disabled:opacity-50"
+                    className="rounded-full px-3 py-1.5 text-[14px] text-[#d63b2f] disabled:opacity-50"
                   >
                     Disconnect
                   </button>
@@ -842,15 +857,15 @@ export function SettingsPanel({
               </div>
 
               <details className="mb-2">
-                <summary className="cursor-pointer text-[12px] text-[var(--muted)]">
+                <summary className="cursor-pointer text-[14px] text-[var(--muted)]">
                   {sf?.canConnect
                     ? `Connected App · ${sf.appSource === "env" ? "from deployment" : "yours"}`
                     : "Set up the Connected App (one time)"}
                 </summary>
-                <p className="mt-2 text-[12px] leading-relaxed text-[var(--muted)]">
+                <p className="mt-2 text-[14px] leading-relaxed text-[var(--muted)]">
                   In Salesforce: Setup → App Manager → New Connected App.
                   Enable OAuth, set the callback to{" "}
-                  <code className="text-[11px]">
+                  <code className="text-[12px]">
                     {typeof window === "undefined"
                       ? "/api/salesforce/callback"
                       : `${window.location.origin}/api/salesforce/callback`}
@@ -864,15 +879,15 @@ export function SettingsPanel({
                   value={sfClientId}
                   onChange={(e) => setSfClientId(e.target.value)}
                   placeholder="Consumer Key (3MVG9…)"
-                  className="mt-2 w-full rounded-lg border border-[var(--border)] bg-[var(--card)] px-3 py-2 text-[12px]"
+                  className="mt-2 w-full rounded-lg border border-[var(--border)] bg-[var(--card)] px-3 py-2 text-[14px]"
                 />
                 <input
                   value={sfClientSecret}
                   onChange={(e) => setSfClientSecret(e.target.value)}
                   placeholder="Consumer Secret — only if your org requires one"
-                  className="mt-2 w-full rounded-lg border border-[var(--border)] bg-[var(--card)] px-3 py-2 text-[12px]"
+                  className="mt-2 w-full rounded-lg border border-[var(--border)] bg-[var(--card)] px-3 py-2 text-[14px]"
                 />
-                <label className="mt-2 flex items-center gap-2 text-[12px] text-[var(--muted)]">
+                <label className="mt-2 flex items-center gap-2 text-[14px] text-[var(--muted)]">
                   <input
                     type="checkbox"
                     checked={sfSandbox}
@@ -885,13 +900,13 @@ export function SettingsPanel({
                   type="button"
                   disabled={sfBusy != null || sfClientId.trim().length < 10}
                   onClick={() => sfAction("app")}
-                  className="mt-2 rounded-full border border-[var(--primary)] px-4 py-1.5 text-[12px] font-semibold text-[var(--primary)] disabled:opacity-50"
+                  className="mt-2 rounded-full border border-[var(--primary)] px-4 py-1.5 text-[14px] text-[var(--primary)] disabled:opacity-50"
                 >
                   {sfBusy === "app" ? "Saving…" : "Save Connected App"}
                 </button>
               </details>
               {sf?.counts ? (
-                <p className="mb-2 text-[12px] text-[var(--fg)]">
+                <p className="mb-2 text-[14px] text-[var(--fg)]">
                   {sf.counts.opportunities} open opportunities
                   {sf.pipelineValue
                     ? ` worth $${Math.round(sf.pipelineValue).toLocaleString()}`
@@ -906,7 +921,7 @@ export function SettingsPanel({
                   type="button"
                   disabled={sfBusy != null || !sf?.configured}
                   onClick={() => sfAction("sync")}
-                  className="rounded-full bg-[var(--primary)] px-4 py-1.5 text-[12px] font-semibold text-white disabled:opacity-50"
+                  className="rounded-full bg-[var(--primary)] px-4 py-1.5 text-[14px] text-white disabled:opacity-50"
                 >
                   {sfBusy === "sync" ? "Pulling…" : "Sync from Salesforce"}
                 </button>
@@ -915,14 +930,14 @@ export function SettingsPanel({
                     type="button"
                     disabled={sfBusy != null}
                     onClick={() => sfAction("clear")}
-                    className="rounded-full px-3 py-1.5 text-[12px] font-medium text-[#d63b2f] disabled:opacity-50"
+                    className="rounded-full px-3 py-1.5 text-[14px] text-[#d63b2f] disabled:opacity-50"
                   >
                     Clear registry
                   </button>
                 ) : null}
               </div>
               <details>
-                <summary className="cursor-pointer text-[12px] text-[var(--muted)]">
+                <summary className="cursor-pointer text-[14px] text-[var(--muted)]">
                   No API access yet? Paste a report instead
                 </summary>
                 <textarea
@@ -930,29 +945,29 @@ export function SettingsPanel({
                   onChange={(e) => setSfReport(e.target.value)}
                   rows={4}
                   placeholder="Paste a Salesforce report (CSV or TSV) with study/opportunity codes"
-                  className="mt-2 w-full rounded-lg border border-[var(--border)] bg-[var(--card)] px-3 py-2 text-[12px]"
+                  className="mt-2 w-full rounded-lg border border-[var(--border)] bg-[var(--card)] px-3 py-2 text-[14px]"
                 />
                 <button
                   type="button"
                   disabled={sfBusy != null || sfReport.trim().length < 10}
                   onClick={() => sfAction("report")}
-                  className="mt-2 rounded-full border border-[var(--primary)] px-4 py-1.5 text-[12px] font-semibold text-[var(--primary)] disabled:opacity-50"
+                  className="mt-2 rounded-full border border-[var(--primary)] px-4 py-1.5 text-[14px] text-[var(--primary)] disabled:opacity-50"
                 >
                   {sfBusy === "report" ? "Importing…" : "Import report"}
                 </button>
               </details>
               {sfNote ? (
-                <p className="mt-2 text-[12px] text-[var(--fg)]">{sfNote}</p>
+                <p className="mt-2 text-[14px] text-[var(--fg)]">{sfNote}</p>
               ) : null}
             </div>
           </section>
 
           <section className="mb-6">
-            <h2 className="mb-2 text-xs font-medium uppercase tracking-wide text-[var(--muted)]">
+            <h2 className="mb-2 text-[12px] uppercase tracking-wide text-[var(--muted)]">
               iMessage (BlueBubbles)
             </h2>
             <div className="rounded-xl border border-[var(--border)] bg-[var(--bg)] px-4 py-3">
-              <p className="mb-2 text-[12px] leading-relaxed text-[var(--muted)]">
+              <p className="mb-2 text-[14px] leading-relaxed text-[var(--muted)]">
                 Who you text is the strongest relationship signal there is.
                 Connect your BlueBubbles server and the people you actually
                 text become inner circle — their email can never be junked.
@@ -962,21 +977,21 @@ export function SettingsPanel({
                 value={bbUrl}
                 onChange={(e) => setBbUrl(e.target.value)}
                 placeholder="https://…​.share.zrok.io"
-                className="mb-2 w-full rounded-lg border border-[var(--border)] bg-[var(--card)] px-3 py-2 text-[13px]"
+                className="mb-2 w-full rounded-lg border border-[var(--border)] bg-[var(--card)] px-3 py-2 text-[14px]"
               />
               <input
                 type="password"
                 value={bbPassword}
                 onChange={(e) => setBbPassword(e.target.value)}
                 placeholder="Server password (BlueBubbles → API & Webhooks)"
-                className="mb-2 w-full rounded-lg border border-[var(--border)] bg-[var(--card)] px-3 py-2 text-[13px]"
+                className="mb-2 w-full rounded-lg border border-[var(--border)] bg-[var(--card)] px-3 py-2 text-[14px]"
               />
               <div className="flex flex-wrap items-center gap-2">
                 <button
                   type="button"
                   disabled={bbBusy != null || !bbUrl.trim() || !bbPassword.trim()}
                   onClick={() => bbAction("save")}
-                  className="rounded-full bg-[var(--primary)] px-4 py-1.5 text-[12px] font-semibold text-white disabled:opacity-50"
+                  className="rounded-full bg-[var(--primary)] px-4 py-1.5 text-[14px] text-white disabled:opacity-50"
                 >
                   {bbBusy === "save" ? "Connecting…" : "Connect"}
                 </button>
@@ -984,7 +999,7 @@ export function SettingsPanel({
                   type="button"
                   disabled={bbBusy != null || !bbStatus?.configured}
                   onClick={() => bbAction("sync")}
-                  className="rounded-full border border-[var(--primary)] px-4 py-1.5 text-[12px] font-semibold text-[var(--primary)] disabled:opacity-50"
+                  className="rounded-full border border-[var(--primary)] px-4 py-1.5 text-[14px] text-[var(--primary)] disabled:opacity-50"
                 >
                   {bbBusy === "sync" ? "Syncing…" : "Sync texting circle"}
                 </button>
@@ -993,14 +1008,14 @@ export function SettingsPanel({
                     type="button"
                     disabled={bbBusy != null}
                     onClick={() => bbAction("clear")}
-                    className="rounded-full px-3 py-1.5 text-[12px] font-medium text-[#d63b2f] disabled:opacity-50"
+                    className="rounded-full px-3 py-1.5 text-[14px] text-[#d63b2f] disabled:opacity-50"
                   >
                     Disconnect
                   </button>
                 ) : null}
               </div>
               {bbStatus?.stats ? (
-                <p className="mt-2 text-[11px] text-[var(--muted)]">
+                <p className="mt-2 text-[12px] text-[var(--muted)]">
                   Last sync{" "}
                   {new Date(bbStatus.stats.syncedAt).toLocaleString([], {
                     month: "short",
@@ -1013,7 +1028,7 @@ export function SettingsPanel({
                 </p>
               ) : null}
               {bbNote ? (
-                <p className="mt-2 text-[11px] font-medium text-[var(--fg)]">
+                <p className="mt-2 text-[12px] text-[var(--fg)]">
                   {bbNote}
                 </p>
               ) : null}
@@ -1021,14 +1036,14 @@ export function SettingsPanel({
           </section>
 
           <section className="mb-6">
-            <h2 className="mb-2 text-xs font-medium uppercase tracking-wide text-[var(--muted)]">
+            <h2 className="mb-2 text-[12px] uppercase tracking-wide text-[var(--muted)]">
               Classifier tuning
             </h2>
             <button
               type="button"
               disabled={exportBusy || !data?.active}
               onClick={downloadClassifierSamples}
-              className="flex w-full items-center gap-3 rounded-xl border border-[var(--border)] bg-[var(--bg)] px-4 py-3 text-left text-sm font-medium hover:bg-[var(--card)] disabled:opacity-50"
+              className="flex w-full items-center gap-3 rounded-xl border border-[var(--border)] bg-[var(--bg)] px-4 py-3 text-left text-[14px] hover:bg-[var(--card)] disabled:opacity-50"
             >
               {exportBusy ? (
                 <Loader2 className="h-4 w-4 animate-spin text-[var(--primary)]" />
@@ -1037,7 +1052,7 @@ export function SettingsPanel({
               )}
               Download classifier samples
             </button>
-            <p className="mt-2 text-[11px] leading-relaxed text-[var(--muted)]">
+            <p className="mt-2 text-[12px] leading-relaxed text-[var(--muted)]">
               Exports subject + snippet + predicted rule for ~60 inbox messages
               (no HTML bodies). Share that file so we can tune rules against your
               real mail without training an ML model on Gmail.
@@ -1046,7 +1061,7 @@ export function SettingsPanel({
 
           {data && data.accounts.length > 0 ? (
             <section className="mb-6">
-              <h2 className="mb-2 text-xs font-medium uppercase tracking-wide text-[var(--muted)]">
+              <h2 className="mb-2 text-[12px] uppercase tracking-wide text-[var(--muted)]">
                 Saved accounts
               </h2>
               <ul className="divide-y divide-[var(--border)] rounded-xl border border-[var(--border)]">
@@ -1061,10 +1076,10 @@ export function SettingsPanel({
                       onClick={() => switchAccount(account.id)}
                       className="min-w-0 flex-1 text-left disabled:opacity-60"
                     >
-                      <div className="truncate text-sm font-medium">
+                      <div className="truncate text-[14px]">
                         {account.email}
                       </div>
-                      <div className="text-xs text-[var(--muted)]">
+                      <div className="text-[12px] text-[var(--muted)]">
                         {account.label}
                         {account.active ? " · Active" : ""}
                       </div>
@@ -1101,7 +1116,7 @@ export function SettingsPanel({
           <form action={signOutAction}>
             <button
               type="submit"
-              className="w-full rounded-xl border border-[var(--border)] py-3 text-sm font-medium text-[#d63b2f]"
+              className="w-full rounded-xl border border-[var(--border)] py-3 text-[14px] text-[#d63b2f]"
             >
               Sign out
             </button>

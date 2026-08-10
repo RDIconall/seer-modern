@@ -280,6 +280,23 @@ function gatewayModel(): { model: string; label: string } {
   return { model: id, label: `gateway:${id}` };
 }
 
+/**
+ * A model on a DIFFERENT billing pool than the direct Google key, or null
+ * when none is configured. The matters and deep-read passes fail over to
+ * this when the direct key returns a quota OR billing error ("prepayment
+ * credits are depleted"), so a dead key doesn't blank Atlas.
+ */
+export function getFallbackModel(): { model: LanguageModel | string; label: string } | null {
+  return gatewayAvailable() ? gatewayModel() : null;
+}
+
+/** True for both quota/rate-limit AND billing-depleted failures. */
+export function isModelBudgetError(msg: string): boolean {
+  return /quota|rate limit|429|RESOURCE_EXHAUSTED|prepayment|credits? (are )?depleted|billing|insufficient|payment required|402/i.test(
+    msg,
+  );
+}
+
 function cooldownFromError(msg: string): Cooldown | null {
   if (!/quota|rate limit|429|RESOURCE_EXHAUSTED/i.test(msg)) return null;
   // Daily cap → sleep until the next Pacific midnight (Google's reset)

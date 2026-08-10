@@ -3,6 +3,12 @@ import { classifyMessage } from "@/lib/inbox/classify";
 import { classifyInboxWithAssistant } from "@/lib/inbox/gemini-triage";
 import { getOrBuildMailHistory } from "@/lib/inbox/mail-history-store";
 import { BRIEF_ENGINE, buildBrief, loadBrief } from "@/lib/inbox/matters";
+import { compileEmailContext, type BrainSources } from "@/lib/brain/context";
+import { knownSenders } from "@/lib/brain/relationships";
+import { getPersonalContext } from "@/lib/inbox/personal-context";
+import { loadPeople } from "@/lib/store/people";
+import { loadSalesforce } from "@/lib/store/salesforce";
+import { pgEnabled, pgHealth } from "@/lib/store/pg";
 import type { EmailItem } from "@/lib/inbox/types";
 import { getInboxSnapshot } from "@/lib/mail/inbox-snapshot";
 import {
@@ -29,7 +35,6 @@ import {
   mergeUnderstanding,
   unreadIds,
 } from "@/lib/store/understanding-store";
-import { loadSalesforce } from "@/lib/store/salesforce";
 import { resolveCreds } from "@/lib/store/salesforce-auth";
 import { syncSalesforce } from "@/lib/crm/salesforce-sync";
 import { loadUserProfile } from "@/lib/store/user-profile";
@@ -70,6 +75,12 @@ export async function GET(request: Request) {
 
   const started = Date.now();
   const report: Record<string, unknown>[] = [];
+  // Prove the storage backend at the top of every run — a silent fallback
+  // to Redis would otherwise hide a broken Postgres wiring.
+  if (pgEnabled()) {
+    const h = await pgHealth();
+    console.log("[seer] storage: postgres", JSON.stringify(h));
+  }
   const accounts = await listAccountsWithTokens();
 
   for (const stored of accounts) {
@@ -202,9 +213,55 @@ export async function GET(request: Request) {
           .map((id) => byId.get(id)!)
           .sort((a, b) => (a.receivedAt < b.receivedAt ? 1 : -1))
           .slice(0, DEEP_READS_PER_TICK);
+
+        // THE BRAIN: compile a sourced context packet per email BEFORE the
+        // read, so every deep read judges the mail AS this user — sender
+        // relationship, calendar, the matter it likely continues, live CRM
+        // facts, past behavior — with provenance the model can trust.
+        const [personal, people, salesforce, prevBrief] = await Promise.all([
+          getPersonalContext({
+            accountEmail: acct.email,
+            accessToken: token,
+            provider: acct.provider,
+          }).catch(() => null),
+          loadPeople(acct.email).catch(() => ({})),
+          loadSalesforce(acct.email).catch(() => null),
+          loadBrief(acct.email).catch(() => null),
+        ]);
+        const brainSources: BrainSources = {
+          accountEmail: acct.email,
+          ownDomain: acct.email.split("@")[1]?.toLowerCase() ?? "",
+          history,
+          personal,
+          people,
+          salesforce,
+          actionMemory,
+          priorMatters: (prevBrief?.matters ?? []).map((m) => ({
+            id: m.id,
+            title: m.title,
+            narrative: m.narrative,
+            people: m.people,
+          })),
+        };
+        const contextById = new Map(
+          queue.map((m) => [
+            m.id,
+            compileEmailContext(
+              {
+                fromEmail: m.fromEmail,
+                fromName: m.fromName,
+                subject: m.subject,
+                snippet: m.snippet,
+              },
+              brainSources,
+            ),
+          ]),
+        );
+
         const records = await readEmails(queue, {
           functions,
           concurrency: 5,
+          contextById,
           deadlineMs: Math.min(
             Date.now() + 110_000,
             started + 250_000,
@@ -259,6 +316,21 @@ export async function GET(request: Request) {
         const providerTotal = isGoogle
           ? await getGmailInboxTotals(token)
           : await getGraphInboxTotals(token);
+        // THE RELATIONSHIP FLOOR — who this user actually knows, computed
+        // deterministically and enforced when the brief partitions mail.
+        const [floorPeople, floorPersonal] = await Promise.all([
+          loadPeople(acct.email).catch(() => ({})),
+          getPersonalContext({
+            accountEmail: acct.email,
+            accessToken: token,
+            provider: acct.provider,
+          }).catch(() => null),
+        ]);
+        const known = knownSenders({
+          people: floorPeople,
+          history,
+          personal: floorPersonal,
+        });
         try {
           await buildBrief(
             acct.email,
@@ -266,6 +338,7 @@ export async function GET(request: Request) {
             profile,
             providerTotal,
             understanding,
+            known,
           );
           briefRebuilt = true;
         } catch (e) {

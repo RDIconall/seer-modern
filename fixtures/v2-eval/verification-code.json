@@ -1,0 +1,32 @@
+{
+  "id": "verification-code",
+  "conversation": {
+    "providerConversationId": "fixture-ecobee-code",
+    "subject": "Your ecobee verification code is 169737",
+    "messages": [
+      {
+        "providerMessageId": "fixture-ecobee-m1",
+        "from": { "email": "no-reply@auth.ecobee.com", "name": "ecobee" },
+        "to": [{ "email": "you@company.com" }],
+        "cc": [],
+        "sentAt": "2026-08-08T09:00:00Z",
+        "snippet": "Your verification code is 169737",
+        "bodyHtml": null,
+        "bodyText": "Your ecobee verification code is 169737. It expires in 10 minutes. If you did not request this, ignore this email.",
+        "isUnread": true,
+        "isOutgoing": false,
+        "attachments": []
+      }
+    ],
+    "lastMessageAt": "2026-08-08T09:00:00Z"
+  },
+  "context": {
+    "ownDomain": "company.com",
+    "people": [],
+    "matters": [],
+    "interests": []
+  },
+  "expectedHome": "delete",
+  "allowedMatterRefs": [],
+  "requiredYieldKinds": []
+}

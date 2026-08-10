@@ -3,6 +3,7 @@ import { classifyMessage } from "@/lib/inbox/classify";
 import { classifyInboxWithAssistant } from "@/lib/inbox/gemini-triage";
 import { getOrBuildMailHistory } from "@/lib/inbox/mail-history-store";
 import { buildBrief, loadBrief, saveBrief } from "@/lib/inbox/matters";
+import { withInboxAccounting } from "@/lib/inbox/inbox-accounting";
 import { saveMatterFix } from "@/lib/store/matter-fixes";
 import type { EmailItem } from "@/lib/inbox/types";
 import { getInboxSnapshot } from "@/lib/mail/inbox-snapshot";
@@ -18,6 +19,9 @@ import { requireMailSession } from "@/lib/mail/session";
 import { loadUnderstanding } from "@/lib/store/understanding-store";
 import { loadUserProfile } from "@/lib/store/user-profile";
 import { getSenderOverride } from "@/lib/store/senders";
+import { knownSenders } from "@/lib/brain/relationships";
+import { loadPeople } from "@/lib/store/people";
+import { getPersonalContext } from "@/lib/inbox/personal-context";
 import { NextResponse, after } from "next/server";
 
 /** Deep enough to cover a real 500+ inbox in one pass */
@@ -43,12 +47,13 @@ export async function PATCH(req: Request) {
   }
   await saveMatterFix(session.email, matterId, orgUnit);
   // Reflect immediately in the stored brief — no rebuild needed
-  const brief = await loadBrief(session.email);
+  let brief = await loadBrief(session.email);
   if (brief) {
     const m = brief.matters.find((x) => x.id === matterId);
     if (m) {
       m.orgUnit = orgUnit;
       m.orgConfidence = 1;
+      brief = withInboxAccounting(brief);
       await saveBrief(session.email, brief);
     }
   }
@@ -153,6 +158,22 @@ export async function POST() {
 
     const understanding = await loadUnderstanding(session.email);
 
+    // THE RELATIONSHIP FLOOR — enforced in code when the brief partitions
+    // mail: a sender this user knows can never land in bulk delete.
+    const [floorPeople, floorPersonal] = await Promise.all([
+      loadPeople(session.email).catch(() => ({})),
+      getPersonalContext({
+        accountEmail: session.email,
+        accessToken: session.accessToken,
+        provider: session.provider,
+      }).catch(() => null),
+    ]);
+    const known = knownSenders({
+      people: floorPeople,
+      history,
+      personal: floorPersonal,
+    });
+
     after(async () => {
       try {
         const brief = await buildBrief(
@@ -161,6 +182,7 @@ export async function POST() {
           profile,
           providerTotal,
           understanding,
+          known,
         );
         console.log(
           `[seer] brief rebuilt: ${brief.matters.length} matters · ${brief.headlines.length} headlines`,

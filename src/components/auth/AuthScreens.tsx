@@ -39,7 +39,7 @@ export function SessionExpiredScreen({ mobile }: { mobile?: boolean }) {
     >
       <div className="w-full max-w-sm text-center">
         <SeerMark size={64} />
-        <h1 className="mt-4 text-2xl font-medium tracking-tight text-[var(--fg-strong)]">
+        <h1 className="mt-4 text-2xl font-bold text-[var(--fg-strong)]">
           Session expired
         </h1>
         <p className="mt-2 text-sm text-[var(--muted)]">
@@ -48,7 +48,7 @@ export function SessionExpiredScreen({ mobile }: { mobile?: boolean }) {
         <form action={mobile ? logoutMobile : logout} className="mt-8">
           <button
             type="submit"
-            className="w-full rounded-md bg-[var(--brand)] py-3.5 text-sm font-medium text-white"
+            className="w-full rounded-md bg-[var(--brand)] py-3.5 text-sm text-white"
           >
             Sign out and reconnect
           </button>
@@ -65,17 +65,17 @@ export function MobileLoginScreen() {
         <SeerMark size={88} />
         <h1 className="seer-brand mt-5 text-4xl">Seer</h1>
         <p className="seer-tagline mt-1 text-lg">Fewer decisions.</p>
-        <p className="mt-4 text-[15px] font-normal leading-relaxed text-[var(--muted)]">
+        <p className="mt-4 text-[17px] font-normal leading-relaxed text-[var(--muted)]">
           See what matters — swipe cards, compose on the go, triage when you
           need it.
         </p>
       </div>
       <div className="mx-auto w-full max-w-sm space-y-3">
         <ProviderButtons mobile />
-        <p className="pt-1 text-center text-[11px] text-[var(--nav-muted)]">
+        <p className="pt-1 text-center text-[12px] text-[var(--nav-muted)]">
           Add to Home Screen for the full app experience
         </p>
-        <p className="text-center text-[11px]">
+        <p className="text-center text-[12px]">
           <Link href="/" className="text-[var(--primary)] underline">
             Use desktop version
           </Link>
@@ -94,11 +94,11 @@ export function DesktopLoginScreen() {
           <span className="seer-brand text-2xl">Seer</span>
         </div>
         <div>
-          <h1 className="max-w-md text-4xl font-medium tracking-tight leading-tight text-[var(--fg-strong)]">
+          <h1 className="max-w-md text-4xl font-bold leading-tight text-[var(--fg-strong)]">
             See what matters. Clear the rest.
           </h1>
           <p className="seer-tagline mt-4 max-w-sm text-lg">Fewer decisions.</p>
-          <p className="mt-4 max-w-sm text-[15px] font-normal leading-relaxed text-[var(--muted)]">
+          <p className="mt-4 max-w-sm text-[17px] font-normal leading-relaxed text-[var(--muted)]">
             Three-pane reading on a big screen. Cards and triage when you want
             to move fast. Mobile lives at /m.
           </p>
@@ -111,7 +111,7 @@ export function DesktopLoginScreen() {
             <Image src="/seer-eye.png" alt="" width={36} height={36} />
             <span className="seer-brand text-2xl">Seer</span>
           </div>
-          <h2 className="text-xl font-medium text-[var(--fg-strong)]">Sign in</h2>
+          <h2 className="text-xl font-bold text-[var(--fg-strong)]">Sign in</h2>
           <p className="mt-1 text-sm text-[var(--muted)]">
             Desktop workspace — folders, list, and reading pane.
           </p>
@@ -138,7 +138,7 @@ function ProviderButtons({ mobile }: { mobile?: boolean }) {
         <form action={googleAction}>
           <button
             type="submit"
-            className="w-full rounded-md bg-[var(--brand)] py-3.5 text-sm font-medium text-white shadow-sm transition hover:bg-[var(--brand-strong)]"
+            className="w-full rounded-md bg-[var(--brand)] py-3.5 text-sm text-white shadow-sm transition hover:bg-[var(--brand-strong)]"
           >
             Continue with Google
           </button>
@@ -148,7 +148,7 @@ function ProviderButtons({ mobile }: { mobile?: boolean }) {
         <form action={microsoftAction}>
           <button
             type="submit"
-            className="w-full rounded-md border border-[var(--border)] bg-white py-3.5 text-sm font-medium text-[var(--fg-strong)] transition hover:bg-[var(--card)]"
+            className="w-full rounded-md border border-[var(--border)] bg-white py-3.5 text-sm text-[var(--fg-strong)] transition hover:bg-[var(--card)]"
           >
             Continue with Microsoft
           </button>

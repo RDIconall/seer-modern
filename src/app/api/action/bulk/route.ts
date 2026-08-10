@@ -1,6 +1,8 @@
 import { gmailAction, gmailThreadAction } from "@/lib/mail/gmail";
 import { graphAction, graphThreadAction } from "@/lib/mail/graph";
 import { requireMailSession } from "@/lib/mail/session";
+import { recordAccepted } from "@/lib/store/autonomy";
+import { appendLedger } from "@/lib/store/triage-ledger";
 import { NextResponse } from "next/server";
 
 export const maxDuration = 60;
@@ -22,6 +24,10 @@ export async function POST(request: Request) {
         action: "archive" | "trash" | "read";
         fromEmail?: string;
       }[];
+      /** When a sweep slate confirms a whole reason, name it so the
+       *  Cleaned ledger records it and the reason earns autonomy trust. */
+      reason?: string;
+      source?: "auto" | "confirmed";
     };
     const items = body.items ?? [];
     if (items.length === 0) {
@@ -57,13 +63,36 @@ export async function POST(request: Request) {
       }
     }
 
-    // NO implicit teaching from bulk sweeps: accepting Seer's own
+    // NO implicit SENDER teaching from bulk sweeps: accepting Seer's own
     // "delete all 30" suggestion is not the user judging each sender —
     // recording it let Seer teach itself its own opinion (three AA
     // receipts swept in one tap became "always delete American
-    // Airlines"). Only individual, deliberate actions teach.
+    // Airlines"). Only individual, deliberate actions teach senders.
+    //
+    // But a confirmed sweep DOES teach at the REASON level, and it lands
+    // in the Cleaned ledger so it can be undone. This is how a reason
+    // earns its way up the autonomy ladder without ever training on a
+    // per-sender opinion.
+    let ledgerId: string | undefined;
+    if (body.reason && processed > 0) {
+      const source = body.source === "auto" ? "auto" : "confirmed";
+      const entry = await appendLedger(session.email, {
+        kind: "sweep",
+        summary: `Swept ${processed} — ${body.reason}`,
+        reason: body.reason,
+        source,
+        emailIds: items.map((i) => i.id),
+        threadIds: items
+          .map((i) => i.threadId)
+          .filter((t): t is string => Boolean(t)),
+      }).catch(() => null);
+      ledgerId = entry?.id;
+      if (source === "confirmed") {
+        await recordAccepted(session.email, body.reason).catch(() => {});
+      }
+    }
 
-    return NextResponse.json({ ok: true, processed, failed });
+    return NextResponse.json({ ok: true, processed, failed, ledgerId });
   } catch (e) {
     const msg = e instanceof Error ? e.message : "Bulk action failed";
     return NextResponse.json({ error: msg }, { status: 502 });

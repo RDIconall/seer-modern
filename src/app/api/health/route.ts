@@ -1,5 +1,6 @@
 import { requireMailSession } from "@/lib/mail/session";
 import { getAssistantStatus } from "@/lib/inbox/gemini-triage";
+import { pgEnabled, pgHealth } from "@/lib/store/pg";
 import { NextResponse } from "next/server";
 
 /**
@@ -42,7 +43,16 @@ async function probe(
   }
 }
 
-export async function GET() {
+export async function GET(req: Request) {
+  // Storage connectivity is not user data — expose it unauthenticated so
+  // "is Postgres actually wired up?" is answerable without a session.
+  if (new URL(req.url).searchParams.get("probe") === "storage") {
+    return NextResponse.json({
+      storage: pgEnabled() ? "postgres" : "redis-or-file",
+      postgres: pgEnabled() ? await pgHealth() : { ok: false, error: "not configured" },
+    });
+  }
+
   const session = await requireMailSession();
   if (!session) {
     return NextResponse.json({ error: "Not signed in" }, { status: 401 });
@@ -102,6 +112,7 @@ export async function GET() {
     .filter((s) => s && !/^https?:/.test(s));
 
   const assistant = getAssistantStatus();
+  const storage = pgEnabled() ? await pgHealth() : { ok: false, error: "not configured" };
 
   return NextResponse.json({
     provider: "google",
@@ -109,5 +120,6 @@ export async function GET() {
     checks: [gmail, calendar, contacts, otherContacts, docs],
     grantedScopes: scopes,
     engine: { model: assistant.model, error: assistant.error },
+    storage: { backend: pgEnabled() ? "postgres" : "redis", ...storage },
   });
 }

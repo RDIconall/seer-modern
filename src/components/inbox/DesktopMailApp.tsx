@@ -5,6 +5,7 @@ import {
   Archive,
   Map,
   Check,
+  ChevronLeft,
   Forward,
   Inbox,
   Layers,
@@ -28,24 +29,22 @@ import { DelegateSheet } from "@/components/inbox/DelegateSheet";
 import { ScheduleSheet } from "@/components/inbox/ScheduleSheet";
 import { UnsubAgentSheet } from "@/components/inbox/UnsubAgentSheet";
 import { VipSheet } from "@/components/inbox/VipSheet";
-import { BriefPanel } from "@/components/inbox/BriefPanel";
-import { CatchupCard } from "@/components/inbox/CatchupCard";
-import { TriageTable } from "@/components/inbox/TriageTable";
+import { AtlasBoard } from "@/components/inbox/AtlasBoard";
+import { MatterPanel } from "@/components/inbox/MatterPanel";
+import { TriageDigest } from "@/components/inbox/TriageDigest";
 import { AssistBar } from "@/components/inbox/AssistBar";
+import { ReaderMore } from "@/components/inbox/ReaderMore";
 import {
   LogicExplain,
-  LogicToggle,
   ReaderGuideBar,
 } from "@/components/inbox/LogicExplain";
 import { SettingsPanel } from "@/components/inbox/SettingsPanel";
-import { type TriageAction } from "@/lib/inbox/classify";
 import { useMailbox } from "@/lib/inbox/use-mailbox";
 import {
   actionThreadId,
   buildDeckCards,
   ensureRe,
   formatMailTime,
-  mailInitial,
   type EmailItem,
   type ViewTab,
 } from "@/lib/inbox/types";
@@ -113,43 +112,43 @@ export function DesktopMailApp() {
     dismissCatchup,
     brief,
     briefBuilding,
-    rebuildBrief,
     clearHeadlines,
     fixMatter,
     atlasAction,
     renameMatter,
     createMatter,
+    matterOrder,
+    settledMatters,
+    reorderMatters,
+    settleMatter,
     openReader,
     closeReader,
     startCompose,
     startReply,
     draftReply,
     drafting,
-    nudge,
-    nudging,
     rsvp,
     rsvping,
   } = mb;
 
   const searchParams = useSearchParams();
   const [settingsOpen, setSettingsOpen] = useState(false);
-  const [logicMode, setLogicMode] = useState(false);
-
-  // Density: compact rows (persisted, shared key with mobile)
-  const [dense, setDense] = useState<boolean>(() => {
-    if (typeof window === "undefined") return false;
-    return window.localStorage.getItem("seer:dense") === "1";
-  });
-  const toggleDense = () => {
-    setDense((d) => {
-      try {
-        window.localStorage.setItem("seer:dense", d ? "0" : "1");
-      } catch {
-        /* ignore */
-      }
-      return !d;
-    });
-  };
+  // Atlas: which matter is open in the docked panel (null = message/none).
+  const [openMatterId, setOpenMatterId] = useState<string | null>(null);
+  const openMatter = useMemo(() => {
+    if (!openMatterId || !brief) return null;
+    return (
+      [...(brief.pinned ?? []), ...brief.matters].find(
+        (m) => m.id === openMatterId,
+      ) ??
+      settledMatters[openMatterId]?.matter ??
+      null
+    );
+  }, [openMatterId, brief, settledMatters]);
+  // Leaving Atlas closes the matter panel.
+  useEffect(() => {
+    if (tab !== "atlas") setOpenMatterId(null);
+  }, [tab]);
 
   const [unsubAgentOpen, setUnsubAgentOpen] = useState(false);
   const [vipsOpen, setVipsOpen] = useState(false);
@@ -276,16 +275,16 @@ export function DesktopMailApp() {
           <div className="flex items-center gap-2">
             {/* eslint-disable-next-line @next/next/no-img-element */}
             <img src="/seer-eye.png" alt="" width={26} height={26} />
-            <span className="seer-brand text-lg">Seer</span>
+            <span className="seer-brand text-[17px]">Seer</span>
           </div>
-          <div className="seer-tagline mt-0.5 text-[11px]">Fewer decisions.</div>
+          <div className="seer-tagline mt-0.5 text-[12px]">Fewer decisions.</div>
         </div>
 
         <div className="px-3 py-3">
           <button
             type="button"
             onClick={startCompose}
-            className="flex w-full items-center justify-center gap-2 rounded-md bg-[var(--brand)] px-3 py-2 text-sm font-medium text-white shadow-sm hover:bg-[var(--brand-strong)]"
+            className="flex w-full items-center justify-center gap-2 rounded-md bg-[var(--brand)] px-3 py-2 text-[14px] text-white shadow-sm hover:bg-[var(--brand-strong)]"
           >
             <PenSquare className="h-4 w-4" />
             Compose
@@ -298,9 +297,7 @@ export function DesktopMailApp() {
               key={folderTab}
               type="button"
               onClick={() => selectFolder(folderTab)}
-              className={`mb-0.5 flex w-full items-center gap-2.5 rounded-md px-3 py-2 text-sm ${
-                tab === folderTab
-                  ? "bg-[var(--brand-soft)] font-medium text-[var(--fg-strong)]"
+              className={`mb-0.5 flex w-full items-center gap-2.5 rounded-md px-3 py-2 text-[14px] ${ tab === folderTab ? "bg-[var(--brand-soft)] font-bold text-[var(--fg-strong)]"
                   : "text-[var(--fg)] hover:bg-[var(--row-hover)]"
               }`}
             >
@@ -311,7 +308,7 @@ export function DesktopMailApp() {
           <button
             type="button"
             onClick={() => setSettingsOpen(true)}
-            className="mb-0.5 flex w-full items-center gap-2.5 rounded-md px-3 py-2 text-sm text-[var(--fg)] hover:bg-[var(--row-hover)]"
+            className="mb-0.5 flex w-full items-center gap-2.5 rounded-md px-3 py-2 text-[14px] text-[var(--fg)] hover:bg-[var(--row-hover)]"
           >
             <Settings className="h-4 w-4" />
             Settings
@@ -325,24 +322,24 @@ export function DesktopMailApp() {
             className="w-full text-left"
           >
             <div
-              className="truncate text-xs font-medium"
+              className="truncate text-[12px]"
               title={accountEmail}
             >
               {accountEmail}
             </div>
             {accountLabel ? (
-              <div className="truncate text-[11px] text-[var(--primary)]">
+              <div className="truncate text-[12px] text-[var(--primary)]">
                 {accountLabel}
               </div>
             ) : null}
-            <div className="mt-0.5 text-[11px] text-[var(--muted)]">
+            <div className="mt-0.5 text-[12px] text-[var(--muted)]">
               Manage accounts
             </div>
           </button>
           <form action={logout} className="mt-2">
             <button
               type="submit"
-              className="flex w-full items-center gap-2 rounded-md px-2 py-1.5 text-sm text-[var(--muted)] hover:bg-[var(--row-hover)] hover:text-[var(--fg)]"
+              className="flex w-full items-center gap-2 rounded-md px-2 py-1.5 text-[14px] text-[var(--muted)] hover:bg-[var(--row-hover)] hover:text-[var(--fg)]"
             >
               <LogOut className="h-4 w-4" />
               Sign out
@@ -356,12 +353,12 @@ export function DesktopMailApp() {
           {/* Full-bleed teal deck — the preview docks beside it instead of floating over it */}
           <div className="seer-deck-bg flex min-w-0 flex-1 flex-col overflow-hidden">
             {error ? (
-              <p className="mx-6 mt-4 rounded-md bg-white/90 px-3 py-2 text-sm font-medium text-[#d63b2f]">
+              <p className="mx-6 mt-4 rounded-md bg-white/90 px-3 py-2 text-[14px] text-[#d63b2f]">
                 {error}
               </p>
             ) : null}
             {loading && !triage ? (
-              <p className="py-20 text-center text-sm text-white/90">
+              <p className="py-20 text-center text-[14px] text-white/90">
                 Loading cards…
               </p>
             ) : (
@@ -384,7 +381,7 @@ export function DesktopMailApp() {
           {readerId && reader ? (
             <aside className="flex w-[30rem] max-w-[46%] shrink-0 flex-col border-l border-[var(--border)] bg-[var(--bg)]">
               <div className="flex items-start justify-between gap-3 border-b border-[var(--border)] px-4 py-3">
-                <h2 className="min-w-0 flex-1 text-[15px] font-semibold leading-snug text-[var(--fg-strong)]">
+                <h2 className="min-w-0 flex-1 text-[17px] font-bold leading-snug text-[var(--fg-strong)]">
                   {reader.subject}
                 </h2>
                 <button
@@ -415,7 +412,7 @@ export function DesktopMailApp() {
                     }}
                   />
                 ) : (
-                  <pre className="whitespace-pre-wrap text-sm">
+                  <pre className="whitespace-pre-wrap text-[14px]">
                     {reader.textBody}
                   </pre>
                 )}
@@ -423,7 +420,7 @@ export function DesktopMailApp() {
             </aside>
           ) : null}
           {toast ? (
-            <div className="fixed bottom-6 left-1/2 z-50 -translate-x-1/2 rounded bg-[#1e242b] px-4 py-2 text-xs text-white">
+            <div className="fixed bottom-6 left-1/2 z-50 -translate-x-1/2 rounded bg-[#1e242b] px-4 py-2 text-[12px] text-white">
               {toast}
             </div>
           ) : null}
@@ -444,18 +441,14 @@ export function DesktopMailApp() {
       >
         <header className="shrink-0 border-b border-[var(--border)]">
           <div className="flex items-center justify-between gap-2 bg-[var(--brand)] px-4 py-3 text-white">
-            <h1 className="text-lg font-semibold">{listTitle}</h1>
+            <h1 className="text-[17px] font-bold">{listTitle}</h1>
             <div className="flex items-center gap-2">
-              {(tab === "inbox" || tab === "triage" || Boolean(query)) && (
-                <LogicToggle
-                  on={logicMode}
-                  onToggle={() => setLogicMode((v) => !v)}
-                />
-              )}
               {tab !== "triage" && tab !== "atlas" && mailbox ? (
-                <span className="text-xs text-white/80">{mailbox.count}</span>
-              ) : (tab === "triage" || tab === "atlas") && triage ? (
-                <span className="text-xs text-white/80">{triage.count}</span>
+                <span className="text-[12px] text-white/80">{mailbox.count}</span>
+              ) : (tab === "triage" || tab === "atlas") && brief ? (
+                <span className="text-[12px] text-white/80">
+                  {brief.providerTotal?.messages ?? brief.totalInbox ?? 0}
+                </span>
               ) : null}
             </div>
           </div>
@@ -471,60 +464,22 @@ export function DesktopMailApp() {
               value={search}
               onChange={(e) => setSearch(e.target.value)}
               placeholder="Search mail"
-              className="min-w-0 flex-1 bg-transparent text-sm outline-none placeholder:text-[var(--muted)]"
+              className="min-w-0 flex-1 bg-transparent text-[14px] outline-none placeholder:text-[var(--muted)]"
             />
           </form>
-          {tab === "triage" && (triage?.assistant || triage?.history) ? (
-            <p className="flex items-start gap-2 bg-[var(--card)] px-4 py-2 text-[11px] text-[var(--muted)]">
-              <span className="order-last ml-auto flex shrink-0 gap-1.5">
-                <button
-                  type="button"
-                  onClick={() => setVipsOpen(true)}
-                  className="rounded-full border border-[#eab308] px-2 py-0.5 text-[10px] font-semibold text-[#b45309]"
-                >
-                  VIPs
-                </button>
-                <button
-                  type="button"
-                  onClick={() => setUnsubAgentOpen(true)}
-                  className="rounded-full border border-[#a855f7] px-2 py-0.5 text-[10px] font-semibold text-[#a855f7]"
-                >
-                  Unsub agent
-                </button>
-                <button
-                  type="button"
-                  onClick={toggleDense}
-                  className="rounded-full border border-[var(--border)] px-2 py-0.5 text-[10px] font-semibold text-[var(--primary)]"
-                >
-                  {dense ? "Cozy" : "Compact"}
-                </button>
-              </span>
-              {logicMode && triage.assistant
-                ? `Gemini ${triage.assistant.gemini} · rules ${triage.assistant.rules}${triage.assistant.learned ? ` · learned ${triage.assistant.learned}` : ""} · taught ${triage.assistant.override}${triage.assistant.cached ? ` · cached ${triage.assistant.cached}` : ""} · your call ${triage.assistant.needsReview}`
-                : `${triage.count} triaged · ${triage.assistant?.needsReview ?? triage.needsReview.length} need you`}
-              {triage.assistant?.error ? (
-                <span className="ml-2 font-medium text-[#b45309]">
-                  {(triage.assistant.gemini ?? 0) + (triage.assistant.cached ?? 0) > 0
-                    ? "Some new mail used rules this load — "
-                    : "Gemini offline — rules only: "}
-                  {triage.assistant.error.slice(0, 110)}
-                </span>
-              ) : null}
-            </p>
-          ) : null}
         </header>
 
         <div className="flex-1 overflow-y-auto">
           {error ? (
-            <p className="mx-3 my-3 rounded-md bg-[#d63b2f]/10 px-3 py-2 text-sm text-[#d63b2f]">
+            <p className="mx-3 my-3 rounded-md bg-[#d63b2f]/10 px-3 py-2 text-[14px] text-[#d63b2f]">
               {error}
             </p>
           ) : null}
 
           {loading &&
-          (((tab === "triage" || tab === "atlas") && !triage) ||
+          (((tab === "triage" || tab === "atlas") && !brief) ||
             (tab !== "triage" && tab !== "atlas" && !mailbox)) ? (
-            <p className="py-12 text-center text-sm text-[var(--muted)]">Loading…</p>
+            <p className="py-12 text-center text-[14px] text-[var(--muted)]">Loading…</p>
           ) : null}
 
           {tab !== "triage" && tab !== "atlas" && mailbox ? (
@@ -542,7 +497,7 @@ export function DesktopMailApp() {
               <>
                 {picked.size > 0 ? (
                   <div className="sticky top-0 z-10 flex items-center gap-2 border-b border-[var(--border)] bg-[var(--brand-soft)] px-3 py-1.5">
-                    <span className="text-[12px] font-semibold">
+                    <span className="text-[14px]">
                       {picked.size} selected
                     </span>
                     <button
@@ -551,7 +506,7 @@ export function DesktopMailApp() {
                         runBulk(pickedItems, "archive");
                         setPicked(new Set());
                       }}
-                      className="rounded px-2 py-1 text-[12px] font-semibold text-[#76ab19] hover:bg-[var(--card)]"
+                      className="rounded px-2 py-1 text-[14px] text-[#76ab19] hover:bg-[var(--card)]"
                     >
                       Archive
                     </button>
@@ -561,7 +516,7 @@ export function DesktopMailApp() {
                         runBulk(pickedItems, "trash");
                         setPicked(new Set());
                       }}
-                      className="rounded px-2 py-1 text-[12px] font-semibold text-[#d63b2f] hover:bg-[var(--card)]"
+                      className="rounded px-2 py-1 text-[14px] text-[#d63b2f] hover:bg-[var(--card)]"
                     >
                       Delete
                     </button>
@@ -571,14 +526,14 @@ export function DesktopMailApp() {
                         runBulk(pickedItems, "read");
                         setPicked(new Set());
                       }}
-                      className="rounded px-2 py-1 text-[12px] font-semibold text-[var(--primary)] hover:bg-[var(--card)]"
+                      className="rounded px-2 py-1 text-[14px] text-[var(--primary)] hover:bg-[var(--card)]"
                     >
                       Mark read
                     </button>
                     <button
                       type="button"
                       onClick={() => setPicked(new Set())}
-                      className="ml-auto rounded px-2 py-1 text-[12px] text-[var(--muted)] hover:bg-[var(--card)]"
+                      className="ml-auto rounded px-2 py-1 text-[14px] text-[var(--muted)] hover:bg-[var(--card)]"
                     >
                       Clear
                     </button>
@@ -592,8 +547,6 @@ export function DesktopMailApp() {
                       selected={readerId === item.id}
                       busy={busyId === item.id}
                       showGuide={tab === "inbox" || Boolean(query)}
-                      logicMode={logicMode}
-                    onTeach={(a) => teachSender(item.fromEmail, a, item.id, item.threadId)}
                       checked={picked.has(item.id)}
                       onToggleSelect={() => togglePick(item.id)}
                       onOpen={() => openReader(item.id)}
@@ -618,58 +571,44 @@ export function DesktopMailApp() {
             )
           ) : null}
 
-          {tab === "triage" && triage && triage.count === 0 ? (
-            <EmptyList text="Nothing to triage" />
-          ) : null}
-
           {tab === "atlas" ? (
-            <div className="min-h-0 flex-1 overflow-y-auto">
-              {catchup ? (
-                <CatchupCard
-                  catchup={catchup}
-                  onOpen={openReader}
-                  onDismiss={dismissCatchup}
-                />
-              ) : null}
-              <BriefPanel
-                full
+            <div className="flex min-h-0 flex-1 flex-col overflow-y-auto">
+              <AtlasBoard
                 brief={brief}
                 building={briefBuilding}
-                onRebuild={rebuildBrief}
-                onOpen={openReader}
-                onClearHeadlines={clearHeadlines}
-                onFixMatter={fixMatter}
-                onAtlasAction={atlasAction}
-                onRenameMatter={renameMatter}
+                matterOrder={matterOrder}
+                activeMatterId={openMatterId}
+                catchup={catchup}
+                onOpenMatter={(id) => {
+                  closeReader();
+                  setOpenMatterId(id);
+                }}
+                onOpenEmail={openReader}
+                onMoveMatter={fixMatter}
+                onReorder={reorderMatters}
                 onCreateMatter={createMatter}
+                onDismissCatchup={dismissCatchup}
               />
             </div>
           ) : null}
 
-          {tab === "triage" && triage && triage.count > 0 ? (
-            <>
-          <TriageTable
-              triage={triage}
-              mobile={false}
-              h={{
-                openReader,
-                runAction,
-                bulkSection,
-                unsubscribe,
-                teach: teachSender,
-                nudge,
-                nudging,
-                busyId,
-              }}
+          {tab === "triage" ? (
+            <TriageDigest
+              brief={brief}
+              building={briefBuilding}
+              onOpenEmail={openReader}
+              onSettle={settleMatter}
+              onClear={clearHeadlines}
             />
-            </>
           ) : null}
         </div>
       </section>
 
-      {/* Right pane — reading. In triage the table owns the width, so the
-          reader appears as a docked panel only while a message is open. */}
-      {(tab === "triage" || tab === "atlas") && !readerId ? null : (
+      {/* Right pane — reading. In triage/atlas the list owns the width, so
+          the reader (or matter) is a docked panel only while one is open. */}
+      {(tab === "triage" || tab === "atlas") &&
+      !readerId &&
+      !(tab === "atlas" && openMatter) ? null : (
       <main
         className={
           tab === "triage" || tab === "atlas"
@@ -677,15 +616,38 @@ export function DesktopMailApp() {
             : "flex min-w-0 flex-1 flex-col overflow-hidden"
         }
       >
-        {!readerId ? (
-          <div className="flex flex-1 items-center justify-center text-sm text-[var(--muted)]">
+        {!readerId && tab === "atlas" && openMatter ? (
+          <MatterPanel
+            key={openMatter.id}
+            m={openMatter}
+            functions={brief?.functions ?? []}
+            settled={Boolean(settledMatters[openMatter.id])}
+            onOpen={openReader}
+            onClose={() => setOpenMatterId(null)}
+            onFix={fixMatter}
+            onAtlasAction={atlasAction}
+            onRename={renameMatter}
+            onSettle={settleMatter}
+          />
+        ) : !readerId ? (
+          <div className="flex flex-1 items-center justify-center text-[14px] text-[var(--muted)]">
             Select a message
           </div>
         ) : (
           <>
             <header className="shrink-0 border-b border-[var(--border)] px-6 py-3">
               <div className="flex flex-wrap items-center justify-between gap-x-4 gap-y-2">
-                <h2 className="min-w-0 flex-1 basis-60 text-xl font-semibold leading-snug text-[var(--fg-strong)]">
+                {tab === "atlas" && openMatterId ? (
+                  <button
+                    type="button"
+                    onClick={closeReader}
+                    aria-label="Back to matter"
+                    className="rounded-md p-1.5 text-[var(--muted)] hover:bg-[var(--row-hover)] hover:text-[var(--fg-strong)]"
+                  >
+                    <ChevronLeft className="h-5 w-5" />
+                  </button>
+                ) : null}
+                <h2 className="min-w-0 flex-1 basis-60 text-[17px] font-bold leading-snug text-[var(--fg-strong)]">
                   {reader?.subject ?? "…"}
                 </h2>
                 <ReaderToolbar
@@ -706,8 +668,51 @@ export function DesktopMailApp() {
                     readerId &&
                     runAction(readerId, "trash", reader?.fromEmail, readerThreadId)
                   }
+                  more={
+                    reader ? (
+                      <ReaderMore
+                        guide={reader.guide}
+                        drafting={drafting}
+                        onDraft={() => draftReply()}
+                        onDelegate={
+                          readerId
+                            ? () => openDelegate(readerId, reader.subject)
+                            : undefined
+                        }
+                        onSchedule={
+                          readerId
+                            ? () =>
+                                openSchedule(
+                                  readerId,
+                                  reader.subject,
+                                  reader.guide?.ask,
+                                  reader.fromName,
+                                )
+                            : undefined
+                        }
+                        onUnsubscribe={
+                          readerId
+                            ? () =>
+                                unsubscribe(
+                                  readerId,
+                                  reader.fromEmail,
+                                  reader.threadId,
+                                )
+                            : undefined
+                        }
+                        onTeach={(a) =>
+                          teachSender(
+                            reader.fromEmail,
+                            a,
+                            readerId ?? undefined,
+                            reader.threadId,
+                          )
+                        }
+                      />
+                    ) : null
+                  }
                 />
-                {tab === "triage" ? (
+                {tab === "triage" || (tab === "atlas" && !openMatterId) ? (
                   <button
                     type="button"
                     onClick={closeReader}
@@ -722,89 +727,50 @@ export function DesktopMailApp() {
 
             <div className="flex-1 overflow-y-auto">
               {!reader ? (
-                <p className="px-6 py-8 text-sm text-[var(--muted)]">Loading…</p>
+                <p className="px-6 py-8 text-[14px] text-[var(--muted)]">Loading…</p>
               ) : (
                 <>
-                  <div className="border-b border-[var(--border)] px-6 py-4">
-                    <div className="flex items-start gap-3">
-                      <div
-                        className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full text-sm font-semibold text-white"
-                        style={{
-                          backgroundColor:
-                            reader.guide?.color ?? "var(--primary)",
-                        }}
-                      >
-                        {mailInitial(reader.fromName || reader.fromEmail)}
-                      </div>
-                      <div className="min-w-0 flex-1">
-                        <div className="font-medium">{reader.fromName}</div>
-                        <div className="truncate text-sm text-[var(--muted)]">
-                          {reader.fromEmail}
-                        </div>
-                        {reader.receivedAt ? (
-                          <div className="mt-0.5 text-xs text-[var(--muted)]">
-                            {formatMailTime(reader.receivedAt)}
-                          </div>
-                        ) : null}
-                      </div>
+                  {/* Outlook-style header: sender + time on one line, then the
+                      recipients underneath. */}
+                  <div className="px-6 pb-2 pt-3">
+                    <div className="flex items-baseline gap-2">
+                      <span className="shrink-0 text-[14px] font-bold text-[var(--fg-strong)]">
+                        {reader.fromName || reader.fromEmail}
+                      </span>
+                      <span className="min-w-0 flex-1 truncate text-[14px] text-[var(--muted)]">
+                        {reader.fromEmail}
+                      </span>
+                      {reader.receivedAt ? (
+                        <span className="shrink-0 text-[12px] text-[var(--muted)]">
+                          {formatMailTime(reader.receivedAt)}
+                        </span>
+                      ) : null}
                     </div>
-                    {reader.guide ? (
-                      <ReaderGuideBar
-                        guide={reader.guide}
-                        onTeach={(a) =>
-                          teachSender(
-                            reader.fromEmail,
-                            a,
-                            readerId ?? undefined,
-                            reader.threadId,
-                          )
-                        }
-                      />
+                    {reader.toEmail ? (
+                      <p className="mt-0.5 truncate text-[12px] text-[var(--muted)]">
+                        To: {reader.toEmail}
+                        {reader.ccEmail ? ` · Cc: ${reader.ccEmail}` : ""}
+                      </p>
                     ) : null}
+                  </div>
+
+                  <div className="px-6">
                     <AssistBar
                       reader={reader}
                       messageId={readerId ?? undefined}
-                      drafting={drafting}
-                      onDraft={draftReply}
                       rsvping={rsvping}
                       onRsvp={rsvp}
-                      onUnsubscribe={
-                        readerId
-                          ? () =>
-                              unsubscribe(
-                                readerId,
-                                reader?.fromEmail,
-                                reader?.threadId,
-                              )
-                          : undefined
-                      }
-                      onDelegate={
-                        readerId
-                          ? () => openDelegate(readerId, reader?.subject)
-                          : undefined
-                      }
-                      onSchedule={
-                        readerId && reader
-                          ? () =>
-                              openSchedule(
-                                readerId,
-                                reader.subject,
-                                reader.guide?.ask,
-                                reader.fromName,
-                              )
-                          : undefined
-                      }
                     />
                   </div>
 
-                  <div className="px-6 py-5">
+                  <div className="px-6 pb-5 pt-3">
                     {safeHtml ? (
                       <div
                         className="prose prose-sm max-w-none text-[var(--fg)] dark:prose-invert"
                         dangerouslySetInnerHTML={{ __html: safeHtml }}
                       />
                     ) : (
-                      <pre className="whitespace-pre-wrap text-sm leading-relaxed">
+                      <pre className="whitespace-pre-wrap text-[14px] leading-relaxed">
                         {reader.textBody || reader.subject}
                       </pre>
                     )}
@@ -829,28 +795,24 @@ function DesktopMailRow({
   selected,
   busy,
   showGuide,
-  logicMode,
   onOpen,
   onArchive,
   onDelete,
   chips,
   checked,
   onToggleSelect,
-  onTeach,
   dense,
 }: {
   item: EmailItem;
   selected: boolean;
   busy?: boolean;
   showGuide: boolean;
-  logicMode?: boolean;
   onOpen: () => void;
   onArchive?: () => void;
   onDelete: () => void;
   chips?: ReactNode;
   checked?: boolean;
   onToggleSelect?: () => void;
-  onTeach?: (action: TriageAction) => void;
   /** Compact: hide the snippet, tighten padding. */
   dense?: boolean;
 }) {
@@ -869,8 +831,7 @@ function DesktopMailRow({
         tabIndex={0}
         onClick={onOpen}
         onKeyDown={(e) => e.key === "Enter" && onOpen()}
-        className={`mail-row cursor-pointer pr-14 transition-colors ${
-          selected ? "bg-[var(--brand-soft)]" : ""
+        className={`mail-row cursor-pointer pr-14 transition-colors ${ selected ?"bg-[var(--brand-soft)]" : ""
         } ${checked ? "bg-[var(--primary-soft,rgba(52,152,217,0.1))]" : ""} ${
           busy ? "opacity-50" : ""
         } ${item.isUnread ? "unread" : ""}`}
@@ -883,9 +844,7 @@ function DesktopMailRow({
               e.stopPropagation();
               onToggleSelect();
             }}
-            className={`mr-1.5 flex h-4 w-4 shrink-0 items-center justify-center self-center rounded-full border-2 ${
-              checked
-                ? "border-[var(--primary)] bg-[var(--primary)] text-white"
+            className={`mr-1.5 flex h-4 w-4 shrink-0 items-center justify-center self-center rounded-full border-2 ${ checked ?"border-[var(--primary)] bg-[var(--primary)] text-white"
                 : "border-[var(--muted)]"
             }`}
           >
@@ -893,13 +852,13 @@ function DesktopMailRow({
           </button>
         ) : (
           <span
-            className={`mail-unread-dot ${item.isUnread ? "" : "empty"}`}
+            className={`mail-unread-dot ${item.isUnread ?"" : "empty"}`}
             aria-hidden
           />
         )}
         <div className="min-w-0 flex-1">
           <div className="flex items-baseline justify-between gap-2">
-            <span className="mail-from truncate text-[13px] text-[var(--fg-strong)]">
+            <span className="mail-from truncate text-[14px] text-[var(--fg-strong)]">
               {item.threadSenders?.length
                 ? item.threadSenders.join(", ")
                 : item.fromName || item.fromEmail}
@@ -909,20 +868,20 @@ function DesktopMailRow({
                 </span>
               ) : null}
             </span>
-            <span className="shrink-0 text-[11px] text-[var(--muted)]">
+            <span className="shrink-0 text-[12px] text-[var(--muted)]">
               {formatMailTime(item.receivedAt)}
             </span>
           </div>
           {dense ? (
-            <div className="flex items-baseline gap-1.5 truncate text-[12px] leading-snug">
+            <div className="flex items-baseline gap-1.5 truncate text-[14px] leading-snug">
               {g?.category ? (
-                <span className="shrink-0 rounded bg-[var(--card)] px-1 text-[9px] font-semibold text-[var(--muted)]">
+                <span className="shrink-0 rounded bg-[var(--card)] px-1 text-[12px] text-[var(--muted)]">
                   {g.category}
                 </span>
               ) : null}
               {g?.task ? (
                 <span
-                  className="shrink-0 font-semibold"
+                  className="shrink-0"
                   style={{ color: g.color }}
                 >
                   {g.task}
@@ -934,17 +893,15 @@ function DesktopMailRow({
             </div>
           ) : (
             <>
-              <div className="mail-subject truncate text-[12px] leading-snug">
+              <div className="mail-subject truncate text-[14px] leading-snug">
                 {item.subject}
               </div>
-              <div className="truncate text-[11px] leading-snug text-[var(--muted)]">
+              <div className="truncate text-[12px] leading-snug text-[var(--muted)]">
                 {item.snippet}
               </div>
             </>
           )}
-          {showGuide && g && (!dense || logicMode) ? (
-            <LogicExplain guide={g} expanded={logicMode} onTeach={onTeach} />
-          ) : null}
+          {showGuide && g && !dense ? <LogicExplain guide={g} /> : null}
           {chips}
         </div>
       </article>
@@ -977,6 +934,11 @@ function DesktopMailRow({
   );
 }
 
+/**
+ * Reply is the one action worth a word. The rest are universally known
+ * icons, so spelling them out only widened the bar and pushed the message
+ * further down the screen.
+ */
 function ReaderToolbar({
   disabled,
   onReply,
@@ -984,6 +946,7 @@ function ReaderToolbar({
   onForward,
   onArchive,
   onDelete,
+  more,
 }: {
   disabled?: boolean;
   onReply: () => void;
@@ -991,6 +954,7 @@ function ReaderToolbar({
   onForward: () => void;
   onArchive: () => void;
   onDelete: () => void;
+  more?: ReactNode;
 }) {
   return (
     <div className="flex shrink-0 items-center gap-0.5">
@@ -1000,21 +964,18 @@ function ReaderToolbar({
       </ToolbarButton>
       <ToolbarButton disabled={disabled} label="Reply all" onClick={onReplyAll}>
         <ReplyAll className="h-4 w-4" />
-        <span>Reply all</span>
       </ToolbarButton>
       <ToolbarButton disabled={disabled} label="Forward" onClick={onForward}>
         <Forward className="h-4 w-4" />
-        <span>Forward</span>
       </ToolbarButton>
       <div className="mx-1 h-5 w-px bg-[var(--border)]" />
       <ToolbarButton disabled={disabled} label="Archive" onClick={onArchive}>
         <Archive className="h-4 w-4" />
-        <span>Archive</span>
       </ToolbarButton>
       <ToolbarButton disabled={disabled} label="Delete" onClick={onDelete}>
         <Trash2 className="h-4 w-4" />
-        <span>Delete</span>
       </ToolbarButton>
+      {more}
     </div>
   );
 }
@@ -1034,9 +995,10 @@ function ToolbarButton({
     <button
       type="button"
       aria-label={label}
+      title={label}
       disabled={disabled}
       onClick={onClick}
-      className="flex items-center gap-1.5 rounded-md px-2 py-1.5 text-xs text-[var(--fg)] hover:bg-[var(--row-hover)] disabled:opacity-40"
+      className="flex h-9 items-center gap-1.5 rounded-md px-2 text-[12px] text-[var(--fg)] hover:bg-[var(--row-hover)] disabled:opacity-40"
     >
       {children}
     </button>
@@ -1066,13 +1028,13 @@ function IconButton({
 
 function EmptyList({ text }: { text: string }) {
   return (
-    <p className="py-16 text-center text-sm text-[var(--muted)]">{text}</p>
+    <p className="py-16 text-center text-[14px] text-[var(--muted)]">{text}</p>
   );
 }
 
 function Toast({ message }: { message: string }) {
   return (
-    <div className="fixed bottom-6 left-1/2 z-50 max-w-md -translate-x-1/2 rounded-md bg-[#1e242b] px-4 py-2.5 text-xs text-white shadow-lg">
+    <div className="fixed bottom-6 left-1/2 z-50 max-w-md -translate-x-1/2 rounded-md bg-[#1e242b] px-4 py-2.5 text-[12px] text-white shadow-lg">
       {message}
     </div>
   );

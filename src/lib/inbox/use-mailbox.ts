@@ -14,12 +14,18 @@ import type {
 import type { ComposeDraft } from "@/components/inbox/ComposePanel";
 import type { Brief, Matter } from "@/lib/inbox/matters";
 import {
+  applyTriageClear,
+  planTriageClear,
+} from "@/lib/inbox/triage-clear";
+import {
   actionThreadId,
   buildCardDeck,
   ensureFwd,
   ensureRe,
   primaryMailAction,
 } from "@/lib/inbox/types";
+
+export type SettledMatter = { at: string; matter?: Matter };
 
 /**
  * Superhuman-style speed:
@@ -399,12 +405,32 @@ export function useMailbox(initialTab: ViewTab = "inbox") {
 
   // THE BRIEF — matters tracked across days + the headline digest
   const [brief, setBrief] = useState<Brief | null>(null);
+  // Always-current brief for handlers that must read it without re-binding
+  // (the optimistic Triage clear snapshots and rolls back from here).
+  const briefRef = useRef<Brief | null>(null);
+  useEffect(() => {
+    briefRef.current = brief;
+  }, [brief]);
   const [briefBuilding, setBriefBuilding] = useState(false);
+  // The user's whiteboard arrangement — priority order per column and
+  // which matters are settled. Overlays applied on the board by id, so
+  // they survive every brief rebuild without touching the brief itself.
+  const [matterOrder, setMatterOrder] = useState<Record<string, string[]>>({});
+  const [settledMatters, setSettledMatters] = useState<
+    Record<string, SettledMatter>
+  >({});
   useEffect(() => {
     fetch("/api/brief", { cache: "no-store" })
       .then((r) => r.json())
       .then((j) => {
         if (j?.brief) setBrief(j.brief);
+      })
+      .catch(() => {});
+    fetch("/api/matters", { cache: "no-store" })
+      .then((r) => r.json())
+      .then((j) => {
+        if (j?.order) setMatterOrder(j.order);
+        if (j?.settled) setSettledMatters(j.settled);
       })
       .catch(() => {});
   }, []);
@@ -432,45 +458,56 @@ export function useMailbox(initialTab: ViewTab = "inbox") {
     }
   }, [brief?.builtAt]);
 
-  /** Headlines glanced → originals archived in one motion. */
+  /**
+   * Triage's two verbs: delete trashes, close archives. The rows leave the
+   * screen the instant you tap — the same optimistic model Atlas uses — and
+   * the provider round-trip runs behind it. If the server rejects the clear,
+   * the brief snapshot is restored so nothing silently disappears.
+   */
   const clearHeadlines = useCallback(
-    async (ids: { id: string; threadId: string }[]) => {
+    async (
+      ids: { id: string; threadId: string; count?: number }[],
+      reason?: string,
+      mode: "archive" | "trash" = "archive",
+    ) => {
       if (ids.length === 0) return;
-      for (const x of ids) {
-        markActed(x.id, x.threadId);
-        removeFromLists(x.id);
+      const rows = ids.map(({ id, threadId }) => ({ id, threadId }));
+      const verb = mode === "trash" ? "Deleted" : "Closed";
+
+      // Optimistic: prune the same way the server will, then confirm.
+      const snapshot = briefRef.current;
+      if (snapshot) {
+        const actions = planTriageClear(snapshot, rows);
+        setBrief(applyTriageClear(snapshot, actions));
       }
-      setBrief((prev) =>
-        prev
-          ? {
-              ...prev,
-              headlines: [],
-              headlineIds: [],
-              digest: prev.digest
-                ? { ...prev.digest, themes: [] }
-                : prev.digest,
-            }
-          : prev,
-      );
+      for (const row of rows) {
+        markActed(row.id, row.threadId);
+        removeFromLists(row.id);
+      }
+      setToast(`${verb} ${ids.length}`);
+
       try {
-        await fetch("/api/action/bulk", {
+        const res = await fetch("/api/triage/clear", {
           method: "POST",
           headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({
-            items: ids.map((x) => ({
-              id: x.id,
-              threadId: x.threadId,
-              action: "archive",
-            })),
-          }),
+          body: JSON.stringify({ rows, reason, mode }),
         });
-        setToast(`Glanced — ${ids.length} filed`);
-      } catch {
-        setToast("Clear failed — refreshing");
-        load();
+        const json = await res.json().catch(() => ({}));
+        if (!res.ok) {
+          throw new Error(json.error ?? "Clear failed");
+        }
+        // Reconcile with the server's authoritative accounting.
+        if (json.brief) setBrief(json.brief);
+        if (json.failed) {
+          setToast(
+            `${verb} ${json.removedCount ?? json.processed}; ${json.failed} failed`,
+          );
+        }
+      } catch (e) {
+        if (snapshot) setBrief(snapshot);
+        setToast(e instanceof Error ? e.message : "Clear failed");
       }
     },
-    // eslint-disable-next-line react-hooks/exhaustive-deps
     [markActed, removeFromLists],
   );
 
@@ -573,12 +610,12 @@ export function useMailbox(initialTab: ViewTab = "inbox") {
   }, []);
 
   const createMatter = useCallback(
-    async (title: string, emailIds: string[]) => {
+    async (title: string, emailIds: string[], orgUnit?: string) => {
       try {
         const res = await fetch("/api/matters", {
           method: "POST",
           headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ action: "create", title, emailIds }),
+          body: JSON.stringify({ action: "create", title, emailIds, orgUnit }),
         });
         const json = await res.json();
         if (!res.ok) throw new Error(json.error);
@@ -593,6 +630,7 @@ export function useMailbox(initialTab: ViewTab = "inbox") {
 
   /** The user's org call is ground truth — fix it once, Seer learns. */
   const fixMatter = useCallback(async (matterId: string, orgUnit: string) => {
+    const before = brief;
     setBrief((prev) =>
       prev
         ? {
@@ -604,16 +642,65 @@ export function useMailbox(initialTab: ViewTab = "inbox") {
         : prev,
     );
     try {
-      await fetch("/api/brief", {
+      const res = await fetch("/api/brief", {
         method: "PATCH",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ matterId, orgUnit }),
       });
+      const json = await res.json();
+      if (!res.ok) throw new Error(json.error ?? "Fix failed");
+      if (json.brief) setBrief(json.brief);
       setToast(`Filed under ${orgUnit}`);
     } catch {
+      setBrief(before);
       setToast("Fix failed");
     }
-  }, []);
+  }, [brief]);
+
+  /** Persist the user's own priority order for one whiteboard column. */
+  const reorderMatters = useCallback(
+    async (orgUnit: string, matterIds: string[]) => {
+      const before = matterOrder;
+      setMatterOrder((prev) => ({ ...prev, [orgUnit]: matterIds }));
+      try {
+        await fetch("/api/matters", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ action: "order", orgUnit, matterIds }),
+        });
+      } catch {
+        setMatterOrder(before);
+        setToast("Could not save order");
+      }
+    },
+    [matterOrder],
+  );
+
+  /** Close a matter into Settled (or reopen it) — a client overlay by id. */
+  const settleMatter = useCallback(
+    async (matterId: string, settled: boolean) => {
+      try {
+        const res = await fetch("/api/matters", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            action: settled ? "close" : "unsettle",
+            matterId,
+          }),
+        });
+        const json = await res.json();
+        if (!res.ok) throw new Error(json.error ?? "Matter update failed");
+        if (json.settled) setSettledMatters(json.settled);
+        if (json.brief) setBrief(json.brief);
+        setToast(settled ? "Settled" : "Reopened");
+        return true;
+      } catch {
+        setToast(settled ? "Could not settle" : "Could not reopen");
+        return false;
+      }
+    },
+    [],
+  );
 
   useEffect(() => {
     fetch("/api/catchup", { cache: "no-store" })
@@ -622,7 +709,6 @@ export function useMailbox(initialTab: ViewTab = "inbox") {
         if (j && j.quiet === false) setCatchup(j);
       })
       .catch(() => {});
-    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
   const accountEmail =
@@ -1340,6 +1426,10 @@ export function useMailbox(initialTab: ViewTab = "inbox") {
     atlasAction,
     renameMatter,
     createMatter,
+    matterOrder,
+    settledMatters,
+    reorderMatters,
+    settleMatter,
     openReader,
     closeReader,
     startCompose,

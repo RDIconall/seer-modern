@@ -70,7 +70,7 @@ export function DelegateSheet({
       />
       <div className="relative w-full max-w-md rounded-t-2xl bg-[var(--bg)] p-5 shadow-2xl sm:rounded-2xl">
         <div className="mb-1 flex items-center justify-between">
-          <h2 className="flex items-center gap-2 text-[16px] font-semibold">
+          <h2 className="flex items-center gap-2 text-[17px] font-bold">
             <UserCheck className="h-4 w-4 text-[var(--primary)]" />
             Delegate this
           </h2>
@@ -83,33 +83,32 @@ export function DelegateSheet({
             <X className="h-4 w-4" />
           </button>
         </div>
-        <p className="mb-4 truncate text-[12px] text-[var(--muted)]">
+        <p className="mb-4 truncate text-[14px] text-[var(--muted)]">
           {subject}
         </p>
 
         <div className="space-y-2">
           {loadingEa ? (
-            <div className="flex items-center gap-2 rounded-xl border border-[var(--border)] px-3 py-3 text-sm text-[var(--muted)]">
+            <div className="flex items-center gap-2 rounded-xl border border-[var(--border)] px-3 py-3 text-[14px] text-[var(--muted)]">
               <Loader2 className="h-4 w-4 animate-spin" /> Loading…
             </div>
           ) : ea ? (
             <button
               type="button"
               onClick={() => setChoice("ea")}
-              className={`flex w-full items-center gap-3 rounded-xl border px-3 py-3 text-left ${
-                choice === "ea"
+              className={`flex w-full items-center gap-3 rounded-xl border px-3 py-3 text-left ${ choice ==="ea"
                   ? "border-[var(--primary)] bg-[var(--primary-soft,rgba(52,152,217,0.08))]"
                   : "border-[var(--border)]"
               }`}
             >
-              <div className="flex h-9 w-9 items-center justify-center rounded-full bg-[var(--primary)] text-sm font-semibold text-white">
+              <div className="flex h-9 w-9 items-center justify-center rounded-full bg-[var(--primary)] text-[14px] text-white">
                 {(ea.name ?? ea.email)[0]?.toUpperCase()}
               </div>
               <div className="min-w-0">
-                <div className="text-sm font-medium">
+                <div className="text-[14px]">
                   {ea.name ?? "Your EA"}
                 </div>
-                <div className="truncate text-xs text-[var(--muted)]">
+                <div className="truncate text-[12px] text-[var(--muted)]">
                   {ea.email}
                 </div>
               </div>
@@ -119,8 +118,7 @@ export function DelegateSheet({
           <button
             type="button"
             onClick={() => setChoice("other")}
-            className={`flex w-full items-center gap-3 rounded-xl border px-3 py-3 text-left ${
-              choice === "other"
+            className={`flex w-full items-center gap-3 rounded-xl border px-3 py-3 text-left ${ choice ==="other"
                 ? "border-[var(--primary)] bg-[var(--primary-soft,rgba(52,152,217,0.08))]"
                 : "border-[var(--border)]"
             }`}
@@ -128,7 +126,7 @@ export function DelegateSheet({
             <div className="flex h-9 w-9 items-center justify-center rounded-full bg-[var(--card)]">
               <UserRoundPlus className="h-4 w-4" />
             </div>
-            <div className="text-sm font-medium">Someone else</div>
+            <div className="text-[14px]">Someone else</div>
           </button>
 
           {choice === "other" ? (
@@ -138,7 +136,7 @@ export function DelegateSheet({
                 value={email}
                 onChange={(e) => setEmail(e.target.value)}
                 placeholder="their@email.com"
-                className="min-w-0 flex-[3] rounded-xl border border-[var(--border)] bg-[var(--bg)] px-3 py-2.5 text-sm outline-none focus:border-[var(--primary)]"
+                className="min-w-0 flex-[3] rounded-xl border border-[var(--border)] bg-[var(--bg)] px-3 py-2.5 text-[14px] outline-none focus:border-[var(--primary)]"
                 autoFocus
               />
               <input
@@ -146,7 +144,7 @@ export function DelegateSheet({
                 value={name}
                 onChange={(e) => setName(e.target.value)}
                 placeholder="Name"
-                className="min-w-0 flex-[2] rounded-xl border border-[var(--border)] bg-[var(--bg)] px-3 py-2.5 text-sm outline-none focus:border-[var(--primary)]"
+                className="min-w-0 flex-[2] rounded-xl border border-[var(--border)] bg-[var(--bg)] px-3 py-2.5 text-[14px] outline-none focus:border-[var(--primary)]"
               />
             </div>
           ) : null}
@@ -156,7 +154,7 @@ export function DelegateSheet({
             value={instruction}
             onChange={(e) => setInstruction(e.target.value)}
             placeholder="What do you want done? (optional — AI reads the email)"
-            className="w-full rounded-xl border border-[var(--border)] bg-[var(--bg)] px-3 py-2.5 text-sm outline-none focus:border-[var(--primary)]"
+            className="w-full rounded-xl border border-[var(--border)] bg-[var(--bg)] px-3 py-2.5 text-[14px] outline-none focus:border-[var(--primary)]"
           />
         </div>
 
@@ -170,7 +168,7 @@ export function DelegateSheet({
               instruction: instruction.trim() || undefined,
             })
           }
-          className="mt-4 flex w-full items-center justify-center gap-2 rounded-xl bg-[var(--primary)] py-3 text-[15px] font-semibold text-white disabled:opacity-50"
+          className="mt-4 flex w-full items-center justify-center gap-2 rounded-xl bg-[var(--primary)] py-3 text-[17px] font-bold text-white disabled:opacity-50"
         >
           {busy ? (
             <Loader2 className="h-4 w-4 animate-spin" />
@@ -179,7 +177,7 @@ export function DelegateSheet({
           )}
           {busy ? "Writing the handoff…" : "Write the handoff email"}
         </button>
-        <p className="mt-2 text-center text-[11px] text-[var(--muted)]">
+        <p className="mt-2 text-center text-[12px] text-[var(--muted)]">
           AI drafts it for your review — sending also archives the original.
           Asana &amp; other destinations coming.
         </p>

@@ -54,12 +54,12 @@ export function WaitingSection({
         <button
           type="button"
           onClick={() => setCollapsed((c) => !c)}
-          className="flex min-w-0 flex-1 items-center gap-1.5 text-left text-[13px] font-semibold text-[#b45309]"
+          className="flex min-w-0 flex-1 items-center gap-1.5 text-left text-[14px] text-[#b45309]"
         >
           <Hourglass className="h-3.5 w-3.5" />
           Waiting on · {visible.length}
           <ChevronDown
-            className={`h-4 w-4 shrink-0 opacity-60 transition-transform ${collapsed ? "-rotate-90" : ""}`}
+            className={`h-4 w-4 shrink-0 opacity-60 transition-transform ${collapsed ?"-rotate-90" : ""}`}
           />
         </button>
       </div>
@@ -72,14 +72,14 @@ export function WaitingSection({
             >
               <div className="min-w-0 flex-1">
                 <div className="flex items-baseline gap-1.5">
-                  <span className="truncate text-[14px] font-semibold text-[var(--fg-strong)]">
+                  <span className="truncate text-[17px] font-bold text-[var(--fg-strong)]">
                     {item.toName || item.to}
                   </span>
-                  <span className="shrink-0 text-[11px] font-medium text-[#b45309]">
+                  <span className="shrink-0 text-[12px] text-[#b45309]">
                     {item.daysWaiting}d silent
                   </span>
                 </div>
-                <div className="truncate text-[12px] text-[var(--muted)]">
+                <div className="truncate text-[14px] text-[var(--muted)]">
                   {item.subject}
                 </div>
               </div>
@@ -87,7 +87,7 @@ export function WaitingSection({
                 type="button"
                 disabled={nudging === item.messageId}
                 onClick={() => nudge(item.messageId)}
-                className="inline-flex shrink-0 items-center gap-1 rounded-full bg-[#b45309] px-3 py-1.5 text-[12px] font-semibold text-white disabled:opacity-50"
+                className="inline-flex shrink-0 items-center gap-1 rounded-full bg-[#b45309] px-3 py-1.5 text-[14px] text-white disabled:opacity-50"
               >
                 {nudging === item.messageId ? (
                   <Loader2 className="h-3.5 w-3.5 animate-spin" />
@@ -101,7 +101,7 @@ export function WaitingSection({
                 onClick={() =>
                   setDismissed((prev) => new Set(prev).add(item.threadId))
                 }
-                className="shrink-0 rounded-full px-2 py-1.5 text-[12px] text-[var(--muted)]"
+                className="shrink-0 rounded-full px-2 py-1.5 text-[14px] text-[var(--muted)]"
               >
                 Skip
               </button>

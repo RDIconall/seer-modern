@@ -92,7 +92,7 @@ export function ScheduleSheet({
       />
       <div className="relative w-full max-w-md rounded-t-2xl bg-[var(--bg)] p-5 shadow-2xl sm:rounded-2xl">
         <div className="mb-1 flex items-center justify-between">
-          <h2 className="flex items-center gap-2 text-[16px] font-semibold">
+          <h2 className="flex items-center gap-2 text-[17px] font-bold">
             <CalendarClock className="h-4 w-4 text-[var(--primary)]" />
             Schedule it
           </h2>
@@ -108,29 +108,29 @@ export function ScheduleSheet({
 
         {ask ? (
           <div className="mb-3 rounded-xl border-l-4 border-[var(--primary)] bg-[var(--primary-soft,rgba(52,152,217,0.08))] px-3 py-2">
-            <div className="text-[10px] font-semibold uppercase tracking-wide text-[var(--primary)]">
+            <div className="text-[12px] uppercase tracking-wide text-[var(--primary)]">
               What needs doing
             </div>
-            <p className="mt-0.5 text-[13px] font-medium leading-snug">
+            <p className="mt-0.5 text-[14px] leading-snug">
               “{ask}”
             </p>
           </div>
         ) : (
-          <p className="mb-3 truncate text-[12px] text-[var(--muted)]">
+          <p className="mb-3 truncate text-[14px] text-[var(--muted)]">
             {subject}
           </p>
         )}
 
-        <label className="mb-1 block text-[11px] font-semibold uppercase tracking-wide text-[var(--muted)]">
+        <label className="mb-1 block text-[12px] uppercase tracking-wide text-[var(--muted)]">
           Block title
         </label>
         <input
           value={title}
           onChange={(e) => setTitle(e.target.value)}
-          className="mb-3 w-full rounded-xl border border-[var(--border)] bg-[var(--bg)] px-3 py-2.5 text-sm outline-none focus:border-[var(--primary)]"
+          className="mb-3 w-full rounded-xl border border-[var(--border)] bg-[var(--bg)] px-3 py-2.5 text-[14px] outline-none focus:border-[var(--primary)]"
         />
 
-        <label className="mb-1 block text-[11px] font-semibold uppercase tracking-wide text-[var(--muted)]">
+        <label className="mb-1 block text-[12px] uppercase tracking-wide text-[var(--muted)]">
           When
         </label>
         <div className="mb-2 flex flex-wrap gap-1.5">
@@ -142,9 +142,7 @@ export function ScheduleSheet({
                 setSlotIdx(i);
                 setCustom("");
               }}
-              className={`rounded-full px-3 py-1.5 text-[12px] font-medium ${
-                !custom && slotIdx === i
-                  ? "bg-[var(--primary)] text-white"
+              className={`rounded-full px-3 py-1.5 text-[14px] ${ !custom && slotIdx === i ?"bg-[var(--primary)] text-white"
                   : "bg-[var(--card)] text-[var(--fg)]"
               }`}
             >
@@ -157,10 +155,10 @@ export function ScheduleSheet({
           value={custom}
           min={toLocalInput(new Date())}
           onChange={(e) => setCustom(e.target.value)}
-          className="mb-3 w-full rounded-xl border border-[var(--border)] bg-[var(--bg)] px-3 py-2 text-sm outline-none focus:border-[var(--primary)]"
+          className="mb-3 w-full rounded-xl border border-[var(--border)] bg-[var(--bg)] px-3 py-2 text-[14px] outline-none focus:border-[var(--primary)]"
         />
 
-        <label className="mb-1 block text-[11px] font-semibold uppercase tracking-wide text-[var(--muted)]">
+        <label className="mb-1 block text-[12px] uppercase tracking-wide text-[var(--muted)]">
           How long
         </label>
         <div className="mb-4 flex gap-1.5">
@@ -169,9 +167,7 @@ export function ScheduleSheet({
               key={m}
               type="button"
               onClick={() => setDuration(m)}
-              className={`rounded-full px-3 py-1.5 text-[12px] font-medium ${
-                duration === m
-                  ? "bg-[var(--primary)] text-white"
+              className={`rounded-full px-3 py-1.5 text-[14px] ${ duration === m ?"bg-[var(--primary)] text-white"
                   : "bg-[var(--card)] text-[var(--fg)]"
               }`}
             >
@@ -190,7 +186,7 @@ export function ScheduleSheet({
               durationMins: duration,
             })
           }
-          className="flex w-full items-center justify-center gap-2 rounded-xl bg-[var(--primary)] py-3 text-[15px] font-semibold text-white disabled:opacity-50"
+          className="flex w-full items-center justify-center gap-2 rounded-xl bg-[var(--primary)] py-3 text-[17px] font-bold text-white disabled:opacity-50"
         >
           {busy ? (
             <Loader2 className="h-4 w-4 animate-spin" />
@@ -203,7 +199,7 @@ export function ScheduleSheet({
               ? `Block ${duration === 60 ? "1 hour" : `${duration} min`} · ${fmtSlot(startsAt)}`
               : "Pick a time"}
         </button>
-        <p className="mt-2 text-center text-[11px] text-[var(--muted)]">
+        <p className="mt-2 text-center text-[12px] text-[var(--muted)]">
           The event links back to this email — the email itself gets archived.
         </p>
       </div>

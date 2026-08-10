@@ -14,34 +14,6 @@ const seerSans = localFont({
   display: "swap",
 });
 
-/* Klim Tiempos Headline — wordmark + display */
-const seerDisplay = localFont({
-  src: [
-    {
-      path: "../fonts/klim/TiemposHeadline-Regular.otf",
-      weight: "400",
-      style: "normal",
-    },
-    {
-      path: "../fonts/klim/TiemposHeadline-Medium.otf",
-      weight: "500",
-      style: "normal",
-    },
-  ],
-  variable: "--font-seer-display",
-  display: "swap",
-});
-
-/* Klim Söhne Mono */
-const seerMono = localFont({
-  src: [
-    { path: "../fonts/klim/SohneMono-Buch.otf", weight: "400", style: "normal" },
-    { path: "../fonts/klim/SohneMono-Kraftig.otf", weight: "500", style: "normal" },
-  ],
-  variable: "--font-seer-mono",
-  display: "swap",
-});
-
 export const metadata: Metadata = {
   title: "Seer",
   description: "Fewer decisions — fly through email with your copilot",
@@ -73,7 +45,7 @@ export default function RootLayout({
   return (
     <html lang="en">
       <body
-        className={`${seerSans.variable} ${seerDisplay.variable} ${seerMono.variable} antialiased`}
+        className={`${seerSans.variable} antialiased`}
       >
         {children}
         <PwaRegister />

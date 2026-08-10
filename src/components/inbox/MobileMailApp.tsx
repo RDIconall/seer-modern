@@ -33,23 +33,19 @@ import {
 } from "react";
 import { useSearchParams } from "next/navigation";
 import { logoutMobile } from "@/app/actions";
-import { type TriageAction } from "@/lib/inbox/classify";
 import { CardStack } from "@/components/inbox/CardStack";
 import { ComposePanel } from "@/components/inbox/ComposePanel";
 import { DelegateSheet } from "@/components/inbox/DelegateSheet";
 import { PullToRefresh } from "@/components/inbox/PullToRefresh";
 import { UnsubAgentSheet } from "@/components/inbox/UnsubAgentSheet";
 import { VipSheet } from "@/components/inbox/VipSheet";
-import { BriefPanel } from "@/components/inbox/BriefPanel";
-import { CatchupCard } from "@/components/inbox/CatchupCard";
-import { TriageTable } from "@/components/inbox/TriageTable";
+import { AtlasBoard } from "@/components/inbox/AtlasBoard";
+import { MatterPanel } from "@/components/inbox/MatterPanel";
+import { TriageDigest } from "@/components/inbox/TriageDigest";
 import { ScheduleSheet } from "@/components/inbox/ScheduleSheet";
 import { AssistBar } from "@/components/inbox/AssistBar";
-import {
-  LogicExplain,
-  LogicToggle,
-  ReaderGuideBar,
-} from "@/components/inbox/LogicExplain";
+import { ReaderMore } from "@/components/inbox/ReaderMore";
+import { LogicExplain } from "@/components/inbox/LogicExplain";
 import { SettingsPanel } from "@/components/inbox/SettingsPanel";
 import { useMailbox } from "@/lib/inbox/use-mailbox";
 import {
@@ -116,20 +112,21 @@ export function MobileMailApp() {
     dismissCatchup,
     brief,
     briefBuilding,
-    rebuildBrief,
     clearHeadlines,
     fixMatter,
     atlasAction,
     renameMatter,
     createMatter,
+    matterOrder,
+    settledMatters,
+    reorderMatters,
+    settleMatter,
     openReader,
     closeReader,
     startCompose,
     startReply,
     draftReply,
     drafting,
-    nudge,
-    nudging,
     rsvp,
     rsvping,
   } = useMailbox();
@@ -138,25 +135,20 @@ export function MobileMailApp() {
   const [drawer, setDrawer] = useState(false);
   const [searchOpen, setSearchOpen] = useState(false);
   const [settingsOpen, setSettingsOpen] = useState(false);
-  const [logicMode, setLogicMode] = useState(false);
+  // Atlas: the matter open full-screen over the board (null = none).
+  const [openMatterId, setOpenMatterId] = useState<string | null>(null);
+  const openMatter = useMemo(() => {
+    if (!openMatterId || !brief) return null;
+    return (
+      [...(brief.pinned ?? []), ...brief.matters].find(
+        (m) => m.id === openMatterId,
+      ) ??
+      settledMatters[openMatterId]?.matter ??
+      null
+    );
+  }, [openMatterId, brief, settledMatters]);
   const searchRef = useRef<HTMLInputElement>(null);
   const deckCards = useMemo(() => buildDeckCards(triage), [triage]);
-
-  // Density: compact rows fit ~2x more triage on screen (persisted)
-  const [dense, setDense] = useState<boolean>(() => {
-    if (typeof window === "undefined") return false;
-    return window.localStorage.getItem("seer:dense") === "1";
-  });
-  const toggleDense = () => {
-    setDense((d) => {
-      try {
-        window.localStorage.setItem("seer:dense", d ? "0" : "1");
-      } catch {
-        /* ignore */
-      }
-      return !d;
-    });
-  };
 
   const [unsubAgentOpen, setUnsubAgentOpen] = useState(false);
   const [vipsOpen, setVipsOpen] = useState(false);
@@ -178,6 +170,7 @@ export function MobileMailApp() {
   };
   useEffect(() => {
     exitSelect();
+    if (tab !== "atlas") setOpenMatterId(null);
   }, [tab]);
   const pickedItems = useMemo(
     () =>
@@ -288,7 +281,7 @@ export function MobileMailApp() {
             <ChevronLeft className="h-6 w-6" />
           </IconBtn>
           <div className="min-w-0 flex-1 px-1">
-            <div className="truncate text-[16px] font-semibold text-white">
+            <div className="truncate text-[17px] font-bold text-white">
               {reader?.subject ?? "…"}
             </div>
           </div>
@@ -312,83 +305,81 @@ export function MobileMailApp() {
           >
             <Trash2 className="h-5 w-5" />
           </IconBtn>
+          {reader ? (
+            <ReaderMore
+              light
+              guide={g}
+              drafting={drafting}
+              onDraft={() => draftReply()}
+              onDelegate={
+                readerId ? () => openDelegate(readerId, reader.subject) : undefined
+              }
+              onSchedule={
+                readerId
+                  ? () =>
+                      openSchedule(
+                        readerId,
+                        reader.subject,
+                        g?.ask,
+                        reader.fromName,
+                      )
+                  : undefined
+              }
+              onUnsubscribe={
+                readerId
+                  ? () => unsubscribe(readerId, reader.fromEmail, reader.threadId)
+                  : undefined
+              }
+              onTeach={(a) =>
+                teachSender(
+                  reader.fromEmail,
+                  a,
+                  readerId ?? undefined,
+                  reader.threadId,
+                )
+              }
+            />
+          ) : null}
         </header>
 
         <div className="flex-1 overflow-auto">
-          <div className="border-b border-[var(--border)] px-4 py-3">
-            <div className="flex items-start gap-3">
-              <span
-                className={`mail-unread-dot mt-2 ${reader ? "" : "empty"}`}
-                aria-hidden
-              />
-              <div className="min-w-0 flex-1">
-                <div className="truncate text-[15px] font-semibold text-[var(--fg-strong)]">
-                  {reader?.fromName ?? "…"}
-                </div>
-                <div className="truncate text-xs text-[var(--muted)]">
-                  {reader?.fromEmail}
-                </div>
-              </div>
+          {/* Outlook-style header: sender, then recipients. */}
+          <div className="px-4 pb-1 pt-3">
+            <div className="flex items-baseline gap-2">
+              <span className="min-w-0 shrink text-[14px] font-bold text-[var(--fg-strong)]">
+                {reader?.fromName ?? "…"}
+              </span>
+              <span className="min-w-0 flex-1 truncate text-[12px] text-[var(--muted)]">
+                {reader?.fromEmail}
+              </span>
             </div>
-            {g ? (
-              <ReaderGuideBar
-                guide={g}
-                onTeach={
-                  reader
-                    ? (a) =>
-                        teachSender(
-                          reader.fromEmail,
-                          a,
-                          readerId ?? undefined,
-                          reader.threadId,
-                        )
-                    : undefined
-                }
-              />
+            {reader?.toEmail ? (
+              <p className="mt-0.5 truncate text-[12px] text-[var(--muted)]">
+                To: {reader.toEmail}
+                {reader.ccEmail ? ` · Cc: ${reader.ccEmail}` : ""}
+              </p>
             ) : null}
-            {reader ? (
+          </div>
+          {reader ? (
+            <div className="px-4">
               <AssistBar
                 reader={reader}
                 messageId={readerId ?? undefined}
-                drafting={drafting}
-                onDraft={draftReply}
                 rsvping={rsvping}
                 onRsvp={rsvp}
-                onUnsubscribe={
-                  readerId
-                    ? () =>
-                        unsubscribe(readerId, reader?.fromEmail, reader?.threadId)
-                    : undefined
-                }
-                onDelegate={
-                  readerId
-                    ? () => openDelegate(readerId, reader?.subject)
-                    : undefined
-                }
-                onSchedule={
-                  readerId && reader
-                    ? () =>
-                        openSchedule(
-                          readerId,
-                          reader.subject,
-                          g?.ask,
-                          reader.fromName,
-                        )
-                    : undefined
-                }
               />
-            ) : null}
-          </div>
-          <div className="px-4 py-4">
+            </div>
+          ) : null}
+          <div className="px-4 pb-4 pt-3">
             {!reader ? (
-              <p className="text-sm text-[var(--muted)]">Loading…</p>
+              <p className="text-[14px] text-[var(--muted)]">Loading…</p>
             ) : safeHtml ? (
               <div
                 className="prose prose-sm max-w-none text-[var(--fg)] dark:prose-invert"
                 dangerouslySetInnerHTML={{ __html: safeHtml }}
               />
             ) : (
-              <pre className="whitespace-pre-wrap text-sm leading-relaxed">
+              <pre className="whitespace-pre-wrap text-[14px] leading-relaxed">
                 {reader.textBody || reader.subject}
               </pre>
             )}
@@ -414,6 +405,28 @@ export function MobileMailApp() {
             />
           </footer>
         ) : null}
+        {toast ? <Toast message={toast} /> : null}
+      </div>
+    );
+  }
+
+  // Atlas: a matter opens full-screen over the board; its conversations
+  // open the reader (which takes over above), and back returns here.
+  if (tab === "atlas" && openMatter) {
+    return (
+      <div className="app-shell fixed inset-0 z-50 flex flex-col bg-[var(--bg)]">
+        <MatterPanel
+          key={openMatter.id}
+          m={openMatter}
+          functions={brief?.functions ?? []}
+          settled={Boolean(settledMatters[openMatter.id])}
+          onOpen={openReader}
+          onClose={() => setOpenMatterId(null)}
+          onFix={fixMatter}
+          onAtlasAction={atlasAction}
+          onRename={renameMatter}
+          onSettle={settleMatter}
+        />
         {toast ? <Toast message={toast} /> : null}
       </div>
     );
@@ -473,18 +486,18 @@ export function MobileMailApp() {
               <div className="flex items-center gap-2.5">
                 {/* eslint-disable-next-line @next/next/no-img-element */}
                 <img src="/seer-eye.png" alt="" width={30} height={30} />
-                <span className="seer-brand text-xl">Seer</span>
+                <span className="seer-brand text-[17px]">Seer</span>
               </div>
-              <div className="seer-tagline mt-0.5 text-[11px]">Fewer decisions.</div>
-              <div className="mt-0.5 truncate text-xs text-[var(--muted)]">
+              <div className="seer-tagline mt-0.5 text-[12px]">Fewer decisions.</div>
+              <div className="mt-0.5 truncate text-[12px] text-[var(--muted)]">
                 {accountEmail}
               </div>
               {accountLabel ? (
-                <div className="mt-0.5 text-[11px] text-[var(--primary)]">
+                <div className="mt-0.5 text-[12px] text-[var(--primary)]">
                   {accountLabel} · Tap for settings
                 </div>
               ) : (
-                <div className="mt-0.5 text-[11px] text-[var(--primary)]">
+                <div className="mt-0.5 text-[12px] text-[var(--primary)]">
                   Tap for settings & accounts
                 </div>
               )}
@@ -536,7 +549,7 @@ export function MobileMailApp() {
             >
               <button
                 type="submit"
-                className="flex w-full items-center gap-4 rounded-r-full px-4 py-3 text-sm text-[var(--muted)]"
+                className="flex w-full items-center gap-4 rounded-r-full px-4 py-3 text-[14px] text-[var(--muted)]"
               >
                 <LogOut className="h-5 w-5" />
                 Sign out
@@ -563,7 +576,7 @@ export function MobileMailApp() {
               value={search}
               onChange={(e) => setSearch(e.target.value)}
               placeholder="Search"
-              className="min-w-0 flex-1 rounded bg-white/15 px-3 py-2 text-[15px] text-white outline-none placeholder:text-white/70"
+              className="min-w-0 flex-1 rounded bg-white/15 px-3 py-2 text-[17px] text-white outline-none placeholder:text-white/70"
             />
             {search ? (
               <IconBtn
@@ -583,7 +596,7 @@ export function MobileMailApp() {
             <IconBtn onClick={() => setDrawer(true)} label="Menu" light>
               <Menu className="h-5 w-5" />
             </IconBtn>
-            <h1 className="min-w-0 flex-1 truncate px-1 text-[20px] font-semibold tracking-tight text-white">
+            <h1 className="min-w-0 flex-1 truncate px-1 text-[17px] font-bold text-white">
               {query
                 ? "Search results"
                 : tab === "cards"
@@ -592,15 +605,9 @@ export function MobileMailApp() {
                     ? "Triage"
                     : FOLDER_LABEL[tab]}
             </h1>
-            {(tab === "inbox" || tab === "triage" || Boolean(query)) && (
-              <LogicToggle
-                on={logicMode}
-                onToggle={() => setLogicMode((v) => !v)}
-              />
-            )}
             <IconBtn onClick={load} disabled={loading} label="Refresh" light>
               <RefreshCw
-                className={`h-5 w-5 ${loading ? "animate-spin" : ""}`}
+                className={`h-5 w-5 ${loading ?"animate-spin" : ""}`}
               />
             </IconBtn>
             <IconBtn
@@ -623,20 +630,20 @@ export function MobileMailApp() {
 
       <PullToRefresh
         onRefresh={load}
-        className={`flex flex-1 flex-col overflow-auto pb-24 ${
-          tab === "cards" ? "seer-deck-bg" : ""
+        className={`flex flex-1 flex-col overflow-auto pb-24 ${ tab ==="cards" ? "seer-deck-bg" : ""
         }`}
       >
         {error ? (
-          <p className="mx-4 my-3 rounded-lg bg-[#d63b2f]/10 px-3 py-2 text-sm text-[#d63b2f]">
+          <p className="mx-4 my-3 rounded-lg bg-[#d63b2f]/10 px-3 py-2 text-[14px] text-[#d63b2f]">
             {error}
           </p>
         ) : null}
 
         {loading &&
-        (((tab === "triage" || tab === "cards" || tab === "atlas") && !triage) ||
+        (((tab === "cards" && !triage) ||
+          ((tab === "triage" || tab === "atlas") && !brief)) ||
           (tab !== "triage" && tab !== "cards" && tab !== "atlas" && !mailbox)) ? (
-          <p className="py-16 text-center text-sm text-[var(--muted)]">
+          <p className="py-16 text-center text-[14px] text-[var(--muted)]">
             Loading…
           </p>
         ) : null}
@@ -670,7 +677,7 @@ export function MobileMailApp() {
           ) : (
             <>
               <div className="flex items-center justify-between border-b border-[var(--border)] bg-[var(--card)] px-4 py-1.5">
-                <span className="text-[12px] text-[var(--muted)]">
+                <span className="text-[14px] text-[var(--muted)]">
                   {selectMode
                     ? `${picked.size} selected`
                     : `${listItems.length} messages`}
@@ -678,7 +685,7 @@ export function MobileMailApp() {
                 <button
                   type="button"
                   onClick={() => (selectMode ? exitSelect() : setSelectMode(true))}
-                  className="text-[12px] font-semibold text-[var(--primary)]"
+                  className="text-[14px] text-[var(--primary)]"
                 >
                   {selectMode ? "Cancel" : "Select"}
                 </button>
@@ -689,8 +696,6 @@ export function MobileMailApp() {
                     key={item.id}
                     item={item}
                     showGuide={tab === "inbox" || Boolean(query)}
-                    logicMode={logicMode}
-                    onTeach={(a) => teachSender(item.fromEmail, a, item.id, item.threadId)}
                     busy={busyId === item.id}
                     selectMode={selectMode}
                     checked={picked.has(item.id)}
@@ -721,7 +726,7 @@ export function MobileMailApp() {
                       runBulk(pickedItems, "archive");
                       exitSelect();
                     }}
-                    className="flex flex-col items-center gap-0.5 px-3 text-[11px] font-medium text-[#76ab19]"
+                    className="flex flex-col items-center gap-0.5 px-3 text-[12px] text-[#76ab19]"
                   >
                     <Archive className="h-5 w-5" />
                     Archive
@@ -732,7 +737,7 @@ export function MobileMailApp() {
                       runBulk(pickedItems, "trash");
                       exitSelect();
                     }}
-                    className="flex flex-col items-center gap-0.5 px-3 text-[11px] font-medium text-[#d63b2f]"
+                    className="flex flex-col items-center gap-0.5 px-3 text-[12px] text-[#d63b2f]"
                   >
                     <Trash2 className="h-5 w-5" />
                     Delete
@@ -743,7 +748,7 @@ export function MobileMailApp() {
                       runBulk(pickedItems, "read");
                       exitSelect();
                     }}
-                    className="flex flex-col items-center gap-0.5 px-3 text-[11px] font-medium text-[var(--primary)]"
+                    className="flex flex-col items-center gap-0.5 px-3 text-[12px] text-[var(--primary)]"
                   >
                     <MailOpen className="h-5 w-5" />
                     Mark read
@@ -754,94 +759,33 @@ export function MobileMailApp() {
           )
         ) : null}
 
-        {tab === "triage" && triage ? (
-          <div className="border-b border-[var(--border)] bg-[var(--card)] px-4 py-2">
-            <div className="flex items-start justify-between gap-2">
-              <p className="min-w-0 text-[12px] text-[var(--muted)]">
-                {logicMode && triage.assistant
-                  ? `Gemini ${triage.assistant.gemini} · rules ${triage.assistant.rules}${triage.assistant.learned ? ` · learned ${triage.assistant.learned}` : ""} · taught ${triage.assistant.override}${triage.assistant.cached ? ` · cached ${triage.assistant.cached}` : ""} · your call ${triage.assistant.needsReview}`
-                  : `${triage.count} triaged · ${triage.assistant?.needsReview ?? triage.needsReview.length} need you`}
-              </p>
-              <span className="flex shrink-0 gap-1.5">
-                <button
-                  type="button"
-                  onClick={() => setVipsOpen(true)}
-                  className="rounded-full border border-[#eab308] px-2.5 py-1 text-[11px] font-semibold text-[#b45309]"
-                >
-                  VIPs
-                </button>
-                <button
-                  type="button"
-                  onClick={() => setUnsubAgentOpen(true)}
-                  className="rounded-full border border-[#a855f7] px-2.5 py-1 text-[11px] font-semibold text-[#a855f7]"
-                >
-                  Unsub agent
-                </button>
-                <button
-                  type="button"
-                  onClick={toggleDense}
-                  className="rounded-full border border-[var(--border)] px-2.5 py-1 text-[11px] font-semibold text-[var(--primary)]"
-                >
-                  {dense ? "Cozy" : "Compact"}
-                </button>
-              </span>
-            </div>
-            {triage.assistant?.error ? (
-              <p className="mt-0.5 text-[11px] font-medium text-[#b45309]">
-                {(triage.assistant.gemini ?? 0) + (triage.assistant.cached ?? 0) > 0
-                  ? "Some new mail used rules this load — "
-                  : "Gemini offline — rules only: "}
-                {triage.assistant.error.slice(0, 110)}
-              </p>
-            ) : null}
-          </div>
-        ) : null}
-
-        {tab === "triage" && triage && triage.count === 0 ? (
-          <EmptyState text="Nothing to triage" />
-        ) : null}
-
         {tab === "atlas" ? (
-          <div>
-            {catchup ? (
-              <CatchupCard
-                catchup={catchup}
-                onOpen={openReader}
-                onDismiss={dismissCatchup}
-              />
-            ) : null}
-            <BriefPanel
-              full
+          <div className="flex flex-1 flex-col">
+            <AtlasBoard
+              mobile
               brief={brief}
               building={briefBuilding}
-              onRebuild={rebuildBrief}
-              onOpen={openReader}
-              onClearHeadlines={clearHeadlines}
-              onFixMatter={fixMatter}
-              onAtlasAction={atlasAction}
-              onRenameMatter={renameMatter}
+              matterOrder={matterOrder}
+              activeMatterId={openMatterId}
+              catchup={catchup}
+              onOpenMatter={setOpenMatterId}
+              onOpenEmail={openReader}
+              onMoveMatter={fixMatter}
+              onReorder={reorderMatters}
               onCreateMatter={createMatter}
+              onDismissCatchup={dismissCatchup}
             />
           </div>
         ) : null}
 
-        {tab === "triage" && triage && triage.count > 0 ? (
-          <>
-        <TriageTable
-              triage={triage}
-              mobile={true}
-              h={{
-                openReader,
-                runAction,
-                bulkSection,
-                unsubscribe,
-                teach: teachSender,
-                nudge,
-                nudging,
-                busyId,
-              }}
+        {tab === "triage" ? (
+          <TriageDigest
+            brief={brief}
+            building={briefBuilding}
+            onOpenEmail={openReader}
+            onSettle={settleMatter}
+            onClear={clearHeadlines}
             />
-          </>
         ) : null}
       </PullToRefresh>
 
@@ -917,9 +861,7 @@ function IconBtn({
       aria-label={label}
       disabled={disabled}
       onClick={onClick}
-      className={`flex h-10 w-10 items-center justify-center rounded-full disabled:opacity-40 ${
-        light
-          ? "text-white active:bg-white/15"
+      className={`flex h-10 w-10 items-center justify-center rounded-full disabled:opacity-40 ${ light ?"text-white active:bg-white/15"
           : "text-[var(--fg)] active:bg-black/5 dark:active:bg-white/10"
       }`}
     >
@@ -943,9 +885,7 @@ function DrawerItem({
     <button
       type="button"
       onClick={onClick}
-      className={`flex w-full items-center gap-4 px-5 py-3.5 text-sm ${
-        active
-          ? "border-l-4 border-[var(--brand)] bg-[var(--brand-soft)] font-semibold text-[var(--fg-strong)]"
+      className={`flex w-full items-center gap-4 px-5 py-3.5 text-[14px] ${ active ? "border-l-4 border-[var(--brand)] bg-[var(--brand-soft)] font-bold text-[var(--fg-strong)]"
           : "border-l-4 border-transparent text-[var(--fg)]"
       }`}
     >
@@ -970,9 +910,7 @@ function BottomNavItem({
     <button
       type="button"
       onClick={onClick}
-      className={`flex flex-col items-center gap-0.5 py-2.5 text-[11px] ${
-        active
-          ? "font-semibold text-[var(--brand)]"
+      className={`flex flex-col items-center gap-0.5 py-2.5 text-[12px] ${ active ? "font-bold text-[var(--brand)]"
           : "text-[var(--muted)]"
       }`}
     >
@@ -995,7 +933,7 @@ function FooterAction({
     <button
       type="button"
       onClick={onClick}
-      className="flex flex-1 flex-col items-center gap-0.5 py-1 text-[10px] text-[var(--fg)]"
+      className="flex flex-1 flex-col items-center gap-0.5 py-1 text-[12px] text-[var(--fg)]"
     >
       {icon}
       {label}
@@ -1005,13 +943,13 @@ function FooterAction({
 
 function EmptyState({ text }: { text: string }) {
   return (
-    <p className="py-20 text-center text-sm text-[var(--muted)]">{text}</p>
+    <p className="py-20 text-center text-[14px] text-[var(--muted)]">{text}</p>
   );
 }
 
 function Toast({ message }: { message: string }) {
   return (
-    <div className="fixed bottom-[calc(5.5rem+var(--safe-bottom))] left-1/2 z-50 max-w-[90%] -translate-x-1/2 rounded bg-[#1e242b] px-4 py-2.5 text-xs text-white shadow-lg">
+    <div className="fixed bottom-[calc(5.5rem+var(--safe-bottom))] left-1/2 z-50 max-w-[90%] -translate-x-1/2 rounded bg-[#1e242b] px-4 py-2.5 text-[12px] text-white shadow-lg">
       {message}
     </div>
   );
@@ -1025,11 +963,9 @@ function SwipeMailRow({
   busy,
   chips,
   showGuide,
-  logicMode,
   selectMode,
   checked,
   onToggleSelect,
-  onTeach,
   dense,
   indented,
 }: {
@@ -1040,11 +976,9 @@ function SwipeMailRow({
   busy?: boolean;
   chips?: ReactNode;
   showGuide: boolean;
-  logicMode?: boolean;
   selectMode?: boolean;
   checked?: boolean;
   onToggleSelect?: () => void;
-  onTeach?: (action: TriageAction) => void;
   /** Compact: two lines max — sender/time, task+subject. */
   dense?: boolean;
   /** Rendered inside an expanded sender group. */
@@ -1110,7 +1044,7 @@ function SwipeMailRow({
         onTouchStart={onTouchStart}
         onTouchMove={onTouchMove}
         onTouchEnd={onTouchEnd}
-        className={`mail-row ${item.isUnread ? "unread" : ""} ${
+        className={`mail-row ${item.isUnread ?"unread" : ""} ${
           busy ? "opacity-50" : ""
         } ${checked ? "bg-[var(--primary-soft,rgba(52,152,217,0.1))]" : ""} ${
           dense ? "!py-1.5" : ""
@@ -1120,9 +1054,7 @@ function SwipeMailRow({
         {selectMode ? (
           <span
             aria-hidden
-            className={`mr-2 flex h-5 w-5 shrink-0 items-center justify-center self-center rounded-full border-2 ${
-              checked
-                ? "border-[var(--primary)] bg-[var(--primary)] text-white"
+            className={`mr-2 flex h-5 w-5 shrink-0 items-center justify-center self-center rounded-full border-2 ${ checked ?"border-[var(--primary)] bg-[var(--primary)] text-white"
                 : "border-[var(--border)]"
             }`}
           >
@@ -1130,14 +1062,14 @@ function SwipeMailRow({
           </span>
         ) : (
           <span
-            className={`mail-unread-dot ${item.isUnread ? "" : "empty"}`}
+            className={`mail-unread-dot ${item.isUnread ?"" : "empty"}`}
             aria-hidden
           />
         )}
         <div className="min-w-0 flex-1">
           <div className="flex items-baseline justify-between gap-2">
             <span
-              className={`mail-from truncate text-[var(--fg-strong)] ${dense ? "text-[14px]" : "text-[15px]"}`}
+              className={`mail-from truncate text-[var(--fg-strong)] ${dense ?"text-[17px]" : "text-[17px]"}`}
             >
               {item.threadSenders?.length
                 ? item.threadSenders.join(", ")
@@ -1148,21 +1080,21 @@ function SwipeMailRow({
                 </span>
               ) : null}
             </span>
-            <span className="shrink-0 text-[12px] text-[var(--muted)]">
+            <span className="shrink-0 text-[14px] text-[var(--muted)]">
               {formatMailTime(item.receivedAt)}
             </span>
           </div>
           {dense ? (
             // Compact: one line — category, the implied action, subject
-            <div className="flex items-baseline gap-1.5 truncate text-[13px] leading-snug">
+            <div className="flex items-baseline gap-1.5 truncate text-[14px] leading-snug">
               {g?.category ? (
-                <span className="shrink-0 rounded bg-[var(--card)] px-1 text-[10px] font-semibold text-[var(--muted)]">
+                <span className="shrink-0 rounded bg-[var(--card)] px-1 text-[12px] text-[var(--muted)]">
                   {g.category}
                 </span>
               ) : null}
               {g?.task ? (
                 <span
-                  className="shrink-0 font-semibold"
+                  className="shrink-0"
                   style={{ color: g.color }}
                 >
                   {g.task}
@@ -1174,17 +1106,15 @@ function SwipeMailRow({
             </div>
           ) : (
             <>
-              <div className="mail-subject truncate text-[14px] leading-snug text-[var(--fg)]">
+              <div className="mail-subject truncate text-[17px] leading-snug text-[var(--fg)]">
                 {item.subject}
               </div>
-              <div className="truncate text-[13px] leading-snug text-[var(--muted)]">
+              <div className="truncate text-[14px] leading-snug text-[var(--muted)]">
                 {item.snippet}
               </div>
             </>
           )}
-          {showGuide && g && (!dense || logicMode) ? (
-            <LogicExplain guide={g} expanded={logicMode} onTeach={onTeach} />
-          ) : null}
+          {showGuide && g && !dense ? <LogicExplain guide={g} /> : null}
           {chips}
         </div>
       </article>

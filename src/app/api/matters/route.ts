@@ -1,5 +1,16 @@
 import { loadBrief, saveBrief, type Matter } from "@/lib/inbox/matters";
 import { requireMailSession } from "@/lib/mail/session";
+import { gmailThreadAction } from "@/lib/mail/gmail";
+import { graphThreadAction } from "@/lib/mail/graph";
+import {
+  closeMatter,
+  loadClosedMatters,
+  reopenMatter,
+  restoreClosureMatter,
+  titleTokensOf,
+} from "@/lib/store/closed-matters";
+import { appendLedger } from "@/lib/store/triage-ledger";
+import { withInboxAccounting } from "@/lib/inbox/inbox-accounting";
 import {
   addToMatter,
   createMatter,
@@ -7,6 +18,7 @@ import {
   loadMatterEdits,
   renameMatter,
 } from "@/lib/store/manual-matters";
+import { loadMatterOrder, saveMatterOrder } from "@/lib/store/matter-order";
 import { NextResponse } from "next/server";
 
 /**
@@ -19,7 +31,18 @@ export async function GET() {
   if (!session) {
     return NextResponse.json({ error: "Not signed in" }, { status: 401 });
   }
-  return NextResponse.json({ edits: await loadMatterEdits(session.email) });
+  const [edits, order, closed] = await Promise.all([
+    loadMatterEdits(session.email),
+    loadMatterOrder(session.email),
+    loadClosedMatters(session.email),
+  ]);
+  const settled = Object.fromEntries(
+    Object.entries(closed).map(([id, closure]) => [
+      id,
+      { at: closure.closedAt, matter: closure.matter },
+    ]),
+  );
+  return NextResponse.json({ edits, order, settled });
 }
 
 export async function POST(req: Request) {
@@ -28,15 +51,94 @@ export async function POST(req: Request) {
     return NextResponse.json({ error: "Not signed in" }, { status: 401 });
   }
   const body = (await req.json().catch(() => ({}))) as {
-    action?: "create" | "rename" | "add" | "delete";
+    action?:
+      | "create"
+      | "rename"
+      | "add"
+      | "delete"
+      | "order"
+      | "settle"
+      | "unsettle"
+      | "close";
     matterId?: string;
     title?: string;
     orgUnit?: string;
     goal?: string;
     emailIds?: string[];
+    reason?: string;
+    handoff?: { provider: string; recordId?: string; url?: string };
+    matterIds?: string[];
   };
 
-  const brief = await loadBrief(session.email);
+  let brief = await loadBrief(session.email);
+
+  // CLOSE — the loudest "this is done" signal. Archives the matter's
+  // whole conversations, writes a durable closure record so it never
+  // resurrects, and logs it to the Cleaned ledger so it can be undone.
+  if (body.action === "close" || body.action === "settle") {
+    if (!body.matterId) {
+      return NextResponse.json({ error: "matterId required" }, { status: 400 });
+    }
+    const matter =
+      brief?.matters.find((m) => m.id === body.matterId) ??
+      brief?.pinned?.find((m) => m.id === body.matterId);
+    if (!matter) {
+      return NextResponse.json({ error: "Matter not found" }, { status: 404 });
+    }
+    const threadIds = matter.threadIds ?? [];
+    const runThread =
+      session.provider === "google" ? gmailThreadAction : graphThreadAction;
+    await Promise.allSettled(
+      threadIds.map((t) => runThread(session.accessToken, t, "archive")),
+    );
+    const closed = await closeMatter(session.email, {
+      matterId: matter.id,
+      titleTokens: titleTokensOf(matter.title),
+      threadIds,
+      reason: body.reason?.slice(0, 200) ?? matter.statusWhy ?? "You closed it",
+      by: "user",
+      matter,
+      ...(body.handoff ? { handoff: body.handoff } : {}),
+    });
+    const settled = Object.fromEntries(
+      Object.entries(closed).map(([id, closure]) => [
+        id,
+        { at: closure.closedAt, matter: closure.matter },
+      ]),
+    );
+    const entry = await appendLedger(session.email, {
+      kind: body.handoff ? "matter-handoff" : "matter-closed",
+      summary: `Closed "${matter.title}"${body.handoff ? ` — handed to ${body.handoff.provider}` : ""}`,
+      source: "manual",
+      matterId: matter.id,
+      threadIds,
+      emailIds: matter.emailIds,
+    });
+    if (brief) {
+      brief.matters = brief.matters.filter((m) => m.id !== body.matterId);
+      if (brief.pinned) {
+        brief.pinned = brief.pinned.filter((m) => m.id !== body.matterId);
+      }
+      const removedCount = new Set(matter.emailIds).size;
+      if (brief.totalInbox != null) {
+        brief.totalInbox = Math.max(0, brief.totalInbox - removedCount);
+      }
+      if (brief.providerTotal) {
+        brief.providerTotal.messages = Math.max(
+          0,
+          brief.providerTotal.messages - removedCount,
+        );
+      }
+      brief = withInboxAccounting(brief);
+      await saveBrief(session.email, brief);
+    }
+    return NextResponse.json({
+      ok: true,
+      ledgerId: entry.id,
+      brief,
+      settled,
+    });
+  }
 
   if (body.action === "rename") {
     if (!body.matterId || !body.title?.trim()) {
@@ -51,6 +153,7 @@ export async function POST(req: Request) {
       const p = brief.pinned?.find((x) => x.id === body.matterId);
       if (m) m.title = body.title.trim();
       if (p) p.title = body.title.trim();
+      brief = withInboxAccounting(brief);
       await saveBrief(session.email, brief);
     }
     return NextResponse.json({ ok: true, brief });
@@ -93,7 +196,9 @@ export async function POST(req: Request) {
         emails: rows.map((f) => ({
           id: f.emailId,
           threadId: f.threadId,
-          from: f.line.split(" — ")[0] ?? "",
+          from: f.fromName ?? f.line.split(" — ")[0] ?? "",
+          ...(f.fromEmail ? { fromEmail: f.fromEmail } : {}),
+          ...(f.subject ? { subject: f.subject } : {}),
           line: f.line,
           suggestion: f.suggestion ?? "",
         })),
@@ -103,6 +208,7 @@ export async function POST(req: Request) {
       };
       brief.matters = [fresh, ...brief.matters];
       brief.filed = (brief.filed ?? []).filter((f) => !chosen.has(f.emailId));
+      brief = withInboxAccounting(brief);
       await saveBrief(session.email, brief);
     }
     return NextResponse.json({ ok: true, matterId: matter.id, brief });
@@ -126,9 +232,60 @@ export async function POST(req: Request) {
     await deleteMatter(session.email, body.matterId);
     if (brief) {
       brief.matters = brief.matters.filter((m) => m.id !== body.matterId);
+      brief = withInboxAccounting(brief);
       await saveBrief(session.email, brief);
     }
     return NextResponse.json({ ok: true, brief });
+  }
+
+  // The user's priority order within one column of the whiteboard.
+  if (body.action === "order") {
+    if (!body.orgUnit || !body.matterIds) {
+      return NextResponse.json(
+        { error: "orgUnit and matterIds required" },
+        { status: 400 },
+      );
+    }
+    const order = await saveMatterOrder(
+      session.email,
+      body.orgUnit,
+      body.matterIds,
+    );
+    return NextResponse.json({ ok: true, order });
+  }
+
+  if (body.action === "unsettle") {
+    if (!body.matterId) {
+      return NextResponse.json({ error: "matterId required" }, { status: 400 });
+    }
+    const before = await loadClosedMatters(session.email);
+    const closure = before[body.matterId];
+    if (closure && session.provider === "google") {
+      await Promise.allSettled(
+        closure.threadIds.map((threadId) =>
+          gmailThreadAction(session.accessToken, threadId, "restore"),
+        ),
+      );
+    }
+    let restoredBrief =
+      brief && closure ? restoreClosureMatter(brief, closure) : brief;
+    if (restoredBrief && restoredBrief !== brief) {
+      restoredBrief = withInboxAccounting(restoredBrief);
+      brief = restoredBrief;
+      await saveBrief(session.email, restoredBrief);
+    }
+    const closed = await reopenMatter(session.email, body.matterId);
+    const settled = Object.fromEntries(
+      Object.entries(closed).map(([id, closure]) => [
+        id,
+        { at: closure.closedAt, matter: closure.matter },
+      ]),
+    );
+    return NextResponse.json({
+      ok: true,
+      settled,
+      brief: restoredBrief,
+    });
   }
 
   return NextResponse.json({ error: "Unknown action" }, { status: 400 });

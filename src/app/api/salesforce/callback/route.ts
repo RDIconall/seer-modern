@@ -60,14 +60,18 @@ export async function GET(req: Request) {
     error_description?: string;
   };
   if (!res.ok || !json.refresh_token || !json.instance_url) {
-    console.error(
-      "[seer] salesforce token exchange failed:",
-      json.error_description ?? json.error ?? res.status,
-    );
+    const reason = String(
+      json.error_description ?? json.error ?? `HTTP ${res.status}`,
+    ).slice(0, 160);
+    console.error("[seer] salesforce token exchange failed:", reason);
     // No refresh token usually means the Connected App is missing the
     // refresh_token scope — say which, rather than "failed".
+    // Otherwise pass Salesforce's OWN words through: "redirect_uri_mismatch"
+    // is a five-second fix, "Salesforce rejected the login" is a guess.
     return settings(
-      res.ok && !json.refresh_token ? "no-refresh-scope" : "token",
+      res.ok && !json.refresh_token
+        ? "no-refresh-scope"
+        : `token:${encodeURIComponent(reason)}`,
     );
   }
 
