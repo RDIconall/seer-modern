@@ -27,6 +27,7 @@ const EXPECTED_TABLES = [
 ].sort();
 
 const RLS_TABLES = [
+  "users",
   "mail_accounts",
   "oauth_credentials",
   "conversations",

@@ -16,7 +16,7 @@ const SYSTEM = `You are a chief of staff reading one email conversation for a bu
 Decide two things and nothing else:
 
 1. HOME — where this conversation belongs:
-   - "matter": live work with a counterparty that must be tracked (a real ask of the user, a negotiation, a decision they owe, a signature/approval/regulatory/legal/payment step, or someone waiting on their reply).
+   - "matter": live work with a counterparty that must be tracked (a real ask of the user, a negotiation, a decision they owe, a signature/approval/regulatory/legal/payment step, or someone waiting on their reply). An automated notification, reminder, trial/billing notice, product announcement, or status update is NOT a matter no matter how urgent it sounds — being time-sensitive is not the same as being unresolved work with a counterparty. When you choose "matter" you MUST set matterRef to the ongoing real-world concern, named as a person would say it ("Roche anti-TPO pricing", "Tosoh contract amendment") — never the email's subject line and never an imperative.
    - "record": no live story, but worth keeping (receipt, executed contract, invoice, statement, confirmation).
    - "delete": the useful meaning (if any) has been captured in YIELDS and the email itself is not needed.
    - "undecided": you cannot responsibly decide.

@@ -117,6 +117,45 @@ export async function saveDecision(
   });
 }
 
+/**
+ * Resolve the matter a `matter` conversation belongs to: reuse an open matter
+ * with the same title, otherwise create one from the read's proposed name. This
+ * is the promotion step — without it a conversation the brain called live work
+ * has no home on the board.
+ */
+export async function ensureMatter(
+  accountId: AccountId,
+  title: string,
+): Promise<string> {
+  const clean = title.trim().slice(0, 120) || "Untitled matter";
+  return inTransaction(async (client) => {
+    const existing = await client.query<{ id: string }>(
+      "select id from seer.matters where account_id = $1 and lower(title) = lower($2) and status <> 'closed' limit 1",
+      [accountId, clean],
+    );
+    if (existing.rows[0]) return existing.rows[0].id;
+    const created = await client.query<{ id: string }>(
+      "insert into seer.matters (account_id, title) values ($1, $2) returning id",
+      [accountId, clean],
+    );
+    return created.rows[0].id;
+  });
+}
+
+/** Link a conversation to a matter (idempotent). */
+export async function linkConversationToMatter(
+  matterId: string,
+  conversationId: ConversationId,
+  source: "inferred" | "user" = "inferred",
+): Promise<void> {
+  const { db } = await import("../db/pool");
+  await db().query(
+    `insert into seer.matter_conversations (matter_id, conversation_id, link_source)
+       values ($1, $2, $3) on conflict do nothing`,
+    [matterId, conversationId, source],
+  );
+}
+
 export async function currentDecision(
   conversationId: ConversationId,
 ): Promise<ConversationDecision | null> {

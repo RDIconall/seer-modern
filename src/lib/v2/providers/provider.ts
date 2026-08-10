@@ -34,8 +34,26 @@ const googleRefresh: RefreshFn = async (refreshToken) => {
   };
 };
 
+/**
+ * Single-tenant app registrations reject the /common endpoint (AADSTS50194),
+ * so the tenant is derived from the configured issuer, matching how sign-in is
+ * configured. Falls back to an explicit tenant var, then to common.
+ */
+function microsoftTenant(): string {
+  const issuer = process.env.AUTH_MICROSOFT_ENTRA_ID_ISSUER;
+  if (issuer) {
+    try {
+      const segment = new URL(issuer).pathname.split("/")[1];
+      if (segment) return segment;
+    } catch {
+      // fall through to the explicit/default tenant
+    }
+  }
+  return process.env.AUTH_MICROSOFT_ENTRA_ID_TENANT || "common";
+}
+
 const microsoftRefresh: RefreshFn = async (refreshToken) => {
-  const tenant = process.env.AUTH_MICROSOFT_ENTRA_ID_TENANT ?? "common";
+  const tenant = microsoftTenant();
   const res = await fetch(
     `https://login.microsoftonline.com/${tenant}/oauth2/v2.0/token`,
     {

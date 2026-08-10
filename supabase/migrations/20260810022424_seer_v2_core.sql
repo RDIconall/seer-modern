@@ -261,6 +261,7 @@ create table if not exists seer.sync_runs (
 -- get no policy and therefore no access.
 -- ---------------------------------------------------------------------------
 
+alter table seer.users enable row level security;
 alter table seer.mail_accounts enable row level security;
 alter table seer.oauth_credentials enable row level security;
 alter table seer.conversations enable row level security;

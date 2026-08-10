@@ -180,6 +180,35 @@ try {
     assert.ok(decision.vetoReasons.includes("open_ask"));
   }
 
+  // 5b. A live-work read is PROMOTED to a matter and linked, so Atlas is never
+  //     empty while `matter` decisions exist.
+  {
+    const { conversation, conversationId } = await newConversation(
+      db.pool, accountId, "matter-1", "Tosoh contract terms",
+      [message("legal@tosoh.com", "We need your countersignature on the amended terms", "Tosoh")],
+    );
+    const decision = await readConversation({
+      accountId, conversationId, conversation, context,
+      model: modelFor({
+        home: "matter", summary: "Tosoh amendment awaiting countersignature",
+        rationale: "live negotiation", owner: "you", ask: "Countersign the amendment",
+        obligation: true, matterRef: "Tosoh contract amendment", yields: [], evidence: [],
+      }),
+    });
+    assert.equal(decision.home, "matter");
+    assert.ok(decision.matterId, "a matter decision must have a matter to belong to");
+    const linked = await db.pool.query(
+      "select count(*)::int as n from seer.matter_conversations where conversation_id = $1",
+      [conversationId],
+    );
+    assert.equal(linked.rows[0].n, 1, "conversation must be linked to its matter");
+    const created = await db.pool.query(
+      "select title from seer.matters where id = $1",
+      [decision.matterId],
+    );
+    assert.equal(created.rows[0].title, "Tosoh contract amendment");
+  }
+
   // 6. Incomplete body → undecided, never guessed.
   {
     const providerId = "incomplete-1";

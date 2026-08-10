@@ -42,16 +42,20 @@ const mockFetch = (async (url: string, init?: RequestInit) => {
   const u = String(url);
   const method = init?.method ?? "GET";
 
+  // Folder total for coverage reconciliation.
+  if (method === "GET" && u.includes("/mailFolders/inbox?$select=totalItemCount")) {
+    return json({ totalItemCount: 3 });
+  }
+
   // Inbox sync (first page + paged second page).
   if (method === "GET" && u.includes("/mailFolders/inbox/messages")) {
     if (!u.includes("skip=1")) {
       return json({
         value: [...CONVOS.c0, ...CONVOS.c1],
-        "@odata.count": 3,
         "@odata.nextLink": "https://graph.microsoft.com/v1.0/me/mailFolders/inbox/messages?skip=1",
       });
     }
-    return json({ value: [...CONVOS.c2], "@odata.count": 3 });
+    return json({ value: [...CONVOS.c2] });
   }
 
   // Conversation messages by conversationId filter (URL is percent-encoded).

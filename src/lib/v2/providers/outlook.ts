@@ -146,6 +146,18 @@ export class OutlookProvider implements MailProvider {
     };
   }
 
+  /** The provider's own inbox message count, for coverage reconciliation. */
+  private async inboxTotal(): Promise<number> {
+    try {
+      const r: { totalItemCount?: number } = await this.get(
+        `${API}/mailFolders/inbox?$select=totalItemCount`,
+      );
+      return r.totalItemCount ?? 0;
+    } catch {
+      return 0;
+    }
+  }
+
   async sync(cursor?: string | null): Promise<SyncPage> {
     const url =
       cursor ??
@@ -168,7 +180,9 @@ export class OutlookProvider implements MailProvider {
       conversations,
       deletedConversationIds: [],
       nextCursor: page["@odata.nextLink"] ?? null,
-      providerTotal: page["@odata.count"] ?? conversations.length,
+      // The folder's own message count — not this page's size, which made
+      // coverage under-report the mailbox.
+      providerTotal: page["@odata.count"] ?? (await this.inboxTotal()),
     };
   }
 

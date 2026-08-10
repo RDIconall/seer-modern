@@ -1,7 +1,11 @@
 import type { AccountId, ConversationId } from "../db/types";
 import type { Conversation } from "../providers/types";
 import { compileContext, type ContextInput } from "./context";
-import { saveDecision } from "./repository";
+import {
+  ensureMatter,
+  linkConversationToMatter,
+  saveDecision,
+} from "./repository";
 import { validateDelete, type SafetyFacts } from "./safety";
 import {
   CONTEXT_VERSION,
@@ -106,6 +110,18 @@ export async function readConversation(
   const facts = factsFrom(read, compiled, true);
   const safety = validateDelete(read, facts);
 
+  // Promotion: live work must land on the board. Reuse the matched matter, or
+  // create one from the read's proposed name — otherwise a `matter` decision
+  // has no matter to belong to and would be misfiled.
+  let matterId = compiled.candidateMatterId;
+  if (safety.home === "matter") {
+    matterId = await ensureMatter(
+      input.accountId,
+      read.matterRef?.trim() || input.conversation.subject || read.summary,
+    );
+    await linkConversationToMatter(matterId, input.conversationId);
+  }
+
   return saveDecision({
     accountId: input.accountId,
     conversationId: input.conversationId,
@@ -115,7 +131,7 @@ export async function readConversation(
     rationale: read.rationale,
     owner: read.owner,
     ask: read.ask,
-    matterId: compiled.candidateMatterId,
+    matterId,
     vetoReasons: safety.vetoReasons,
     yields: read.yields,
     evidence: read.evidence.length
