@@ -231,3 +231,14 @@ enforcement is auditable.
   provider-total accounting invariant and category counts. Triage now includes
   records-to-file, digest themes, and matter promotion; matter panels surface
   evidence-backed closure proposals.
+- 2026-08-10 — Began the clean-slate v2 architecture (`src/lib/v2`, `src/app/api/v2`,
+  `src/components/v2`) behind `SEER_V2_ACCOUNT_ALLOWLIST`. One context-rich
+  decision per conversation with veto-only delete safety; chief-of-staff yields
+  keep business meaning before an email is deleted; one shared Gmail/Outlook
+  provider contract; normalized Supabase schema with encrypted credentials; one
+  server inbox projection with render-only UI; idempotent command bus; and a
+  read-only shadow gate that blocks cutover on any false safe-delete, coverage
+  gap, parity failure, or provider mutation. Spec:
+  `docs/superpowers/specs/2026-08-09-seer-clean-slate-design.md`; plan:
+  `docs/superpowers/plans/2026-08-10-seer-clean-slate-implementation.md`.
+  Legacy pipeline still runs until an account passes the shadow gate.

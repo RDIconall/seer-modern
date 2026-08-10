@@ -8,7 +8,7 @@
     "start": "next start",
     "lint": "eslint",
     "test": "tsx scripts/merge-matters.test.mts && tsx scripts/triage-view.test.mts && tsx scripts/inbox-accounting.test.mts && tsx scripts/mail-send.test.mts && tsx scripts/export.test.mts && tsx scripts/relationships.test.mts",
-    "test:v2": "tsx scripts/v2-schema.test.mts && tsx scripts/v2-credentials.test.mts && tsx scripts/v2-provider-contract.test.mts && tsx scripts/v2-provider-gmail.test.mts && tsx scripts/v2-provider-outlook.test.mts && tsx scripts/v2-token-service.test.mts && tsx scripts/v2-sync.test.mts && tsx scripts/v2-decision.test.mts && tsx scripts/v2-reader.test.mts && tsx scripts/v2-eval.test.mts && tsx scripts/v2-inbox-view.test.mts && tsx scripts/v2-commands.test.mts && tsx scripts/v2-mail-client.test.mts && tsx scripts/v2-ui-contract.test.mts"
+    "test:v2": "tsx scripts/v2-schema.test.mts && tsx scripts/v2-credentials.test.mts && tsx scripts/v2-provider-contract.test.mts && tsx scripts/v2-provider-gmail.test.mts && tsx scripts/v2-provider-outlook.test.mts && tsx scripts/v2-token-service.test.mts && tsx scripts/v2-sync.test.mts && tsx scripts/v2-decision.test.mts && tsx scripts/v2-reader.test.mts && tsx scripts/v2-eval.test.mts && tsx scripts/v2-inbox-view.test.mts && tsx scripts/v2-commands.test.mts && tsx scripts/v2-mail-client.test.mts && tsx scripts/v2-ui-contract.test.mts && tsx scripts/v2-shadow.test.mts"
   },
   "dependencies": {
     "@ai-sdk/google": "^4.0.18",
