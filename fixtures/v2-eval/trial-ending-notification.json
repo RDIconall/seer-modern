@@ -1,0 +1,32 @@
+{
+  "id": "trial-ending-notification",
+  "conversation": {
+    "providerConversationId": "fixture-timeglass-trial",
+    "subject": "Your timeglass trial ends soon",
+    "messages": [
+      {
+        "providerMessageId": "fixture-timeglass-m1",
+        "from": { "email": "trial-ending@stripe.com", "name": "Stripe" },
+        "to": [{ "email": "you@company.com" }],
+        "cc": [],
+        "sentAt": "2026-08-09T09:00:00Z",
+        "snippet": "Your free trial ends August 16",
+        "bodyHtml": null,
+        "bodyText": "This is a reminder that the free trial for Timeglass Team ends on August 16, 2026. After that your card will be charged unless you cancel.",
+        "isUnread": true,
+        "isOutgoing": false,
+        "attachments": []
+      }
+    ],
+    "lastMessageAt": "2026-08-09T09:00:00Z"
+  },
+  "context": {
+    "ownDomain": "company.com",
+    "people": [],
+    "matters": [],
+    "interests": []
+  },
+  "expectedHome": "delete",
+  "allowedMatterRefs": [],
+  "requiredYieldKinds": ["fact"]
+}

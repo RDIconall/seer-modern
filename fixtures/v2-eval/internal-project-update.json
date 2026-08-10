@@ -1,0 +1,32 @@
+{
+  "id": "internal-project-update",
+  "conversation": {
+    "providerConversationId": "fixture-internal-rcd2904",
+    "subject": "Project Update: RCD_2904 Anti-TPO",
+    "messages": [
+      {
+        "providerMessageId": "fixture-rcd2904-m1",
+        "from": { "email": "claire@rditrials.com", "name": "Claire" },
+        "to": [{ "email": "conall@rditrials.com" }],
+        "cc": [],
+        "sentAt": "2026-08-07T16:00:00Z",
+        "snippet": "Sites activated for RCD_2904...",
+        "bodyHtml": null,
+        "bodyText": "Update on the RCD_2904 Anti-TPO study: two additional sites were activated on August 7, 2026. Enrollment continues on schedule.",
+        "isUnread": true,
+        "isOutgoing": false,
+        "attachments": []
+      }
+    ],
+    "lastMessageAt": "2026-08-07T16:00:00Z"
+  },
+  "context": {
+    "ownDomain": "rditrials.com",
+    "people": [{ "email": "claire@rditrials.com", "tier": "inner", "vip": false }],
+    "matters": [{ "id": "rcd2904", "title": "RCD_2904 anti-TPO study" }],
+    "interests": []
+  },
+  "expectedHome": "undecided",
+  "allowedMatterRefs": ["rcd2904", "RCD_2904 anti-TPO study"],
+  "requiredYieldKinds": []
+}
