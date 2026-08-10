@@ -36,6 +36,15 @@ const { kvGet, accountKey } = kv as unknown as {
 
 const dryRun = process.argv.includes("--dry-run");
 
+/**
+ * Legacy OAuth expiry is stored in SECONDS (NextAuth convention); v2 works in
+ * milliseconds. Normalize so a migrated token isn't written as expired in 1970.
+ */
+function epochMs(value: number | undefined): number | undefined {
+  if (!value) return undefined;
+  return value < 1e12 ? value * 1000 : value;
+}
+
 async function readIntent(email: string): Promise<PreservedIntent> {
   const key = accountKey(email);
   const people =
@@ -108,7 +117,7 @@ async function main() {
     await saveCredentials(accountId, provider, {
       accessToken: acct.accessToken,
       refreshToken: acct.refreshToken,
-      expiresAt: acct.expiresAt,
+      expiresAt: epochMs(acct.expiresAt),
     });
     const applied = await applyPreservedIntent(accountId, intent);
 
