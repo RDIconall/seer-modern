@@ -47,3 +47,6 @@ yarn-error.log*
 next-env.d.ts
 .audit-*.mts
 .regrade.mts
+
+# Seer v2 local test Postgres data dirs
+.data-v2/
