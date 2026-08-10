@@ -5,6 +5,8 @@ import {
   SessionExpiredScreen,
 } from "@/components/auth/AuthScreens";
 import { MobileMailApp } from "@/components/inbox/MobileMailApp";
+import { MailApp } from "@/components/v2/MailApp";
+import { isV2Enabled } from "@/lib/v2/session";
 
 export default async function MobileHome() {
   const session = await auth();
@@ -15,6 +17,11 @@ export default async function MobileHome() {
 
   if (!session?.user) {
     return <MobileLoginScreen />;
+  }
+
+  // Same responsive v2 app for allowlisted accounts; layout differs by CSS.
+  if (isV2Enabled(session.user.email)) {
+    return <MailApp />;
   }
 
   return (
