@@ -83,6 +83,9 @@ create table if not exists seer.messages (
   body_text text,
   is_unread boolean not null default false,
   is_outgoing boolean not null default false,
+  -- Attachment filenames: "Signature requested on X" is meaningless without
+  -- knowing X was the CDA.
+  attachment_names text[] not null default '{}',
   created_at timestamptz not null default now(),
   unique (account_id, provider_message_id)
 );
@@ -169,6 +172,9 @@ create table if not exists seer.conversation_decisions (
   veto_reasons text[] not null default '{}',
   -- 0 (ambient) … 3 (direct demand from someone senior). Computed from facts.
   priority smallint not null default 0,
+  -- A date the email itself stated. Orders WITHIN a priority bucket; it can
+  -- never promote a conversation into a higher one.
+  due_date date,
   model_version text not null,
   context_version text not null,
   is_current boolean not null default true,

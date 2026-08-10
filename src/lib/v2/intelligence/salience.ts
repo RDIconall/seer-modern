@@ -23,6 +23,21 @@ export type SalienceInputs = {
   senderVip: boolean;
 };
 
+/**
+ * Accept a stated due date only if it is a real, plausible calendar date. A
+ * malformed or absurd value is discarded rather than trusted — a wrong date
+ * must never be able to reorder the user's day.
+ */
+export function validDueDate(value: string | undefined, now = new Date()): string | null {
+  if (!value || !/^\d{4}-\d{2}-\d{2}$/.test(value)) return null;
+  const parsed = new Date(`${value}T00:00:00Z`);
+  if (Number.isNaN(parsed.getTime())) return null;
+  const years = (parsed.getTime() - now.getTime()) / (365.25 * 24 * 3600 * 1000);
+  // More than a year past or five years out is a misread, not a deadline.
+  if (years < -1 || years > 5) return null;
+  return value;
+}
+
 /** Is the newest inbound message addressed directly to the user (To/Cc)? */
 export function addressedDirectly(
   conversation: Conversation,

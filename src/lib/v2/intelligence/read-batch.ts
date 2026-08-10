@@ -41,8 +41,9 @@ async function loadConversation(
     snippet: string | null;
     is_unread: boolean;
     is_outgoing: boolean;
+    attachment_names: string[] | null;
   }>(
-    "select provider_message_id, from_email, from_name, to_emails, cc_emails, sent_at, body_html, body_text, snippet, is_unread, is_outgoing from seer.messages where conversation_id = $1 order by sent_at",
+    "select provider_message_id, from_email, from_name, to_emails, cc_emails, sent_at, body_html, body_text, snippet, is_unread, is_outgoing, attachment_names from seer.messages where conversation_id = $1 order by sent_at",
     [conversationId],
   );
   return {
@@ -63,7 +64,12 @@ async function loadConversation(
       bodyText: m.body_text,
       isUnread: m.is_unread,
       isOutgoing: m.is_outgoing,
-      attachments: [],
+      attachments: (m.attachment_names ?? []).map((filename, i) => ({
+        id: `${m.provider_message_id}-${i}`,
+        filename,
+        mimeType: "",
+        sizeBytes: 0,
+      })),
     })),
   };
 }

@@ -39,6 +39,7 @@ type GraphMessage = {
   isRead?: boolean;
   hasAttachments?: boolean;
   parentFolderId?: string;
+  attachments?: { id?: string; name?: string; contentType?: string; size?: number }[];
 };
 
 export type OutlookDeps = {
@@ -72,7 +73,12 @@ function toMessage(m: GraphMessage, selfEmail: string): Message {
     bodyText: isHtml ? null : (m.body?.content ?? null),
     isUnread: m.isRead === false,
     isOutgoing: from.email === selfEmail.toLowerCase(),
-    attachments: [],
+    attachments: (m.attachments ?? []).map((a) => ({
+      id: a.id ?? "",
+      filename: a.name ?? "",
+      mimeType: a.contentType ?? "",
+      sizeBytes: a.size ?? 0,
+    })),
   };
 }
 
@@ -124,7 +130,9 @@ export class OutlookProvider implements MailProvider {
     let url: string | null =
       `${API}/messages?$filter=${encodeURIComponent(
         `conversationId eq '${conversationId.replace(/'/g, "''")}'`,
-      )}&$top=50&$select=id,conversationId,subject,from,toRecipients,ccRecipients,receivedDateTime,bodyPreview,body,isRead,hasAttachments,parentFolderId`;
+      )}&$top=50&$select=id,conversationId,subject,from,toRecipients,ccRecipients,receivedDateTime,bodyPreview,body,isRead,hasAttachments,parentFolderId` +
+      // Metadata only — never the file bytes.
+      `&$expand=attachments($select=id,name,contentType,size)`;
     while (url) {
       const page: { value?: GraphMessage[]; "@odata.nextLink"?: string } =
         await this.get(url);
@@ -161,7 +169,7 @@ export class OutlookProvider implements MailProvider {
   async sync(cursor?: string | null): Promise<SyncPage> {
     const url =
       cursor ??
-      `${API}/mailFolders/inbox/messages?$top=${this.pageSize}&$select=id,conversationId,subject,from,toRecipients,ccRecipients,receivedDateTime,bodyPreview,body,isRead,hasAttachments&$orderby=receivedDateTime desc`;
+      `${API}/mailFolders/inbox/messages?$top=${this.pageSize}&$select=id,conversationId,subject,from,toRecipients,ccRecipients,receivedDateTime,bodyPreview,body,isRead,hasAttachments&$expand=attachments($select=id,name,contentType,size)&$orderby=receivedDateTime desc`;
     const page: {
       value?: GraphMessage[];
       "@odata.nextLink"?: string;

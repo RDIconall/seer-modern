@@ -29,6 +29,7 @@ type DecisionRow = {
   summary: string;
   owner: string;
   priority: number;
+  due_date: string | null;
   veto_reasons: string[];
   decision_id: string;
   matter_id: string | null;
@@ -48,6 +49,7 @@ export async function buildInboxView(
             d.summary,
             d.owner,
             d.priority,
+            d.due_date,
             d.veto_reasons,
             d.matter_id,
             (select m.from_email from seer.messages m
@@ -57,7 +59,8 @@ export async function buildInboxView(
        join seer.conversation_decisions d
          on d.conversation_id = c.id and d.is_current
       where c.account_id = $1 and c.is_deleted = false
-      order by d.priority desc, c.last_message_at desc nulls last`,
+      -- Loudest first; within a bucket, whatever is due soonest.
+      order by d.priority desc, d.due_date asc nulls last, c.last_message_at desc nulls last`,
     [accountId],
   );
 
@@ -94,6 +97,7 @@ export async function buildInboxView(
     summary: r.summary ?? "",
     owner: r.owner as ConversationRow["owner"],
     priority: r.priority ?? 0,
+    dueDate: r.due_date ? new Date(r.due_date).toISOString().slice(0, 10) : null,
     nativeUrl: nativeUrlFor(provider, r.provider_conversation_id),
   });
 

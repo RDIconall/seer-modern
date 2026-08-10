@@ -39,6 +39,11 @@ export const readResultSchema = z.object({
    * still outstanding for the user. Safety treats this as un-deletable.
    */
   obligation: z.boolean().default(false),
+  /**
+   * A date the email itself states (ISO, YYYY-MM-DD) by which something is due
+   * or a window closes. Only when the body actually says it — never inferred.
+   */
+  dueDate: z.string().optional(),
   matterRef: z.string().optional(),
   yields: z.array(yieldSchema).default([]),
   evidence: z.array(evidenceSchema).default([]),

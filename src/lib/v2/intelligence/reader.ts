@@ -2,7 +2,7 @@ import type { AccountId, ConversationId } from "../db/types";
 import type { Conversation } from "../providers/types";
 import { compileContext, type ContextInput } from "./context";
 import { counterpartyOf, matterNameFrom } from "./matter-key";
-import { computeSalience } from "./salience";
+import { computeSalience, validDueDate } from "./salience";
 import {
   ensureMatter,
   findMatterByRef,
@@ -175,6 +175,7 @@ export async function readConversation(
     matterId,
     vetoReasons: safety.vetoReasons,
     priority,
+    dueDate: validDueDate(read.dueDate),
     yields: resolvedYields,
     evidence: read.evidence.length
       ? read.evidence

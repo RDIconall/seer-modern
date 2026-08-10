@@ -2,6 +2,7 @@ import { generateText, Output, type LanguageModel } from "ai";
 import { google } from "@ai-sdk/google";
 import type { Conversation } from "../providers/types";
 import { readResultSchema, type ReadResult } from "./schema";
+import { readableBody } from "./html-text";
 import type { ReaderModel } from "./reader";
 
 /**
@@ -30,19 +31,30 @@ Decide two things and nothing else:
 
 Set obligation=true when a signature, approval, regulatory, legal, or payment step is still outstanding for the user. Set owner to who must act next. Set ask to the specific thing wanted, or "nothing — informational".
 
+Set dueDate ONLY when the email states a real date by which something must happen or a window closes ("respond by August 30", "expires August 19", "renews on 07/11/2026", "bidding closes Friday"). Use YYYY-MM-DD. Never infer or guess a date, and never use the date the email was sent. Leave it out when the email states none.
+
 Distinguish a GENERIC BROADCAST from a DIRECT DEMAND. A sourcing/procurement notice sent to every vendor ("open for bidding", "event opens in 1 hour", "response time revised"), a portal digest, or an automated status update is ambient — owner is usually "nobody" or "them". But the SAME channel can carry a message addressed to the user by name, quoting them, or explicitly asking them to respond, decide, approve, or sign — especially from a senior or named counterparty contact. That is owner "you" with a real ask. Judge from the recipients (is the user in To, or is this a broadcast?) and the body (is the user personally being asked?), never from the sender's address alone.
 
 Use the CONTEXT block as sourced evidence: [explicit]/[system] outrank your reading; [inference] is a hint. Absence of relationship is itself evidence toward fyi/disposable — but a real ask, signature, or deadline in the body always wins.`;
+
+/** "Raiane Sousa Gaspar <raiane@roche.com>" — what a paste would show. */
+function addressLine(a: { email: string; name?: string }): string {
+  return a.name && a.name !== a.email ? `${a.name} <${a.email}>` : a.email;
+}
 
 function conversationPayload(conversation: Conversation) {
   return {
     subject: conversation.subject,
     messages: conversation.messages.map((m) => ({
-      from: m.from.email,
-      to: m.to.map((a) => a.email),
-      cc: m.cc.map((a) => a.email),
+      // Names matter: seniority and identity live in them, not the address.
+      from: addressLine(m.from),
+      to: m.to.map(addressLine),
+      cc: m.cc.map(addressLine),
       sentAt: m.sentAt,
-      body: m.bodyText ?? m.bodyHtml?.replace(/<[^>]+>/g, " ") ?? m.snippet,
+      ...(m.attachments.length
+        ? { attachments: m.attachments.map((a) => a.filename) }
+        : {}),
+      body: readableBody(m),
     })),
   };
 }

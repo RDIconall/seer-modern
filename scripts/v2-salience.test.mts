@@ -4,7 +4,11 @@
  * never from the model's own "urgent" claim.
  */
 import assert from "node:assert/strict";
-import { computeSalience, addressedDirectly } from "../src/lib/v2/intelligence/salience.ts";
+import {
+  computeSalience,
+  addressedDirectly,
+  validDueDate,
+} from "../src/lib/v2/intelligence/salience.ts";
 import type { Conversation, Message } from "../src/lib/v2/providers/types.ts";
 
 function msg(from: string, to: string[], body: string): Message {
@@ -84,6 +88,21 @@ function convo(messages: Message[]): Conversation {
     senderVip: false,
   });
   assert.ok(s >= 2, "a direct ask addressed to me outranks a broadcast on the same channel");
+}
+
+// --- Stated deadlines: accepted only when real and plausible ---
+{
+  const now = new Date("2026-08-10T00:00:00Z");
+  assert.equal(validDueDate("2026-08-19", now), "2026-08-19");
+  assert.equal(validDueDate("2026-07-01", now), "2026-07-01", "recent past is a real overdue date");
+
+  // Garbage and guesses are discarded rather than trusted.
+  assert.equal(validDueDate(undefined, now), null);
+  assert.equal(validDueDate("", now), null);
+  assert.equal(validDueDate("next Friday", now), null);
+  assert.equal(validDueDate("2026-13-45", now), null, "impossible dates are rejected");
+  assert.equal(validDueDate("1999-01-01", now), null, "an ancient date is a misread");
+  assert.equal(validDueDate("2099-01-01", now), null, "a far-future date is a misread");
 }
 
 console.log("v2-salience: OK");

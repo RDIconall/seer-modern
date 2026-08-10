@@ -16,6 +16,8 @@ export type ConversationRow = {
   owner: Owner;
   /** 0-3 salience: how loudly this raises its hand (see salience.ts). */
   priority: number;
+  /** A date the email stated, if any — orders within a priority bucket. */
+  dueDate: string | null;
   nativeUrl: string;
 };
 

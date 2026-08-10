@@ -70,12 +70,14 @@ async function writeConversation(
     await client.query(
       `insert into seer.messages
          (account_id, conversation_id, provider_message_id, from_email, from_name,
-          to_emails, cc_emails, sent_at, snippet, body_html, body_text, is_unread, is_outgoing)
-         values ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13)
+          to_emails, cc_emails, sent_at, snippet, body_html, body_text, is_unread,
+          is_outgoing, attachment_names)
+         values ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14)
          on conflict (account_id, provider_message_id) do update
            set body_html = excluded.body_html,
                body_text = excluded.body_text,
-               is_unread = excluded.is_unread`,
+               is_unread = excluded.is_unread,
+               attachment_names = excluded.attachment_names`,
       [
         accountId,
         conversationId,
@@ -90,6 +92,7 @@ async function writeConversation(
         m.bodyText,
         m.isUnread,
         m.isOutgoing,
+        m.attachments.map((a) => a.filename),
       ],
     );
   }

@@ -180,14 +180,25 @@ try {
   );
 
   // Priority breakdown — the direct-demand vs generic-broadcast distinction.
-  console.log("=== NEEDS YOU (priority 3 — direct demand, senior/addressed) ===");
-  const hi = await db.pool.query<{ from_email: string; subject: string; owner: string; summary: string }>(
-    `select d.owner, d.summary, c.subject,
+  console.log("=== NEEDS YOU, SOONEST DUE FIRST (priority 3) ===");
+  const hi = await db.pool.query<{
+    from_email: string; subject: string; owner: string; due_date: string | null;
+  }>(
+    `select d.owner, c.subject, d.due_date,
             (select m.from_email from seer.messages m where m.conversation_id = c.id order by m.sent_at desc limit 1) as from_email
        from seer.conversations c join seer.conversation_decisions d on d.conversation_id = c.id and d.is_current
-      where d.priority = 3 order by c.last_message_at desc`,
+      where d.priority = 3
+      order by d.due_date asc nulls last, c.last_message_at desc limit 25`,
   );
-  for (const r of hi.rows) console.log(`- [${r.owner}] ${r.from_email} | ${r.subject}`);
+  for (const r of hi.rows) {
+    const due = r.due_date ? new Date(r.due_date).toISOString().slice(0, 10) : "—";
+    console.log(`- due ${due} | ${r.from_email} | ${r.subject.slice(0, 70)}`);
+  }
+
+  const dated = await db.pool.query<{ n: number }>(
+    "select count(*)::int as n from seer.conversation_decisions where is_current and due_date is not null",
+  );
+  console.log(`\n(${dated.rows[0].n} conversations carry a stated deadline)`);
 
   console.log("\n=== Roche sourcing/portal conversations by priority ===");
   const roche = await db.pool.query<{ priority: number; owner: string; from_email: string; subject: string }>(
