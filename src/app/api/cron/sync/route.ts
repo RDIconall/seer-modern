@@ -73,6 +73,17 @@ export async function GET(request: Request) {
     }
   }
 
+  // This is the legacy pipeline. It grades the whole inbox through the DIRECT
+  // Gemini API every tick plus up to 160 per-email deep reads, and it billed
+  // hundreds of dollars while v2 (which runs on the metered AI Gateway) became
+  // the system of record. It is retired: off by default, and only runnable if
+  // someone deliberately sets SEER_LEGACY_CRON=on. Removing it from the cron
+  // schedule stops the automated spend; this makes "off" the code's default so
+  // a manual hit or a re-added schedule cannot silently resume it.
+  if ((process.env.SEER_LEGACY_CRON ?? "off").toLowerCase() !== "on") {
+    return NextResponse.json({ ok: true, disabled: "legacy cron retired" });
+  }
+
   const started = Date.now();
   const report: Record<string, unknown>[] = [];
   // Prove the storage backend at the top of every run — a silent fallback
