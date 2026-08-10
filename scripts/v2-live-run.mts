@@ -127,8 +127,10 @@ try {
   let cursor: string | null = null;
   let stored = 0;
   let providerTotal = 0;
-  while (stored < convoCap) {
+  let pages = 0;
+  while (stored < convoCap && pages < 200) {
     const page = await mail.sync(cursor);
+    pages++;
     providerTotal = page.providerTotal;
     const slice = page.conversations.slice(0, convoCap - stored);
     const res = await writeConversationPage(accountId, slice, page.deletedConversationIds);
@@ -141,7 +143,10 @@ try {
 
   // --- One chief-of-staff read per conversation ---
   const t0 = Date.now();
-  const batch = await readBatch(accountId, legacy.email, defaultReaderModel, convoCap);
+  const batch = await readBatch(accountId, legacy.email, defaultReaderModel, {
+    limit: convoCap,
+    concurrency: 6,
+  });
   console.log(
     `read ${batch.attempted} conversations in ${Math.round((Date.now() - t0) / 1000)}s`,
   );

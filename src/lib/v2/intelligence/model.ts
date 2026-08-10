@@ -63,7 +63,10 @@ export const defaultReaderModel: ReaderModel = async ({
   const { output } = await generateText({
     model: resolveModel(),
     temperature: 0,
-    maxRetries: 1,
+    // A transient 5xx or a malformed structured response should not strand a
+    // conversation as unread; the SDK retries with backoff before we fall back
+    // to `undecided`.
+    maxRetries: 3,
     abortSignal: AbortSignal.timeout(60_000),
     output: Output.object({ schema: readResultSchema }),
     system: SYSTEM,

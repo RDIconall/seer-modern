@@ -63,26 +63,53 @@ async function loadConversation(
   };
 }
 
+export type ReadBatchOptions = {
+  limit?: number;
+  /** How many conversations to read in parallel. */
+  concurrency?: number;
+  /** Stop starting new reads once this wall-clock deadline passes. */
+  deadlineMs?: number;
+};
+
 export async function readBatch(
   accountId: AccountId,
   ownEmail: string,
   model: ReaderModel,
-  limit = 50,
+  options: ReadBatchOptions = {},
 ): Promise<ReadBatchResult> {
+  const limit = options.limit ?? 50;
+  const concurrency = options.concurrency ?? 6;
+  const deadline = options.deadlineMs ?? Number.MAX_SAFE_INTEGER;
+
   const ids = await conversationsNeedingRead(accountId, limit);
+  // Context is loaded once per batch (it changes slowly relative to a batch).
   const context = await loadContextInput(accountId, ownEmail);
+
+  let cursor = 0;
   let decided = 0;
-  for (const conversationId of ids) {
-    const conversation = await loadConversation(conversationId);
-    if (!conversation) continue;
-    const decision = await readConversation({
-      accountId,
-      conversationId: asConversationId(conversationId),
-      conversation,
-      context,
-      model,
-    });
-    if (decision.home !== "undecided") decided++;
+  let attempted = 0;
+
+  async function worker() {
+    for (;;) {
+      const index = cursor++;
+      if (index >= ids.length || Date.now() > deadline) return;
+      const conversationId = ids[index];
+      const conversation = await loadConversation(conversationId);
+      if (!conversation) continue;
+      attempted++;
+      const decision = await readConversation({
+        accountId,
+        conversationId: asConversationId(conversationId),
+        conversation,
+        context,
+        model,
+      });
+      if (decision.home !== "undecided") decided++;
+    }
   }
-  return { attempted: ids.length, decided };
+
+  await Promise.all(
+    Array.from({ length: Math.min(concurrency, ids.length) }, worker),
+  );
+  return { attempted, decided };
 }
