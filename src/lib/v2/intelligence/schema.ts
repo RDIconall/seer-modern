@@ -34,6 +34,11 @@ export const readResultSchema = z.object({
   rationale: z.string(),
   owner: ownerSchema,
   ask: z.string().optional(),
+  /**
+   * True when a signature, approval, regulatory, legal, or payment step is
+   * still outstanding for the user. Safety treats this as un-deletable.
+   */
+  obligation: z.boolean().default(false),
   matterRef: z.string().optional(),
   yields: z.array(yieldSchema).default([]),
   evidence: z.array(evidenceSchema).default([]),
