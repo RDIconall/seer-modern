@@ -59,15 +59,23 @@ function conversationPayload(conversation: Conversation) {
   };
 }
 
+/**
+ * The default is a FLASH-LITE tier, not full Flash. Triage is a
+ * classification task, and the Flash tiers cost ~5x input / 3x output for no
+ * material quality gain here. Pin the cheap tier and let SEER_GEMINI_MODEL
+ * override when a heavier model is genuinely needed.
+ */
+const DEFAULT_MODEL = "gemini-flash-lite-latest";
+
 function resolveModel(): LanguageModel | string {
   const forced = process.env.SEER_GEMINI_MODEL?.trim();
   const googleKey =
     process.env.GEMINI_API_KEY || process.env.GOOGLE_GENERATIVE_AI_API_KEY;
   if (googleKey) {
-    return google((forced || "gemini-2.5-flash").replace(/^google\//, ""));
+    return google((forced || DEFAULT_MODEL).replace(/^google\//, ""));
   }
   // Vercel AI Gateway string model (OIDC / AI_GATEWAY_API_KEY).
-  return forced || "google/gemini-2.5-flash";
+  return forced || `google/${DEFAULT_MODEL}`;
 }
 
 export const defaultReaderModel: ReaderModel = async ({
@@ -77,12 +85,18 @@ export const defaultReaderModel: ReaderModel = async ({
   const { output } = await generateText({
     model: resolveModel(),
     temperature: 0,
-    // A transient 5xx or a malformed structured response should not strand a
-    // conversation as unread; the SDK retries with backoff before we fall back
-    // to `undecided`.
-    maxRetries: 3,
+    // ONE attempt. Retries multiply cost on exactly the mail that thrashes;
+    // a failed read simply stays `undecided` and is retried on the next tick,
+    // by which point the model or the mail may have settled.
+    maxRetries: 1,
     abortSignal: AbortSignal.timeout(60_000),
     output: Output.object({ schema: readResultSchema }),
+    // Disable "thinking" tokens. On a paste-and-classify task they added
+    // little accuracy while dominating the bill — a trivial prompt produced
+    // ~10x more thinking tokens than output, all billed at the output rate.
+    providerOptions: {
+      google: { thinkingConfig: { thinkingBudget: 0, includeThoughts: false } },
+    },
     system: SYSTEM,
     prompt: JSON.stringify({
       context: contextText || "no prior relationship on record",
