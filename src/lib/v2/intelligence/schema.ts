@@ -50,6 +50,66 @@ export const readResultSchema = z.object({
 });
 export type ReadResult = z.infer<typeof readResultSchema>;
 
+/**
+ * Cross-provider generation schema. OpenAI strict structured output requires
+ * EVERY property to appear in `required`; optional values must be nullable.
+ * Google/Anthropic accept this shape too. Normalize nulls back to our cleaner
+ * application type after generation.
+ */
+const modelYieldSchema = z.object({
+  kind: z.enum(["matter_connection", "worth_reading", "contact", "fact"]),
+  matterRef: z.string().nullable(),
+  headline: z.string(),
+  detail: z.string().nullable(),
+  evidenceRef: z.string().nullable(),
+});
+
+const modelEvidenceSchema = z.object({
+  ref: z.string(),
+  provenance: z.enum([
+    "explicit",
+    "system",
+    "calendar",
+    "observed",
+    "inference",
+  ]),
+  detail: z.string().nullable(),
+});
+
+export const modelReadResultSchema = z.object({
+  home: homeSchema,
+  summary: z.string(),
+  rationale: z.string(),
+  owner: ownerSchema,
+  ask: z.string().nullable(),
+  obligation: z.boolean(),
+  dueDate: z.string().nullable(),
+  matterRef: z.string().nullable(),
+  yields: z.array(modelYieldSchema),
+  evidence: z.array(modelEvidenceSchema),
+});
+
+export function normalizeModelReadResult(
+  raw: z.infer<typeof modelReadResultSchema>,
+): ReadResult {
+  return readResultSchema.parse({
+    ...raw,
+    ask: raw.ask ?? undefined,
+    dueDate: raw.dueDate ?? undefined,
+    matterRef: raw.matterRef ?? undefined,
+    yields: raw.yields.map((item) => ({
+      ...item,
+      matterRef: item.matterRef ?? undefined,
+      detail: item.detail ?? undefined,
+      evidenceRef: item.evidenceRef ?? undefined,
+    })),
+    evidence: raw.evidence.map((item) => ({
+      ...item,
+      detail: item.detail ?? undefined,
+    })),
+  });
+}
+
 /** A decision as persisted and read back. */
 export type ConversationDecision = {
   id: string;

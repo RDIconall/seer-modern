@@ -1,6 +1,10 @@
 import { generateText, Output } from "ai";
 import type { Conversation } from "../providers/types";
-import { readResultSchema, type ReadResult } from "./schema";
+import {
+  modelReadResultSchema,
+  normalizeModelReadResult,
+  type ReadResult,
+} from "./schema";
 import { readableBody } from "./html-text";
 import type {
   ReaderModel,
@@ -19,7 +23,7 @@ import {
  * the reader records `undecided` and retries later.
  */
 
-const SYSTEM = `You are a chief of staff reading one email conversation for a busy executive.
+export const CHIEF_OF_STAFF_SYSTEM = `You are a chief of staff reading one email conversation for a busy executive.
 
 Decide two things and nothing else:
 
@@ -49,7 +53,7 @@ function addressLine(a: { email: string; name?: string }): string {
   return a.name && a.name !== a.email ? `${a.name} <${a.email}>` : a.email;
 }
 
-function conversationPayload(conversation: Conversation) {
+export function conversationPayload(conversation: Conversation) {
   return {
     subject: conversation.subject,
     messages: conversation.messages.map((m) => ({
@@ -150,7 +154,9 @@ export function escalationReasons(
   if (read.home === "delete") {
     if (input.routingFacts.senderIsKnown) reasons.push("delete_known_sender");
     if (input.routingFacts.senderIsInternal) reasons.push("delete_internal_sender");
-    if (input.routingFacts.addressedDirectly) reasons.push("delete_direct_address");
+    // Being in To is not enough: most mass mail addresses the user directly.
+    // "Direct message to me" is evidenced by owner/ask/obligation or a known
+    // relationship below, not by the envelope alone.
     if (read.owner === "you") reasons.push("delete_owner_you");
     if (read.obligation) reasons.push("delete_obligation");
     if (read.ask && !/^\s*nothing/i.test(read.ask)) {
@@ -174,7 +180,7 @@ export const callGatewayModel: ModelCaller = async (model, tier, input) => {
     temperature: 0,
     maxRetries: 0,
     abortSignal: AbortSignal.timeout(60_000),
-    output: Output.object({ schema: readResultSchema }),
+    output: Output.object({ schema: modelReadResultSchema }),
     providerOptions: {
       gateway: {
         models: fallbackModels(tier),
@@ -194,14 +200,14 @@ export const callGatewayModel: ModelCaller = async (model, tier, input) => {
         thinking: { type: "adaptive" },
       },
     },
-    system: SYSTEM,
+    system: CHIEF_OF_STAFF_SYSTEM,
     prompt: JSON.stringify({
       context: input.contextText || "no prior relationship on record",
       conversation: conversationPayload(input.conversation),
     }),
   });
   return {
-    output: result.output,
+    output: normalizeModelReadResult(result.output),
     usage: {
       inputTokens: result.usage.inputTokens,
       outputTokens: result.usage.outputTokens,

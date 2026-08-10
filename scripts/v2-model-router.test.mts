@@ -135,6 +135,18 @@ function harness(outputs: Partial<Record<RoutedTier, ReadResult>>) {
   assert.deepEqual(h.usage[1].escalationReasons, ["delete_known_sender"]);
 }
 
+// Being in To alone is NOT a direct-message signal: mass mail commonly puts
+// the user in To. Without an ask/owner/relationship, it stays on fast.
+{
+  const h = harness({ fast: baseRead });
+  const output = await h.router({
+    ...input,
+    routingFacts: { ...input.routingFacts, addressedDirectly: true },
+  });
+  assert.equal(output.home, "delete");
+  assert.deepEqual(h.calls, ["fast"]);
+}
+
 // A matter proposal and a matter_connection are both structural → strong.
 {
   const fast: ReadResult = {
