@@ -1,0 +1,32 @@
+{
+  "id": "roche-newsletter",
+  "conversation": {
+    "providerConversationId": "fixture-roche-newsletter",
+    "subject": "Daily News: FDA Clears Tests from Becton Dickinson, Roche, Others",
+    "messages": [
+      {
+        "providerMessageId": "fixture-roche-m1",
+        "from": { "email": "newsletters@360dx.com", "name": "360Dx" },
+        "to": [{ "email": "you@company.com" }],
+        "cc": [],
+        "sentAt": "2026-08-08T15:01:54Z",
+        "snippet": "FDA cleared new diagnostic tests this month...",
+        "bodyHtml": null,
+        "bodyText": "Industry daily news. The FDA cleared new diagnostic assays from Roche this month, including work relevant to anti-TPO testing, alongside clearances for Becton Dickinson and Danaher.",
+        "isUnread": true,
+        "isOutgoing": false,
+        "attachments": []
+      }
+    ],
+    "lastMessageAt": "2026-08-08T15:01:54Z"
+  },
+  "context": {
+    "ownDomain": "company.com",
+    "people": [],
+    "matters": [{ "id": "roche", "title": "Roche anti-TPO study" }],
+    "interests": []
+  },
+  "expectedHome": "undecided",
+  "allowedMatterRefs": ["roche", "Roche anti-TPO study"],
+  "requiredYieldKinds": ["matter_connection"]
+}
