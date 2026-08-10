@@ -179,7 +179,27 @@ try {
     `atlas=${view.atlas.length} records=${view.records.length} safeToDelete=${view.safeToDelete.length} undecided=${view.undecided.length} worthReading=${view.worthReading.length}\n`,
   );
 
-  console.log("=== SAFE TO DELETE ===");
+  // Priority breakdown — the direct-demand vs generic-broadcast distinction.
+  console.log("=== NEEDS YOU (priority 3 — direct demand, senior/addressed) ===");
+  const hi = await db.pool.query<{ from_email: string; subject: string; owner: string; summary: string }>(
+    `select d.owner, d.summary, c.subject,
+            (select m.from_email from seer.messages m where m.conversation_id = c.id order by m.sent_at desc limit 1) as from_email
+       from seer.conversations c join seer.conversation_decisions d on d.conversation_id = c.id and d.is_current
+      where d.priority = 3 order by c.last_message_at desc`,
+  );
+  for (const r of hi.rows) console.log(`- [${r.owner}] ${r.from_email} | ${r.subject}`);
+
+  console.log("\n=== Roche sourcing/portal conversations by priority ===");
+  const roche = await db.pool.query<{ priority: number; owner: string; from_email: string; subject: string }>(
+    `select d.priority, d.owner, c.subject,
+            (select m.from_email from seer.messages m where m.conversation_id = c.id order by m.sent_at desc limit 1) as from_email
+       from seer.conversations c join seer.conversation_decisions d on d.conversation_id = c.id and d.is_current
+      where exists (select 1 from seer.messages m where m.conversation_id = c.id and (m.from_email like '%mybuy@roche.com' or m.from_email like '%vendor.portal@roche.com'))
+      order by d.priority desc, c.last_message_at desc`,
+  );
+  for (const r of roche.rows) console.log(`- P${r.priority} [${r.owner}] ${r.from_email} | ${r.subject.slice(0, 80)}`);
+
+  console.log("\n=== SAFE TO DELETE ===");
   for (const r of view.safeToDelete) {
     console.log(`- ${r.from} | ${r.subject} | ${r.summary}`);
   }

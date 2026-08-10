@@ -167,6 +167,8 @@ create table if not exists seer.conversation_decisions (
   ask text,
   matter_id uuid references seer.matters (id) on delete set null,
   veto_reasons text[] not null default '{}',
+  -- 0 (ambient) … 3 (direct demand from someone senior). Computed from facts.
+  priority smallint not null default 0,
   model_version text not null,
   context_version text not null,
   is_current boolean not null default true,

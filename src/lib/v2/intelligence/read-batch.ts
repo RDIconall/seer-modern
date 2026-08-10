@@ -33,6 +33,8 @@ async function loadConversation(
     provider_message_id: string;
     from_email: string | null;
     from_name: string | null;
+    to_emails: string[] | null;
+    cc_emails: string[] | null;
     sent_at: string | null;
     body_html: string | null;
     body_text: string | null;
@@ -40,7 +42,7 @@ async function loadConversation(
     is_unread: boolean;
     is_outgoing: boolean;
   }>(
-    "select provider_message_id, from_email, from_name, sent_at, body_html, body_text, snippet, is_unread, is_outgoing from seer.messages where conversation_id = $1 order by sent_at",
+    "select provider_message_id, from_email, from_name, to_emails, cc_emails, sent_at, body_html, body_text, snippet, is_unread, is_outgoing from seer.messages where conversation_id = $1 order by sent_at",
     [conversationId],
   );
   return {
@@ -50,8 +52,11 @@ async function loadConversation(
     messages: msgs.rows.map((m) => ({
       providerMessageId: m.provider_message_id,
       from: { email: m.from_email ?? "", name: m.from_name ?? undefined },
-      to: [],
-      cc: [],
+      // Recipients matter: a message addressed directly to the user is a
+      // different thing from a broadcast to every vendor, and the read cannot
+      // tell them apart without them.
+      to: (m.to_emails ?? []).map((email) => ({ email })),
+      cc: (m.cc_emails ?? []).map((email) => ({ email })),
       sentAt: m.sent_at ?? "",
       snippet: m.snippet ?? "",
       bodyHtml: m.body_html,

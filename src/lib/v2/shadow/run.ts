@@ -40,12 +40,14 @@ async function loadStoredConversations(accountId: AccountId): Promise<
     const msgs = await db().query<{
       provider_message_id: string;
       from_email: string | null;
+      to_emails: string[] | null;
+      cc_emails: string[] | null;
       sent_at: string | null;
       body_html: string | null;
       body_text: string | null;
       snippet: string | null;
     }>(
-      "select provider_message_id, from_email, sent_at, body_html, body_text, snippet from seer.messages where conversation_id = $1 order by sent_at",
+      "select provider_message_id, from_email, to_emails, cc_emails, sent_at, body_html, body_text, snippet from seer.messages where conversation_id = $1 order by sent_at",
       [c.id],
     );
     out.push({
@@ -55,10 +57,10 @@ async function loadStoredConversations(accountId: AccountId): Promise<
         subject: c.subject ?? "",
         messages: msgs.rows.map((m) => ({
           providerMessageId: m.provider_message_id,
-          from: { email: m.from_email ?? "" },
-          to: [],
-          cc: [],
-          sentAt: m.sent_at ?? "",
+        from: { email: m.from_email ?? "" },
+        to: (m.to_emails ?? []).map((email) => ({ email })),
+        cc: (m.cc_emails ?? []).map((email) => ({ email })),
+        sentAt: m.sent_at ?? "",
           snippet: m.snippet ?? "",
           bodyHtml: m.body_html,
           bodyText: m.body_text,

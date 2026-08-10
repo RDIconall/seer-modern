@@ -28,6 +28,7 @@ type DecisionRow = {
   home: string;
   summary: string;
   owner: string;
+  priority: number;
   veto_reasons: string[];
   decision_id: string;
   matter_id: string | null;
@@ -46,6 +47,7 @@ export async function buildInboxView(
             d.home,
             d.summary,
             d.owner,
+            d.priority,
             d.veto_reasons,
             d.matter_id,
             (select m.from_email from seer.messages m
@@ -55,7 +57,7 @@ export async function buildInboxView(
        join seer.conversation_decisions d
          on d.conversation_id = c.id and d.is_current
       where c.account_id = $1 and c.is_deleted = false
-      order by c.last_message_at desc nulls last`,
+      order by d.priority desc, c.last_message_at desc nulls last`,
     [accountId],
   );
 
@@ -91,6 +93,7 @@ export async function buildInboxView(
     at: r.last_message_at ?? "",
     summary: r.summary ?? "",
     owner: r.owner as ConversationRow["owner"],
+    priority: r.priority ?? 0,
     nativeUrl: nativeUrlFor(provider, r.provider_conversation_id),
   });
 

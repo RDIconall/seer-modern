@@ -30,6 +30,8 @@ Decide two things and nothing else:
 
 Set obligation=true when a signature, approval, regulatory, legal, or payment step is still outstanding for the user. Set owner to who must act next. Set ask to the specific thing wanted, or "nothing — informational".
 
+Distinguish a GENERIC BROADCAST from a DIRECT DEMAND. A sourcing/procurement notice sent to every vendor ("open for bidding", "event opens in 1 hour", "response time revised"), a portal digest, or an automated status update is ambient — owner is usually "nobody" or "them". But the SAME channel can carry a message addressed to the user by name, quoting them, or explicitly asking them to respond, decide, approve, or sign — especially from a senior or named counterparty contact. That is owner "you" with a real ask. Judge from the recipients (is the user in To, or is this a broadcast?) and the body (is the user personally being asked?), never from the sender's address alone.
+
 Use the CONTEXT block as sourced evidence: [explicit]/[system] outrank your reading; [inference] is a hint. Absence of relationship is itself evidence toward fyi/disposable — but a real ask, signature, or deadline in the body always wins.`;
 
 function conversationPayload(conversation: Conversation) {

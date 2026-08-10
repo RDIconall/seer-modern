@@ -14,6 +14,8 @@ export type ConversationRow = {
   at: string;
   summary: string;
   owner: Owner;
+  /** 0-3 salience: how loudly this raises its hand (see salience.ts). */
+  priority: number;
   nativeUrl: string;
 };
 

@@ -32,6 +32,8 @@ export type SaveDecisionInput = {
   ask?: string;
   matterId?: string | null;
   vetoReasons: string[];
+  /** 0-3 salience computed from facts (see salience.ts). */
+  priority?: number;
   /** Yields may carry the matter they were resolved to, so meaning lands on it. */
   yields: (Yield & { matterId?: string | null })[];
   evidence: Evidence[];
@@ -55,9 +57,9 @@ export async function saveDecision(
     const decisionRow = await client.query<{ id: string }>(
       `insert into seer.conversation_decisions
          (account_id, conversation_id, home, proposed_home, summary, rationale,
-          owner, ask, matter_id, veto_reasons, model_version, context_version,
-          is_current, decided_at)
-         values ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,true,$13)
+          owner, ask, matter_id, veto_reasons, priority, model_version,
+          context_version, is_current, decided_at)
+         values ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,true,$14)
          returning id`,
       [
         input.accountId,
@@ -70,6 +72,7 @@ export async function saveDecision(
         input.ask ?? null,
         input.matterId ?? null,
         input.vetoReasons,
+        input.priority ?? 0,
         input.modelVersion ?? MODEL_VERSION,
         input.contextVersion ?? CONTEXT_VERSION,
         decided,

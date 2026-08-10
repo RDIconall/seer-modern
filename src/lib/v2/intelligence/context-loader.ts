@@ -29,6 +29,7 @@ export async function loadContextInput(
 
   return {
     ownDomain: ownEmail.split("@")[1] ?? "",
+    ownEmail,
     people: people.rows.map((p) => ({ email: p.email, tier: p.tier, vip: p.vip })),
     matters: matters.rows.map((m) => ({ id: m.id, title: m.title })),
     interests: interests.rows.map((i) => i.topic),

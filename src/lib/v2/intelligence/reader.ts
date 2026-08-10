@@ -2,6 +2,7 @@ import type { AccountId, ConversationId } from "../db/types";
 import type { Conversation } from "../providers/types";
 import { compileContext, type ContextInput } from "./context";
 import { counterpartyOf, matterNameFrom } from "./matter-key";
+import { computeSalience } from "./salience";
 import {
   ensureMatter,
   findMatterByRef,
@@ -112,6 +113,17 @@ export async function readConversation(
   const facts = factsFrom(read, compiled, true);
   const safety = validateDelete(read, facts);
 
+  // Grounded salience: how loudly this should raise its hand, from facts —
+  // a direct demand addressed to you from someone senior outranks a broadcast
+  // sourcing notice, regardless of what the prose sounds like.
+  const priority = computeSalience({
+    read,
+    conversation: input.conversation,
+    ownEmail: input.context.ownEmail ?? `x@${input.context.ownDomain}`,
+    senderTier: compiled.senderTier,
+    senderVip: compiled.senderVip,
+  });
+
   // Promotion: live work must land on the board. Reuse the matched matter, or
   // create one from the read's proposed name — otherwise a `matter` decision
   // has no matter to belong to and would be misfiled.
@@ -162,6 +174,7 @@ export async function readConversation(
     ask: read.ask,
     matterId,
     vetoReasons: safety.vetoReasons,
+    priority,
     yields: resolvedYields,
     evidence: read.evidence.length
       ? read.evidence

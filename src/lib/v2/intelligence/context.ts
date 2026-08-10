@@ -21,6 +21,8 @@ export type LiveMatter = {
 
 export type ContextInput = {
   ownDomain: string;
+  /** The account's own email, for the direct-address salience signal. */
+  ownEmail?: string;
   people: KnownPerson[];
   matters: LiveMatter[];
   interests: string[];
@@ -33,6 +35,9 @@ export type CompiledContext = {
   senderIsKnown: boolean;
   senderIsInternal: boolean;
   candidateMatterId: string | null;
+  /** The sender's tier and VIP flag, for salience. */
+  senderTier: string;
+  senderVip: boolean;
 };
 
 const MAX_CHARS = 1200;
@@ -108,5 +113,7 @@ export function compileContext(
     senderIsKnown,
     senderIsInternal,
     candidateMatterId,
+    senderTier: person?.tier ?? "unknown",
+    senderVip: Boolean(person?.vip),
   };
 }
