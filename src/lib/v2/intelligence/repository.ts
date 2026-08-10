@@ -152,13 +152,14 @@ export async function ensureMatter(
         title: string;
         counterparty: string | null;
         codes: string[] | null;
+        title_source: string | null;
       }>(
-        `select m.id, m.title, m.org_unit as counterparty,
+        `select m.id, m.title, m.org_unit as counterparty, m.title_source,
                 array_remove(array_agg(distinct mc.code), null) as codes
            from seer.matters m
            left join seer.matter_codes mc on mc.matter_id = m.id
           where m.account_id = $1 and m.status <> 'closed'
-          group by m.id, m.title, m.org_unit`,
+          group by m.id, m.title, m.org_unit, m.title_source`,
         [accountId],
       );
       const match = resolveMatterMatch(
@@ -168,6 +169,7 @@ export async function ensureMatter(
           title: r.title,
           codes: r.codes ?? [],
           counterparty: r.counterparty ?? "",
+          userAuthored: r.title_source === "user",
         })),
       );
       if (match) {

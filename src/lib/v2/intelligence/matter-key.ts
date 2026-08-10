@@ -155,6 +155,8 @@ export type MatterCandidate = {
   /** Codes already associated with this matter. */
   codes: string[];
   counterparty: string;
+  /** The user named this matter themselves, so its scope is their decision. */
+  userAuthored?: boolean;
 };
 
 export type ConversationKey = {
@@ -168,10 +170,18 @@ export type ConversationKey = {
 /** How much request overlap is required to tie two conversations together. */
 const MIN_SHARED_WORDS = 2;
 
+/** Compare matter names as work, not as strings: case and spacing are noise. */
+function normalizeTitle(title: string): string {
+  return title
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, " ")
+    .trim();
+}
+
 /**
  * Find the existing matter this conversation belongs to, or null to start a new
- * one. A shared code wins outright; otherwise the counterparty must match AND
- * the requests must share real vocabulary.
+ * one. A shared code wins outright, then an identical name; otherwise the
+ * counterparty must match AND the requests must share real vocabulary.
  */
 export function resolveMatterMatch(
   key: ConversationKey,
@@ -187,7 +197,20 @@ export function resolveMatterMatch(
     }
   }
 
-  // 2. Same counterparty AND overlapping request vocabulary.
+  // 2. A matter the user named themselves is authoritative: they have already
+  // said this is one unit of work. Mail reaches it from every side — the
+  // vendor, a colleague, a portal — so matching it on counterparty would
+  // fragment the very grouping the user asked for. Inferred matters get no
+  // such licence; they must still prove the counterparty below.
+  const normalized = normalizeTitle(key.title);
+  if (normalized) {
+    for (const candidate of candidates) {
+      if (!candidate.userAuthored) continue;
+      if (normalizeTitle(candidate.title) === normalized) return candidate;
+    }
+  }
+
+  // 3. Same counterparty AND overlapping request vocabulary.
   if (!key.counterparty) return null;
   let best: { candidate: MatterCandidate; score: number } | null = null;
   for (const candidate of candidates) {

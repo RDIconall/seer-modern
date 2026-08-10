@@ -82,6 +82,50 @@ const roche = (title: string, codes: string[] = []): MatterCandidate => ({
   }
 }
 
+// --- A matter the user named themselves collects the work from every side ---
+// The live run split the user's own "Canadian startup CRO monitoring lead"
+// three ways because each counterparty created its own copy.
+{
+  const userMatter: MatterCandidate = {
+    matterId: "m-user",
+    title: "Canadian startup CRO monitoring lead",
+    codes: [],
+    counterparty: "sales — leads",
+    userAuthored: true,
+  };
+  for (const counterparty of ["bizdevlabs", "internal", ""]) {
+    const match = resolveMatterMatch(
+      {
+        title: "Canadian startup CRO monitoring lead",
+        text: "x",
+        counterparty,
+      },
+      [userMatter],
+    );
+    assert.equal(
+      match?.matterId,
+      "m-user",
+      `a user-named matter must collect work from ${counterparty || "unknown"}`,
+    );
+  }
+}
+
+// --- ...but a user-named matter still does not swallow different work ---
+{
+  const userMatter: MatterCandidate = {
+    matterId: "m-user",
+    title: "Canadian startup CRO monitoring lead",
+    codes: [],
+    counterparty: "sales — leads",
+    userAuthored: true,
+  };
+  const match = resolveMatterMatch(
+    { title: "Roche invoicing query", text: "x", counterparty: "roche" },
+    [userMatter],
+  );
+  assert.equal(match, null, "a different request must not join a user matter");
+}
+
 // --- GUARDRAIL: same words, different counterparty never merges ---
 {
   const existing = [roche("Anti-TPO sample request")];
