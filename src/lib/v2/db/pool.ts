@@ -19,9 +19,18 @@ function connectionString(): string | null {
   );
 }
 
+// The test override lives on globalThis, not a module-scoped variable: under
+// tsx some modules load as CJS and others as ESM, which can create two
+// instances of this file. A global key keeps a single shared override.
+const OVERRIDE = Symbol.for("seer.v2.pool.override");
+
+type GlobalWithOverride = typeof globalThis & { [OVERRIDE]?: Pool | null };
+
 let pool: Pool | null = null;
 
 export function db(): Pool {
+  const override = (globalThis as GlobalWithOverride)[OVERRIDE];
+  if (override) return override;
   if (pool) return pool;
   const cs = connectionString();
   if (!cs) {
@@ -52,5 +61,5 @@ export function db(): Pool {
  * the module to a local embedded Postgres; production never calls it.
  */
 export function setPoolForTesting(p: Pool | null): void {
-  pool = p;
+  (globalThis as GlobalWithOverride)[OVERRIDE] = p;
 }
