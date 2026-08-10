@@ -271,6 +271,29 @@ create table if not exists seer.sync_runs (
   finished_at timestamptz
 );
 
+-- Every model call is auditable. Gateway generation IDs link to exact spend in
+-- Vercel; local token counts remain available even if the Gateway dashboard is
+-- unavailable. This is intentionally per-call, not an aggregate that can hide
+-- a runaway loop.
+create table if not exists seer.model_usage (
+  id uuid primary key default gen_random_uuid(),
+  account_id uuid not null references seer.mail_accounts (id) on delete cascade,
+  conversation_id uuid references seer.conversations (id) on delete set null,
+  tier text not null check (tier in ('fast', 'strong')),
+  model text not null,
+  escalation_reasons text[] not null default '{}',
+  latency_ms integer not null default 0,
+  input_tokens integer,
+  output_tokens integer,
+  reasoning_tokens integer,
+  cached_input_tokens integer,
+  total_tokens integer,
+  gateway_generation_id text,
+  cost_usd numeric(12, 6),
+  provider_metadata jsonb not null default '{}',
+  created_at timestamptz not null default now()
+);
+
 -- ---------------------------------------------------------------------------
 -- Row-level security: on for every account-scoped table. The server connects
 -- as the table owner / service role (which bypasses RLS); the Data-API roles
@@ -295,6 +318,7 @@ alter table seer.events enable row level security;
 alter table seer.command_receipts enable row level security;
 alter table seer.sync_state enable row level security;
 alter table seer.sync_runs enable row level security;
+alter table seer.model_usage enable row level security;
 
 -- ---------------------------------------------------------------------------
 -- Indexes for the read paths the app actually runs.
@@ -312,3 +336,5 @@ create index if not exists matters_account_status_idx
   on seer.matters (account_id, status);
 create index if not exists yields_account_kind_idx
   on seer.yields (account_id, kind);
+create index if not exists model_usage_account_created_idx
+  on seer.model_usage (account_id, created_at desc);

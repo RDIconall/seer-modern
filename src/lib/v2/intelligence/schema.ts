@@ -69,5 +69,5 @@ export type ConversationDecision = {
 };
 
 /** Bump when the read prompt or schema changes; invalidates cached reads. */
-export const MODEL_VERSION = "v2-read-1";
+export const MODEL_VERSION = "v2-read-2-router";
 export const CONTEXT_VERSION = "v2-ctx-1";

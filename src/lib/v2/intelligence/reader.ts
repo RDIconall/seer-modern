@@ -2,7 +2,11 @@ import type { AccountId, ConversationId } from "../db/types";
 import type { Conversation } from "../providers/types";
 import { compileContext, type ContextInput } from "./context";
 import { counterpartyOf, matterNameFrom } from "./matter-key";
-import { computeSalience, validDueDate } from "./salience";
+import {
+  addressedDirectly,
+  computeSalience,
+  validDueDate,
+} from "./salience";
 import {
   ensureMatter,
   findMatterByRef,
@@ -26,10 +30,20 @@ import {
  * `undecided`; it is never guessed into a home.
  */
 
-export type ReaderModel = (input: {
+export type ReaderModelInput = {
+  accountId: AccountId;
+  conversationId: ConversationId;
   conversation: Conversation;
   contextText: string;
-}) => Promise<ReadResult>;
+  routingFacts: {
+    senderIsKnown: boolean;
+    senderIsInternal: boolean;
+    liveMatterId: string | null;
+    addressedDirectly: boolean;
+  };
+};
+
+export type ReaderModel = (input: ReaderModelInput) => Promise<ReadResult>;
 
 export type ReadInput = {
   accountId: AccountId;
@@ -90,8 +104,19 @@ export async function readConversation(
   let read: ReadResult;
   try {
     const raw = await input.model({
+      accountId: input.accountId,
+      conversationId: input.conversationId,
       conversation: input.conversation,
       contextText: compiled.text,
+      routingFacts: {
+        senderIsKnown: compiled.senderIsKnown,
+        senderIsInternal: compiled.senderIsInternal,
+        liveMatterId: compiled.candidateMatterId,
+        addressedDirectly: addressedDirectly(
+          input.conversation,
+          input.context.ownEmail ?? `x@${input.context.ownDomain}`,
+        ),
+      },
     });
     read = readResultSchema.parse(raw);
   } catch {

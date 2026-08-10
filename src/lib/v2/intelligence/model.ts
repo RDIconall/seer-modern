@@ -1,9 +1,16 @@
-import { generateText, Output, type LanguageModel } from "ai";
-import { google } from "@ai-sdk/google";
+import { generateText, Output } from "ai";
 import type { Conversation } from "../providers/types";
 import { readResultSchema, type ReadResult } from "./schema";
 import { readableBody } from "./html-text";
-import type { ReaderModel } from "./reader";
+import type {
+  ReaderModel,
+  ReaderModelInput,
+} from "./reader";
+import {
+  recordModelUsage,
+  withinDailyCallLimit,
+  type ModelUsageRecord,
+} from "./model-usage";
 
 /**
  * The real chief-of-staff model, behind the injectable ReaderModel interface.
@@ -60,48 +67,273 @@ function conversationPayload(conversation: Conversation) {
 }
 
 /**
- * The default is a FLASH-LITE tier, not full Flash. Triage is a
- * classification task, and the Flash tiers cost ~5x input / 3x output for no
- * material quality gain here. Pin the cheap tier and let SEER_GEMINI_MODEL
- * override when a heavier model is genuinely needed.
+ * Current Gateway model IDs (verified against its public model catalog).
+ *
+ * Fast: GA Gemini 3.1 Flash Lite — $0.25/M input, $1.50/M output, 1M context.
+ * Strong: Claude Sonnet 4.6 — adaptive thinking, 1M context. The strong model
+ * is an initial configuration, NOT a claim that Anthropic wins our bake-off;
+ * changing it is an environment variable, not a code change.
  */
-const DEFAULT_MODEL = "gemini-flash-lite-latest";
+const DEFAULT_FAST_MODEL = "google/gemini-3.1-flash-lite";
+const DEFAULT_STRONG_MODEL = "anthropic/claude-sonnet-4.6";
+const DEFAULT_STRONG_FALLBACKS = [
+  "openai/gpt-5.4",
+  "google/gemini-3.1-pro-preview",
+];
 
-function resolveModel(): LanguageModel | string {
-  const forced = process.env.SEER_GEMINI_MODEL?.trim();
-  const googleKey =
-    process.env.GEMINI_API_KEY || process.env.GOOGLE_GENERATIVE_AI_API_KEY;
-  if (googleKey) {
-    return google((forced || DEFAULT_MODEL).replace(/^google\//, ""));
-  }
-  // Vercel AI Gateway string model (OIDC / AI_GATEWAY_API_KEY).
-  return forced || `google/${DEFAULT_MODEL}`;
+export type RoutedTier = "fast" | "strong";
+
+export type ModelCallResult = {
+  output: ReadResult;
+  usage: {
+    inputTokens?: number;
+    outputTokens?: number;
+    reasoningTokens?: number;
+    cachedInputTokens?: number;
+    totalTokens?: number;
+  };
+  providerMetadata?: Record<string, unknown>;
+  latencyMs: number;
+};
+
+export type ModelCaller = (
+  model: string,
+  tier: RoutedTier,
+  input: ReaderModelInput,
+) => Promise<ModelCallResult>;
+
+export type UsageRecorder = (
+  record: ModelUsageRecord,
+) => Promise<void>;
+
+function envList(name: string, fallback: string[]): string[] {
+  const value = process.env[name]?.trim();
+  if (!value) return fallback;
+  return value
+    .split(",")
+    .map((item) => item.trim())
+    .filter(Boolean);
 }
 
-export const defaultReaderModel: ReaderModel = async ({
-  conversation,
-  contextText,
-}): Promise<ReadResult> => {
-  const { output } = await generateText({
-    model: resolveModel(),
+function requestedModel(tier: RoutedTier): string {
+  return tier === "fast"
+    ? process.env.SEER_ROUTER_FAST_MODEL?.trim() || DEFAULT_FAST_MODEL
+    : process.env.SEER_ROUTER_STRONG_MODEL?.trim() || DEFAULT_STRONG_MODEL;
+}
+
+function fallbackModels(tier: RoutedTier): string[] {
+  return tier === "fast"
+    ? envList("SEER_ROUTER_FAST_FALLBACKS", [])
+    : envList("SEER_ROUTER_STRONG_FALLBACKS", DEFAULT_STRONG_FALLBACKS);
+}
+
+/**
+ * Consequence-driven escalation. This is deterministic and inspectable — no
+ * hidden "router model" spends tokens deciding which model gets tokens.
+ */
+export function escalationReasons(
+  read: ReadResult,
+  input: ReaderModelInput,
+): string[] {
+  const reasons: string[] = [];
+  if (read.home === "undecided") reasons.push("fast_undecided");
+  // Matter creation and matter connections affect the board's structure, so a
+  // stronger model verifies them before they become durable.
+  if (read.home === "matter") reasons.push("proposed_matter");
+  if (read.yields.some((y) => y.kind === "matter_connection")) {
+    reasons.push("matter_connection");
+  }
+  if (input.routingFacts.liveMatterId) reasons.push("live_matter");
+
+  // A delete with ANY protective signal gets reviewed. Easy, unprotected
+  // disposable mail stays on the fast result.
+  if (read.home === "delete") {
+    if (input.routingFacts.senderIsKnown) reasons.push("delete_known_sender");
+    if (input.routingFacts.senderIsInternal) reasons.push("delete_internal_sender");
+    if (input.routingFacts.addressedDirectly) reasons.push("delete_direct_address");
+    if (read.owner === "you") reasons.push("delete_owner_you");
+    if (read.obligation) reasons.push("delete_obligation");
+    if (read.ask && !/^\s*nothing/i.test(read.ask)) {
+      reasons.push("delete_open_ask");
+    }
+  }
+  return [...new Set(reasons)];
+}
+
+/**
+ * One Gateway call with model-level fallbacks. AI SDK retries are disabled:
+ * Gateway provider/model fallbacks are visible in generation metadata and do
+ * not create opaque duplicate attempts in app code.
+ */
+export const callGatewayModel: ModelCaller = async (model, tier, input) => {
+  const started = Date.now();
+  const result = await generateText({
+    // A provider/model string routes through Vercel AI Gateway (OIDC in Vercel,
+    // AI_GATEWAY_API_KEY outside it).
+    model,
     temperature: 0,
-    // ONE attempt. Retries multiply cost on exactly the mail that thrashes;
-    // a failed read simply stays `undecided` and is retried on the next tick,
-    // by which point the model or the mail may have settled.
-    maxRetries: 1,
+    maxRetries: 0,
     abortSignal: AbortSignal.timeout(60_000),
     output: Output.object({ schema: readResultSchema }),
-    // Disable "thinking" tokens. On a paste-and-classify task they added
-    // little accuracy while dominating the bill — a trivial prompt produced
-    // ~10x more thinking tokens than output, all billed at the output rate.
     providerOptions: {
-      google: { thinkingConfig: { thinkingBudget: 0, includeThoughts: false } },
+      gateway: {
+        models: fallbackModels(tier),
+        caching: "auto",
+        // Fast work chooses the cheapest healthy provider; strong work keeps
+        // the configured model but can fail over across its providers/models.
+        ...(tier === "fast" ? { sort: "cost" } : {}),
+      },
+      google: {
+        thinkingConfig: {
+          thinkingLevel: tier === "fast" ? "minimal" : "medium",
+          includeThoughts: false,
+        },
+      },
+      anthropic: {
+        effort: tier === "strong" ? "medium" : "low",
+        thinking: { type: "adaptive" },
+      },
     },
     system: SYSTEM,
     prompt: JSON.stringify({
-      context: contextText || "no prior relationship on record",
-      conversation: conversationPayload(conversation),
+      context: input.contextText || "no prior relationship on record",
+      conversation: conversationPayload(input.conversation),
     }),
   });
-  return output;
+  return {
+    output: result.output,
+    usage: {
+      inputTokens: result.usage.inputTokens,
+      outputTokens: result.usage.outputTokens,
+      reasoningTokens: result.usage.outputTokenDetails.reasoningTokens,
+      cachedInputTokens: result.usage.inputTokenDetails.cacheReadTokens,
+      totalTokens: result.usage.totalTokens,
+    },
+    providerMetadata: result.providerMetadata as
+      | Record<string, unknown>
+      | undefined,
+    latencyMs: Date.now() - started,
+  };
 };
+
+function gatewayMetadata(
+  metadata: Record<string, unknown> | undefined,
+): Record<string, unknown> {
+  const gateway = metadata?.gateway;
+  return gateway && typeof gateway === "object"
+    ? (gateway as Record<string, unknown>)
+    : {};
+}
+
+async function persistUsage(
+  recorder: UsageRecorder,
+  input: ReaderModelInput,
+  tier: RoutedTier,
+  model: string,
+  reasons: string[],
+  result: ModelCallResult,
+): Promise<void> {
+  const gateway = gatewayMetadata(result.providerMetadata);
+  const rawCost = gateway.cost;
+  const cost =
+    typeof rawCost === "number"
+      ? rawCost
+      : typeof rawCost === "string"
+        ? Number(rawCost)
+        : undefined;
+  try {
+    await recorder({
+      accountId: input.accountId,
+      conversationId: input.conversationId,
+      tier,
+      model,
+      escalationReasons: reasons,
+      latencyMs: result.latencyMs,
+      inputTokens: result.usage.inputTokens,
+      outputTokens: result.usage.outputTokens,
+      reasoningTokens: result.usage.reasoningTokens,
+      cachedInputTokens: result.usage.cachedInputTokens,
+      totalTokens: result.usage.totalTokens,
+      gatewayGenerationId:
+        typeof gateway.generationId === "string"
+          ? gateway.generationId
+          : undefined,
+      costUsd: Number.isFinite(cost) ? cost : undefined,
+      providerMetadata: result.providerMetadata,
+    });
+  } catch (error) {
+    // Telemetry is essential for operations, but a transient telemetry write
+    // must not discard a good read and cause a second paid call.
+    console.error(
+      "[seer:v2] model usage persistence failed:",
+      error instanceof Error ? error.message : error,
+    );
+  }
+}
+
+export function createReaderRouter(deps: {
+  call?: ModelCaller;
+  recordUsage?: UsageRecorder;
+  allowCall?: (
+    accountId: ReaderModelInput["accountId"],
+    tier: RoutedTier,
+  ) => Promise<boolean>;
+} = {}): ReaderModel {
+  const call = deps.call ?? callGatewayModel;
+  const recorder = deps.recordUsage ?? recordModelUsage;
+  const allowCall = deps.allowCall ?? withinDailyCallLimit;
+
+  return async (input) => {
+    const fastModel = requestedModel("fast");
+    let fast: ModelCallResult;
+    try {
+      if (!(await allowCall(input.accountId, "fast"))) {
+        throw new Error("fast daily model-call limit reached");
+      }
+      fast = await call(fastModel, "fast", input);
+      await persistUsage(recorder, input, "fast", fastModel, [], fast);
+    } catch (fastError) {
+      // A fast-model outage is itself an escalation reason. The strong route
+      // may still serve the read through a different provider.
+      const reasons = ["fast_failed"];
+      const strongModel = requestedModel("strong");
+      if (!(await allowCall(input.accountId, "strong"))) throw fastError;
+      const strong = await call(strongModel, "strong", input);
+      await persistUsage(
+        recorder,
+        input,
+        "strong",
+        strongModel,
+        reasons,
+        strong,
+      );
+      return strong.output;
+    }
+
+    const reasons = escalationReasons(fast.output, input);
+    if (reasons.length === 0) return fast.output;
+
+    const strongModel = requestedModel("strong");
+    if (!(await allowCall(input.accountId, "strong"))) {
+      // Do not trust the cheap decision on a consequential case when the
+      // strong budget is exhausted. Return undecided so it remains visible.
+      return {
+        ...fast.output,
+        home: "undecided",
+        rationale: `Strong-model daily limit reached; held for review (${reasons.join(", ")})`,
+      };
+    }
+    const strong = await call(strongModel, "strong", input);
+    await persistUsage(
+      recorder,
+      input,
+      "strong",
+      strongModel,
+      reasons,
+      strong,
+    );
+    return strong.output;
+  };
+}
+
+export const defaultReaderModel: ReaderModel = createReaderRouter();

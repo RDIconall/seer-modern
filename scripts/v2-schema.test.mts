@@ -25,6 +25,7 @@ const EXPECTED_TABLES = [
   "command_receipts",
   "sync_state",
   "sync_runs",
+  "model_usage",
 ].sort();
 
 const RLS_TABLES = [
@@ -38,6 +39,7 @@ const RLS_TABLES = [
   "conversation_decisions",
   "yields",
   "events",
+  "model_usage",
 ];
 
 const db = await startTestDb();
