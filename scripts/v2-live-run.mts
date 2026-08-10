@@ -21,6 +21,7 @@ import { GmailProvider } from "../src/lib/v2/providers/gmail.ts";
 import { freshAccessToken } from "../src/lib/v2/providers/token-service.ts";
 import { writeConversationPage, saveCursor } from "../src/lib/v2/sync/repository.ts";
 import { readBatch } from "../src/lib/v2/intelligence/read-batch.ts";
+import { collectPeople, seedPeople } from "../src/lib/v2/db/seed-relationships.ts";
 import { defaultReaderModel } from "../src/lib/v2/intelligence/model.ts";
 import { buildInboxView } from "../src/lib/v2/view/build.ts";
 import type { MailProvider } from "../src/lib/v2/providers/types.ts";
@@ -140,6 +141,24 @@ try {
   }
   await saveCursor(accountId, cursor, providerTotal);
   console.log(`ingested ${stored} conversations (provider reports ${providerTotal})`);
+
+  // --- Seed the relationship graph BEFORE reading, so the safety floor can
+  // protect real humans (investors, contacts) from being swept. ---
+  const key = (legacy.email || "").toLowerCase().trim();
+  const [legacyPeople, legacyHistory, legacyPersonal] = await Promise.all([
+    kvGet<Record<string, { tier?: string; vip?: boolean; name?: string }>>(`people:${key}`),
+    kvGet<{ history?: { contacts?: Record<string, { sentTo?: number }> }; contacts?: Record<string, { sentTo?: number }> }>(`mail-history:${key}`),
+    kvGet<{ contacts?: string[] }>(`personal:${key}`),
+  ]);
+  const seeded = await seedPeople(
+    accountId,
+    collectPeople({
+      people: legacyPeople ?? null,
+      history: legacyHistory?.history ?? legacyHistory ?? null,
+      contacts: legacyPersonal?.contacts ?? null,
+    }),
+  );
+  console.log(`seeded ${seeded} people into the relationship graph`);
 
   // --- One chief-of-staff read per conversation ---
   const t0 = Date.now();

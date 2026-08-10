@@ -25,6 +25,7 @@ import {
   countPreservedIntent,
   type PreservedIntent,
 } from "../src/lib/v2/db/intent.ts";
+import { collectPeople, seedPeople } from "../src/lib/v2/db/seed-relationships.ts";
 import type { StoredAccount } from "../src/lib/store/accounts.ts";
 import type { MatterEdits } from "../src/lib/store/manual-matters.ts";
 
@@ -110,8 +111,26 @@ async function main() {
       expiresAt: acct.expiresAt,
     });
     const applied = await applyPreservedIntent(accountId, intent);
+
+    // Seed the relationship graph so the read pipeline protects real humans
+    // from the first tick, not after it has learned them the hard way.
+    const key = acct.email.toLowerCase().trim();
+    const [people, history, personal] = await Promise.all([
+      kvGet<Record<string, { tier?: string; vip?: boolean; name?: string }>>(`people:${key}`),
+      kvGet<{ history?: { contacts?: Record<string, { sentTo?: number }> }; contacts?: Record<string, { sentTo?: number }> }>(`mail-history:${key}`),
+      kvGet<{ contacts?: string[] }>(`personal:${key}`),
+    ]);
+    const seeded = await seedPeople(
+      accountId,
+      collectPeople({
+        people: people ?? null,
+        history: history?.history ?? history ?? null,
+        contacts: personal?.contacts ?? null,
+      }),
+    );
+
     console.log(
-      `migrated ${acct.provider}:${acct.email} preserved=${JSON.stringify(applied)}`,
+      `migrated ${acct.provider}:${acct.email} preserved=${JSON.stringify(applied)} people=${seeded}`,
     );
   }
 }
