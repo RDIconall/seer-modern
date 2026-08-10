@@ -1,6 +1,10 @@
 import type { PoolClient } from "pg";
 import { inTransaction } from "../db/transaction";
-import { extractCodes, resolveMatterMatch } from "./matter-key";
+import {
+  extractCodes,
+  resolveMatterByRef,
+  resolveMatterMatch,
+} from "./matter-key";
 import type { AccountId, ConversationId, Home, Owner } from "../db/types";
 import {
   CONTEXT_VERSION,
@@ -28,7 +32,8 @@ export type SaveDecisionInput = {
   ask?: string;
   matterId?: string | null;
   vetoReasons: string[];
-  yields: Yield[];
+  /** Yields may carry the matter they were resolved to, so meaning lands on it. */
+  yields: (Yield & { matterId?: string | null })[];
   evidence: Evidence[];
   modelVersion?: string;
   contextVersion?: string;
@@ -92,7 +97,7 @@ export async function saveDecision(
           decisionId,
           input.conversationId,
           y.kind,
-          null,
+          y.matterId ?? null,
           y.headline,
           y.detail ?? null,
           y.evidenceRef ?? null,
@@ -196,6 +201,42 @@ async function recordCodes(
       [matterId, code],
     );
   }
+}
+
+/**
+ * Find an EXISTING matter a yield refers to. Deliberately never creates one: a
+ * passing mention in a newsletter should attach to the Roche matter if it
+ * exists, but must not invent a matter out of a mention.
+ */
+export async function findMatterByRef(
+  accountId: AccountId,
+  ref: string,
+): Promise<string | null> {
+  const { db } = await import("../db/pool");
+  const open = await db().query<{
+    id: string;
+    title: string;
+    counterparty: string | null;
+    codes: string[] | null;
+  }>(
+    `select m.id, m.title, m.org_unit as counterparty,
+            array_remove(array_agg(distinct mc.code), null) as codes
+       from seer.matters m
+       left join seer.matter_codes mc on mc.matter_id = m.id
+      where m.account_id = $1 and m.status <> 'closed'
+      group by m.id, m.title, m.org_unit`,
+    [accountId],
+  );
+  const match = resolveMatterByRef(
+    ref,
+    open.rows.map((r) => ({
+      matterId: r.id,
+      title: r.title,
+      codes: r.codes ?? [],
+      counterparty: r.counterparty ?? "",
+    })),
+  );
+  return match?.matterId ?? null;
 }
 
 /** Link a conversation to a matter (idempotent). */

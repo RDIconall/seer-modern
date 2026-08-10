@@ -209,6 +209,38 @@ try {
     assert.equal(created.rows[0].title, "Tosoh contract amendment");
   }
 
+  // 5c. A disposable conversation that touches a LIVE matter must attach its
+  //     insight to that matter — the meaning is kept even when the mail goes.
+  {
+    const { conversation, conversationId } = await newConversation(
+      db.pool, accountId, "news-roche", "Daily News: FDA clears Roche assays",
+      [message("newsletters@360dx.com", "FDA cleared new assays relevant to anti-TPO testing", "Daily News")],
+    );
+    await readConversation({
+      accountId, conversationId, conversation,
+      // No matter match from context, so the yield must resolve by its own ref.
+      context: { ...context, matters: [] },
+      model: modelFor({
+        home: "delete", summary: "Industry newsletter", rationale: "husk after extraction",
+        owner: "nobody", obligation: false,
+        yields: [{
+          kind: "matter_connection",
+          matterRef: "Roche anti-TPO study",
+          headline: "FDA cleared Roche anti-TPO assays",
+        }],
+        evidence: [],
+      }),
+    });
+    const linked = await db.pool.query(
+      `select y.matter_id, m.title from seer.yields y
+         join seer.matters m on m.id = y.matter_id
+        where y.conversation_id = $1`,
+      [conversationId],
+    );
+    assert.equal(linked.rowCount, 1, "the yield must attach to the matter it names");
+    assert.equal(linked.rows[0].title, "Roche anti-TPO study");
+  }
+
   // 6. Incomplete body → undecided, never guessed.
   {
     const providerId = "incomplete-1";

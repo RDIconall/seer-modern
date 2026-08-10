@@ -1,9 +1,10 @@
 import type { AccountId, ConversationId } from "../db/types";
 import type { Conversation } from "../providers/types";
 import { compileContext, type ContextInput } from "./context";
-import { counterpartyOf } from "./matter-key";
+import { counterpartyOf, matterNameFrom } from "./matter-key";
 import {
   ensureMatter,
+  findMatterByRef,
   linkConversationToMatter,
   saveDecision,
 } from "./repository";
@@ -125,19 +126,30 @@ export async function readConversation(
       read.summary,
       input.conversation.messages[0]?.bodyText?.slice(0, 400) ?? "",
     ].join(" ");
+    const counterparty = counterpartyOf(
+      input.conversation.messages[input.conversation.messages.length - 1]?.from.email ?? "",
+      input.context.ownDomain,
+    );
     matterId = await ensureMatter(
       input.accountId,
-      read.matterRef?.trim() || input.conversation.subject || read.summary,
-      {
-        text: tieText,
-        counterparty: counterpartyOf(
-          input.conversation.messages[input.conversation.messages.length - 1]?.from.email ?? "",
-          input.context.ownDomain,
-        ),
-      },
+      matterNameFrom(read.matterRef, input.conversation.subject, counterparty, tieText),
+      { text: tieText, counterparty },
     );
     await linkConversationToMatter(matterId, input.conversationId);
   }
+
+  // Attach extracted meaning to the matter it names, so a development lands on
+  // the concern it belongs to — including when the conversation itself is
+  // disposable (a newsletter that touches a live matter keeps its insight).
+  const resolvedYields = await Promise.all(
+    read.yields.map(async (y) => {
+      if (y.kind !== "matter_connection") return y;
+      const ref = y.matterRef?.trim();
+      if (!ref) return { ...y, matterId: matterId ?? null };
+      const found = await findMatterByRef(input.accountId, ref);
+      return { ...y, matterId: found ?? matterId ?? null };
+    }),
+  );
 
   return saveDecision({
     accountId: input.accountId,
@@ -150,7 +162,7 @@ export async function readConversation(
     ask: read.ask,
     matterId,
     vetoReasons: safety.vetoReasons,
-    yields: read.yields,
+    yields: resolvedYields,
     evidence: read.evidence.length
       ? read.evidence
       : compiled.refs.map((ref) => ({ ref, provenance: "inference" as const })),

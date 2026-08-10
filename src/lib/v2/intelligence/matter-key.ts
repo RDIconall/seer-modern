@@ -71,6 +71,84 @@ export function significantWords(text: string): Set<string> {
   );
 }
 
+/**
+ * A readable name for a unit of work when the read didn't supply one. An email
+ * subject is not a matter name — "INFORM: New post in discussion: 024146-Jul2026
+ * by Raiane Sousa Gaspar" describes a notification, not a concern. Strip the
+ * transport noise and, where a code and counterparty exist, name it after the
+ * work itself.
+ */
+export function matterNameFrom(
+  proposed: string | undefined,
+  subject: string,
+  counterparty: string,
+  text: string,
+): string {
+  const clean = (s: string) =>
+    s
+      .replace(/^(?:re|fw|fwd|inform|action|reminder|notification|automatic reply)\s*:\s*/gi, "")
+      .replace(/\s+/g, " ")
+      .trim();
+
+  const fromModel = proposed?.trim();
+  if (fromModel && !/^(?:re|fw|fwd|inform|action)\s*:/i.test(fromModel)) {
+    return fromModel.slice(0, 120);
+  }
+
+  const codes = extractCodes(text);
+  const company = counterparty && counterparty !== "internal" ? titleCase(counterparty) : "";
+  if (codes.length > 0) {
+    return [company, codes[0]].filter(Boolean).join(" ").slice(0, 120);
+  }
+
+  const stripped = clean(subject);
+  if (stripped) {
+    return (company && !stripped.toLowerCase().includes(counterparty)
+      ? `${company} — ${stripped}`
+      : stripped
+    ).slice(0, 120);
+  }
+  return company || "Untitled matter";
+}
+
+function titleCase(s: string): string {
+  return s.charAt(0).toUpperCase() + s.slice(1);
+}
+
+/**
+ * Resolve an explicitly NAMED matter reference (from a yield) to an existing
+ * matter. Unlike conversation tying, the sender's counterparty is irrelevant
+ * here — a 360Dx newsletter can legitimately reference a Roche matter. The
+ * reference is a claim about subject, so it matches on codes and on the words
+ * of the name itself. It never creates a matter.
+ */
+export function resolveMatterByRef(
+  ref: string,
+  candidates: MatterCandidate[],
+): MatterCandidate | null {
+  const normalized = ref.toLowerCase().trim();
+  const exact = candidates.find((c) => c.title.toLowerCase().trim() === normalized);
+  if (exact) return exact;
+
+  const codes = extractCodes(ref);
+  if (codes.length > 0) {
+    const byCode = candidates.find((c) => c.codes.some((code) => codes.includes(code)));
+    if (byCode) return byCode;
+  }
+
+  const words = significantWords(ref);
+  let best: { candidate: MatterCandidate; score: number } | null = null;
+  for (const candidate of candidates) {
+    const candidateWords = significantWords(candidate.title);
+    let shared = 0;
+    for (const w of words) if (candidateWords.has(w)) shared++;
+    if (shared >= MIN_SHARED_WORDS && (!best || shared > best.score)) {
+      best = { candidate, score: shared };
+    }
+  }
+  return best?.candidate ?? null;
+}
+
 export type MatterCandidate = {
   matterId: string;
   title: string;

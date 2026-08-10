@@ -7,6 +7,7 @@ import assert from "node:assert/strict";
 import {
   extractCodes,
   counterpartyOf,
+  matterNameFrom,
   resolveMatterMatch,
   type MatterCandidate,
 } from "../src/lib/v2/intelligence/matter-key.ts";
@@ -117,6 +118,32 @@ const roche = (title: string, codes: string[] = []): MatterCandidate => ({
     existing[0].matterId,
     "a robot notice about the same event belongs to that unit",
   );
+}
+
+// --- Naming: a raw notification subject is never a matter name ---
+{
+  // The model's own name wins when it's a real concern.
+  assert.equal(
+    matterNameFrom("Roche anti-TPO pricing", "RE: something", "roche", ""),
+    "Roche anti-TPO pricing",
+  );
+  // A transport-prefixed model name is rejected in favour of the code.
+  assert.equal(
+    matterNameFrom(
+      "INFORM: New post in discussion: 024146-Jul2026",
+      "INFORM: New post in discussion: 024146-Jul2026 by Raiane Sousa Gaspar",
+      "roche",
+      "discussion about RD007704 stability",
+    ),
+    "Roche RD007704",
+  );
+  // No model name, no code: strip the noise and qualify with the counterparty.
+  assert.equal(
+    matterNameFrom(undefined, "RE: Strep A remnant samples", "sekisui", ""),
+    "Sekisui — Strep A remnant samples",
+  );
+  // Never returns an empty name.
+  assert.equal(matterNameFrom(undefined, "", "", ""), "Untitled matter");
 }
 
 console.log("v2-matter-key: OK");
