@@ -1,4 +1,4 @@
-import { Pool, type PoolClient } from "pg";
+import { Pool } from "pg";
 
 /**
  * The single durable connection for Seer v2. Postgres is the system of record;
