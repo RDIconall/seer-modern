@@ -1,4 +1,5 @@
 import { providerFetch, type ProviderHttpOptions } from "./http";
+import { nativeUrlFor } from "./native-url";
 import type {
   Address,
   Conversation,
@@ -294,6 +295,6 @@ export class GmailProvider implements MailProvider {
   }
 
   nativeUrl(id: string): string {
-    return `https://mail.google.com/mail/u/0/#all/${id}`;
+    return nativeUrlFor("google", id);
   }
 }

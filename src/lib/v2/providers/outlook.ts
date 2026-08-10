@@ -1,4 +1,5 @@
 import { providerFetch, type ProviderHttpOptions } from "./http";
+import { nativeUrlFor } from "./native-url";
 import type {
   Address,
   Conversation,
@@ -268,6 +269,6 @@ export class OutlookProvider implements MailProvider {
   }
 
   nativeUrl(id: string): string {
-    return `https://outlook.office.com/mail/deeplink/read/${encodeURIComponent(id)}`;
+    return nativeUrlFor("microsoft", id);
   }
 }
