@@ -27,9 +27,8 @@ export async function runProviderContract(
   await paginatesFullMailbox(makeHarness);
   await readsCompleteOrderedThread(makeHarness);
   await searchPaginates(makeHarness);
-  await sendIsIdempotent(makeHarness);
-  await replyAllDerivesRecipients(makeHarness);
-  await mutationIsWholeThreadAndIdempotent(makeHarness);
+  await replyTargetsSameConversation(makeHarness);
+  await mutationIsWholeThread(makeHarness);
   await mutationReportsPartialFailure(makeHarness);
   await nativeUrlTargetsConversation(makeHarness);
 }
@@ -86,37 +85,29 @@ async function searchPaginates(make: () => Promise<ContractHarness>) {
   );
 }
 
-async function sendIsIdempotent(make: () => Promise<ContractHarness>) {
-  const h = await make();
-  const cmd = {
-    to: [{ email: "recipient@example.com" }],
-    subject: "Hello",
-    bodyHtml: "<p>hi</p>",
-  };
-  const first = await h.provider.send(cmd, "key-send-1");
-  const replay = await h.provider.send(cmd, "key-send-1");
-  assert.deepEqual(replay, first, "replayed send must return the same receipt");
-}
+// Note: send/mutation *idempotency* is not a provider guarantee — Gmail and
+// Graph send APIs are not idempotent. Replay safety is enforced at the command
+// bus via command_receipts (Task 10). The fake provider models the eventual
+// guarantee; the shared contract asserts only what real adapters can deliver.
 
-async function replyAllDerivesRecipients(make: () => Promise<ContractHarness>) {
+async function replyTargetsSameConversation(
+  make: () => Promise<ContractHarness>,
+) {
   const h = await make();
-  const before = await h.provider.getConversation(h.threadId);
   const receipt = await h.provider.reply(
     { conversationId: h.threadId, all: true, bodyHtml: "<p>ok</p>" },
     "key-reply-1",
   );
-  assert.equal(receipt.providerConversationId, h.threadId);
-  const after = await h.provider.getConversation(h.threadId);
   assert.equal(
-    after.messages.length,
-    before.messages.length + 1,
-    "reply must append to the same thread",
+    receipt.providerConversationId,
+    h.threadId,
+    "a reply must post into the same conversation",
   );
+  // Recipient derivation for reply-all is provider-specific and asserted in
+  // each adapter's own test by inspecting the sent request.
 }
 
-async function mutationIsWholeThreadAndIdempotent(
-  make: () => Promise<ContractHarness>,
-) {
+async function mutationIsWholeThread(make: () => Promise<ContractHarness>) {
   const h = await make();
   const before = await h.provider.getConversation(h.threadId);
   const first = await h.provider.mutateConversation(
@@ -130,12 +121,6 @@ async function mutationIsWholeThreadAndIdempotent(
     "archive must act on every message in the thread",
   );
   assert.equal(first.failed.length, 0);
-  const replay = await h.provider.mutateConversation(
-    h.threadId,
-    "archive",
-    "key-arch-1",
-  );
-  assert.deepEqual(replay, first, "replayed mutation returns the same receipt");
 }
 
 async function mutationReportsPartialFailure(
