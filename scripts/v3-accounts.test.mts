@@ -12,6 +12,7 @@ import { seal } from "../src/lib/store/secret-at-rest.ts";
 
 const accounts = await import("../src/lib/v2/db/accounts.ts");
 const v2Session = await import("../src/lib/v2/session.ts");
+const origin = await import("../src/lib/security/origin.ts");
 const dataDir = await fs.mkdtemp(path.join(process.cwd(), ".tmp-v3-accounts-"));
 process.env.SEER_DATA_DIR = dataDir;
 process.env.SEER_V3_LEGACY_ACCOUNT_FALLBACK = "1";
@@ -67,6 +68,32 @@ try {
     )?.id,
     accountB.id,
     "a foreign active cookie must fall back within the signed-in owner",
+  );
+  assert.equal(
+    origin.originAllowed({
+      origin: "https://mail.example.com",
+      requestOrigin: "https://mail.example.com",
+      production: true,
+    }),
+    true,
+  );
+  assert.equal(
+    origin.originAllowed({
+      origin: null,
+      requestOrigin: "https://mail.example.com",
+      production: true,
+    }),
+    false,
+    "production mutations require Origin",
+  );
+  assert.equal(
+    origin.originAllowed({
+      origin: "https://evil.example",
+      requestOrigin: "https://mail.example.com",
+      production: true,
+    }),
+    false,
+    "cross-origin mutations are rejected",
   );
 
   assert.equal(
