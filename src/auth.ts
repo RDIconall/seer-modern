@@ -12,7 +12,10 @@ import {
   saveCredentials,
 } from "@/lib/v2/db/accounts";
 import { asAccountId } from "@/lib/v2/db/types";
-import { setActiveAccountId } from "@/lib/store/accounts";
+import {
+  legacyAccountFallbackEnabled,
+  setActiveAccountId,
+} from "@/lib/store/accounts";
 
 const googleConfigured =
   Boolean(process.env.AUTH_GOOGLE_ID) &&
@@ -153,7 +156,12 @@ export const { handlers, auth, signIn, signOut } = NextAuth({
       return token;
     },
     async session({ session, token }) {
-      session.accessToken = token.accessToken as string | undefined;
+      // V3 resolves credentials server-side from oauth_credentials. Expose a
+      // token to the browser only while the explicitly enabled legacy
+      // fallback is still being migrated.
+      session.accessToken = legacyAccountFallbackEnabled()
+        ? (token.accessToken as string | undefined)
+        : undefined;
       session.provider = token.provider as string | undefined;
       session.error = token.error as string | undefined;
       if (token.email && session.user) {

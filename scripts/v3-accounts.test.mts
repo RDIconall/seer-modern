@@ -94,6 +94,13 @@ try {
   assert.match(sessionSource, /SEER_V3_LEGACY_ACCOUNT_FALLBACK/);
   assert.match(sessionSource, /legacyAccountFallbackEnabled/);
 
+  const authSource = await fs.readFile(
+    path.join(process.cwd(), "src/auth.ts"),
+    "utf8",
+  );
+  assert.match(authSource, /upsertAccountWithCredentials/);
+  assert.match(authSource, /legacyAccountFallbackEnabled\(\)/);
+
   const storeSource = await fs.readFile(
     path.join(process.cwd(), "src/lib/store/accounts.ts"),
     "utf8",
