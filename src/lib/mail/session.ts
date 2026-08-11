@@ -87,7 +87,8 @@ export async function requireMailSession() {
   }
 
   // During migration only, old sessions and the sealed KV store remain a
-  // read-only compatibility path. The canonical path never dual-writes.
+  // read-only compatibility path. SEER_V3_LEGACY_ACCOUNT_FALLBACK is the
+  // explicit temporary flag; the canonical path never dual-writes.
   if (!legacyAccountFallbackEnabled()) return null;
   const legacy = await resolveActiveAccount({
     provider: session.provider,
