@@ -90,9 +90,15 @@ export async function requireMailSession() {
   // read-only compatibility path. SEER_V3_LEGACY_ACCOUNT_FALLBACK is the
   // explicit temporary flag; the canonical path never dual-writes.
   if (!legacyAccountFallbackEnabled()) return null;
+  const legacyProvider =
+    session.provider === "google"
+      ? "google"
+      : session.provider === "microsoft-entra-id"
+        ? "microsoft-entra-id"
+        : undefined;
   const legacy = await resolveActiveAccount(
     sessionEmail,
-    session.provider === "google" ? "google" : "microsoft-entra-id",
+    legacyProvider,
   );
   if (!legacy?.accessToken) return null;
 
