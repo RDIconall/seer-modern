@@ -13,6 +13,7 @@ import type {
   SearchResult,
   SendCommand,
   SendReceipt,
+  SyncFolder,
   SyncPage,
 } from "./types";
 
@@ -154,11 +155,22 @@ export class OutlookProvider implements MailProvider {
     };
   }
 
-  /** The provider's own inbox message count, for coverage reconciliation. */
-  private async inboxTotal(): Promise<number> {
+  private folderPath(folder: SyncFolder): string {
+    switch (folder) {
+      case "inbox":
+        return "inbox";
+      case "sent":
+        return "sentitems";
+      case "trash":
+        return "deleteditems";
+    }
+  }
+
+  /** The provider's own folder message count, for coverage reconciliation. */
+  private async folderTotal(folder: SyncFolder): Promise<number> {
     try {
       const r: { totalItemCount?: number } = await this.get(
-        `${API}/mailFolders/inbox?$select=totalItemCount`,
+        `${API}/mailFolders/${this.folderPath(folder)}?$select=totalItemCount`,
       );
       return r.totalItemCount ?? 0;
     } catch {
@@ -167,9 +179,13 @@ export class OutlookProvider implements MailProvider {
   }
 
   async sync(cursor?: string | null): Promise<SyncPage> {
+    return this.syncFolder("inbox", cursor);
+  }
+
+  async syncFolder(folder: SyncFolder, cursor?: string | null): Promise<SyncPage> {
     const url =
       cursor ??
-      `${API}/mailFolders/inbox/messages?$top=${this.pageSize}&$select=id,conversationId,subject,from,toRecipients,ccRecipients,receivedDateTime,bodyPreview,body,isRead,hasAttachments&$expand=attachments($select=id,name,contentType,size)&$orderby=receivedDateTime desc`;
+      `${API}/mailFolders/${this.folderPath(folder)}/messages?$top=${this.pageSize}&$select=id,conversationId,subject,from,toRecipients,ccRecipients,receivedDateTime,bodyPreview,body,isRead,hasAttachments&$expand=attachments($select=id,name,contentType,size)&$orderby=receivedDateTime desc`;
     const page: {
       value?: GraphMessage[];
       "@odata.nextLink"?: string;
@@ -188,9 +204,7 @@ export class OutlookProvider implements MailProvider {
       conversations,
       deletedConversationIds: [],
       nextCursor: page["@odata.nextLink"] ?? null,
-      // The folder's own message count — not this page's size, which made
-      // coverage under-report the mailbox.
-      providerTotal: page["@odata.count"] ?? (await this.inboxTotal()),
+      providerTotal: page["@odata.count"] ?? (await this.folderTotal(folder)),
     };
   }
 

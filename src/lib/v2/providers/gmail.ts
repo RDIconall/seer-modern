@@ -13,6 +13,7 @@ import type {
   SearchResult,
   SendCommand,
   SendReceipt,
+  SyncFolder,
   SyncPage,
 } from "./types";
 
@@ -158,13 +159,28 @@ export class GmailProvider implements MailProvider {
     };
   }
 
+  private folderQuery(folder: SyncFolder): string {
+    switch (folder) {
+      case "inbox":
+        return "in:inbox";
+      case "sent":
+        return "in:sent";
+      case "trash":
+        return "in:trash";
+    }
+  }
+
   async sync(cursor?: string | null): Promise<SyncPage> {
+    return this.syncFolder("inbox", cursor);
+  }
+
+  async syncFolder(folder: SyncFolder, cursor?: string | null): Promise<SyncPage> {
     const list = await this.get<{
       threads?: { id: string }[];
       nextPageToken?: string;
       resultSizeEstimate?: number;
     }>(
-      `/threads?q=${encodeURIComponent("in:inbox")}&maxResults=${this.pageSize}` +
+      `/threads?q=${encodeURIComponent(this.folderQuery(folder))}&maxResults=${this.pageSize}` +
         (cursor ? `&pageToken=${encodeURIComponent(cursor)}` : ""),
     );
     const conversations = await Promise.all(

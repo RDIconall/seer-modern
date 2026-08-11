@@ -34,6 +34,15 @@ const CONVOS: Record<string, ReturnType<typeof graphMsg>[]> = {
     graphMsg("c1-m2", "c1", "2026-08-01T11:00:00Z", "sender@example.com", "Thread one"),
   ],
   c2: [graphMsg("c2-m1", "c2", "2026-08-01T10:00:00Z", "vendor@roche.com", "Roche pricing")],
+  s0: [
+    graphMsg("s0-m2", "s0", "2026-08-03T10:00:00Z", "me@example.com", "Sent thread"),
+    graphMsg("s0-m1", "s0", "2026-08-02T10:00:00Z", "me@example.com", "Sent thread"),
+  ],
+  s1: [graphMsg("s1-m1", "s1", "2026-08-02T10:00:00Z", "me@example.com", "Sent one")],
+  t0: [
+    graphMsg("t0-m2", "t0", "2026-08-05T10:00:00Z", "sender@example.com", "Trash thread"),
+    graphMsg("t0-m1", "t0", "2026-08-04T10:00:00Z", "sender@example.com", "Trash thread"),
+  ],
 };
 
 let lastReplyAll = false;
@@ -42,9 +51,15 @@ const mockFetch = (async (url: string, init?: RequestInit) => {
   const u = String(url);
   const method = init?.method ?? "GET";
 
-  // Folder total for coverage reconciliation.
+  // Folder totals for coverage reconciliation.
   if (method === "GET" && u.includes("/mailFolders/inbox?$select=totalItemCount")) {
     return json({ totalItemCount: 3 });
+  }
+  if (method === "GET" && u.includes("/mailFolders/sentitems?$select=totalItemCount")) {
+    return json({ totalItemCount: 2 });
+  }
+  if (method === "GET" && u.includes("/mailFolders/deleteditems?$select=totalItemCount")) {
+    return json({ totalItemCount: 1 });
   }
 
   // Inbox sync (first page + paged second page).
@@ -56,6 +71,23 @@ const mockFetch = (async (url: string, init?: RequestInit) => {
       });
     }
     return json({ value: [...CONVOS.c2] });
+  }
+
+  // Sent sync.
+  if (method === "GET" && u.includes("/mailFolders/sentitems/messages")) {
+    if (!u.includes("skip=1")) {
+      return json({
+        value: [...CONVOS.s0],
+        "@odata.nextLink":
+          "https://graph.microsoft.com/v1.0/me/mailFolders/sentitems/messages?skip=1",
+      });
+    }
+    return json({ value: [...CONVOS.s1] });
+  }
+
+  // Trash sync.
+  if (method === "GET" && u.includes("/mailFolders/deleteditems/messages")) {
+    return json({ value: [...CONVOS.t0] });
   }
 
   // Conversation messages by conversationId filter (URL is percent-encoded).
@@ -106,6 +138,10 @@ async function makeHarness(): Promise<ContractHarness> {
     partialFailThreadId: "c1",
     searchTerm: "Roche",
     expectedInboxTotal: 3,
+    expectedSentTotal: 2,
+    expectedTrashTotal: 1,
+    sentThreadId: "s0",
+    trashThreadId: "t0",
   };
 }
 

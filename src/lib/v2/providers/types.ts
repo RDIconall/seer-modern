@@ -7,6 +7,9 @@
 
 export type ProviderKind = "google" | "microsoft";
 
+/** Folders the provider sync API exposes. Archive is corpus-only. */
+export type SyncFolder = "inbox" | "sent" | "trash";
+
 export type Address = { email: string; name?: string };
 
 export type Attachment = {
@@ -97,6 +100,7 @@ export type SearchResult = {
 export interface MailProvider {
   readonly kind: ProviderKind;
   sync(cursor?: string | null): Promise<SyncPage>;
+  syncFolder(folder: SyncFolder, cursor?: string | null): Promise<SyncPage>;
   getConversation(id: string): Promise<Conversation>;
   search(query: string, cursor?: string | null): Promise<SearchResult>;
   send(command: SendCommand, idempotencyKey: string): Promise<SendReceipt>;

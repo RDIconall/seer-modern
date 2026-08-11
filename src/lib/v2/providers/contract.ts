@@ -1,5 +1,5 @@
 import assert from "node:assert/strict";
-import type { Conversation, MailProvider } from "./types";
+import type { Conversation, MailProvider, SyncFolder } from "./types";
 
 /**
  * The provider contract suite as a reusable function. It runs unchanged against
@@ -19,12 +19,23 @@ export type ContractHarness = {
   searchTerm: string;
   /** Expected total inbox conversations for coverage assertions. */
   expectedInboxTotal: number;
+  /** Expected total sent-folder conversations. */
+  expectedSentTotal: number;
+  /** Expected total trash-folder conversations. */
+  expectedTrashTotal: number;
+  /** A conversation id present in sent with more than one message. */
+  sentThreadId?: string;
+  /** A conversation id present in trash with more than one message. */
+  trashThreadId?: string;
 };
+
+const SYNC_FOLDERS: SyncFolder[] = ["inbox", "sent", "trash"];
 
 export async function runProviderContract(
   makeHarness: () => Promise<ContractHarness>,
 ): Promise<void> {
   await paginatesFullMailbox(makeHarness);
+  await syncFolderPaginatesEachFolder(makeHarness);
   await readsCompleteOrderedThread(makeHarness);
   await searchPaginates(makeHarness);
   await replyTargetsSameConversation(makeHarness);
@@ -34,14 +45,46 @@ export async function runProviderContract(
 }
 
 async function drainSync(provider: MailProvider): Promise<Conversation[]> {
+  return drainSyncFolder(provider, "inbox");
+}
+
+async function drainSyncFolder(
+  provider: MailProvider,
+  folder: SyncFolder,
+): Promise<Conversation[]> {
   const all: Conversation[] = [];
   let cursor: string | null = null;
   do {
-    const page = await provider.sync(cursor);
+    const page = await provider.syncFolder(folder, cursor);
     all.push(...page.conversations);
     cursor = page.nextCursor;
   } while (cursor);
   return all;
+}
+
+function expectedTotalForFolder(
+  h: ContractHarness,
+  folder: SyncFolder,
+): number {
+  switch (folder) {
+    case "inbox":
+      return h.expectedInboxTotal;
+    case "sent":
+      return h.expectedSentTotal;
+    case "trash":
+      return h.expectedTrashTotal;
+  }
+}
+
+function threadIdForFolder(h: ContractHarness, folder: SyncFolder): string | undefined {
+  switch (folder) {
+    case "inbox":
+      return h.threadId;
+    case "sent":
+      return h.sentThreadId;
+    case "trash":
+      return h.trashThreadId;
+  }
 }
 
 async function paginatesFullMailbox(make: () => Promise<ContractHarness>) {
@@ -58,6 +101,51 @@ async function paginatesFullMailbox(make: () => Promise<ContractHarness>) {
     h.expectedInboxTotal,
     "providerTotal must reflect the whole mailbox for coverage reconciliation",
   );
+}
+
+async function syncFolderPaginatesEachFolder(make: () => Promise<ContractHarness>) {
+  const h = await make();
+  for (const folder of SYNC_FOLDERS) {
+    const expected = expectedTotalForFolder(h, folder);
+    const all = await drainSyncFolder(h.provider, folder);
+    assert.equal(
+      all.length,
+      expected,
+      `syncFolder(${folder}) must paginate through the entire folder`,
+    );
+    const firstPage = await h.provider.syncFolder(folder, null);
+    assert.equal(
+      firstPage.providerTotal,
+      expected,
+      `syncFolder(${folder}) providerTotal must reflect the whole folder`,
+    );
+    if (expected > 0) {
+      assert.ok(
+        firstPage.conversations.length >= 1,
+        `syncFolder(${folder}) must return conversations`,
+      );
+      assert.ok(
+        firstPage.conversations.every((c) =>
+          c.messages.every((m) => m.bodyHtml !== undefined),
+        ),
+        `syncFolder(${folder}) must return complete conversations`,
+      );
+    }
+    const threadId = threadIdForFolder(h, folder);
+    if (threadId && expected > 0) {
+      const convo = await h.provider.getConversation(threadId);
+      assert.ok(
+        convo.messages.length >= 2,
+        `syncFolder(${folder}) thread must contain all its messages`,
+      );
+      for (let i = 1; i < convo.messages.length; i++) {
+        assert.ok(
+          convo.messages[i - 1].sentAt <= convo.messages[i].sentAt,
+          `syncFolder(${folder}) messages must be ordered oldest-first`,
+        );
+      }
+    }
+  }
 }
 
 async function readsCompleteOrderedThread(make: () => Promise<ContractHarness>) {

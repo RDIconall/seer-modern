@@ -8,7 +8,12 @@ import { providerFetch, ProviderHttpError } from "../src/lib/v2/providers/http.t
 import type { Message } from "../src/lib/v2/providers/types.ts";
 import assert from "node:assert/strict";
 
-function msg(id: string, sentAt: string, extra: Partial<Message> = {}): Message & { folder: "inbox"; failMutation?: boolean } {
+function msg(
+  id: string,
+  sentAt: string,
+  extra: Partial<Message> & { folder?: "inbox" | "sent" | "trash" } = {},
+): Message & { folder: "inbox" | "sent" | "trash"; failMutation?: boolean } {
+  const folder = extra.folder ?? "inbox";
   return {
     providerMessageId: id,
     from: { email: "sender@example.com", name: "Sender" },
@@ -19,11 +24,11 @@ function msg(id: string, sentAt: string, extra: Partial<Message> = {}): Message 
     bodyHtml: "<p>body</p>",
     bodyText: "body",
     isUnread: true,
-    isOutgoing: false,
+    isOutgoing: folder === "sent",
     attachments: [],
-    folder: "inbox",
+    folder,
     ...extra,
-  } as Message & { folder: "inbox"; failMutation?: boolean };
+  } as Message & { folder: "inbox" | "sent" | "trash"; failMutation?: boolean };
 }
 
 async function makeHarness(): Promise<ContractHarness> {
@@ -45,12 +50,52 @@ async function makeHarness(): Promise<ContractHarness> {
   ];
   (conversations[1].messages[1] as { failMutation?: boolean }).failMutation = true;
 
+  // 120 sent conversations — multi-page at pageSize 100.
+  for (let i = 0; i < 120; i++) {
+    const id = `s${i}`;
+    conversations.push({
+      providerConversationId: id,
+      subject: `Sent ${i}`,
+      messages: [msg(`${id}-m1`, "2026-08-03T10:00:00Z", { folder: "sent", isOutgoing: true })],
+    });
+  }
+  conversations.push({
+    providerConversationId: "s-thread",
+    subject: "Sent thread",
+    messages: [
+      msg("s-thread-m2", "2026-08-04T10:00:00Z", { folder: "sent", isOutgoing: true }),
+      msg("s-thread-m1", "2026-08-03T10:00:00Z", { folder: "sent", isOutgoing: true }),
+    ],
+  });
+
+  // 40 trash conversations.
+  for (let i = 0; i < 40; i++) {
+    const id = `t${i}`;
+    conversations.push({
+      providerConversationId: id,
+      subject: `Trash ${i}`,
+      messages: [msg(`${id}-m1`, "2026-08-05T10:00:00Z", { folder: "trash" })],
+    });
+  }
+  conversations.push({
+    providerConversationId: "t-thread",
+    subject: "Trash thread",
+    messages: [
+      msg("t-thread-m2", "2026-08-06T10:00:00Z", { folder: "trash" }),
+      msg("t-thread-m1", "2026-08-05T10:00:00Z", { folder: "trash" }),
+    ],
+  });
+
   return {
     provider: new FakeProvider({ conversations, pageSize: 100 }),
     threadId: "c0",
     partialFailThreadId: "c1",
     searchTerm: "Roche",
     expectedInboxTotal: 250,
+    expectedSentTotal: 121,
+    expectedTrashTotal: 41,
+    sentThreadId: "s-thread",
+    trashThreadId: "t-thread",
   };
 }
 

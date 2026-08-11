@@ -52,6 +52,24 @@ const THREADS: Record<string, { id: string; messages: ReturnType<typeof gmailMes
     id: "c2",
     messages: [gmailMessage("c2-m1", 1_600_000_100_000, "vendor@roche.com", "Roche pricing")],
   },
+  s0: {
+    id: "s0",
+    messages: [
+      gmailMessage("s0-m2", 1_600_000_300_000, "me@example.com", "Sent thread"),
+      gmailMessage("s0-m1", 1_600_000_250_000, "me@example.com", "Sent thread"),
+    ],
+  },
+  s1: {
+    id: "s1",
+    messages: [gmailMessage("s1-m1", 1_600_000_200_000, "me@example.com", "Sent one")],
+  },
+  t0: {
+    id: "t0",
+    messages: [
+      gmailMessage("t0-m2", 1_600_000_400_000, "sender@example.com", "Trash thread"),
+      gmailMessage("t0-m1", 1_600_000_350_000, "sender@example.com", "Trash thread"),
+    ],
+  },
 };
 
 let lastSendRaw = "";
@@ -66,6 +84,15 @@ const mockFetch = (async (url: string, init?: RequestInit) => {
     const pageToken = q.get("pageToken");
     if (query.includes("Roche")) {
       return json({ threads: [{ id: "c2" }], resultSizeEstimate: 1 });
+    }
+    if (query.includes("in:sent")) {
+      if (!pageToken) {
+        return json({ threads: [{ id: "s0" }], nextPageToken: "p2", resultSizeEstimate: 2 });
+      }
+      return json({ threads: [{ id: "s1" }], resultSizeEstimate: 2 });
+    }
+    if (query.includes("in:trash")) {
+      return json({ threads: [{ id: "t0" }], resultSizeEstimate: 1 });
     }
     // in:inbox — paginate 3 threads at pageSize 2.
     if (!pageToken) {
@@ -121,6 +148,10 @@ async function makeHarness(): Promise<ContractHarness> {
     partialFailThreadId: "c1",
     searchTerm: "Roche",
     expectedInboxTotal: 3,
+    expectedSentTotal: 2,
+    expectedTrashTotal: 1,
+    sentThreadId: "s0",
+    trashThreadId: "t0",
   };
 }
 
