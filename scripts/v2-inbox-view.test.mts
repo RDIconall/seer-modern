@@ -104,6 +104,30 @@ try {
   // worth_reading surfaces.
   assert.equal(view.worthReading.length, 1);
 
+  // Each triage row is filed under the sender's counterparty, server-side, the
+  // same way matters get their org unit. This is what Triage groups by.
+  assert.equal(view.safeToDelete[0].category, "X", "delete row filed by sender org");
+  assert.equal(view.records[0].category, "X", "record row filed by sender org");
+  assert.equal(view.undecided[0].category, "X", "undecided row filed by sender org");
+  // The matter conversation from buyer@roche.com is filed under Roche.
+  assert.equal(view.atlas[0].conversations[0].category, "Roche");
+  // A sender on the account's own domain is "Internal", freemail is "Other".
+  const cInternal = await addConversation(db.pool, accountId, "p-int", "Team note", "colleague@example.com");
+  const cFree = await addConversation(db.pool, accountId, "p-free", "Hi", "someone@gmail.com");
+  await saveDecision({
+    accountId, conversationId: cInternal, home: "record", proposedHome: "record",
+    summary: "note", rationale: "keep", owner: "nobody", vetoReasons: [], yields: [], evidence: [],
+  });
+  await saveDecision({
+    accountId, conversationId: cFree, home: "delete", proposedHome: "delete",
+    summary: "hi", rationale: "disposable", owner: "nobody", vetoReasons: [], yields: [], evidence: [],
+  });
+  const view2 = await buildInboxView(accountId, "google");
+  const internalRow = view2.records.find((r) => r.conversationId === cInternal);
+  const freeRow = view2.safeToDelete.find((r) => r.conversationId === cFree);
+  assert.equal(internalRow?.category, "Internal", "own-domain sender is Internal");
+  assert.equal(freeRow?.category, "Other", "freemail sender falls into Other");
+
   // Coverage reconciles: 4 stored, 3 read (matter/record/delete), 1 pending (undecided).
   assert.equal(view.coverage.providerTotal, 4);
   assert.equal(view.coverage.stored, 4);

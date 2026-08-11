@@ -1,22 +1,22 @@
 "use client";
 
-import { useCallback, useRef, useState } from "react";
+import { useCallback, useMemo, useRef, useState } from "react";
 import { Archive, Download, Trash2 } from "lucide-react";
-import type { ConversationRow, DeleteRow, InboxView } from "@/lib/v2/view/types";
+import type { ConversationRow, InboxView } from "@/lib/v2/view/types";
 import type { Command } from "@/lib/v2/commands/types";
 import { commandFor } from "./triage-command";
 
 /**
- * TRIAGE — the table, restored.
+ * TRIAGE — the categorised table, restored.
  *
- * From and Subject stay their own columns, distinct from Seer's one-line read;
- * columns resize by dragging their edge; each section carries a bulk action and
- * every row an Archive and a Delete. Sections are the server's decision
- * buckets — the client never decides what is deletable.
+ * Rows group first by category (the sender's organisation, assigned by the
+ * server exactly as matters are filed), then within a category into "Safe to
+ * delete" and "Keep / review". From and Subject stay distinct from Seer's
+ * one-line read; columns resize; every section and row carries its action.
  *
- * Delete is offered only where the server minted a signed token for it. Rows it
- * would not authorize get Archive alone, so a bulk action can never turn into a
- * delete the safety layer refused.
+ * The client decides nothing: category and home both come from the server.
+ * Deleting is authorised only by the signed token minted for that decision, so
+ * a bulk "Delete these" can never destroy mail the safety layer vetoed.
  */
 
 function shortTime(iso?: string): string {
@@ -78,6 +78,12 @@ function useColumnWidths(initial: number[]) {
 
 type Row = ConversationRow & { deleteToken?: string };
 
+type Category = {
+  name: string;
+  toDelete: Row[];
+  toKeep: Row[];
+};
+
 export function Triage({
   view,
   dispatch,
@@ -88,10 +94,6 @@ export function Triage({
     optimistic?: (v: InboxView) => InboxView,
   ) => Promise<unknown>;
 }) {
-  // Narrow screens start with tighter columns so the table fits without an
-  // immediate sideways scroll; dragging still works from there. MailApp renders
-  // Triage only after the view has loaded on the client, so reading window here
-  // cannot desynchronise a server render.
   const { widths, start } = useColumnWidths(
     typeof window !== "undefined" && window.innerWidth < 700
       ? [110, 150, 170, 44]
@@ -99,15 +101,46 @@ export function Triage({
   );
   const scrollRef = useRef<HTMLDivElement | null>(null);
   const [busy, setBusy] = useState(false);
+  /** Category → its fixed slot, so sections never swap places on an action. */
+  const orderRef = useRef<Map<string, number>>(new Map());
 
-  const deletable: DeleteRow[] = view.safeToDelete;
-  const needsLook: ConversationRow[] = view.undecided;
-  const records: ConversationRow[] = view.records;
-  const totalRows = deletable.length + needsLook.length + records.length;
+  const totalRows =
+    view.safeToDelete.length + view.undecided.length + view.records.length;
+
+  // Group by the server's category, then split each into delete vs keep. The
+  // "keep" pile is everything not authorised for deletion — undecided (often
+  // safety-vetoed) and records — which is exactly what must never be swept into
+  // a bulk delete.
+  const categories = useMemo<Category[]>(() => {
+    const map = new Map<string, Category>();
+    const at = (name: string): Category => {
+      const existing = map.get(name);
+      if (existing) return existing;
+      const created: Category = { name, toDelete: [], toKeep: [] };
+      map.set(name, created);
+      return created;
+    };
+    for (const row of view.safeToDelete) at(row.category).toDelete.push(row);
+    for (const row of [...view.undecided, ...view.records]) {
+      at(row.category).toKeep.push(row);
+    }
+
+    // Stable order: a category takes its slot the first time it appears —
+    // biggest first — and keeps it while the tab is open, so clearing rows
+    // never makes one section leapfrog another under the cursor.
+    const order = orderRef.current;
+    const all = [...map.values()];
+    const size = (c: Category) => c.toDelete.length + c.toKeep.length;
+    all
+      .filter((c) => !order.has(c.name))
+      .sort((a, b) => size(b) - size(a))
+      .forEach((c) => order.set(c.name, order.size));
+    return all.sort((a, b) => (order.get(a.name) ?? 0) - (order.get(b.name) ?? 0));
+  }, [view.safeToDelete, view.undecided, view.records]);
 
   /**
-   * Hold the list still across an update: remember the topmost row that will
-   * survive, then restore its on-screen position once the rows have gone.
+   * Hold the list still across an update: remember the topmost surviving row,
+   * then restore its on-screen position once the rows have gone.
    */
   const holdPlace = (removing: Set<string>) => {
     const box = scrollRef.current;
@@ -173,42 +206,33 @@ export function Triage({
     />
   );
 
-  const section = (
-    label: string,
-    rows: Row[],
-    primary: "archive" | "trash",
-  ) =>
+  const bulkButton = (label: string, rows: Row[], mode: "archive" | "trash") => (
+    <button
+      type="button"
+      disabled={busy}
+      onClick={() => clearRows(rows, mode)}
+      className="text-[var(--fg-strong)] hover:underline disabled:opacity-50"
+    >
+      {label}
+    </button>
+  );
+
+  const subBucket = (rows: Row[], label: string, deletable: boolean) =>
     rows.length === 0 ? null : (
-      <tbody key={label}>
-        <tr className="border-b border-[var(--border)] bg-[var(--card)]">
-          <th
+      <>
+        <tr className="border-b border-[var(--border)]">
+          <td
             colSpan={3}
-            className="px-4 py-1.5 text-left text-[12px] font-bold text-[var(--fg-strong)]"
+            className="px-4 py-1 text-[12px] font-bold text-[var(--fg-strong)]"
           >
             {label}
             <span className="ml-1 font-normal">· {rows.length}</span>
-          </th>
-          <td colSpan={2} className="px-4 py-1.5">
-            <div className="flex items-center justify-end gap-3 text-[12px] font-bold">
-              <button
-                type="button"
-                disabled={busy}
-                onClick={() => clearRows(rows, "archive")}
-                className="text-[var(--fg-strong)] hover:underline disabled:opacity-50"
-              >
-                Archive these
-              </button>
-              {primary === "trash" && (
-                <button
-                  type="button"
-                  disabled={busy}
-                  onClick={() => clearRows(rows, "trash")}
-                  className="text-[var(--fg-strong)] hover:underline disabled:opacity-50"
-                >
-                  Delete these
-                </button>
-              )}
-            </div>
+          </td>
+          <td colSpan={2} className="px-4 py-1 text-right text-[12px] font-bold">
+            <span className="inline-flex gap-3">
+              {deletable && bulkButton("Delete these", rows, "trash")}
+              {bulkButton("Archive these", rows, "archive")}
+            </span>
           </td>
         </tr>
         {rows.map((row) => (
@@ -266,7 +290,7 @@ export function Triage({
             </td>
           </tr>
         ))}
-      </tbody>
+      </>
     );
 
   return (
@@ -280,8 +304,7 @@ export function Triage({
             Triage
           </h1>
           <p className="text-[14px] text-[var(--fg)]">
-            {totalRows} to clear
-            {records.length ? ` · ${records.length} to close` : ""}
+            {totalRows} to clear · {categories.length} categories
             {view.coverage.pending
               ? ` · ${view.coverage.pending} still being read`
               : ""}
@@ -330,9 +353,35 @@ export function Triage({
               <th className="px-4 py-2 text-right">Actions</th>
             </tr>
           </thead>
-          {section("Safe to delete", deletable, "trash")}
-          {section("Needs a call · maybe a matter", needsLook, "archive")}
-          {section("Close out — records", records, "archive")}
+          {categories.map((category) => {
+            const all = [...category.toDelete, ...category.toKeep];
+            return (
+              <tbody key={category.name}>
+                <tr className="border-b border-[var(--border)] bg-[var(--card)]">
+                  <th
+                    colSpan={3}
+                    className="px-4 py-1.5 text-left text-[13px] font-bold text-[var(--fg-strong)]"
+                  >
+                    {category.name}
+                    <span className="ml-1 font-normal">· {all.length}</span>
+                  </th>
+                  <td colSpan={2} className="px-4 py-1.5">
+                    <div className="flex items-center justify-end gap-3 text-[12px] font-bold">
+                      {category.toDelete.length > 0 &&
+                        bulkButton(
+                          `Delete safe · ${category.toDelete.length}`,
+                          category.toDelete,
+                          "trash",
+                        )}
+                      {bulkButton("Archive all", all, "archive")}
+                    </div>
+                  </td>
+                </tr>
+                {subBucket(category.toDelete, "Safe to delete", true)}
+                {subBucket(category.toKeep, "Keep · review", false)}
+              </tbody>
+            );
+          })}
         </table>
       )}
     </div>

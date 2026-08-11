@@ -45,6 +45,15 @@ assert.ok(
   triage.includes("view.safeToDelete"),
   "Triage must render the server-computed safeToDelete rows",
 );
+// Categories come from the server row, not a client-side org/domain guess.
+assert.ok(
+  triage.includes("row.category") || triage.includes(".category"),
+  "Triage must group by the server-provided category",
+);
+assert.ok(
+  !/counterpartyOf|split\(["']@["']\)/.test(triage),
+  "Triage must not re-derive the category from the sender",
+);
 
 // The flag wires the single app into both entry points.
 for (const page of ["src/app/page.tsx", "src/app/m/page.tsx"]) {

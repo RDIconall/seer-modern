@@ -2,6 +2,7 @@ import { db } from "../db/pool";
 import type { AccountId } from "../db/types";
 import { nativeUrlFor } from "../providers/native-url";
 import type { ProviderKind } from "../providers/types";
+import { counterpartyOf } from "../intelligence/matter-key";
 import { signDecisionToken } from "./token";
 import type {
   ConversationRow,
@@ -35,10 +36,29 @@ type DecisionRow = {
   matter_id: string | null;
 };
 
+/**
+ * The label a triage row is grouped under. The counterparty from the sender's
+ * domain is the same signal matters are filed by, so triage and Atlas name the
+ * same organisation the same way. Senders with no usable domain (freemail,
+ * bare addresses) fall into "Other" rather than a meaningless fragment.
+ */
+function categoryFor(fromEmail: string | null, ownDomain: string): string {
+  const counterparty = counterpartyOf(fromEmail ?? "", ownDomain);
+  if (!counterparty) return "Other";
+  if (counterparty === "internal") return "Internal";
+  return counterparty.charAt(0).toUpperCase() + counterparty.slice(1);
+}
+
 export async function buildInboxView(
   accountId: AccountId,
   provider: ProviderKind,
 ): Promise<InboxView> {
+  const account = await db().query<{ email: string }>(
+    "select email from seer.mail_accounts where id = $1",
+    [accountId],
+  );
+  const ownDomain = (account.rows[0]?.email.split("@")[1] ?? "").toLowerCase();
+
   const rows = await db().query<DecisionRow>(
     `select c.id as conversation_id,
             c.provider_conversation_id,
@@ -98,6 +118,7 @@ export async function buildInboxView(
     owner: r.owner as ConversationRow["owner"],
     priority: r.priority ?? 0,
     dueDate: r.due_date ? new Date(r.due_date).toISOString().slice(0, 10) : null,
+    category: categoryFor(r.from_email, ownDomain),
     nativeUrl: nativeUrlFor(provider, r.provider_conversation_id),
   });
 

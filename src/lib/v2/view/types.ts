@@ -18,6 +18,13 @@ export type ConversationRow = {
   priority: number;
   /** A date the email stated, if any — orders within a priority bucket. */
   dueDate: string | null;
+  /**
+   * The part of the user's world this belongs to — the sender's counterparty,
+   * derived server-side the same way matters get their org unit ("Roche",
+   * "Advarra", "Internal", "Other"). Triage groups by it; the client never
+   * recomputes it.
+   */
+  category: string;
   nativeUrl: string;
 };
 
