@@ -21,7 +21,7 @@ export default async function MobileHome() {
 
   // The same responsive V3 app serves both desktop and mobile.
   if (isV2Enabled(session.user.email)) {
-    return <MailClient />;
+    return <MailClient mobile />;
   }
 
   return (

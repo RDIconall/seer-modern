@@ -3,7 +3,9 @@
 import { useCallback, useEffect, useState } from "react";
 import {
   connectGoogleDesktop,
+  connectGoogleMobile,
   connectMicrosoftDesktop,
+  connectMicrosoftMobile,
   logout,
   reconnectAccount,
 } from "@/app/actions";
@@ -24,7 +26,7 @@ type AccountData = {
   sessionError: string | null;
 };
 
-export function Settings() {
+export function Settings({ mobile = false }: { mobile?: boolean }) {
   const [data, setData] = useState<AccountData | null>(null);
   const [busy, setBusy] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -84,13 +86,6 @@ export function Settings() {
       setError(cause instanceof Error ? cause.message : "Reconnect failed");
       setBusy(null);
     }
-  }
-
-  function connect(provider: "google" | "microsoft") {
-    const callback = `${window.location.pathname}?settings=1`;
-    window.location.assign(
-      `/api/auth/signin/${provider === "google" ? "google" : "microsoft-entra-id"}?callbackUrl=${encodeURIComponent(callback)}`,
-    );
   }
 
   if (!data && !error) {
@@ -165,19 +160,15 @@ export function Settings() {
         <h2 id="add-account-heading">Add account</h2>
         <div>
           {data?.available.google && (
-            <button type="button" onClick={() => connect("google")}>
-              Add Google account
-            </button>
+            <form action={mobile ? connectGoogleMobile : connectGoogleDesktop}>
+              <button type="submit">Add Google account</button>
+            </form>
           )}
           {data?.available.microsoft && (
-            <button type="button" onClick={() => connect("microsoft")}>
-              Add Microsoft account
-            </button>
+            <form action={mobile ? connectMicrosoftMobile : connectMicrosoftDesktop}>
+              <button type="submit">Add Microsoft account</button>
+            </form>
           )}
-          {/* Keep these server actions reachable for environments that disable
-              direct provider sign-in links during form POST hardening. */}
-          <form action={connectGoogleDesktop} hidden />
-          <form action={connectMicrosoftDesktop} hidden />
         </div>
       </section>
 

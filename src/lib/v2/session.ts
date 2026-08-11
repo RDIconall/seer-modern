@@ -43,6 +43,14 @@ export function selectV2Account(
   );
 }
 
+export function effectiveActiveAccountId(
+  accounts: MailAccount[],
+  activeId: string | null,
+  sessionEmail: string,
+): string | null {
+  return selectV2Account(accounts, activeId, sessionEmail)?.id ?? null;
+}
+
 export async function getActiveV2Account(): Promise<MailAccount | null> {
   const session = await auth();
   const email = session?.user?.email?.toLowerCase();

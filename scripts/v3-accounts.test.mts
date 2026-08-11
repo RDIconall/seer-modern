@@ -48,7 +48,7 @@ try {
   const accountA2 = await accounts.upsertAccountWithCredentials({
     userId: userA,
     provider: "microsoft",
-    email: "task8-a@example.com",
+    email: "linked-b@example.com",
     displayName: "Mailbox A2",
     accessToken: "access-a2",
     refreshToken: "refresh-a2",
@@ -58,6 +58,11 @@ try {
   const ownedA = await accounts.listOwnedAccounts(userA);
   assert.deepEqual(ownedA.map((account) => account.id), [accountA.id, accountA2.id]);
   assert.equal(ownedA[0]?.email, "mail-a@example.com");
+  assert.deepEqual(
+    (await accounts.listOwnedAccounts(userB)).map((account) => account.id),
+    [accountB.id],
+    "mailbox B linked by owner A remains invisible to owner B",
+  );
   assert.equal(v2Session.selectV2Account(ownedA, accountA2.id, "mail-a@example.com")?.id, accountA2.id);
   assert.equal(v2Session.selectV2Account(ownedA, accountB.id, "mail-a@example.com")?.id, accountA.id);
   assert.equal(typeof v2Session.effectiveActiveAccountId, "function");
@@ -219,6 +224,9 @@ try {
     "utf8",
   );
   assert.match(authSource, /upsertAccountWithCredentials/);
+  assert.match(authSource, /consumeAccountLinkState/);
+  assert.match(authSource, /ownerUserId/);
+  assert.match(authSource, /token\.email = ownerEmail/);
   assert.match(authSource, /session\.accessToken = undefined/);
   assert.doesNotMatch(authSource, /session\.accessToken\s*=\s*token\.accessToken/);
 
@@ -230,6 +238,48 @@ try {
   assert.match(linkSource, /nonce/);
   assert.match(linkSource, /maxAge|600|10/);
   assert.match(linkSource, /cookies/);
+  process.env.AUTH_SECRET = "task8-link-test-secret";
+  const link = await import("../src/lib/auth/account-link.ts");
+  const signed = link.signAccountLinkState({
+    ownerUserId: userA,
+    ownerEmail: "task8-a@example.com",
+    provider: "google",
+    nonce: "task8-once",
+    exp: Date.now() + 60_000,
+  });
+  const usedNonces = new Set<string>();
+  const validLink = link.consumeSignedAccountLinkState(
+    signed,
+    "google",
+    usedNonces,
+  );
+  assert.equal(validLink?.ownerEmail, "task8-a@example.com");
+  assert.equal(
+    link.consumeSignedAccountLinkState(signed, "google", usedNonces),
+    null,
+    "link state is one-time",
+  );
+  assert.equal(
+    link.consumeSignedAccountLinkState(
+      `${signed.slice(0, -1)}x`,
+      "google",
+      new Set(),
+    ),
+    null,
+    "tampered link state is rejected",
+  );
+  const expired = link.signAccountLinkState({
+    ownerUserId: userA,
+    ownerEmail: "task8-a@example.com",
+    provider: "google",
+    nonce: "task8-expired",
+    exp: Date.now() - 1,
+  });
+  assert.equal(
+    link.consumeSignedAccountLinkState(expired, "google", new Set()),
+    null,
+    "expired link state is rejected",
+  );
 
   const storeSource = await fs.readFile(
     path.join(process.cwd(), "src/lib/store/accounts.ts"),

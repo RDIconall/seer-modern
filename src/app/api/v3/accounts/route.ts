@@ -1,5 +1,6 @@
 import { auth } from "@/auth";
 import { revokeProviderGrant } from "@/lib/mail/revoke";
+import { effectiveActiveAccountId } from "@/lib/v2/session";
 import {
   deleteOwnedAccount,
   getCredentials,
@@ -107,6 +108,7 @@ export async function POST(request: Request) {
     return NextResponse.json({ error: "action and id required" }, { status: 400 });
   }
 
+  const ownedAccounts = await listOwnedAccounts(current.userId);
   const id = asAccountId(body.id);
   const owned = await getOwnedAccount(current.userId, id);
   if (!owned) {
@@ -124,7 +126,12 @@ export async function POST(request: Request) {
       { status: 400 },
     );
   }
-  const requiresSignOut = (await getActiveAccountId()) === owned.id;
+  const requiresSignOut =
+    effectiveActiveAccountId(
+      ownedAccounts,
+      await getActiveAccountId(),
+      current.email,
+    ) === owned.id;
   const credentials = await getCredentials(owned.id);
   if (credentials) {
     await revokeProviderGrant({

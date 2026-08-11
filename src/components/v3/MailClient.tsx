@@ -150,7 +150,10 @@ function SearchResults({
   );
 }
 
-export function MailClient({ preview }: { preview?: MailClientPreview } = {}) {
+export function MailClient({
+  preview,
+  mobile = false,
+}: { preview?: MailClientPreview; mobile?: boolean } = {}) {
   const [section, setSection] = useState<MailSection>(preview?.initialSection ?? "inbox");
   const [conversationId, setConversationId] = useState<string | null>(
     preview?.initialConversationId ?? null,
@@ -401,7 +404,7 @@ export function MailClient({ preview }: { preview?: MailClientPreview } = {}) {
       <p className="mail-empty">{inbox.error ?? "Reading Triage…"}</p>
     )
   ) : (
-    <Settings />
+    <Settings mobile={mobile} />
   );
 
   return (

@@ -4,6 +4,10 @@ import { auth } from "@/auth";
 import { signIn, signOut } from "@/auth";
 import { revokeProviderGrant } from "@/lib/mail/revoke";
 import {
+  beginAccountLinkState,
+  type AccountLinkProvider,
+} from "@/lib/auth/account-link";
+import {
   clearCredentials,
   getCredentials,
   getOwnedAccount,
@@ -30,20 +34,42 @@ export async function loginMicrosoftMobile() {
 
 /** Connect / add account from Settings (desktop). */
 export async function connectGoogleDesktop() {
-  await signIn("google", { redirectTo: "/?settings=1" });
+  await connectAccount("google", "/?settings=1");
 }
 
 export async function connectMicrosoftDesktop() {
-  await signIn("microsoft-entra-id", { redirectTo: "/?settings=1" });
+  await connectAccount("microsoft-entra-id", "/?settings=1");
 }
 
 /** Connect / add account from Settings (mobile). */
 export async function connectGoogleMobile() {
-  await signIn("google", { redirectTo: "/m?settings=1" });
+  await connectAccount("google", "/m?settings=1");
 }
 
 export async function connectMicrosoftMobile() {
-  await signIn("microsoft-entra-id", { redirectTo: "/m?settings=1" });
+  await connectAccount("microsoft-entra-id", "/m?settings=1");
+}
+
+async function connectAccount(
+  provider: AccountLinkProvider,
+  redirectTo: string,
+  accountId?: string,
+) {
+  const session = await auth();
+  const email = session?.user?.email?.trim().toLowerCase();
+  if (!email) throw new Error("Sign in before adding another account");
+  const userId = await upsertUser(email);
+  await beginAccountLinkState({
+    ownerUserId: userId,
+    ownerEmail: email,
+    provider,
+    accountId,
+  });
+  await signIn(
+    provider,
+    { redirectTo },
+    { prompt: "consent" },
+  );
 }
 
 /**
@@ -79,10 +105,10 @@ export async function reconnectAccount(id: string, mobile?: boolean) {
   }
   await clearCredentials(account.id);
   await setActiveAccountId(account.id);
-  await signIn(
+  await connectAccount(
     account.provider === "google" ? "google" : "microsoft-entra-id",
-    { redirectTo },
-    { login_hint: account.email, prompt: "consent" },
+    redirectTo,
+    account.id,
   );
 }
 
