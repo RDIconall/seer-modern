@@ -3,8 +3,10 @@ import type { AccountId } from "../db/types";
 import { nativeUrlFor } from "../providers/native-url";
 import type { ProviderKind } from "../providers/types";
 import { counterpartyOf } from "../intelligence/matter-key";
+import { UNFILED } from "../intelligence/functions";
 import { signDecisionToken } from "./token";
 import type {
+  AtlasSection,
   ConversationRow,
   Coverage,
   DeleteRow,
@@ -103,8 +105,16 @@ export async function buildInboxView(
     title: string;
     status: string;
     org_unit: string | null;
+    function_name: string | null;
   }>(
-    "select id, title, status, org_unit from seer.matters where account_id = $1",
+    "select id, title, status, org_unit, function_name from seer.matters where account_id = $1",
+    [accountId],
+  );
+
+  // Registry order decides the order of sections and board columns, so the
+  // whiteboard reads the same way every time it is opened.
+  const registry = await db().query<{ name: string }>(
+    "select name from seer.functions where account_id = $1 order by position, name",
     [accountId],
   );
 
@@ -169,10 +179,16 @@ export async function buildInboxView(
       title: m.title,
       status: m.status,
       orgUnit: m.org_unit,
+      section: m.function_name ?? UNFILED,
       conversations: convs,
       yields: cardYields,
     };
   });
+
+  const sections = groupIntoSections(
+    atlas,
+    registry.rows.map((r) => r.name),
+  );
 
   const worthReading: YieldRow[] = yieldRows.rows
     .filter((y) => y.kind === "worth_reading")
@@ -190,11 +206,46 @@ export async function buildInboxView(
     asOf: new Date().toISOString(),
     coverage,
     atlas,
+    sections,
     records,
     safeToDelete,
     undecided,
     worthReading,
   };
+}
+
+/**
+ * Group matters into whiteboard sections.
+ *
+ * Registry order comes first so the board's columns never reshuffle. Empty
+ * sections are dropped — an executive's board should not be mostly blank
+ * shelves — and anything unfiled sorts last, where it reads as a to-do rather
+ * than as a category of work.
+ */
+export function groupIntoSections(
+  matters: MatterCard[],
+  registry: string[],
+): AtlasSection[] {
+  const bySection = new Map<string, MatterCard[]>();
+  for (const matter of matters) {
+    const list = bySection.get(matter.section) ?? [];
+    list.push(matter);
+    bySection.set(matter.section, list);
+  }
+
+  const ordered: string[] = [
+    ...registry.filter((name) => bySection.has(name)),
+    // Sections not in the registry (renamed, or legacy) keep a stable place.
+    ...[...bySection.keys()]
+      .filter((name) => !registry.includes(name) && name !== UNFILED)
+      .sort(),
+    ...(bySection.has(UNFILED) ? [UNFILED] : []),
+  ];
+
+  return ordered.map((name) => ({
+    name,
+    matters: bySection.get(name) ?? [],
+  }));
 }
 
 async function buildCoverage(accountId: AccountId): Promise<Coverage> {

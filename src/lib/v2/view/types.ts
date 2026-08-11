@@ -46,9 +46,21 @@ export type MatterCard = {
   matterId: string;
   title: string;
   status: string;
+  /** The counterparty this work is with ("roche", "internal"). */
   orgUnit: string | null;
+  /**
+   * The whiteboard section this is filed under — the part of the business, not
+   * the counterparty. Two Roche matters can be "software" and "sales — leads".
+   */
+  section: string;
   conversations: ConversationRow[];
   yields: YieldRow[];
+};
+
+/** A whiteboard section with the matters filed under it, in registry order. */
+export type AtlasSection = {
+  name: string;
+  matters: MatterCard[];
 };
 
 export type Coverage = {
@@ -62,6 +74,8 @@ export type InboxView = {
   asOf: string;
   coverage: Coverage;
   atlas: MatterCard[];
+  /** The same matters as `atlas`, grouped into whiteboard sections. */
+  sections: AtlasSection[];
   records: ConversationRow[];
   safeToDelete: DeleteRow[];
   undecided: ConversationRow[];
