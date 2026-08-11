@@ -207,14 +207,18 @@ export async function resolveActiveAccount(
     if (provider !== "google" && provider !== "microsoft-entra-id") {
       return null;
     }
-    return upsertAccount({
+    // Read-only compatibility path: an old NextAuth session may still carry
+    // a usable token, but fallback resolution must never write a second copy.
+    return {
+      id: accountId(provider, fallback.email),
       provider,
-      email: fallback.email,
-      name: fallback.name ?? undefined,
+      email: fallback.email.toLowerCase(),
+      name: fallback.name ?? fallback.email,
       accessToken: fallback.accessToken,
       refreshToken: fallback.refreshToken,
       expiresAt: fallback.expiresAt,
-    });
+      updatedAt: new Date().toISOString(),
+    };
   }
 
   const listed = await readStore();
