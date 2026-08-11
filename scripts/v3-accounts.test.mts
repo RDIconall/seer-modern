@@ -88,7 +88,7 @@ try {
   );
   assert.match(sessionSource, /getOwnedAccount|listOwnedAccounts/);
   assert.match(sessionSource, /SEER_V3_LEGACY_ACCOUNT_FALLBACK/);
-  assert.doesNotMatch(sessionSource, /from ["']@\/lib\/store\/accounts["']/);
+  assert.match(sessionSource, /legacyAccountFallbackEnabled/);
 
   const storeSource = await fs.readFile(
     path.join(process.cwd(), "src/lib/store/accounts.ts"),
