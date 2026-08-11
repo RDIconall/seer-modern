@@ -1,4 +1,4 @@
-import { providerFetch, ProviderHttpError, type ProviderHttpOptions } from "./http";
+import { providerFetch, type ProviderHttpOptions } from "./http";
 import {
   mutationErrorIsNoOp,
   outlookMutationAlreadyApplied,

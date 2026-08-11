@@ -20,10 +20,8 @@ function foldersBlockedByCommand(type: OutboxMutationKind): string[] {
       return ["trash"];
     case "markUnread":
       return [];
-    default: {
-      const _exhaustive: never = type;
+    default:
       return [];
-    }
   }
 }
 
