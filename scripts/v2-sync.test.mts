@@ -78,11 +78,17 @@ try {
   );
   assert.equal(runs.rows[0].n, 2);
 
-  // Deletion: move an entire conversation to trash; it is marked deleted and
-  // drops out of coverage.
+  // Head polling only adds/updates; the next bounded full reconciliation
+  // removes the provider-side stale membership and marks it deleted.
   const target = conversations.find((c) => c.providerConversationId === "s5")!;
   for (const m of target.messages) (m as { folder: string }).folder = "trash";
   await syncAccount(accountId, provider, "incremental");
+  const duringHead = await db.pool.query(
+    "select is_deleted from seer.conversations where account_id = $1 and provider_conversation_id = 's5'",
+    [accountId],
+  );
+  assert.equal(duringHead.rows[0].is_deleted, false, "head polling must not remove rows");
+  await syncAccount(accountId, provider, "full");
   const del = await db.pool.query(
     "select is_deleted from seer.conversations where account_id = $1 and provider_conversation_id = 's5'",
     [accountId],
