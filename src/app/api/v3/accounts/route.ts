@@ -48,7 +48,7 @@ async function currentUser() {
   const session = await auth();
   const email = session?.user?.email?.trim().toLowerCase();
   if (!email) return null;
-  return { session, userId: await upsertUser(email) };
+  return { session, email, userId: await upsertUser(email) };
 }
 
 function providersAvailable() {
@@ -77,10 +77,14 @@ export async function GET() {
   }
   const accounts = await listOwnedAccounts(current.userId);
   const activeId = await getActiveAccountId();
-  const active = accounts.find((account) => account.id === activeId) ?? null;
+  const active =
+    accounts.find((account) => account.id === activeId) ??
+    accounts.find((account) => account.email === current.email) ??
+    null;
+  const effectiveActiveId = active?.id ?? null;
   return NextResponse.json({
-    active: active ? publicAccount(active, activeId) : null,
-    accounts: accounts.map((account) => publicAccount(account, activeId)),
+    active: active ? publicAccount(active, effectiveActiveId) : null,
+    accounts: accounts.map((account) => publicAccount(account, effectiveActiveId)),
     available: providersAvailable(),
     sessionError: current.session?.error ?? null,
   });
