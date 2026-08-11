@@ -20,25 +20,25 @@ Legend:
 |---|---|---|
 | sign in with Google or Microsoft | ✅ | ✅ same auth |
 | install Seer as a PWA on my phone | ✅ | ✅ |
-| open Settings at all | ✅ | ❌ no settings surface in the v2 shell |
-| **sign out** | ✅ | ❌ **no sign-out in the v2 shell** |
-| connect a second mailbox / switch accounts | ✅ | 🟡 schema is multi-account; no UI |
-| reconnect an expired account | ✅ | 🟡 tokens auto-refresh; no recovery UI on hard failure |
-| remove an account | ✅ | ❌ |
+| open Settings at all | ✅ | ✅ |
+| **sign out** | ✅ | ✅ |
+| connect a second mailbox / switch accounts | ✅ | ✅ |
+| reconnect an expired account | ✅ | ✅ Settings flow; account health still depends on provider credentials |
+| remove an account | ✅ | ✅ |
 | see integration health probes | ✅ | ❌ |
 
 ## 2. Using mail like a mail client
 
 | As Conall, I can… | Legacy | v2 |
 |---|---|---|
-| browse Inbox / Sent / Trash | ✅ | ❌ |
-| search my mailbox | ✅ | ❌ |
-| open a message and read the HTML body in-app | ✅ | 🟡 `Reader`/`MessageHtml` components built, unreachable |
-| reply / reply-all / forward | ✅ | 🟡 `reply`/`send` commands + `Compose` built, unreachable |
-| compose new mail with contact autocomplete | ✅ | ❌ (autocomplete was a legacy API) |
-| download attachments | ✅ | 🟡 attachment names stored and shown; no download path |
+| browse Inbox / Sent / Trash | ✅ | ✅ |
+| search my mailbox | ✅ | ✅ |
+| open a message and read the HTML body in-app | ✅ | ✅ |
+| reply / reply-all / forward | ✅ | ✅ |
+| compose new mail with contact autocomplete | ✅ | 🟡 compose works; legacy autocomplete is not yet restored |
+| download attachments | ✅ | ✅ |
 | RSVP to a calendar invite from the email | ✅ | ❌ |
-| see unread indicators; mark read/unread | ✅ | 🟡 `markUnread` command exists; no UI |
+| see unread indicators; mark read/unread | ✅ | ✅ |
 | swipe to archive/delete on mobile | ✅ | ❌ (checkbox model instead) |
 | jump to the message in Outlook/Gmail web | ❌ | ✅ native deep links everywhere |
 
@@ -51,7 +51,7 @@ Legend:
 | bulk-clear a category or bucket | ✅ header links | ✅ Gmail-style checkboxes, ranges, sticky toolbar |
 | trust that bulk delete can't hit protected mail | 🟡 relationship floor | ✅ signed tokens; mixed selections archive, never escalate |
 | archive/delete one row | ✅ | ✅ |
-| open the email behind a row | ✅ in-app | 🟡 opens native web client |
+| open the email behind a row | ✅ in-app | ✅ in-app reader with provider deep link |
 | resize columns; keep my scroll position on sweeps | ✅ | ✅ |
 | export the inbox ledger as CSV | ✅ | 🟡 link exists but still reads the retired legacy brief — broken since cutover |
 | undo a sweep | ⚪ ledger + undo API, no UI | 🟡 `restore` command exists; no UI |
@@ -143,20 +143,14 @@ Legend:
 ## Reading of the gap
 
 The legacy system was a **full mail client with an intelligence layer bolted
-on**. v2 is a **decision engine with a thin viewing layer**. The engine —
-corpus, reads, matters, filing, safety, cost — is stronger than what it
-replaced. The client half (read, reply, search, settings) hasn't been rebuilt,
-and several legacy strengths (CRM, behavioural learning, assist flows) have no
-v2 counterpart yet.
+on**. V3 restores that client shell on the v2 corpus: folder lists, search,
+reader, compose, settings, account switching, and durable provider mutations.
+The engine — corpus, reads, matters, filing, safety, and cost — remains the
+system of record. Several legacy strengths (CRM, behavioural learning, and
+assist flows) remain intentionally deferred.
 
-Much of the nearest-term gap is wiring, not building: eight commands exist and
-the UI dispatches two; Reader and Compose are written and unreachable.
-
-Suggested order (each unlocks the most for the least):
-1. Settings + sign-out in the v2 shell (currently impossible).
-2. Wire Reader + Compose (reply/reply-all/forward/send exist server-side).
-3. Teach/correct affordances on rows (`teachSender`, `correctConversation`).
-4. Matter panel: rename, re-file, settle (backend contracts all exist).
-5. Rebuild export on v2 data (current link reads the retired brief).
-6. Search.
-7. Undo via `restore` in the selection toolbar.
+Remaining Stage 2/3 work:
+1. Teach/correct affordances on rows (`teachSender`, `correctConversation`).
+2. Matter panel: rename, re-file, settle (backend contracts all exist).
+3. Rebuild export on v2 data (current link reads the retired brief).
+4. Assist, CRM, and behavioural-learning surfaces.

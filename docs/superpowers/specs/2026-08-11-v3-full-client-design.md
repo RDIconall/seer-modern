@@ -100,6 +100,26 @@ undo works.
   browsing, not work to be triaged. Only inbox conversations are queued for a
   chief-of-staff read.
 
+### Provider-authoritative folder reconciliation
+
+Folder backfills are durable snapshots, not append-only imports. Each snapshot
+has a generation and start timestamp in `seer.folder_sync_state`; every
+conversation returned by every bounded page is recorded in
+`seer.folder_sync_seen`. When the final page commits, conversations in that
+account that were not seen in the generation lose that folder membership. The
+membership update is atomic with publishing the completed generation, so a
+bounded tick cannot remove a row merely because a later page has not run yet.
+
+Completed folders use a one-page head poll for ordinary incremental ticks. Head
+polls only add or update rows; they never remove folder membership. Inbox starts
+a bounded full rescan every 15 minutes so archive/trash/restore actions made on
+another device converge without restarting the entire Sent or Trash history.
+Sent and Trash use a six-hour reconciliation interval because they are browsing
+history rather than the paid read queue. A rescan resumes its cursor across
+ticks and removes stale membership only after the final page. Failed hydration
+rows remain marked as provider-seen, preventing a malformed body from being
+mistaken for provider-side deletion.
+
 ### The shell
 
 One responsive app (desktop + mobile by CSS), matching the current v2 shell's

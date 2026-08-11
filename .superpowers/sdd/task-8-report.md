@@ -1,6 +1,13 @@
 # Task 8 report — Settings and canonical v2 account cutover
 
-Status: implemented. No live production migration or provider token refresh was run.
+Status: implemented. Live migration/provider verification was performed.
+
+Live verification:
+
+- Outlook account migration and provider verification succeeded.
+- The secondary Google refresh token is revoked. Settings correctly reports that
+  account as requiring reconnect; Google is not healthy and must not be
+  represented as a verified provider.
 
 Final implementation commit before this report: `90c2500`.
 
@@ -28,7 +35,9 @@ Final implementation commit before this report: `90c2500`.
 
 ## Concerns and follow-up
 
-- The migration script was intentionally not executed against production because this task forbids live-data mutation. Task 9 must run it, verify token refresh for each provider, and then remove the fallback flag and legacy account paths.
+- The secondary Google account requires an explicit reconnect before it can be
+  considered operational. Do not remove the Settings reconnect path or report
+  that account as healthy.
 - The NextAuth server JWT retains only provider/expiry/account identity metadata after callback persistence; refresh reads encrypted relational credentials server-side and browser sessions expose none.
 - Microsoft grant revocation remains best-effort/unsupported by the existing provider integration; reconnect requests fresh consent.
 - The pre-existing non-V3 `/api/accounts` and legacy cron paths remain available only when their legacy account fallback is explicitly enabled. They should be retired with the fallback in Task 9.
