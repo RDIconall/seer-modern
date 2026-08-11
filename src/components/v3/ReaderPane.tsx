@@ -19,12 +19,14 @@ export function ReaderPane({
   onBack,
   onCompose,
   onNotice,
+  onProviderConversationId,
   preview,
 }: {
   conversationId: string;
   onBack: () => void;
   onCompose: (intent: ReaderComposeIntent) => void;
   onNotice: (message: string, error?: boolean) => void;
+  onProviderConversationId?: (id: string) => void;
   preview?: ReaderResponse;
 }) {
   const [data, setData] = useState<ReaderResponse | null>(preview ?? null);
@@ -45,7 +47,10 @@ export function ReaderPane({
         return json;
       })
       .then((json) => {
-        if (!cancelled) setData(json);
+        if (!cancelled) {
+          setData(json);
+          onProviderConversationId?.(json.conversation.providerConversationId);
+        }
       })
       .catch((cause) => {
         if (!cancelled) setError(cause instanceof Error ? cause.message : "reader failed");
@@ -56,7 +61,11 @@ export function ReaderPane({
     return () => {
       cancelled = true;
     };
-  }, [conversationId, preview]);
+  }, [conversationId, onProviderConversationId, preview]);
+
+  useEffect(() => {
+    if (data) onProviderConversationId?.(data.conversation.providerConversationId);
+  }, [data, onProviderConversationId]);
 
   const commands = useReaderCommands({
     corpusConversationId: conversationId,

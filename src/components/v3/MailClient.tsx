@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import { Atlas } from "@/components/v2/Atlas";
 import { Triage } from "@/components/v2/Triage";
 import { WorthReading } from "@/components/v2/WorthReading";
@@ -108,6 +108,7 @@ function SearchResults({
 export function MailClient({ preview }: { preview?: MailClientPreview } = {}) {
   const [section, setSection] = useState<MailSection>("inbox");
   const [conversationId, setConversationId] = useState<string | null>(null);
+  const [providerConversationId, setProviderConversationId] = useState<string | null>(null);
   const [compose, setCompose] = useState<ReaderComposeIntent | { mode: "send" } | null>(null);
   const [query, setQuery] = useState("");
   const [searchRows, setSearchRows] = useState<SearchResult[] | null>(null);
@@ -145,6 +146,7 @@ export function MailClient({ preview }: { preview?: MailClientPreview } = {}) {
   const navigate = (next: MailSection) => {
     setSection(next);
     setConversationId(null);
+    setProviderConversationId(null);
     setCompose(null);
     setSearchRows(null);
     setQuery("");
@@ -153,8 +155,14 @@ export function MailClient({ preview }: { preview?: MailClientPreview } = {}) {
 
   const openRow = (row: MailboxRow) => {
     setConversationId(row.conversationId);
+    setProviderConversationId(row.providerConversationId);
     setCompose(null);
   };
+
+  const rememberProviderConversationId = useCallback(
+    (id: string) => setProviderConversationId(id),
+    [],
+  );
 
   const action = async (row: MailboxRow, kind: "archive" | "restore") => {
     try {
@@ -200,11 +208,13 @@ export function MailClient({ preview }: { preview?: MailClientPreview } = {}) {
     setQuery(value);
     setSearchRows(rows);
     setConversationId(null);
+    setProviderConversationId(null);
   };
 
   const openSearchResult = (row: SearchResult) => {
     if (!row.conversationId) return;
     setConversationId(row.conversationId);
+    setProviderConversationId(row.providerConversationId);
     setSearchRows(null);
   };
 
@@ -222,9 +232,13 @@ export function MailClient({ preview }: { preview?: MailClientPreview } = {}) {
   const content = conversationId ? (
     <ReaderPane
       conversationId={conversationId}
-      onBack={() => setConversationId(null)}
+      onBack={() => {
+        setConversationId(null);
+        setProviderConversationId(null);
+      }}
       onCompose={(intent) => setCompose(intent)}
       onNotice={(message, error = false) => setNotice({ message, error })}
+      onProviderConversationId={rememberProviderConversationId}
       preview={readerPreview}
     />
   ) : searchRows ? (
@@ -288,7 +302,7 @@ export function MailClient({ preview }: { preview?: MailClientPreview } = {}) {
       {compose && (
         <ComposePane
           intent={compose.mode === "send" ? undefined : compose}
-          providerConversationId={conversationId ? readerPreview?.conversation.providerConversationId : undefined}
+          providerConversationId={providerConversationId ?? undefined}
           onClose={() => setCompose(null)}
           onSent={noticeResult}
         />
