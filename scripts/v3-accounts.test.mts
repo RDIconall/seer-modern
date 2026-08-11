@@ -60,6 +60,12 @@ try {
   assert.equal(ownedA[0]?.email, "mail-a@example.com");
   assert.equal(v2Session.selectV2Account(ownedA, accountA2.id, "mail-a@example.com")?.id, accountA2.id);
   assert.equal(v2Session.selectV2Account(ownedA, accountB.id, "mail-a@example.com")?.id, accountA.id);
+  assert.equal(typeof v2Session.effectiveActiveAccountId, "function");
+  assert.equal(
+    v2Session.effectiveActiveAccountId(ownedA, null, "mail-a@example.com"),
+    accountA.id,
+    "removing the displayed fallback account must require sign-out",
+  );
   assert.equal(
     v2Session.selectV2Account(
       await accounts.listOwnedAccounts(userB),
@@ -215,6 +221,15 @@ try {
   assert.match(authSource, /upsertAccountWithCredentials/);
   assert.match(authSource, /session\.accessToken = undefined/);
   assert.doesNotMatch(authSource, /session\.accessToken\s*=\s*token\.accessToken/);
+
+  const linkPath = path.join(process.cwd(), "src/lib/auth/account-link.ts");
+  const linkExists = await fs.stat(linkPath).then(() => true).catch(() => false);
+  assert.equal(linkExists, true, "account linking state module must exist");
+  const linkSource = await fs.readFile(linkPath, "utf8");
+  assert.match(linkSource, /AUTH_SECRET/);
+  assert.match(linkSource, /nonce/);
+  assert.match(linkSource, /maxAge|600|10/);
+  assert.match(linkSource, /cookies/);
 
   const storeSource = await fs.readFile(
     path.join(process.cwd(), "src/lib/store/accounts.ts"),
