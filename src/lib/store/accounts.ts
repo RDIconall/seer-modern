@@ -77,19 +77,13 @@ export async function resealAccounts(): Promise<number> {
   return store.accounts.length;
 }
 
-export async function listAccounts(): Promise<
+export async function listAccounts(
+  ownerEmail: string,
+): Promise<
   Omit<StoredAccount, "accessToken" | "refreshToken">[]
 > {
   requireLegacyAccountStore();
-  const store = await readStore();
-  return store.accounts.map((account) => ({
-    id: account.id,
-    provider: account.provider,
-    email: account.email,
-    name: account.name,
-    expiresAt: account.expiresAt,
-    updatedAt: account.updatedAt,
-  }));
+  return listAccountsForOwner(ownerEmail);
 }
 
 export async function listAccountsForOwner(
@@ -112,10 +106,15 @@ export async function listAccountsForOwner(
 
 export async function getAccount(
   id: string,
+  ownerEmail: string,
 ): Promise<StoredAccount | undefined> {
   requireLegacyAccountStore();
   const store = await readStore();
-  return store.accounts.find((a) => a.id === id);
+  const owner = ownerEmail.toLowerCase().trim();
+  return store.accounts.find(
+    (account) =>
+      account.id === id && account.email.toLowerCase() === owner,
+  );
 }
 
 /** Full accounts WITH tokens — background services only (cron sync). */
