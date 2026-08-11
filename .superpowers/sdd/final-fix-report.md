@@ -100,6 +100,7 @@ All commands below passed:
 - `npx tsx scripts/v2-provider-contract.test.mts`
 - `npx tsx scripts/v2-provider-contract.test.mts`
 - `npx tsx scripts/v2-provider-outlook.test.mts`
+- `npx tsx scripts/v3-production-security.test.mts`
 - `npx tsx scripts/v3-schema.test.mts`
 - `npx tsx scripts/v3-sync-backfill.test.mts`
 - `npx tsx scripts/v3-sync-folders.test.mts`
@@ -114,6 +115,10 @@ All commands below passed:
 - `npm run lint`
 - `npx tsc --noEmit`
 - `npm run build`
+
+The final `npm run test:v2 && npm run test:v3` run passed after the migration
+rename and documentation updates. `npm test`, `npm run lint`, `npx tsc --noEmit`,
+and `npm run build` also passed.
 
 ## Remaining concerns
 

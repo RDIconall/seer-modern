@@ -45,6 +45,23 @@ Production Outlook Sent has ~25,140 messages. `/api/v2/sync?mode=full` spent 300
 | `npx tsc --noEmit` | pass |
 | `npm run build` | pass |
 
+## Final follow-up verification
+
+After the UUID snapshot, production role/URL, KV probe-only, provider deadline,
+brain projection, account switch, outbox ordering, and OAuth health changes:
+
+| Command | Result |
+|---------|--------|
+| `npm test` | pass |
+| `npm run test:v2` | pass |
+| `npm run test:v3` | pass |
+| `npm run lint` | pass |
+| `npx tsc --noEmit` | pass |
+| `npm run build` | pass |
+
+No live migration, password provisioning, or provider token mutation was
+performed in this workspace.
+
 ### Regression coverage (`scripts/v3-bounded-sync.test.mts`)
 
 - Huge sent (120) + trash (40): one tick processes 2 sent pages **and** 2 trash pages.
