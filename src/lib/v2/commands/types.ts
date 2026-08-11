@@ -24,4 +24,7 @@ export type CommandResult = {
   failed?: string[];
   error?: string;
   detail?: Record<string, unknown>;
+  /** Present when the command was enqueued to the write-behind outbox. */
+  outboxId?: string;
+  optimistic?: boolean;
 };

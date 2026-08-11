@@ -1,13 +1,14 @@
 import { inTransaction } from "../db/transaction";
 import type { AccountId } from "../db/types";
-import type { MailProvider, MutationAction } from "../providers/types";
+import type { MailProvider } from "../providers/types";
 import { saveDecision } from "../intelligence/repository";
 import { asConversationId } from "../db/types";
 import { verifyDecisionToken } from "../view/token";
+import { enqueueOptimistic } from "@/lib/v3/outbox/repository";
+import type { OutboxMutationKind } from "@/lib/v3/outbox/types";
 import {
   currentDeleteDecision,
   existingReceipt,
-  providerConversationId,
   recordEvent,
   saveReceipt,
 } from "./repository";
@@ -17,8 +18,9 @@ import type { Command, CommandResult } from "./types";
  * Execute one command. Ownership and idempotency are checked first. A delete is
  * only honored when the signed token maps to the conversation's CURRENT decision
  * and that decision's home is still delete — the browser cannot delete from a
- * raw field, a stale decision, or a guessed bucket. Provider mutations report
- * partial failure; nothing is hidden.
+ * raw field, a stale decision, or a guessed bucket. Mail mutations (archive,
+ * delete, restore, markUnread) enqueue to the write-behind outbox; send/reply
+ * and user corrections remain synchronous.
  */
 
 export type CommandContext = {
@@ -39,27 +41,24 @@ export async function executeCommand(
   return result;
 }
 
-async function mutate(
+async function enqueueMutation(
   ctx: CommandContext,
+  type: OutboxMutationKind,
   conversationId: string,
-  action: MutationAction,
   idempotencyKey: string,
 ): Promise<CommandResult> {
-  const providerId = await providerConversationId(ctx.accountId, conversationId);
-  if (!providerId) return fail("conversation not found");
-  const receipt = await ctx.provider.mutateConversation(providerId, action, idempotencyKey);
-  await recordEvent(
-    ctx.accountId,
-    `mail_${action}`,
-    { conversationId, processed: receipt.processed, failed: receipt.failed },
-    idempotencyKey,
-  );
-  return {
-    ok: receipt.failed.length === 0,
-    replayed: false,
-    processed: receipt.processed,
-    failed: receipt.failed,
-  };
+  try {
+    const item = await enqueueOptimistic(
+      ctx.accountId,
+      { type, conversationId },
+      idempotencyKey,
+    );
+    return { ok: true, replayed: false, outboxId: item.id, optimistic: true };
+  } catch (e) {
+    const msg = e instanceof Error ? e.message : "enqueue failed";
+    if (msg === "conversation not found") return fail("conversation not found");
+    throw e;
+  }
 }
 
 async function run(
@@ -82,15 +81,15 @@ async function run(
       if (current.home !== "delete") {
         return fail("decision no longer authorizes delete");
       }
-      return mutate(ctx, command.conversationId, "trash", idempotencyKey);
+      return enqueueMutation(ctx, "trash", command.conversationId, idempotencyKey);
     }
 
     case "archive":
-      return mutate(ctx, command.conversationId, "archive", idempotencyKey);
+      return enqueueMutation(ctx, "archive", command.conversationId, idempotencyKey);
     case "restore":
-      return mutate(ctx, command.conversationId, "restore", idempotencyKey);
+      return enqueueMutation(ctx, "restore", command.conversationId, idempotencyKey);
     case "markUnread":
-      return mutate(ctx, command.conversationId, "markUnread", idempotencyKey);
+      return enqueueMutation(ctx, "markUnread", command.conversationId, idempotencyKey);
 
     case "correctConversation": {
       // A user correction is law: it supersedes the model's decision and is not

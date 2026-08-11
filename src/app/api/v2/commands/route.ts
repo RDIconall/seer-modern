@@ -3,6 +3,8 @@ import { getActiveV2Account } from "@/lib/v2/session";
 import { providerFor } from "@/lib/v2/providers/provider";
 import { executeCommand } from "@/lib/v2/commands/execute";
 import { buildInboxView } from "@/lib/v2/view/build";
+import { parseMailboxLimit } from "@/lib/v3/mailbox/limit";
+import { getMailboxView } from "@/lib/v3/mailbox/repository";
 import type { Command } from "@/lib/v2/commands/types";
 
 export const dynamic = "force-dynamic";
@@ -10,8 +12,8 @@ export const maxDuration = 60;
 
 /**
  * The one write endpoint for the v2 client. Every mutation is a command with an
- * idempotency key. The response returns the fresh inbox projection so the client
- * never re-derives state.
+ * idempotency key. Mail mutations enqueue optimistically; the response returns
+ * fresh triage and mailbox projections so the client never re-derives state.
  */
 export async function POST(request: Request) {
   const account = await getActiveV2Account();
@@ -39,5 +41,10 @@ export async function POST(request: Request) {
     body.idempotencyKey,
   );
   const view = await buildInboxView(account.id, account.provider);
-  return NextResponse.json({ result, view });
+  const mailbox = await getMailboxView(
+    account.id,
+    "inbox",
+    parseMailboxLimit(null),
+  );
+  return NextResponse.json({ result, view, mailbox });
 }

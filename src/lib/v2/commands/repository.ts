@@ -1,6 +1,7 @@
 import type { PoolClient } from "pg";
 import { db } from "../db/pool";
 import type { AccountId } from "../db/types";
+import { findByIdempotencyKey } from "@/lib/v3/outbox/repository";
 import type { CommandResult } from "./types";
 
 /**
@@ -18,8 +19,17 @@ export async function existingReceipt(
     [accountId, idempotencyKey],
   );
   const row = r.rows[0];
-  if (!row) return null;
-  return { ...row.result, replayed: true };
+  if (row) return { ...row.result, replayed: true };
+
+  // A concurrent enqueue may have committed the outbox row before its receipt.
+  const outbox = await findByIdempotencyKey(accountId, idempotencyKey);
+  if (!outbox) return null;
+  return {
+    ok: true,
+    replayed: true,
+    outboxId: outbox.id,
+    optimistic: true,
+  };
 }
 
 export async function saveReceipt(
