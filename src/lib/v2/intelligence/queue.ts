@@ -19,6 +19,7 @@ export async function conversationsNeedingRead(
          on d.conversation_id = c.id and d.is_current
       where c.account_id = $1
         and c.is_deleted = false
+        and c.folders @> array['inbox']::text[]
         and (
           d.id is null
           or d.model_version <> $2

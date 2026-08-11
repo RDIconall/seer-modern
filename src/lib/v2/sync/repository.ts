@@ -2,7 +2,7 @@ import type { PoolClient } from "pg";
 import { db } from "../db/pool";
 import { inTransaction } from "../db/transaction";
 import type { AccountId } from "../db/types";
-import type { Conversation } from "../providers/types";
+import type { Conversation, SyncFolder } from "../providers/types";
 
 /**
  * Persistence for the sync engine. One page of conversations is written in a
@@ -14,6 +14,7 @@ export type PageWriteResult = { stored: number; failed: number };
 
 export async function writeConversationPage(
   accountId: AccountId,
+  folder: SyncFolder,
   conversations: Conversation[],
   deletedProviderIds: string[],
 ): Promise<PageWriteResult> {
@@ -22,7 +23,7 @@ export async function writeConversationPage(
     let failed = 0;
     for (const convo of conversations) {
       try {
-        await writeConversation(client, accountId, convo);
+        await writeConversation(client, accountId, folder, convo);
         stored++;
       } catch {
         // A single malformed conversation must not sink the page; it is
@@ -44,17 +45,30 @@ export async function writeConversationPage(
 async function writeConversation(
   client: PoolClient,
   accountId: AccountId,
+  folder: SyncFolder,
   convo: Conversation,
 ): Promise<void> {
+  const isUnread = convo.messages.some((m) => m.isUnread);
   const conv = await client.query<{ id: string }>(
     `insert into seer.conversations
-       (account_id, provider_conversation_id, subject, last_message_at, message_count, is_deleted, updated_at)
-       values ($1, $2, $3, $4, $5, false, now())
+       (account_id, provider_conversation_id, subject, last_message_at, message_count,
+        is_deleted, folders, is_unread, last_synced_at, updated_at)
+       values ($1, $2, $3, $4, $5, false, array[$6]::text[], $7, now(), now())
        on conflict (account_id, provider_conversation_id) do update
          set subject = excluded.subject,
              last_message_at = excluded.last_message_at,
              message_count = excluded.message_count,
              is_deleted = false,
+             folders = (
+               select coalesce(array_agg(distinct f), '{}')
+                 from unnest(seer.conversations.folders || array[$6]::text[]) as f
+             ),
+             is_unread = (
+               select coalesce(bool_or(m.is_unread), false)
+                 from seer.messages m
+                where m.conversation_id = seer.conversations.id
+             ),
+             last_synced_at = now(),
              updated_at = now()
        returning id`,
     [
@@ -63,6 +77,8 @@ async function writeConversation(
       convo.subject,
       convo.lastMessageAt || null,
       convo.messages.length,
+      folder,
+      isUnread,
     ],
   );
   const conversationId = conv.rows[0].id;
@@ -96,8 +112,48 @@ async function writeConversation(
       ],
     );
   }
+
+  await client.query(
+    `update seer.conversations c
+        set is_unread = (
+          select coalesce(bool_or(m.is_unread), false)
+            from seer.messages m
+           where m.conversation_id = c.id
+        )
+      where c.id = $1`,
+    [conversationId],
+  );
 }
 
+export async function saveFolderCursor(
+  accountId: AccountId,
+  folder: SyncFolder,
+  cursor: string | null,
+  providerTotal: number,
+): Promise<void> {
+  await db().query(
+    `insert into seer.folder_sync_state (account_id, folder, cursor, provider_total, updated_at)
+       values ($1, $2, $3, $4, now())
+       on conflict (account_id, folder) do update
+         set cursor = excluded.cursor,
+             provider_total = excluded.provider_total,
+             updated_at = now()`,
+    [accountId, folder, cursor, providerTotal],
+  );
+}
+
+export async function loadFolderCursor(
+  accountId: AccountId,
+  folder: SyncFolder,
+): Promise<string | null> {
+  const r = await db().query<{ cursor: string | null }>(
+    "select cursor from seer.folder_sync_state where account_id = $1 and folder = $2",
+    [accountId, folder],
+  );
+  return r.rows[0]?.cursor ?? null;
+}
+
+/** Legacy inbox cursor table — retained until full cutover to folder_sync_state. */
 export async function saveCursor(
   accountId: AccountId,
   cursor: string | null,
@@ -129,15 +185,22 @@ export type Coverage = {
   failed: number;
 };
 
-/** Reconcile what we hold against the provider's own total. */
-export async function coverage(accountId: AccountId): Promise<Coverage> {
+/** Reconcile what we hold against the provider's own total for one folder. */
+export async function folderCoverage(
+  accountId: AccountId,
+  folder: SyncFolder,
+): Promise<Coverage> {
   const state = await db().query<{ provider_total: number }>(
-    "select provider_total from seer.sync_state where account_id = $1",
-    [accountId],
+    "select provider_total from seer.folder_sync_state where account_id = $1 and folder = $2",
+    [accountId, folder],
   );
   const stored = await db().query<{ n: number }>(
-    "select count(*)::int as n from seer.conversations where account_id = $1 and is_deleted = false",
-    [accountId],
+    `select count(*)::int as n
+       from seer.conversations
+      where account_id = $1
+        and is_deleted = false
+        and folders @> array[$2]::text[]`,
+    [accountId, folder],
   );
   const providerTotal = state.rows[0]?.provider_total ?? 0;
   const storedCount = stored.rows[0]?.n ?? 0;
@@ -147,4 +210,9 @@ export async function coverage(accountId: AccountId): Promise<Coverage> {
     pending: Math.max(0, providerTotal - storedCount),
     failed: 0,
   };
+}
+
+/** Reconcile what we hold against the provider's own total (legacy inbox path). */
+export async function coverage(accountId: AccountId): Promise<Coverage> {
+  return folderCoverage(accountId, "inbox");
 }

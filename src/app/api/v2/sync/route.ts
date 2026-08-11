@@ -1,9 +1,12 @@
 import { NextResponse } from "next/server";
 import { listAllAccounts } from "@/lib/v2/db/list-accounts";
 import { providerFor } from "@/lib/v2/providers/provider";
-import { syncAccount } from "@/lib/v2/sync/engine";
+import { syncFolder } from "@/lib/v2/sync/engine";
+import type { SyncFolder } from "@/lib/v2/providers/types";
 
 export const maxDuration = 300;
+
+const SYNC_FOLDERS: SyncFolder[] = ["inbox", "sent", "trash"];
 
 /**
  * Authenticated v2 sync ingress. Reconciliation cron and manual triggers land
@@ -36,8 +39,15 @@ export async function GET(request: Request) {
   for (const account of accounts) {
     try {
       const provider = await providerFor(account);
-      const run = await syncAccount(account.id, provider, mode);
-      report.push({ email: account.email, traceId: run.traceId, ...run.coverage });
+      for (const folder of SYNC_FOLDERS) {
+        const run = await syncFolder(account.id, provider, folder, mode);
+        report.push({
+          email: account.email,
+          folder,
+          traceId: run.traceId,
+          ...run.coverage,
+        });
+      }
     } catch (e) {
       report.push({
         email: account.email,

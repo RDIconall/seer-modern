@@ -1,11 +1,12 @@
 import { randomUUID } from "node:crypto";
 import { db } from "../db/pool";
 import type { AccountId } from "../db/types";
-import type { MailProvider } from "../providers/types";
+import type { MailProvider, SyncFolder } from "../providers/types";
 import {
-  coverage,
-  loadCursor,
+  folderCoverage,
+  loadFolderCursor,
   saveCursor,
+  saveFolderCursor,
   writeConversationPage,
   type Coverage,
 } from "./repository";
@@ -23,43 +24,45 @@ export type SyncMode = "incremental" | "full";
 export type SyncRun = {
   traceId: string;
   mode: SyncMode;
+  folder: SyncFolder;
   coverage: Coverage;
   pages: number;
 };
 
-export async function syncAccount(
+export async function syncFolder(
   accountId: AccountId,
   provider: MailProvider,
+  folder: SyncFolder,
   mode: SyncMode,
 ): Promise<SyncRun> {
   const traceId = randomUUID();
   const started = new Date();
 
-  // A full rebuild starts from the beginning; incremental resumes the cursor.
-  let cursor = mode === "full" ? null : await loadCursor(accountId);
+  let cursor = mode === "full" ? null : await loadFolderCursor(accountId, folder);
   let failed = 0;
   let pages = 0;
   let providerTotal = 0;
 
-  // Loop until the provider reports no more pages. Each page is its own
-  // transaction; the cursor is persisted only after that commit, so a crash
-  // resumes cleanly without re-writing committed pages.
   for (;;) {
-    const page = await provider.sync(cursor);
+    const page = await provider.syncFolder(folder, cursor);
     providerTotal = page.providerTotal;
     const result = await writeConversationPage(
       accountId,
+      folder,
       page.conversations,
       page.deletedConversationIds,
     );
     failed += result.failed;
     pages++;
-    await saveCursor(accountId, page.nextCursor, providerTotal);
+    await saveFolderCursor(accountId, folder, page.nextCursor, providerTotal);
+    if (folder === "inbox") {
+      await saveCursor(accountId, page.nextCursor, providerTotal);
+    }
     cursor = page.nextCursor;
     if (!cursor) break;
   }
 
-  const cov = await coverage(accountId);
+  const cov = await folderCoverage(accountId, folder);
   cov.failed = failed;
 
   await db().query(
@@ -69,5 +72,14 @@ export async function syncAccount(
     [accountId, traceId, mode, cov.providerTotal, cov.stored, cov.pending, failed, started],
   );
 
-  return { traceId, mode, coverage: cov, pages };
+  return { traceId, mode, folder, coverage: cov, pages };
+}
+
+/** Legacy inbox-only entry point; retained for existing callers and tests. */
+export async function syncAccount(
+  accountId: AccountId,
+  provider: MailProvider,
+  mode: SyncMode,
+): Promise<SyncRun> {
+  return syncFolder(accountId, provider, "inbox", mode);
 }
