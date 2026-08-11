@@ -399,10 +399,10 @@ export async function loadFolderSyncState(
         cursor: row.cursor ?? null,
         providerTotal: row.provider_total,
         backfillComplete: row.cursor === null && row.provider_total > 0,
-        // Legacy state has no durable snapshot identity. The next invocation
-        // starts a fresh UUID generation before writing a page.
-        snapshotGeneration: null,
-        scanStartedAt: null,
+        // Carry an in-progress legacy cursor into one durable UUID generation;
+        // the engine persists this state before the first resumed page.
+        snapshotGeneration: randomUUID(),
+        scanStartedAt: new Date(),
         lastReconciledAt: null,
       };
     }

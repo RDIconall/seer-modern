@@ -110,6 +110,10 @@ export async function syncFolder(
       (!durableState.backfillComplete && durableState.snapshotGeneration === null));
   if (startSnapshot) {
     workingState = await beginFolderSnapshot(accountId, folder);
+  } else if (!durableState.backfillComplete && workingState.snapshotGeneration) {
+    // Legacy inbox cursors and interrupted generations need a state row before
+    // their first resumed page can publish a UUID-keyed seen membership.
+    await persistFolderState(accountId, folder, workingState);
   }
 
   const headPoll =
