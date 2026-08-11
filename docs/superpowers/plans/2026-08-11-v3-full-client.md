@@ -19,6 +19,23 @@
 - App database role stays `seer_app`; no runtime DDL.
 - Existing Atlas, Triage, safety, contrast, provider-contract, and cron gates remain green.
 
+## Required migration order
+
+Apply all of these migrations in filename order before deployment:
+
+1. `20260810022424_seer_v2_core.sql`
+2. `20260811030000_seer_v2_functions.sql`
+3. `20260811190000_v3_folders_outbox.sql`
+4. `20260811220000_sync_runs_folder_complete.sql`
+5. `20260811230000_folder_sync_backfill_complete.sql`
+6. `20260811234500_v3_final_review.sql`
+7. `20260811235000_v3_final_review_followups.sql`
+
+The migrations create `seer_app LOGIN NOINHERIT` without a password. Operators
+must provision the password outside migrations and configure
+`SEER_V2_DATABASE_URL`; production runtime code probes the migration-owned KV
+table and does not execute DDL unless `SEER_KV_SETUP=1` is explicitly set.
+
 ---
 
 ### Task 1: Folder-aware corpus schema

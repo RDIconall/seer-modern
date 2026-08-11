@@ -41,6 +41,23 @@ plan and build. Later stages are scoped, not detailed.
 
 ## Architecture
 
+### Required migration order
+
+The deploy applies every committed migration in filename order:
+
+1. `20260810022424_seer_v2_core.sql`
+2. `20260811030000_seer_v2_functions.sql`
+3. `20260811190000_v3_folders_outbox.sql`
+4. `20260811220000_sync_runs_folder_complete.sql`
+5. `20260811230000_folder_sync_backfill_complete.sql`
+6. `20260811234500_v3_final_review.sql`
+7. `20260811235000_v3_final_review_followups.sql`
+
+The final review migration establishes least-privilege RLS and folder snapshot
+tables; the follow-up migration upgrades snapshot generations to UUIDs and adds
+per-account OAuth health. `seer_app` has no migration-provisioned password:
+operators set it separately and provide `SEER_V2_DATABASE_URL`.
+
 ### Data model additions
 
 `seer.conversations` gains folder and read state:

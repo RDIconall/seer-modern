@@ -145,13 +145,26 @@ every 15 minutes; Sent and Trash rescans are due every six hours. Head polls
 only add/update and never remove, so a provider-side archive/trash/restore
 converges on the next bounded Inbox snapshot without restarting history.
 
-Live provider verification is recorded as follows: Outlook succeeded. The
-secondary Google refresh token is revoked, and Settings requires reconnect.
-Google is therefore not healthy and is not reported as verified.
+No live provider verification or production database mutation was performed in
+this follow-up. A previously revoked or failed Google credential must remain
+`reconnect_required` in Settings; no Google-health claim is valid until an
+operator completes reconnect and verifies the provider.
 
 ### Concerns
 
-- Apply **both** migrations (`20260811220000`, `20260811230000`) before deploy; `backfill_complete` column required for engine reads.
+- Apply all migrations below in filename order before deploy; the final two
+  migrations provide least-privilege policy, UUID snapshot generations, and
+  per-account OAuth health:
+  `20260810022424_seer_v2_core.sql`,
+  `20260811030000_seer_v2_functions.sql`,
+  `20260811190000_v3_folders_outbox.sql`,
+  `20260811220000_sync_runs_folder_complete.sql`,
+  `20260811230000_folder_sync_backfill_complete.sql`,
+  `20260811234500_v3_final_review.sql`, and
+  `20260811235000_v3_final_review_followups.sql`.
+- `seer_app` is created as `LOGIN NOINHERIT` without a password. Operators must
+  provision its password outside migrations and configure
+  `SEER_V2_DATABASE_URL` with `seer_app` or `seer_app.<project>`.
 - Head poll always fetches page 1 — providers must return newest-first for incremental new-mail detection.
 - `mode=full` on incomplete backfill resumes cursor (does not restart) — intentional for bounded rebuild continuity.
 - Round-robin gives each account×folder at most 2 pages/tick (2 rounds × 1 page); tune `DEFAULT_ROUNDS` if throughput insufficient.

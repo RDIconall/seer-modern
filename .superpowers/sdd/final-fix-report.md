@@ -1,25 +1,29 @@
 # V3 final-review fix report
 
-Status: complete. No known Critical or Important final-review findings remain.
-The branch was committed but intentionally not pushed, per the request.
+Status: implemented locally. No live production migration, password change, or
+provider mutation was performed in this fix. The branch is committed but
+intentionally not pushed, per the request.
 
 ## Fixes delivered
 
-1. Added `20260811234500_v3_final_review.sql`. It creates/guards
-   `seer_app`, grants DML and default privileges, enables RLS, and adds explicit
-   `seer_app` policies for every existing core and V3 table plus `public.seer_kv`.
-   `anon` and `authenticated` are explicitly revoked. The test harness now
-   creates those roles before applying migrations, verifies denial on every
-   table, and exercises actual `seer_app` corpus/KV DML.
-2. Added durable folder snapshot generations and `folder_sync_seen`. Bounded
-   ticks retain generation/cursor/start state; completion removes stale
-   provider membership atomically. Head polls only add/update. Inbox snapshots
-   recur every 15 minutes; Sent/Trash snapshots recur every six hours.
+1. Added `seer_app LOGIN NOINHERIT` enforcement and production URL validation.
+   Both the v2 and legacy KV Postgres pools require `SEER_V2_DATABASE_URL` and
+   accept only `seer_app` or `seer_app.<project>` usernames in production.
+   `public.seer_kv` is probe-only in production unless `SEER_KV_SETUP=1`;
+   development/test provisioning remains available. The migration does not set
+   a password: operators must provision it separately and store the matching
+   URL in `SEER_V2_DATABASE_URL`.
+2. Added durable UUID folder snapshot generations and `folder_sync_seen`.
+   Bounded ticks retain generation/cursor/start state; completion locks and
+   verifies the current generation before removing stale membership. Overlapping
+   snapshots cannot delete newer membership, and stale cleanup respects active,
+   reconcile-needed, and recent-done optimistic outbox masks.
 3. Provider HTTP retries are limited to GET/HEAD. Send/reply/forward POSTs are
-   single-attempt, including network and 5xx failures.
+   single-attempt, including network and 5xx failures. Deadlines now cover
+   fetch, body consumption, JSON parsing, retry sleep, and retry headroom.
 4. Outbox claims exclude newer commands while an older same-conversation
-   command is pending/inflight. Inflight operations heartbeat their lease;
-   stale reclaim remains covered.
+   command is pending/inflight using `created_at,id` ordering. Inflight
+   operations heartbeat their lease; stale reclaim remains covered.
 5. `SyncContext` carries deadline/abort state through adapters and HTTP.
    Outlook full-thread hydration checks before each page and propagates
    deadline cancellation; the engine leaves the cursor unchanged on an
@@ -29,9 +33,10 @@ The branch was committed but intentionally not pushed, per the request.
    unavailable.
 7. Command and undo POST routes use the same production Origin validation as
    account mutations.
-8. The accounts API enforces the V3 allowlist. Mailbox, body, reader, and
-   search-adjacent client state is cleared on account changes; mailbox and body
-   cache keys include the active account id.
+8. The accounts API enforces the V3 allowlist. Mailbox, brain, body, reader,
+   and search-adjacent client state is cleared on account changes; mailbox and
+   body cache keys include the active account id. Atlas/Triage ignores
+   archive-only and trash-only conversations.
 9. Decision writes verify conversation and matter ownership, account-qualify
    current-decision and metadata joins, and reject cross-account corrections
    before writing events.
@@ -41,9 +46,29 @@ The branch was committed but intentionally not pushed, per the request.
 11. Reader command completion reloads the mailbox and clears the selected
     conversation. Reader delete remains unavailable without a signed safety
     token.
-12. Task 8/9 reports and product docs record the live provider state:
-    Outlook verification succeeded; the secondary Google refresh token is
-    revoked and Settings requires reconnect. Google is not reported healthy.
+12. OAuth credential rows now track `active|reconnect_required` and a bounded
+    `last_error`. Refresh failures mark only that account for reconnect;
+    successful save/refresh clears the health error. The account API exposes
+    status metadata only, and Settings identifies accounts needing reconnect.
+
+## Migration inventory and operator provisioning
+
+Apply these migrations in filename order before deploying the application:
+
+1. `20260810022424_seer_v2_core.sql`
+2. `20260811030000_seer_v2_functions.sql`
+3. `20260811190000_v3_folders_outbox.sql`
+4. `20260811220000_sync_runs_folder_complete.sql`
+5. `20260811230000_folder_sync_backfill_complete.sql`
+6. `20260811234500_v3_final_review.sql`
+7. `20260811235000_v3_final_review_followups.sql`
+
+The follow-up migration upgrades already-applied numeric snapshot generations
+to UUIDs and adds OAuth health columns. `seer_app` is created without a
+password by design. An operator must set its password/secret through the
+deployment's database administration path, then configure the URL as
+`SEER_V2_DATABASE_URL=postgres://seer_app:<password>@...` (or the Supabase
+pooler form `seer_app.<project>`). No live mutation was run here.
 
 ## Commits
 
@@ -57,6 +82,12 @@ The branch was committed but intentionally not pushed, per the request.
 - `465a1f6` — executable least-privilege schema coverage
 - `a9cc90e` — Outlook deadline propagation
 - `522fabf` — test lint cleanup
+- `b05b5f7` — remaining final-review invariants
+- `db0b518` — security and provider deadline regression gates
+- `92a4049` — UUID snapshot legacy cursor compatibility
+- `56c2a8b` — credential health schema gate
+- `34276f1` — snapshot generation test contract
+- `e6c410c` — production KV probe-only gate
 
 ## Verification
 
@@ -65,6 +96,8 @@ All commands below passed:
 - `npm test`
 - `npm run test:v2`
 - `npm run test:v3`
+- `npx tsx scripts/v3-production-security.test.mts`
+- `npx tsx scripts/v2-provider-contract.test.mts`
 - `npx tsx scripts/v2-provider-contract.test.mts`
 - `npx tsx scripts/v2-provider-outlook.test.mts`
 - `npx tsx scripts/v3-schema.test.mts`

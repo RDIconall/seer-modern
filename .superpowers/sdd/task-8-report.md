@@ -1,13 +1,13 @@
 # Task 8 report — Settings and canonical v2 account cutover
 
-Status: implemented. Live migration/provider verification was performed.
+Status: implemented locally. This follow-up performed no live migration or
+provider token mutation.
 
-Live verification:
-
-- Outlook account migration and provider verification succeeded.
-- The secondary Google refresh token is revoked. Settings correctly reports that
-  account as requiring reconnect; Google is not healthy and must not be
-  represented as a verified provider.
+The current Google migration remains safe-by-default: the account migration
+script is dry-run unless invoked with `--apply`, and provider verification must
+be run by an operator after credentials are provisioned. A revoked or failed
+Google refresh is represented as `reconnect_required`; it must not be reported
+as a healthy provider until Settings reconnect succeeds.
 
 Final implementation commit before this report: `90c2500`.
 
@@ -16,7 +16,14 @@ Final implementation commit before this report: `90c2500`.
 - OAuth sign-in and refresh now upsert `seer.users`, `seer.mail_accounts`, and encrypted `seer.oauth_credentials` atomically.
 - Expiry inputs accept OAuth seconds or application milliseconds and persist as PostgreSQL timestamps.
 - Refreshes retain an existing refresh credential when a provider omits `refresh_token`.
+- OAuth credentials carry per-account `status` (`active` or
+  `reconnect_required`) and `last_error`; refresh failures mark only the
+  affected account, while successful credential saves/refreshes clear the
+  health state.
 - V3 account API returns account metadata only. It scopes list, switch, and destructive remove operations to the authenticated relational user.
+- The account API exposes status metadata only; it never returns access tokens,
+  refresh tokens, ciphertext, or `last_error`. Settings identifies accounts
+  needing reconnect.
 - Removal requires `confirmed: true`, revokes the Google grant when possible, and cascades relational credentials.
 - V3 Settings now supports current account, add/connect, reconnect, remove, switch, and sign out.
 - Mail session resolution uses relational accounts and credentials first. Legacy KV resolution is opt-in through `SEER_V3_LEGACY_ACCOUNT_FALLBACK=1` and is read-only for session fallback.
@@ -38,11 +45,31 @@ Final implementation commit before this report: `90c2500`.
 - The secondary Google account requires an explicit reconnect before it can be
   considered operational. Do not remove the Settings reconnect path or report
   that account as healthy.
+- No live mutation was performed here. Before deployment, apply all migrations
+  through `20260811235000_v3_final_review_followups.sql`, provision the
+  `seer_app` password outside migrations, and configure
+  `SEER_V2_DATABASE_URL`.
 - The NextAuth server JWT retains only provider/expiry/account identity metadata after callback persistence; refresh reads encrypted relational credentials server-side and browser sessions expose none.
 - Microsoft grant revocation remains best-effort/unsupported by the existing provider integration; reconnect requests fresh consent.
 - The pre-existing non-V3 `/api/accounts` and legacy cron paths remain available only when their legacy account fallback is explicitly enabled. They should be retired with the fallback in Task 9.
 
 ## Security review remediation
+
+## Required migration inventory
+
+Apply these migrations in filename order before deployment:
+
+1. `20260810022424_seer_v2_core.sql`
+2. `20260811030000_seer_v2_functions.sql`
+3. `20260811190000_v3_folders_outbox.sql`
+4. `20260811220000_sync_runs_folder_complete.sql`
+5. `20260811230000_folder_sync_backfill_complete.sql`
+6. `20260811234500_v3_final_review.sql`
+7. `20260811235000_v3_final_review_followups.sql`
+
+`seer_app` is created as `LOGIN NOINHERIT` without a password. Operators must
+provision the password separately and configure `SEER_V2_DATABASE_URL` with
+`seer_app` or the Supabase pooler username `seer_app.<project>`.
 
 The follow-up review findings are addressed:
 
