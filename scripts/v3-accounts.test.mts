@@ -56,8 +56,8 @@ try {
   });
 
   const ownedA = await accounts.listOwnedAccounts(userA);
-  assert.deepEqual(ownedA.map((account) => account.id), [accountA.id, accountA2.id]);
-  assert.equal(ownedA[0]?.email, "mail-a@example.com");
+  assert.deepEqual(ownedA.map((account) => account.id), [accountA2.id, accountA.id]);
+  assert.equal(ownedA[1]?.email, "mail-a@example.com");
   assert.deepEqual(
     (await accounts.listOwnedAccounts(userB)).map((account) => account.id),
     [accountB.id],
