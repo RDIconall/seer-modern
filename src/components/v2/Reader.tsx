@@ -82,7 +82,6 @@ export function Reader({
 }
 
 export type ReaderCommandOptions = {
-  providerConversationId: string;
   corpusConversationId: string;
   deleteToken?: string;
   onCompose: (intent: ReaderComposeIntent) => void;
@@ -94,7 +93,6 @@ export type ReaderCommandOptions = {
  * archive/delete dispatch mutation commands immediately (corpus conversation id).
  */
 export function useReaderCommands({
-  providerConversationId,
   corpusConversationId,
   deleteToken,
   onCompose,
@@ -125,7 +123,7 @@ export function useReaderCommands({
     onReplyAll: () => onCompose({ mode: "replyAll" }),
     onForward: () => onCompose({ mode: "forward" }),
     onArchive: () =>
-      void dispatchCommand({
+      dispatchCommand({
         type: "archive",
         conversationId: corpusConversationId,
       }),

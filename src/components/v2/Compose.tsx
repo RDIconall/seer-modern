@@ -59,12 +59,14 @@ export function Compose({
   const [subject, setSubject] = useState(initialSubject);
   const [body, setBody] = useState(initialBody);
   const [sending, setSending] = useState(false);
+  const [error, setError] = useState<string | null>(null);
   const showTo = mode === "send" || mode === "forward";
   const showSubject = mode === "send";
 
   async function submit() {
     if (!body.trim() || sending) return;
     setSending(true);
+    setError(null);
     try {
       const bodyHtml = `<p>${body.replace(/\n/g, "<br/>")}</p>`;
       if (onSend) {
@@ -97,6 +99,8 @@ export function Compose({
         });
       }
       onComplete?.(result);
+    } catch (cause) {
+      setError(cause instanceof Error ? cause.message : "Could not send");
     } finally {
       setSending(false);
     }
@@ -125,7 +129,16 @@ export function Compose({
           <input value={subject} onChange={(e) => setSubject(e.target.value)} />
         </label>
       )}
-      <textarea value={body} onChange={(e) => setBody(e.target.value)} rows={10} />
+      <label>
+        Message
+        <textarea
+          value={body}
+          onChange={(e) => setBody(e.target.value)}
+          rows={10}
+          aria-label="Message"
+        />
+      </label>
+      {error && <p role="alert">{error}</p>}
       <div className="seer-compose-actions">
         <button type="button" onClick={submit} disabled={sending || !body.trim()}>
           {sending ? "Sending…" : label}

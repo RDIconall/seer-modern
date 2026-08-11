@@ -10,8 +10,11 @@ import type { Command, CommandResult } from "@/lib/v2/commands/types";
  * return the fresh view, so the client never re-derives placement; an optimistic
  * snapshot is restored if the command fails.
  */
-export function useInboxView() {
-  const [view, setView] = useState<InboxView | null>(null);
+export function useInboxView(
+  initialView?: InboxView,
+  disabled = false,
+) {
+  const [view, setView] = useState<InboxView | null>(initialView ?? null);
   const [error, setError] = useState<string | null>(null);
   const snapshot = useRef<InboxView | null>(null);
 
@@ -28,11 +31,12 @@ export function useInboxView() {
   }, []);
 
   useEffect(() => {
+    if (disabled) return;
     void load();
     const onFocus = () => void load();
     window.addEventListener("focus", onFocus);
     return () => window.removeEventListener("focus", onFocus);
-  }, [load]);
+  }, [disabled, load]);
 
   const dispatch = useCallback(
     async (command: Command, optimistic?: (v: InboxView) => InboxView) => {
