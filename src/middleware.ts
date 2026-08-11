@@ -13,14 +13,27 @@ const canonicalHost = process.env.AUTH_URL
   ? new URL(process.env.AUTH_URL).host
   : null;
 
+/**
+ * Paths Vercel invokes as cron jobs. Vercel calls them on the deployment's own
+ * URL, which is never the canonical host, so they MUST skip the funnel below:
+ * a redirect drops the Authorization header and the job silently no-ops —
+ * returning 200 while doing nothing, which looks healthy in every log.
+ *
+ * Must stay in sync with "crons" in vercel.json. The middleware test reads that
+ * file and fails if a scheduled path is not exempt here, so adding a cron
+ * without updating this list cannot ship.
+ */
+const CRON_PATH_PREFIXES = ["/api/cron/", "/api/v2/sync", "/api/v2/read"];
+
+export function isCronPath(pathname: string): boolean {
+  return CRON_PATH_PREFIXES.some((p) => pathname.startsWith(p));
+}
+
 export function middleware(request: NextRequest) {
   if (!canonicalHost || process.env.VERCEL_ENV !== "production") {
     return NextResponse.next();
   }
-  // Vercel invokes crons on the deployment's own URL; a redirect drops
-  // the Authorization header and the sync never runs. No cookies are
-  // involved server-to-server, so the canonical funnel must not apply.
-  if (request.nextUrl.pathname.startsWith("/api/cron/")) {
+  if (isCronPath(request.nextUrl.pathname)) {
     return NextResponse.next();
   }
   const host = request.headers.get("host");
