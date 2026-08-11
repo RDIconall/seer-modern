@@ -165,6 +165,9 @@ export async function syncFolder(
         cursor: null,
         backfillComplete: true,
         providerTotal,
+        scanGeneration: workingState.scanGeneration,
+        scanStartedAt: workingState.scanStartedAt,
+        lastReconciledAt: workingState.lastReconciledAt,
       });
       break;
     }

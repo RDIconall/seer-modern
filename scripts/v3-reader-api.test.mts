@@ -187,6 +187,12 @@ try {
   assert.match(readerSrc, /\/api\/v3\/messages\//);
   assert.match(readerSrc, /dispatchCommand|useReaderCommands/);
   assert.match(readerSrc, /corpusConversationId/);
+  const readerPaneSrc = readFileSync(
+    path.join(HERE, "../src/components/v3/ReaderPane.tsx"),
+    "utf8",
+  );
+  assert.match(readerPaneSrc, /onCommandComplete/);
+  assert.match(readerPaneSrc, /archive/i);
 
   const htmlSrc = readFileSync(path.join(HERE, "../src/components/v2/MessageHtml.tsx"), "utf8");
   assert.match(htmlSrc, /sanitizeEmailHtml/);

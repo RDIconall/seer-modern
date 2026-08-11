@@ -106,6 +106,16 @@ try {
     false,
     "cross-origin mutations are rejected",
   );
+  const previousAllowlist = process.env.SEER_V2_ACCOUNT_ALLOWLIST;
+  process.env.SEER_V2_ACCOUNT_ALLOWLIST = "task8-a@example.com";
+  assert.equal(v2Session.isV2Enabled("task8-a@example.com"), true);
+  assert.equal(
+    v2Session.isV2Enabled("task8-b@example.com"),
+    false,
+    "unallowlisted signed-in users must not enter V3 account management",
+  );
+  if (previousAllowlist === undefined) delete process.env.SEER_V2_ACCOUNT_ALLOWLIST;
+  else process.env.SEER_V2_ACCOUNT_ALLOWLIST = previousAllowlist;
 
   assert.equal(
     await accounts.deleteOwnedAccount(userA, accountB.id),
@@ -193,6 +203,7 @@ try {
   assert.match(apiSource, /confirmed/);
   assert.match(apiSource, /requiresSignOut/);
   assert.match(apiSource, /originAllowed/);
+  assert.match(apiSource, /isV2Enabled/);
   const serializerSource = apiSource.slice(
     apiSource.indexOf("function publicAccount"),
     apiSource.indexOf("async function currentUser"),
@@ -306,6 +317,14 @@ try {
   }
   assert.match(settingsSource, /requiresSignOut/);
   assert.match(settingsSource, /logout/);
+  assert.match(settingsSource, /onAccountSwitch|clearMailboxCaches/);
+  const mailboxSource = await fs.readFile(
+    path.join(process.cwd(), "src/components/v3/useMailbox.ts"),
+    "utf8",
+  );
+  assert.match(mailboxSource, /accountKey/);
+  assert.match(mailboxSource, /bodyCache/);
+  assert.match(mailboxSource, /clearMailboxCaches/);
 
   assert.equal(await accounts.deleteOwnedAccount(userA, accountA.id), true);
   assert.equal(

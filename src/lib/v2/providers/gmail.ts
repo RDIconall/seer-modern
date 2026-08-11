@@ -23,8 +23,8 @@ import type {
   SyncContext,
   SyncFolder,
   SyncPage,
-  assertSyncBudget,
 } from "./types";
+import { assertSyncBudget } from "./types";
 
 /**
  * Gmail adapter. Translates Gmail REST v1 payloads into the neutral model and

@@ -54,6 +54,39 @@ class ThrowingProvider extends FakeProvider {
   }
 }
 
+class BlockingProvider extends FakeProvider {
+  readonly started: Promise<void>;
+  private releaseFirst!: () => void;
+  private resolveStarted!: () => void;
+  calls: string[] = [];
+
+  constructor(conversations: ConstructorParameters<typeof FakeProvider>[0]) {
+    super(conversations);
+    this.started = new Promise((resolve) => {
+      this.resolveStarted = resolve;
+    });
+  }
+
+  release(): void {
+    this.releaseFirst?.();
+  }
+
+  override async mutateConversation(
+    id: string,
+    action: Parameters<MailProvider["mutateConversation"]>[1],
+    key: string,
+  ) {
+    this.calls.push(action);
+    if (this.calls.length === 1) {
+      this.resolveStarted();
+      await new Promise<void>((resolve) => {
+        this.releaseFirst = resolve;
+      });
+    }
+    return super.mutateConversation(id, action, key);
+  }
+}
+
 const db = await startTestDb();
 try {
   const userId = await upsertUser("outbox-drain@example.com");
@@ -146,6 +179,46 @@ try {
 
   const report2 = await drainOutbox(accountId, provider, { limit: 1 });
   assert.equal(report2.done, 1);
+
+  // Two workers may claim different conversations, but they cannot pass an
+  // older pending/inflight command for the same conversation.
+  const orderedId = await seedConversation(db.pool, accountId, "p-ordered", ["inbox"], false);
+  const orderedProvider = new BlockingProvider({
+    conversations: [
+      {
+        providerConversationId: "p-ordered",
+        subject: "Ordered",
+        messages: [
+          {
+            providerMessageId: "m-ordered",
+            from: { email: "a@example.com" },
+            to: [{ email: "me@example.com" }],
+            cc: [],
+            sentAt: "2026-08-01T10:00:00Z",
+            snippet: "s",
+            bodyHtml: null,
+            bodyText: "t",
+            isUnread: false,
+            isOutgoing: false,
+            attachments: [],
+            folder: "inbox",
+          },
+        ],
+      },
+    ],
+  });
+  await enqueueOptimistic(accountId, { type: "archive", conversationId: orderedId }, "ordered-archive");
+  await enqueueOptimistic(accountId, { type: "restore", conversationId: orderedId }, "ordered-restore");
+  const firstWorker = drainOutbox(accountId, orderedProvider, { limit: 2 });
+  await orderedProvider.started;
+  const secondWorker = await drainOutbox(accountId, orderedProvider, { limit: 2 });
+  assert.equal(secondWorker.processed, 0, "second worker must not claim the newer command");
+  orderedProvider.release();
+  const firstWorkerReport = await firstWorker;
+  assert.equal(firstWorkerReport.done, 1);
+  const secondWorkerAfterFirst = await drainOutbox(accountId, orderedProvider, { limit: 1 });
+  assert.equal(secondWorkerAfterFirst.done, 1, "restore becomes eligible after archive completes");
+  assert.deepEqual(orderedProvider.calls, ["archive", "restore"]);
 
   // -------------------------------------------------------------------------
   // Stale inflight reclaim

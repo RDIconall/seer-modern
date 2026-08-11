@@ -34,18 +34,21 @@ export async function writeConversationPage(
     let failed = 0;
     for (const [index, convo] of conversations.entries()) {
       const savepoint = `v3_conversation_row_${index}`;
+      if (scanGeneration !== undefined) {
+        // Record provider visibility outside the row savepoint. If hydration
+        // is malformed, the conversation was still observed in this
+        // authoritative snapshot and must not be removed as stale.
+        await client.query(
+          `insert into seer.folder_sync_seen
+             (account_id, folder, scan_generation, provider_conversation_id)
+           values ($1, $2, $3, $4)
+           on conflict do nothing`,
+          [accountId, folder, scanGeneration, convo.providerConversationId],
+        );
+      }
       await client.query(`savepoint ${savepoint}`);
       try {
         await writeConversation(client, accountId, folder, convo);
-        if (scanGeneration !== undefined) {
-          await client.query(
-            `insert into seer.folder_sync_seen
-               (account_id, folder, scan_generation, provider_conversation_id)
-             values ($1, $2, $3, $4)
-             on conflict do nothing`,
-            [accountId, folder, scanGeneration, convo.providerConversationId],
-          );
-        }
         await client.query(`release savepoint ${savepoint}`);
         stored++;
       } catch {
@@ -354,8 +357,11 @@ export async function loadFolderSyncState(
         cursor: row.cursor ?? null,
         providerTotal: row.provider_total,
         backfillComplete: row.cursor === null && row.provider_total > 0,
-        scanGeneration: 0,
-        scanStartedAt: null,
+        // A legacy cursor is already in the middle of a historical scan. Give
+        // it a generation so the first resumed page can participate in the
+        // durable snapshot without incorrectly restarting at page one.
+        scanGeneration: row.cursor === null ? 0 : 1,
+        scanStartedAt: row.cursor === null ? null : new Date(),
         lastReconciledAt: null,
       };
     }

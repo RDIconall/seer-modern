@@ -23,8 +23,8 @@ import type {
   SyncContext,
   SyncFolder,
   SyncPage,
-  assertSyncBudget,
 } from "./types";
+import { assertSyncBudget } from "./types";
 
 /**
  * Outlook / Microsoft Graph adapter. Translates Graph message payloads into the

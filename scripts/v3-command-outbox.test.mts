@@ -84,12 +84,29 @@ try {
   });
   const ctx = { accountId, provider };
   const mutationCalls = trackMutations(provider);
-
   const cArch = await seedConversation(db.pool, accountId, "pc-arch", ["inbox"]);
   const cDel = await seedConversation(db.pool, accountId, "pc-del", ["inbox"]);
   const cRest = await seedConversation(db.pool, accountId, "pc-rest", ["trash"]);
   const cUnread = await seedConversation(db.pool, accountId, "pc-unread", ["inbox"]);
   const cSend = await seedConversation(db.pool, accountId, "pc-send", ["inbox"]);
+
+  // Queueable mutations do not need a provider instance (and therefore do not
+  // need an access-token refresh). Outbound commands still fail visibly when
+  // that dependency is unavailable.
+  const noProviderArchive = await executeCommand(
+    { accountId, provider: undefined },
+    { type: "archive", conversationId: cArch },
+    "key-no-provider-archive",
+  );
+  assert.equal(noProviderArchive.ok, true);
+  assert.equal(noProviderArchive.optimistic, true);
+  const noProviderSend = await executeCommand(
+    { accountId, provider: undefined },
+    { type: "send", to: ["x@y.com"], subject: "Unavailable", bodyHtml: "<p>x</p>" },
+    "key-no-provider-send",
+  );
+  assert.equal(noProviderSend.ok, false);
+  assert.match(noProviderSend.error ?? "", /provider/i);
 
   const deleteDecision = await saveDecision({
     accountId,
@@ -224,6 +241,39 @@ try {
   assert.equal(taught.ok, true);
   assert.equal(taught.optimistic, undefined);
 
+  // A corpus UUID from another account cannot write a decision or event.
+  const otherUser = await upsertUser("cmd-outbox-other@example.com");
+  const otherAccount = await upsertAccount({
+    userId: otherUser,
+    provider: "google",
+    email: "cmd-outbox-other@example.com",
+  });
+  const foreignConversation = await seedConversation(
+    db.pool,
+    otherAccount,
+    "pc-foreign",
+    ["inbox"],
+  );
+  const foreignBefore = await db.pool.query<{ decisions: number; events: number }>(
+    `select
+       (select count(*)::int from seer.conversation_decisions where conversation_id = $1) as decisions,
+       (select count(*)::int from seer.events where account_id = $2) as events`,
+    [foreignConversation, otherAccount],
+  );
+  const crossAccount = await executeCommand(
+    ctx,
+    { type: "correctConversation", conversationId: foreignConversation, home: "matter" },
+    "key-cross-account",
+  );
+  assert.equal(crossAccount.ok, false);
+  const foreignAfter = await db.pool.query<{ decisions: number; events: number }>(
+    `select
+       (select count(*)::int from seer.conversation_decisions where conversation_id = $1) as decisions,
+       (select count(*)::int from seer.events where account_id = $2) as events`,
+    [foreignConversation, otherAccount],
+  );
+  assert.deepEqual(foreignAfter.rows[0], foreignBefore.rows[0]);
+
   // Undo cancels pending and reverts optimistic state without a provider call.
   const undoTarget = await seedConversation(db.pool, accountId, "pc-undo", ["inbox"]);
   const pending = await executeCommand(
@@ -270,6 +320,15 @@ try {
   assert.match(undoRoute, /getActiveV2Account/);
   assert.match(undoRoute, /buildInboxView/);
   assert.match(undoRoute, /getMailboxView/);
+  assert.match(undoRoute, /originAllowed/);
+  assert.match(undoRoute, /production/);
+  const commandRoute = readFileSync(
+    path.join(HERE, "../src/app/api/v2/commands/route.ts"),
+    "utf8",
+  );
+  assert.match(commandRoute, /originAllowed/);
+  assert.match(commandRoute, /providerFor/);
+  assert.match(commandRoute, /send|reply|forward/);
 
   console.log("v3-command-outbox: OK");
 } finally {
