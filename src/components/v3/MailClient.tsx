@@ -28,7 +28,6 @@ import {
   clearSearchState,
   modalBackgroundState,
   parseMailHash,
-  type MailHash,
 } from "./mail-client-state";
 
 type PreviewReader = {
@@ -171,9 +170,13 @@ export function MailClient({ preview }: { preview?: MailClientPreview } = {}) {
     getHashSnapshot,
     getServerHashSnapshot,
   );
-  const hash = parseMailHash(hashSnapshot);
+  const {
+    section: hashSection,
+    conversation: hashConversation,
+    query: hashQuery,
+  } = parseMailHash(hashSnapshot);
   const pendingHashConversation =
-    hash.conversation && !hashAppliedRef.current ? hash.conversation : null;
+    hashConversation && !hashAppliedRef.current ? hashConversation : null;
   const { modalOpen } = modalBackgroundState({
     isMobile,
     conversationId: conversationId ?? pendingHashConversation,
@@ -203,16 +206,22 @@ export function MailClient({ preview }: { preview?: MailClientPreview } = {}) {
   }, []);
 
   useEffect(() => {
-    if (hash.section) setSection(hash.section);
-    if (hash.conversation) {
+    if (hashSection) setSection(hashSection);
+    if (hashConversation) {
       hashAppliedRef.current = true;
-      setConversationId(hash.conversation);
+      setConversationId(hashConversation);
     } else {
       hashAppliedRef.current = false;
     }
-    if (hash.query) void restoreSearch(hash.query);
+    if (hashQuery) void restoreSearch(hashQuery);
     setHashReady(true);
-  }, [hashSnapshot, restoreSearch]);
+  }, [
+    hashConversation,
+    hashQuery,
+    hashSection,
+    hashSnapshot,
+    restoreSearch,
+  ]);
 
   useEffect(() => {
     if (hashReady) writeHash(section, conversationId, query);
