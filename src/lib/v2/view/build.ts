@@ -36,17 +36,13 @@ type DecisionRow = {
   veto_reasons: string[];
   decision_id: string;
   matter_id: string | null;
+  function_name: string | null;
 };
 
-/**
- * The label a triage row is grouped under. The counterparty from the sender's
- * domain is the same signal matters are filed by, so triage and Atlas name the
- * same organisation the same way. Senders with no usable domain (freemail,
- * bare addresses) fall into "Other" rather than a meaningless fragment.
- */
-function categoryFor(fromEmail: string | null, ownDomain: string): string {
+/** Who the work is with. Shown on a row; never what groups it. */
+function counterpartyLabel(fromEmail: string | null, ownDomain: string): string {
   const counterparty = counterpartyOf(fromEmail ?? "", ownDomain);
-  if (!counterparty) return "Other";
+  if (!counterparty) return "";
   if (counterparty === "internal") return "Internal";
   return counterparty.charAt(0).toUpperCase() + counterparty.slice(1);
 }
@@ -66,6 +62,7 @@ export async function buildInboxView(
             c.provider_conversation_id,
             c.subject,
             c.last_message_at,
+            c.function_name,
             d.id as decision_id,
             d.home,
             d.summary,
@@ -128,7 +125,9 @@ export async function buildInboxView(
     owner: r.owner as ConversationRow["owner"],
     priority: r.priority ?? 0,
     dueDate: r.due_date ? new Date(r.due_date).toISOString().slice(0, 10) : null,
-    category: categoryFor(r.from_email, ownDomain),
+    // Grouped by the part of the business, not by who it is with.
+    category: r.function_name ?? UNFILED,
+    counterparty: counterpartyLabel(r.from_email, ownDomain),
     nativeUrl: nativeUrlFor(provider, r.provider_conversation_id),
   });
 
@@ -185,10 +184,8 @@ export async function buildInboxView(
     };
   });
 
-  const sections = groupIntoSections(
-    atlas,
-    registry.rows.map((r) => r.name),
-  );
+  const functions = registry.rows.map((r) => r.name);
+  const sections = groupIntoSections(atlas, functions);
 
   const worthReading: YieldRow[] = yieldRows.rows
     .filter((y) => y.kind === "worth_reading")
@@ -207,6 +204,7 @@ export async function buildInboxView(
     coverage,
     atlas,
     sections,
+    functions,
     records,
     safeToDelete,
     undecided,

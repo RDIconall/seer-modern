@@ -104,29 +104,42 @@ try {
   // worth_reading surfaces.
   assert.equal(view.worthReading.length, 1);
 
-  // Each triage row is filed under the sender's counterparty, server-side, the
-  // same way matters get their org unit. This is what Triage groups by.
-  assert.equal(view.safeToDelete[0].category, "X", "delete row filed by sender org");
-  assert.equal(view.records[0].category, "X", "record row filed by sender org");
-  assert.equal(view.undecided[0].category, "X", "undecided row filed by sender org");
-  // The matter conversation from buyer@roche.com is filed under Roche.
-  assert.equal(view.atlas[0].conversations[0].category, "Roche");
-  // A sender on the account's own domain is "Internal", freemail is "Other".
-  const cInternal = await addConversation(db.pool, accountId, "p-int", "Team note", "colleague@example.com");
-  const cFree = await addConversation(db.pool, accountId, "p-free", "Hi", "someone@gmail.com");
-  await saveDecision({
-    accountId, conversationId: cInternal, home: "record", proposedHome: "record",
-    summary: "note", rationale: "keep", owner: "nobody", vetoReasons: [], yields: [], evidence: [],
-  });
-  await saveDecision({
-    accountId, conversationId: cFree, home: "delete", proposedHome: "delete",
-    summary: "hi", rationale: "disposable", owner: "nobody", vetoReasons: [], yields: [], evidence: [],
-  });
+  // A row is grouped by the SECTION OF THE BUSINESS it was filed under, not by
+  // the sender's company. Nothing is filed yet, so everything reads "unfiled"
+  // and stays visible rather than being invented into a category.
+  assert.equal(view.safeToDelete[0].category, "unfiled");
+  assert.equal(view.records[0].category, "unfiled");
+
+  // The counterparty still rides along on the row — shown, never grouping.
+  assert.equal(view.safeToDelete[0].counterparty, "X");
+  assert.equal(view.atlas[0].conversations[0].counterparty, "Roche");
+
+  // THE CASE: the same counterparty in two parts of the business must group
+  // apart. Filing by sender domain would put these in one pile.
+  await db.pool.query(
+    "update seer.conversations set function_name = 'finance (ar/ap)' where id = $1",
+    [cRecord],
+  );
+  await db.pool.query(
+    "update seer.conversations set function_name = 'marketing' where id = $1",
+    [cDelete],
+  );
+  await db.pool.query(
+    "insert into seer.functions (account_id, name, position) values ($1,'marketing',0), ($1,'finance (ar/ap)',1)",
+    [accountId],
+  );
+  await db.pool.query(
+    "update seer.matters set function_name = 'sales — leads' where id = $1",
+    [matterId],
+  );
+
   const view2 = await buildInboxView(accountId, "google");
-  const internalRow = view2.records.find((r) => r.conversationId === cInternal);
-  const freeRow = view2.safeToDelete.find((r) => r.conversationId === cFree);
-  assert.equal(internalRow?.category, "Internal", "own-domain sender is Internal");
-  assert.equal(freeRow?.category, "Other", "freemail sender falls into Other");
+  assert.equal(view2.records[0].category, "finance (ar/ap)");
+  assert.equal(view2.safeToDelete[0].category, "marketing");
+  // Registry order drives the section order, and the matter's section shows.
+  assert.equal(view2.atlas[0].section, "sales — leads");
+  assert.deepEqual(view2.sections.map((s) => s.name), ["sales — leads"]);
+  assert.deepEqual(view2.functions, ["marketing", "finance (ar/ap)"]);
 
   // Coverage reconciles: 4 stored, 3 read (matter/record/delete), 1 pending (undecided).
   assert.equal(view.coverage.providerTotal, 4);

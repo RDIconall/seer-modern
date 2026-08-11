@@ -1,22 +1,36 @@
 "use client";
 
 import { useCallback, useMemo, useRef, useState } from "react";
-import { Archive, Download, Trash2 } from "lucide-react";
+import { Archive, Download, Trash2, X } from "lucide-react";
 import type { ConversationRow, InboxView } from "@/lib/v2/view/types";
 import type { Command } from "@/lib/v2/commands/types";
 import { commandFor } from "./triage-command";
+import {
+  commandsForSelection,
+  deletableCount,
+  groupState,
+  pruneSelection,
+  rangeSelect,
+  setGroup,
+  toggleOne,
+} from "./triage-select";
 
 /**
- * TRIAGE — the categorised table, restored.
+ * TRIAGE — the categorised table with Gmail-style bulk select.
  *
- * Rows group first by category (the sender's organisation, assigned by the
- * server exactly as matters are filed), then within a category into "Safe to
- * delete" and "Keep / review". From and Subject stay distinct from Seer's
- * one-line read; columns resize; every section and row carries its action.
+ * Rows group first by SECTION — the part of the business the work belongs to
+ * ("sales — new requests", "hr", "recruiting"), filed by the server against the
+ * user's own registry — and then into "Safe to delete" and "Keep · review".
+ * Grouping by the sender's company instead would scatter one function's work
+ * across a dozen headings.
  *
- * The client decides nothing: category and home both come from the server.
- * Deleting is authorised only by the signed token minted for that decision, so
- * a bulk "Delete these" can never destroy mail the safety layer vetoed.
+ * Selection follows the Gmail model: a checkbox on every row, one on each
+ * section, shift-click for a range, and a sticky toolbar that appears with the
+ * count and the actions. It is the most obvious of the bulk patterns and the
+ * only one that works without hover, which matters on a phone.
+ *
+ * Deleting is authorised solely by the signed token the server minted, so a
+ * bulk action can never destroy mail the safety layer vetoed.
  */
 
 function shortTime(iso?: string): string {
@@ -32,19 +46,9 @@ function shortTime(iso?: string): string {
   return new Date(t).toLocaleDateString([], { month: "short", day: "numeric" });
 }
 
-/**
- * The element that actually scrolls this list — the table's own container on
- * desktop, an ancestor on mobile. Adjusting the wrong one is a silent no-op.
- */
-function scrollParent(node: HTMLElement | null): HTMLElement | null {
-  for (let el = node; el; el = el.parentElement) {
-    const style = getComputedStyle(el);
-    const scrollable = /(auto|scroll|overlay)/.test(
-      style.overflowY + style.overflow,
-    );
-    if (scrollable && el.scrollHeight > el.clientHeight) return el;
-  }
-  return (document.scrollingElement as HTMLElement | null) ?? null;
+function sectionLabel(name: string): string {
+  if (name === "unfiled") return "Unfiled";
+  return name.charAt(0).toUpperCase() + name.slice(1);
 }
 
 /** Draggable column widths (px). Actions is fixed; the rest are resizable. */
@@ -78,11 +82,34 @@ function useColumnWidths(initial: number[]) {
 
 type Row = ConversationRow & { deleteToken?: string };
 
-type Category = {
-  name: string;
-  toDelete: Row[];
-  toKeep: Row[];
-};
+type Section = { name: string; toDelete: Row[]; toKeep: Row[] };
+
+/** A checkbox that can show the third, "some of this group" state. */
+function Check({
+  state,
+  onChange,
+  label,
+}: {
+  state: "all" | "some" | "none";
+  onChange: (checked: boolean, shift: boolean) => void;
+  label: string;
+}) {
+  return (
+    <input
+      type="checkbox"
+      aria-label={label}
+      checked={state === "all"}
+      ref={(el) => {
+        if (el) el.indeterminate = state === "some";
+      }}
+      onClick={(e) => e.stopPropagation()}
+      onChange={(e) =>
+        onChange(e.target.checked, (e.nativeEvent as MouseEvent).shiftKey)
+      }
+      className="h-4 w-4 shrink-0 cursor-pointer accent-[var(--primary)]"
+    />
+  );
+}
 
 export function Triage({
   view,
@@ -101,22 +128,18 @@ export function Triage({
   );
   const scrollRef = useRef<HTMLDivElement | null>(null);
   const [busy, setBusy] = useState(false);
-  /** Category → its fixed slot, so sections never swap places on an action. */
-  const orderRef = useRef<Map<string, number>>(new Map());
+  const [selected, setSelected] = useState<Set<string>>(new Set());
+  const anchorRef = useRef<number | null>(null);
 
-  const totalRows =
-    view.safeToDelete.length + view.undecided.length + view.records.length;
-
-  // Group by the server's category, then split each into delete vs keep. The
-  // "keep" pile is everything not authorised for deletion — undecided (often
-  // safety-vetoed) and records — which is exactly what must never be swept into
-  // a bulk delete.
-  const categories = useMemo<Category[]>(() => {
-    const map = new Map<string, Category>();
-    const at = (name: string): Category => {
+  // Group by the section the server filed each row under, in the user's own
+  // registry order — the same order the whiteboard uses, so the two views read
+  // the same way and sections never reshuffle under the cursor.
+  const sections = useMemo<Section[]>(() => {
+    const map = new Map<string, Section>();
+    const at = (name: string): Section => {
       const existing = map.get(name);
       if (existing) return existing;
-      const created: Category = { name, toDelete: [], toKeep: [] };
+      const created: Section = { name, toDelete: [], toKeep: [] };
       map.set(name, created);
       return created;
     };
@@ -124,50 +147,46 @@ export function Triage({
     for (const row of [...view.undecided, ...view.records]) {
       at(row.category).toKeep.push(row);
     }
+    const registry = view.functions;
+    const ordered = [
+      ...registry.filter((name) => map.has(name)),
+      ...[...map.keys()]
+        .filter((name) => !registry.includes(name) && name !== "unfiled")
+        .sort(),
+      ...(map.has("unfiled") ? ["unfiled"] : []),
+    ];
+    return ordered.map((name) => map.get(name) as Section);
+  }, [view.safeToDelete, view.undecided, view.records, view.functions]);
 
-    // Stable order: a category takes its slot the first time it appears —
-    // biggest first — and keeps it while the tab is open, so clearing rows
-    // never makes one section leapfrog another under the cursor.
-    const order = orderRef.current;
-    const all = [...map.values()];
-    const size = (c: Category) => c.toDelete.length + c.toKeep.length;
-    all
-      .filter((c) => !order.has(c.name))
-      .sort((a, b) => size(b) - size(a))
-      .forEach((c) => order.set(c.name, order.size));
-    return all.sort((a, b) => (order.get(a.name) ?? 0) - (order.get(b.name) ?? 0));
-  }, [view.safeToDelete, view.undecided, view.records]);
+  /** Every row in display order — the sequence a shift-click range spans. */
+  const allRows = useMemo<Row[]>(
+    () => sections.flatMap((s) => [...s.toDelete, ...s.toKeep]),
+    [sections],
+  );
+  const allIds = useMemo(
+    () => allRows.map((r) => r.conversationId),
+    [allRows],
+  );
 
-  /**
-   * Hold the list still across an update: remember the topmost surviving row,
-   * then restore its on-screen position once the rows have gone.
-   */
-  const holdPlace = (removing: Set<string>) => {
-    const box = scrollRef.current;
-    if (!box) return () => {};
-    const listTop = box.getBoundingClientRect().top;
-    let anchor: { id: string; top: number } | null = null;
-    for (const el of Array.from(
-      box.querySelectorAll<HTMLElement>("[data-row-id]"),
-    )) {
-      const id = el.dataset.rowId;
-      if (!id || removing.has(id)) continue;
-      const top = el.getBoundingClientRect().top;
-      if (top >= listTop) {
-        anchor = { id, top };
-        break;
-      }
-    }
-    return () => {
-      if (!anchor) return;
-      const el = box.querySelector<HTMLElement>(
-        `[data-row-id="${CSS.escape(anchor.id)}"]`,
-      );
-      const scroller = scrollParent(box);
-      if (!el || !scroller) return;
-      const moved = el.getBoundingClientRect().top - anchor.top;
-      if (moved) scroller.scrollTop += moved;
-    };
+  // A tick on a row that has since been cleared must not survive to act on
+  // something else later.
+  const liveSelection = useMemo(
+    () => pruneSelection(selected, allIds),
+    [selected, allIds],
+  );
+
+  const totalRows = allRows.length;
+  const selectedCount = liveSelection.size;
+  const canDelete = deletableCount(allRows, liveSelection);
+
+  const onRowCheck = (index: number) => (checked: boolean, shift: boolean) => {
+    const id = allIds[index];
+    setSelected((prev) => {
+      const anchor = anchorRef.current;
+      if (shift && anchor !== null) return rangeSelect(prev, allIds, anchor, index);
+      return toggleOne(prev, id);
+    });
+    anchorRef.current = index;
   };
 
   const withoutRows = (ids: Set<string>) => (v: InboxView) => ({
@@ -177,26 +196,33 @@ export function Triage({
     records: v.records.filter((r) => !ids.has(r.conversationId)),
   });
 
-  /**
-   * Apply one action across rows. Commands go one at a time so a single
-   * failure cannot take the rest of the batch with it.
-   */
-  const clearRows = async (rows: Row[], mode: "archive" | "trash") => {
-    if (rows.length === 0 || busy) return;
+  /** Run commands one at a time so one failure cannot take the batch with it. */
+  const run = async (
+    items: { command: Command; conversationId: string }[],
+  ) => {
+    if (items.length === 0 || busy) return;
     setBusy(true);
-    const restore = holdPlace(new Set(rows.map((r) => r.conversationId)));
     try {
-      for (const row of rows) {
+      for (const item of items) {
         await dispatch(
-          commandFor(row, mode),
-          withoutRows(new Set([row.conversationId])),
+          item.command,
+          withoutRows(new Set([item.conversationId])),
         );
       }
     } finally {
       setBusy(false);
-      requestAnimationFrame(restore);
+      setSelected(new Set());
+      anchorRef.current = null;
     }
   };
+
+  const actOnSelection = (mode: "archive" | "trash") =>
+    run(commandsForSelection(allRows, liveSelection, mode));
+
+  const actOnRow = (row: Row, mode: "archive" | "trash") =>
+    run([
+      { command: commandFor(row, mode), conversationId: row.conversationId },
+    ]);
 
   const Resizer = ({ index }: { index: number }) => (
     <span
@@ -206,90 +232,96 @@ export function Triage({
     />
   );
 
-  const bulkButton = (label: string, rows: Row[], mode: "archive" | "trash") => (
-    <button
-      type="button"
-      disabled={busy}
-      onClick={() => clearRows(rows, mode)}
-      className="text-[var(--fg-strong)] hover:underline disabled:opacity-50"
-    >
-      {label}
-    </button>
-  );
+  let rowIndex = -1;
 
-  const subBucket = (rows: Row[], label: string, deletable: boolean) =>
+  const bucket = (rows: Row[], label: string) =>
     rows.length === 0 ? null : (
       <>
         <tr className="border-b border-[var(--border)]">
           <td
-            colSpan={3}
+            colSpan={5}
             className="px-4 py-1 text-[12px] font-bold text-[var(--fg-strong)]"
           >
             {label}
             <span className="ml-1 font-normal">· {rows.length}</span>
           </td>
-          <td colSpan={2} className="px-4 py-1 text-right text-[12px] font-bold">
-            <span className="inline-flex gap-3">
-              {deletable && bulkButton("Delete these", rows, "trash")}
-              {bulkButton("Archive these", rows, "archive")}
-            </span>
-          </td>
         </tr>
-        {rows.map((row) => (
-          <tr
-            key={row.conversationId}
-            data-row-id={row.conversationId}
-            className="border-b border-[var(--border)] align-top hover:bg-[var(--row-hover)]"
-          >
-            <td className="px-4 py-2 text-[14px] text-[var(--fg-strong)]">
-              <span className="line-clamp-2">{row.from || "—"}</span>
-            </td>
-            <td className="px-2 py-2 text-[14px] text-[var(--fg-strong)]">
-              <a
-                href={row.nativeUrl}
-                target="_blank"
-                rel="noopener noreferrer"
-                className="block w-full text-left hover:underline"
-              >
-                <span className="line-clamp-2">
-                  {row.subject || "(no subject)"}
-                </span>
-              </a>
-            </td>
-            <td className="px-2 py-2 text-[14px] text-[var(--fg)]">
-              <span className="line-clamp-2">{row.summary}</span>
-            </td>
-            <td className="whitespace-nowrap px-2 py-2 text-right text-[12px] text-[var(--fg)]">
-              {shortTime(row.at)}
-            </td>
-            <td className="px-4 py-2">
-              <div className="flex items-center justify-end gap-1">
-                <button
-                  type="button"
-                  disabled={busy}
-                  onClick={() => clearRows([row], "archive")}
-                  aria-label="Archive"
-                  title="Archive"
-                  className="flex h-8 w-8 items-center justify-center rounded-md text-[var(--fg)] hover:bg-[var(--card)] disabled:opacity-50"
+        {rows.map((row) => {
+          rowIndex += 1;
+          const index = rowIndex;
+          const checked = liveSelection.has(row.conversationId);
+          return (
+            <tr
+              key={row.conversationId}
+              data-row-id={row.conversationId}
+              className={`border-b border-[var(--border)] align-top ${
+                checked ? "bg-[var(--selection)]" : "hover:bg-[var(--row-hover)]"
+              }`}
+            >
+              <td className="py-2 pl-4 pr-1">
+                <div className="flex items-start gap-2">
+                  <Check
+                    state={checked ? "all" : "none"}
+                    onChange={onRowCheck(index)}
+                    label={`Select ${row.subject || "conversation"}`}
+                  />
+                  <span className="line-clamp-2 text-[14px] text-[var(--fg-strong)]">
+                    {row.from || "—"}
+                  </span>
+                </div>
+              </td>
+              <td className="px-2 py-2 text-[14px] text-[var(--fg-strong)]">
+                <a
+                  href={row.nativeUrl}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="block w-full text-left hover:underline"
                 >
-                  <Archive className="h-4 w-4" />
-                </button>
-                {row.deleteToken && (
+                  <span className="line-clamp-2">
+                    {row.subject || "(no subject)"}
+                  </span>
+                </a>
+              </td>
+              <td className="px-2 py-2 text-[14px] text-[var(--fg)]">
+                <span className="line-clamp-2">{row.summary}</span>
+                {row.counterparty && (
+                  <span className="ml-1 text-[12px] text-[var(--muted)]">
+                    · {row.counterparty}
+                  </span>
+                )}
+              </td>
+              <td className="whitespace-nowrap px-2 py-2 text-right text-[12px] text-[var(--fg)]">
+                {shortTime(row.at)}
+              </td>
+              <td className="px-4 py-2">
+                <div className="flex items-center justify-end gap-1">
                   <button
                     type="button"
                     disabled={busy}
-                    onClick={() => clearRows([row], "trash")}
-                    aria-label="Delete"
-                    title="Delete"
+                    onClick={() => actOnRow(row, "archive")}
+                    aria-label="Archive"
+                    title="Archive"
                     className="flex h-8 w-8 items-center justify-center rounded-md text-[var(--fg)] hover:bg-[var(--card)] disabled:opacity-50"
                   >
-                    <Trash2 className="h-4 w-4" />
+                    <Archive className="h-4 w-4" />
                   </button>
-                )}
-              </div>
-            </td>
-          </tr>
-        ))}
+                  {row.deleteToken && (
+                    <button
+                      type="button"
+                      disabled={busy}
+                      onClick={() => actOnRow(row, "trash")}
+                      aria-label="Delete"
+                      title="Delete"
+                      className="flex h-8 w-8 items-center justify-center rounded-md text-[var(--fg)] hover:bg-[var(--card)] disabled:opacity-50"
+                    >
+                      <Trash2 className="h-4 w-4" />
+                    </button>
+                  )}
+                </div>
+              </td>
+            </tr>
+          );
+        })}
       </>
     );
 
@@ -304,7 +336,7 @@ export function Triage({
             Triage
           </h1>
           <p className="text-[14px] text-[var(--fg)]">
-            {totalRows} to clear · {categories.length} categories
+            {totalRows} to clear · {sections.length} sections
             {view.coverage.pending
               ? ` · ${view.coverage.pending} still being read`
               : ""}
@@ -318,6 +350,58 @@ export function Triage({
           Export
         </a>
       </header>
+
+      {/* The toolbar only exists while something is ticked, so it costs no
+          space the rest of the time, and it sticks so the actions stay in
+          reach however far down a long list you have scrolled. */}
+      {selectedCount > 0 && (
+        <div
+          role="toolbar"
+          aria-label="Actions for selected conversations"
+          className="sticky top-0 z-20 flex flex-wrap items-center gap-2 border-b border-[var(--border)] bg-[var(--card)] px-4 py-2"
+        >
+          <span className="text-[13px] font-bold text-[var(--fg-strong)]">
+            {selectedCount} selected
+          </span>
+          <button
+            type="button"
+            disabled={busy}
+            onClick={() => actOnSelection("archive")}
+            className="flex items-center gap-1 rounded-md border border-[var(--border)] bg-[var(--bg)] px-2.5 py-1 text-[13px] font-bold text-[var(--fg-strong)] hover:bg-[var(--row-hover)] disabled:opacity-50"
+          >
+            <Archive className="h-4 w-4" />
+            Archive
+          </button>
+          <button
+            type="button"
+            disabled={busy || canDelete === 0}
+            onClick={() => actOnSelection("trash")}
+            title={
+              canDelete === selectedCount
+                ? "Delete the selected conversations"
+                : "Only conversations Seer cleared for deletion will be deleted"
+            }
+            className="flex items-center gap-1 rounded-md border border-[var(--border)] bg-[var(--bg)] px-2.5 py-1 text-[13px] font-bold text-[var(--accent)] hover:bg-[var(--row-hover)] disabled:opacity-50"
+          >
+            <Trash2 className="h-4 w-4" />
+            Delete{canDelete !== selectedCount ? ` (${canDelete})` : ""}
+          </button>
+          {canDelete !== selectedCount && (
+            <span className="text-[12px] text-[var(--muted)]">
+              {selectedCount - canDelete} of these aren&apos;t cleared for
+              deletion
+            </span>
+          )}
+          <button
+            type="button"
+            onClick={() => setSelected(new Set())}
+            className="ml-auto flex items-center gap-1 text-[12px] font-bold text-[var(--fg)] hover:text-[var(--fg-strong)]"
+          >
+            <X className="h-4 w-4" />
+            Clear
+          </button>
+        </div>
+      )}
 
       {totalRows === 0 ? (
         <p className="px-4 py-6 text-[14px] text-[var(--fg)]">
@@ -334,8 +418,17 @@ export function Triage({
           </colgroup>
           <thead>
             <tr className="border-b border-[var(--border)] text-[12px] font-bold text-[var(--fg-strong)]">
-              <th className="relative px-4 py-2 text-left">
-                From
+              <th className="relative py-2 pl-4 pr-1 text-left">
+                <span className="flex items-center gap-2">
+                  <Check
+                    state={groupState(liveSelection, allIds)}
+                    onChange={(checked) =>
+                      setSelected((prev) => setGroup(prev, allIds, checked))
+                    }
+                    label="Select all conversations"
+                  />
+                  From
+                </span>
                 <Resizer index={0} />
               </th>
               <th className="relative px-2 py-2 text-left">
@@ -353,32 +446,32 @@ export function Triage({
               <th className="px-4 py-2 text-right">Actions</th>
             </tr>
           </thead>
-          {categories.map((category) => {
-            const all = [...category.toDelete, ...category.toKeep];
+          {sections.map((section) => {
+            const ids = [...section.toDelete, ...section.toKeep].map(
+              (r) => r.conversationId,
+            );
             return (
-              <tbody key={category.name}>
+              <tbody key={section.name}>
                 <tr className="border-b border-[var(--border)] bg-[var(--card)]">
                   <th
-                    colSpan={3}
+                    colSpan={5}
                     className="px-4 py-1.5 text-left text-[13px] font-bold text-[var(--fg-strong)]"
                   >
-                    {category.name}
-                    <span className="ml-1 font-normal">· {all.length}</span>
+                    <span className="flex items-center gap-2">
+                      <Check
+                        state={groupState(liveSelection, ids)}
+                        onChange={(checked) =>
+                          setSelected((prev) => setGroup(prev, ids, checked))
+                        }
+                        label={`Select all in ${sectionLabel(section.name)}`}
+                      />
+                      {sectionLabel(section.name)}
+                      <span className="font-normal">· {ids.length}</span>
+                    </span>
                   </th>
-                  <td colSpan={2} className="px-4 py-1.5">
-                    <div className="flex items-center justify-end gap-3 text-[12px] font-bold">
-                      {category.toDelete.length > 0 &&
-                        bulkButton(
-                          `Delete safe · ${category.toDelete.length}`,
-                          category.toDelete,
-                          "trash",
-                        )}
-                      {bulkButton("Archive all", all, "archive")}
-                    </div>
-                  </td>
                 </tr>
-                {subBucket(category.toDelete, "Safe to delete", true)}
-                {subBucket(category.toKeep, "Keep · review", false)}
+                {bucket(section.toDelete, "Safe to delete")}
+                {bucket(section.toKeep, "Keep · review")}
               </tbody>
             );
           })}

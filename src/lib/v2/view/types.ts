@@ -19,12 +19,13 @@ export type ConversationRow = {
   /** A date the email stated, if any — orders within a priority bucket. */
   dueDate: string | null;
   /**
-   * The part of the user's world this belongs to — the sender's counterparty,
-   * derived server-side the same way matters get their org unit ("Roche",
-   * "Advarra", "Internal", "Other"). Triage groups by it; the client never
-   * recomputes it.
+   * The whiteboard section this is filed under — the part of the BUSINESS
+   * ("sales — new requests", "hr", "recruiting"), never the sender's company.
+   * Triage groups by it; the client never recomputes it.
    */
   category: string;
+  /** Who the work is with, shown alongside the section but never grouping it. */
+  counterparty: string;
   nativeUrl: string;
 };
 
@@ -76,6 +77,8 @@ export type InboxView = {
   atlas: MatterCard[];
   /** The same matters as `atlas`, grouped into whiteboard sections. */
   sections: AtlasSection[];
+  /** The user's function registry, in their order — how sections are sorted. */
+  functions: string[];
   records: ConversationRow[];
   safeToDelete: DeleteRow[];
   undecided: ConversationRow[];

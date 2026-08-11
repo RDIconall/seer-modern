@@ -36,3 +36,15 @@ alter table seer.matters
 
 create index if not exists matters_account_function_idx
   on seer.matters (account_id, function_name);
+
+-- Triage groups by function too. A conversation that never became a matter
+-- still belongs to a part of the business — the previous system filed every
+-- email this way, and grouping triage by the sender's company instead scatters
+-- one function's work across a dozen headings.
+alter table seer.conversations
+  add column if not exists function_name text,
+  add column if not exists function_source text not null default 'inferred'
+    check (function_source in ('inferred', 'user'));
+
+create index if not exists conversations_account_function_idx
+  on seer.conversations (account_id, function_name);

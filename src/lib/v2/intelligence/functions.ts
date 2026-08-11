@@ -71,6 +71,64 @@ export async function fileMatter(
   return (result.rowCount ?? 0) > 0;
 }
 
+/**
+ * File a conversation under a function. Triage groups by this, so a
+ * conversation that never became a matter still lands in the right part of the
+ * business. A user's own filing is preserved, exactly as for matters.
+ */
+export async function fileConversation(
+  conversationId: string,
+  functionName: string,
+  source: "inferred" | "user",
+): Promise<boolean> {
+  const result = await db().query(
+    `update seer.conversations
+        set function_name = $2, function_source = $3
+      where id = $1
+        and ($3 = 'user' or coalesce(function_source, 'inferred') <> 'user')`,
+    [conversationId, functionName, source],
+  );
+  return (result.rowCount ?? 0) > 0;
+}
+
+/**
+ * Conversations that need a section: they have been read, are not part of a
+ * matter (those inherit the matter's section on the board), and are not filed.
+ * Newest first, because that is what the user is looking at.
+ */
+export async function conversationsNeedingFiling(
+  accountId: AccountId,
+  limit: number,
+): Promise<{ id: string; subject: string; from: string; summary: string }[]> {
+  const result = await db().query<{
+    id: string;
+    subject: string | null;
+    from_email: string | null;
+    summary: string | null;
+  }>(
+    `select c.id, c.subject, d.summary,
+            (select m.from_email from seer.messages m
+              where m.conversation_id = c.id
+              order by m.sent_at desc nulls last limit 1) as from_email
+       from seer.conversations c
+       join seer.conversation_decisions d
+         on d.conversation_id = c.id and d.is_current
+      where c.account_id = $1
+        and c.is_deleted = false
+        and c.function_name is null
+        and d.home <> 'matter'
+      order by c.last_message_at desc nulls last
+      limit $2`,
+    [accountId, limit],
+  );
+  return result.rows.map((r) => ({
+    id: r.id,
+    subject: r.subject ?? "",
+    from: r.from_email ?? "",
+    summary: r.summary ?? "",
+  }));
+}
+
 /** Matters still needing a section, newest first. */
 export async function mattersNeedingFiling(
   accountId: AccountId,
