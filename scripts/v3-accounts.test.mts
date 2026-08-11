@@ -64,8 +64,8 @@ try {
       await accounts.listOwnedAccounts(userB),
       accountA2.id,
       "mail-b@example.com",
-    ),
-    null,
+    )?.id,
+    accountB.id,
     "a foreign active cookie must fall back within the signed-in owner",
   );
 
