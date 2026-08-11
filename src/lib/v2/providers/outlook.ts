@@ -166,7 +166,7 @@ export class OutlookProvider implements MailProvider {
     }
   }
 
-  /** The provider's own folder message count, for coverage reconciliation. */
+  /** Graph folder message-item estimate — not an exact conversation count. */
   private async folderTotal(folder: SyncFolder): Promise<number> {
     try {
       const r: { totalItemCount?: number } = await this.get(
@@ -191,19 +191,20 @@ export class OutlookProvider implements MailProvider {
       "@odata.nextLink"?: string;
       "@odata.count"?: number;
     } = await this.get(url);
-    const byConversation = new Map<string, GraphMessage[]>();
-    for (const m of page.value ?? []) {
-      const arr = byConversation.get(m.conversationId) ?? [];
-      arr.push(m);
-      byConversation.set(m.conversationId, arr);
-    }
-    const conversations = [...byConversation.entries()].map(([id, msgs]) =>
-      this.toConversation(id, msgs),
+    // Deduplicate conversation ids while preserving first-seen order on this page.
+    const conversationIds = [
+      ...new Set((page.value ?? []).map((m) => m.conversationId)),
+    ];
+    const conversations = await Promise.all(
+      conversationIds.map(async (id) =>
+        this.toConversation(id, await this.conversationMessages(id)),
+      ),
     );
     return {
       conversations,
       deletedConversationIds: [],
       nextCursor: page["@odata.nextLink"] ?? null,
+      // Graph counts folder messages, not conversations — an item estimate only.
       providerTotal: page["@odata.count"] ?? (await this.folderTotal(folder)),
     };
   }

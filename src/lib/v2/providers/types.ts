@@ -46,7 +46,7 @@ export type SyncPage = {
   conversations: Conversation[];
   deletedConversationIds: string[];
   nextCursor: string | null;
-  /** Provider's own count of the mailbox, for coverage reconciliation. */
+  /** Provider item estimate for the folder (messages/threads), not an exact conversation count. */
   providerTotal: number;
 };
 

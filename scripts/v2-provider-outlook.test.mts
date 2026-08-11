@@ -62,15 +62,15 @@ const mockFetch = (async (url: string, init?: RequestInit) => {
     return json({ totalItemCount: 1 });
   }
 
-  // Inbox sync (first page + paged second page).
+  // Inbox sync — only c0-m2 on page 1; c0-m1 appears on page 2 (split thread).
   if (method === "GET" && u.includes("/mailFolders/inbox/messages")) {
     if (!u.includes("skip=1")) {
       return json({
-        value: [...CONVOS.c0, ...CONVOS.c1],
+        value: [CONVOS.c0[0], ...CONVOS.c1],
         "@odata.nextLink": "https://graph.microsoft.com/v1.0/me/mailFolders/inbox/messages?skip=1",
       });
     }
-    return json({ value: [...CONVOS.c2] });
+    return json({ value: [CONVOS.c2[0], CONVOS.c0[1]] });
   }
 
   // Sent sync.
@@ -142,6 +142,8 @@ async function makeHarness(): Promise<ContractHarness> {
     expectedTrashTotal: 1,
     sentThreadId: "s0",
     trashThreadId: "t0",
+    splitPageThreadId: "c0",
+    splitPageThreadMessageCount: 2,
   };
 }
 
@@ -163,5 +165,13 @@ assert.equal(convo.messages[0].isUnread, true);
 await provider.reply({ conversationId: "c0", all: true, bodyHtml: "<p>ok</p>" }, "k");
 assert.equal(lastReplyAll, true, "reply-all must call the replyAll endpoint");
 assert.match(provider.nativeUrl("c0"), /outlook\.office\.com/);
+
+// Split-page hydration: folder page 1 lists only c0-m2 but syncFolder must emit both messages.
+const page1 = await provider.syncFolder("inbox", null);
+const split = page1.conversations.find((c) => c.providerConversationId === "c0");
+assert.ok(split, "split-page thread must appear on first folder page");
+assert.equal(split!.messages.length, 2);
+assert.equal(split!.messages[0].sentAt, "2026-08-01T10:00:00Z");
+assert.equal(split!.messages[0].bodyHtml, "<p>body</p>");
 
 console.log("v2-provider-outlook: OK");

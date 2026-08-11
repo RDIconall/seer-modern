@@ -190,6 +190,7 @@ export class GmailProvider implements MailProvider {
       conversations,
       deletedConversationIds: [],
       nextCursor: list.nextPageToken ?? null,
+      // Gmail thread-list estimate — not an exact conversation count.
       providerTotal: list.resultSizeEstimate ?? conversations.length,
     };
   }
