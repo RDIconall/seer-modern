@@ -138,6 +138,15 @@ try {
     assert.ok(row.provider_total >= 0, `${row.folder} provider_total stored`);
   }
 
+  const backfill = await db.pool.query<{ folder: string; backfill_complete: boolean }>(
+    `select folder, backfill_complete from seer.folder_sync_state
+      where account_id = $1 order by folder`,
+    [accountId],
+  );
+  for (const row of backfill.rows) {
+    assert.equal(row.backfill_complete, true, `${row.folder} backfill must be complete after full drain`);
+  }
+
   // Legacy sync_state remains for inbox compatibility.
   const legacy = await db.pool.query<{ cursor: string | null; provider_total: number }>(
     "select cursor, provider_total from seer.sync_state where account_id = $1",

@@ -91,7 +91,14 @@ try {
   );
   assert.deepEqual(
     fssCols.rows.map((r) => r.column_name),
-    ["account_id", "folder", "cursor", "provider_total", "updated_at"],
+    [
+      "account_id",
+      "folder",
+      "cursor",
+      "provider_total",
+      "updated_at",
+      "backfill_complete",
+    ],
     "folder_sync_state columns",
   );
 

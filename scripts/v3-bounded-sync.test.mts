@@ -90,8 +90,10 @@ try {
   assert.equal(trash1.pages, 2, "trash must get fair pages despite sent backlog");
   assert.ok(inbox1.pages! >= 1, "inbox participates in fair budget");
   assert.equal(sent1.complete, false, "huge sent must be partial after one tick");
+  assert.equal(sent1.backfillComplete, false);
   assert.equal(trash1.complete, false, "trash partial after one tick");
   assert.equal(inbox1.complete, true, "small inbox fully drains within page budget");
+  assert.equal(inbox1.backfillComplete, true);
   assert.ok(sent1.nextCursor, "sent must persist partial cursor");
 
   const sentCursorAfterTick1 = await db.pool.query<{ cursor: string | null }>(
@@ -149,6 +151,7 @@ try {
     deadlineMs: Date.now() + SYNC_PAGE_SAFETY_HEADROOM_MS - 1,
   });
   assert.equal(deadlineRun.pages, 0, "deadline headroom must stop before first page");
+  assert.equal(deadlineRun.complete, false);
 
   const withinHeadroom = await syncFolder(accountId, provider, "sent", "incremental", {
     maxPages: 5,
@@ -159,6 +162,7 @@ try {
     0,
     "deadline inside safety headroom must not start a page",
   );
+  assert.equal(withinHeadroom.complete, false);
 
   // Direct syncFolder without options still fully drains a small folder.
   const userId2 = await upsertUser("drain-small@example.com");
@@ -174,6 +178,7 @@ try {
   const drained = await syncFolder(accountId2, small, "inbox", "full");
   assert.equal(drained.pages, 2, "small inbox drains all pages when unbounded");
   assert.equal(drained.complete, true);
+  assert.equal(drained.backfillComplete, true);
   assert.equal(drained.nextCursor, null);
 
   // mode=full resets once per invocation; next incremental does not reset.
@@ -192,12 +197,22 @@ try {
   });
   assert.equal(fullPartial.pages, 1);
   assert.equal(fullPartial.nextCursor, "10");
+  assert.equal(fullPartial.backfillComplete, false);
   assert.equal(fullPartial.complete, false);
+
+  const fullResume = await syncFolder(accountId3, bigSent, "sent", "full", {
+    maxPages: 1,
+  });
+  assert.equal(
+    fullResume.nextCursor,
+    "20",
+    "second bounded full must resume cursor while backfill incomplete",
+  );
 
   const incResume = await syncFolder(accountId3, bigSent, "sent", "incremental", {
     maxPages: 1,
   });
-  assert.equal(incResume.nextCursor, "20", "incremental must not reset sent cursor from full tick");
+  assert.equal(incResume.nextCursor, "30", "incremental must continue backfill from saved cursor");
 
   const runs = await db.pool.query<{ folder: string; complete: boolean }>(
     `select folder, complete from seer.sync_runs

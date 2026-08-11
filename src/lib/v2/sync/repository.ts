@@ -13,6 +13,12 @@ import type { Conversation, SyncFolder } from "../providers/types";
 
 export type PageWriteResult = { stored: number; failed: number };
 
+export type FolderSyncState = {
+  cursor: string | null;
+  backfillComplete: boolean;
+  providerTotal: number;
+};
+
 export async function writeConversationPage(
   accountId: AccountId,
   folder: SyncFolder,
@@ -137,21 +143,85 @@ async function writeConversation(
   }
 }
 
+export async function saveFolderSyncState(
+  accountId: AccountId,
+  folder: SyncFolder,
+  state: FolderSyncState,
+): Promise<void> {
+  await db().query(
+    `insert into seer.folder_sync_state
+       (account_id, folder, cursor, provider_total, backfill_complete, updated_at)
+       values ($1, $2, $3, $4, $5, now())
+       on conflict (account_id, folder) do update
+         set cursor = excluded.cursor,
+             provider_total = excluded.provider_total,
+             backfill_complete = excluded.backfill_complete,
+             updated_at = now()`,
+    [
+      accountId,
+      folder,
+      state.cursor,
+      state.providerTotal,
+      state.backfillComplete,
+    ],
+  );
+}
+
+/** @deprecated Use saveFolderSyncState */
 export async function saveFolderCursor(
   accountId: AccountId,
   folder: SyncFolder,
   cursor: string | null,
   providerTotal: number,
 ): Promise<void> {
-  await db().query(
-    `insert into seer.folder_sync_state (account_id, folder, cursor, provider_total, updated_at)
-       values ($1, $2, $3, $4, now())
-       on conflict (account_id, folder) do update
-         set cursor = excluded.cursor,
-             provider_total = excluded.provider_total,
-             updated_at = now()`,
-    [accountId, folder, cursor, providerTotal],
+  await saveFolderSyncState(accountId, folder, {
+    cursor,
+    providerTotal,
+    backfillComplete: cursor === null && providerTotal > 0,
+  });
+}
+
+export async function loadFolderSyncState(
+  accountId: AccountId,
+  folder: SyncFolder,
+): Promise<FolderSyncState> {
+  const r = await db().query<{
+    cursor: string | null;
+    provider_total: number;
+    backfill_complete: boolean;
+  }>(
+    `select cursor, provider_total, backfill_complete
+       from seer.folder_sync_state
+      where account_id = $1 and folder = $2`,
+    [accountId, folder],
   );
+  if ((r.rowCount ?? 0) > 0) {
+    const row = r.rows[0];
+    return {
+      cursor: row.cursor ?? null,
+      backfillComplete: row.backfill_complete,
+      providerTotal: row.provider_total,
+    };
+  }
+
+  if (folder === "inbox") {
+    const legacy = await db().query<{
+      cursor: string | null;
+      provider_total: number;
+    }>("select cursor, provider_total from seer.sync_state where account_id = $1", [
+      accountId,
+    ]);
+    if ((legacy.rowCount ?? 0) > 0) {
+      const row = legacy.rows[0];
+      return {
+        cursor: row.cursor ?? null,
+        providerTotal: row.provider_total,
+        backfillComplete: row.cursor === null && row.provider_total > 0,
+      };
+    }
+  }
+
+  return { cursor: null, backfillComplete: false, providerTotal: 0 };
 }
 
 export async function hasFolderSyncState(
@@ -169,13 +239,9 @@ export async function loadFolderCursor(
   accountId: AccountId,
   folder: SyncFolder,
 ): Promise<string | null> {
-  const r = await db().query<{ cursor: string | null }>(
-    "select cursor from seer.folder_sync_state where account_id = $1 and folder = $2",
-    [accountId, folder],
-  );
-  if ((r.rowCount ?? 0) > 0) return r.rows[0].cursor ?? null;
-  if (folder === "inbox") return loadCursor(accountId);
-  return null;
+  const state = await loadFolderSyncState(accountId, folder);
+  if (state.backfillComplete) return null;
+  return state.cursor;
 }
 
 /** Legacy inbox cursor table — retained until full cutover to folder_sync_state. */
@@ -183,6 +249,7 @@ export async function saveCursor(
   accountId: AccountId,
   cursor: string | null,
   providerTotal: number,
+  backfillComplete = false,
 ): Promise<void> {
   await db().query(
     `insert into seer.sync_state (account_id, cursor, provider_total, updated_at)
@@ -191,7 +258,7 @@ export async function saveCursor(
          set cursor = excluded.cursor,
              provider_total = excluded.provider_total,
              updated_at = now()`,
-    [accountId, cursor, providerTotal],
+    [accountId, backfillComplete ? null : cursor, providerTotal],
   );
 }
 

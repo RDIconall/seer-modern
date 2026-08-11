@@ -1,22 +1,21 @@
 import { randomUUID } from "node:crypto";
-import { db } from "../db/pool";
 import type { AccountId } from "../db/types";
 import type { MailProvider, SyncFolder } from "../providers/types";
 import {
   folderCoverage,
-  loadFolderCursor,
+  loadFolderSyncState,
   saveCursor,
-  saveFolderCursor,
+  saveFolderSyncState,
   writeConversationPage,
   type Coverage,
+  type FolderSyncState,
 } from "./repository";
+import { recordSyncRun } from "./sync-runs";
 
 /**
- * The sync engine drains provider pages into the relational corpus. It is the
- * one ingestion path for both incremental webhook-driven syncs and the initial
- * full-corpus rebuild — the difference is only the starting cursor. Coverage is
- * always reconciled against the provider's own total, and a failed page item is
- * counted, never silently dropped.
+ * The sync engine drains provider pages into the relational corpus. Provider
+ * cursors are page offsets for historical backfill — not incremental history
+ * tokens. After backfill completes we poll only the first page for new mail.
  */
 
 export type SyncMode = "incremental" | "full";
@@ -37,13 +36,33 @@ export type SyncRun = {
   folder: SyncFolder;
   coverage: Coverage;
   pages: number;
+  /** Evidence-based: backfill finished or head poll completed — not partial/deadline. */
   complete: boolean;
+  backfillComplete: boolean;
+  polledHead: boolean;
   nextCursor: string | null;
+  telemetryWarning?: string;
 };
 
-function shouldStopBeforePage(deadlineMs: number | undefined): boolean {
+export function isPastSyncDeadline(deadlineMs: number | undefined): boolean {
   if (deadlineMs === undefined) return false;
   return Date.now() + SYNC_PAGE_SAFETY_HEADROOM_MS >= deadlineMs;
+}
+
+async function persistFolderState(
+  accountId: AccountId,
+  folder: SyncFolder,
+  state: FolderSyncState,
+): Promise<void> {
+  await saveFolderSyncState(accountId, folder, state);
+  if (folder === "inbox") {
+    await saveCursor(
+      accountId,
+      state.cursor,
+      state.providerTotal,
+      state.backfillComplete,
+    );
+  }
 }
 
 export async function syncFolder(
@@ -57,16 +76,29 @@ export async function syncFolder(
   const started = new Date();
   const { maxPages, deadlineMs } = options;
 
-  let cursor = mode === "full" ? null : await loadFolderCursor(accountId, folder);
+  let state = await loadFolderSyncState(accountId, folder);
+
+  if (mode === "full" && state.backfillComplete) {
+    state = { ...state, backfillComplete: false, cursor: null };
+    await persistFolderState(accountId, folder, state);
+  }
+
+  const headPoll = mode === "incremental" && state.backfillComplete;
+  const effectiveMaxPages = headPoll ? 1 : maxPages;
+
   let failed = 0;
   let pages = 0;
-  let providerTotal = 0;
+  let providerTotal = state.providerTotal;
+  let providerCursor: string | null = headPoll ? null : state.cursor;
+  let backfillComplete = state.backfillComplete;
+  let polledHead = false;
+  let backfillFinishedThisRun = false;
 
   for (;;) {
-    if (maxPages !== undefined && pages >= maxPages) break;
-    if (shouldStopBeforePage(deadlineMs)) break;
+    if (effectiveMaxPages !== undefined && pages >= effectiveMaxPages) break;
+    if (isPastSyncDeadline(deadlineMs)) break;
 
-    const page = await provider.syncFolder(folder, cursor);
+    const page = await provider.syncFolder(folder, providerCursor);
     providerTotal = page.providerTotal;
     const result = await writeConversationPage(
       accountId,
@@ -76,37 +108,68 @@ export async function syncFolder(
     );
     failed += result.failed;
     pages++;
-    await saveFolderCursor(accountId, folder, page.nextCursor, providerTotal);
-    if (folder === "inbox") {
-      await saveCursor(accountId, page.nextCursor, providerTotal);
+
+    if (headPoll) {
+      polledHead = true;
+      backfillComplete = true;
+      providerCursor = null;
+      await persistFolderState(accountId, folder, {
+        cursor: null,
+        backfillComplete: true,
+        providerTotal,
+      });
+      break;
     }
-    cursor = page.nextCursor;
-    if (!cursor) break;
+
+    if (page.nextCursor === null) {
+      backfillFinishedThisRun = true;
+      backfillComplete = true;
+      providerCursor = null;
+      await persistFolderState(accountId, folder, {
+        cursor: null,
+        backfillComplete: true,
+        providerTotal,
+      });
+      break;
+    }
+
+    providerCursor = page.nextCursor;
+    backfillComplete = false;
+    await persistFolderState(accountId, folder, {
+      cursor: page.nextCursor,
+      backfillComplete: false,
+      providerTotal,
+    });
   }
 
-  const complete = cursor === null;
+  const complete =
+    pages > 0 && (polledHead || backfillFinishedThisRun);
+
   const cov = await folderCoverage(accountId, folder);
   cov.failed = failed;
 
-  await db().query(
-    `insert into seer.sync_runs
-       (account_id, trace_id, mode, folder, provider_total, stored, pending, failed, complete, started_at, finished_at)
-       values ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, now())`,
-    [
-      accountId,
-      traceId,
-      mode,
-      folder,
-      cov.providerTotal,
-      cov.stored,
-      cov.pending,
-      failed,
-      complete,
-      started,
-    ],
-  );
+  const telemetryWarning = await recordSyncRun({
+    accountId,
+    traceId,
+    mode,
+    folder,
+    coverage: cov,
+    complete,
+    started,
+  });
 
-  return { traceId, mode, folder, coverage: cov, pages, complete, nextCursor: cursor };
+  return {
+    traceId,
+    mode,
+    folder,
+    coverage: cov,
+    pages,
+    complete,
+    backfillComplete,
+    polledHead,
+    nextCursor: backfillComplete ? null : providerCursor,
+    telemetryWarning,
+  };
 }
 
 /** Legacy inbox-only entry point; retained for existing callers and tests. */

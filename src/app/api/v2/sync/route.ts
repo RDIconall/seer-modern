@@ -1,7 +1,11 @@
 import { NextResponse } from "next/server";
 import { listAllAccounts } from "@/lib/v2/db/list-accounts";
 import { providerFor } from "@/lib/v2/providers/provider";
-import { defaultSyncBudget, syncAccountFolders } from "@/lib/v2/sync/report";
+import {
+  defaultSyncBudget,
+  syncTickRoundRobin,
+  type SyncAccountEntry,
+} from "@/lib/v2/sync/report";
 import { drainOutbox } from "@/lib/v3/outbox/drain";
 import type { SyncFolder } from "@/lib/v2/providers/types";
 
@@ -39,6 +43,8 @@ export async function GET(request: Request) {
   const report: Record<string, unknown>[] = [];
   const tickStarted = Date.now();
   const syncBudget = defaultSyncBudget(tickStarted);
+  const entries: SyncAccountEntry[] = [];
+
   for (const account of accounts) {
     let provider;
     try {
@@ -52,9 +58,18 @@ export async function GET(request: Request) {
     }
     const outbox = await drainOutbox(account.id, provider);
     report.push({ email: account.email, outbox });
+    entries.push({ account, provider });
+  }
+
+  if (entries.length > 0 && syncBudget.deadlineMs !== undefined) {
     report.push(
-      ...(await syncAccountFolders(account, provider, mode, SYNC_FOLDERS, syncBudget)),
+      ...(await syncTickRoundRobin(entries, mode, SYNC_FOLDERS, {
+        deadlineMs: syncBudget.deadlineMs,
+        tickSlot: syncBudget.tickSlot,
+        rounds: syncBudget.rounds,
+      })),
     );
   }
+
   return NextResponse.json({ ok: true, mode, report });
 }
