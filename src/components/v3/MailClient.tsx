@@ -1,7 +1,14 @@
 "use client";
 
 import * as React from "react";
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import {
+  useCallback,
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+  useSyncExternalStore,
+} from "react";
 import { Atlas } from "@/components/v2/Atlas";
 import { Triage } from "@/components/v2/Triage";
 import { WorthReading } from "@/components/v2/WorthReading";
@@ -19,6 +26,7 @@ import { useMailbox } from "./useMailbox";
 import { useInboxView } from "@/components/v2/useInboxView";
 import {
   clearSearchState,
+  modalBackgroundState,
   parseMailHash,
   type MailHash,
 } from "./mail-client-state";
@@ -43,9 +51,18 @@ function isFolder(section: MailSection): section is MailboxFolder {
   return folderSet.has(section as MailboxFolder);
 }
 
-function readHash(): MailHash {
-  if (typeof window === "undefined") return {};
-  return parseMailHash(window.location.hash);
+function subscribeHash(onStoreChange: () => void): () => void {
+  if (typeof window === "undefined") return () => {};
+  window.addEventListener("hashchange", onStoreChange);
+  return () => window.removeEventListener("hashchange", onStoreChange);
+}
+
+function getHashSnapshot(): string {
+  return typeof window === "undefined" ? "" : window.location.hash;
+}
+
+function getServerHashSnapshot(): string {
+  return "";
 }
 
 function writeHash(section: MailSection, conversation: string | null, query: string): void {
@@ -55,20 +72,37 @@ function writeHash(section: MailSection, conversation: string | null, query: str
   if (conversation) params.set("conversation", conversation);
   if (query) params.set("q", query);
   window.history.replaceState(null, "", `#${params.toString()}`);
+  window.dispatchEvent(new Event("hashchange"));
+}
+
+const MOBILE_QUERY = "(max-width: 700px)";
+
+function subscribeMobile(onStoreChange: () => void): () => void {
+  if (typeof window === "undefined") return () => {};
+  const media = window.matchMedia(MOBILE_QUERY);
+  const listener = () => onStoreChange();
+  if (media.addEventListener) media.addEventListener("change", listener);
+  else media.addListener(listener);
+  return () => {
+    if (media.removeEventListener) media.removeEventListener("change", listener);
+    else media.removeListener(listener);
+  };
+}
+
+function getMobileSnapshot(): boolean {
+  return typeof window !== "undefined" && window.matchMedia(MOBILE_QUERY).matches;
+}
+
+function getServerMobileSnapshot(): boolean {
+  return false;
 }
 
 function useIsMobile(): boolean {
-  const [isMobile, setIsMobile] = useState(false);
-
-  useEffect(() => {
-    const media = window.matchMedia("(max-width: 700px)");
-    const update = () => setIsMobile(media.matches);
-    update();
-    media.addEventListener("change", update);
-    return () => media.removeEventListener("change", update);
-  }, []);
-
-  return isMobile;
+  return useSyncExternalStore(
+    subscribeMobile,
+    getMobileSnapshot,
+    getServerMobileSnapshot,
+  );
 }
 
 function SearchResults({
@@ -130,8 +164,21 @@ export function MailClient({ preview }: { preview?: MailClientPreview } = {}) {
   const [notice, setNotice] = useState<{ message: string; error: boolean; outboxId?: string } | null>(null);
   const [hashReady, setHashReady] = useState(false);
   const restoredSearchRef = useRef<string | null>(null);
+  const hashAppliedRef = useRef(false);
   const isMobile = useIsMobile();
-  const modalOpen = Boolean(conversationId || compose);
+  const hashSnapshot = useSyncExternalStore(
+    subscribeHash,
+    getHashSnapshot,
+    getServerHashSnapshot,
+  );
+  const hash = parseMailHash(hashSnapshot);
+  const pendingHashConversation =
+    hash.conversation && !hashAppliedRef.current ? hash.conversation : null;
+  const { modalOpen } = modalBackgroundState({
+    isMobile,
+    conversationId: conversationId ?? pendingHashConversation,
+    composing: Boolean(compose),
+  });
   const mobileModalOpen = isMobile && modalOpen;
 
   const folder = isFolder(section) ? section : "inbox";
@@ -156,12 +203,16 @@ export function MailClient({ preview }: { preview?: MailClientPreview } = {}) {
   }, []);
 
   useEffect(() => {
-    const hash = readHash();
     if (hash.section) setSection(hash.section);
-    if (hash.conversation) setConversationId(hash.conversation);
+    if (hash.conversation) {
+      hashAppliedRef.current = true;
+      setConversationId(hash.conversation);
+    } else {
+      hashAppliedRef.current = false;
+    }
     if (hash.query) void restoreSearch(hash.query);
     setHashReady(true);
-  }, [restoreSearch]);
+  }, [hashSnapshot, restoreSearch]);
 
   useEffect(() => {
     if (hashReady) writeHash(section, conversationId, query);

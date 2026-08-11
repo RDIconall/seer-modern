@@ -34,3 +34,16 @@ export function parseMailHash(hash: string): MailHash {
 export function clearSearchState(section: MailSection) {
   return { section, query: "", conversation: null, rows: null };
 }
+
+export function modalBackgroundState({
+  isMobile,
+  conversationId,
+  composing,
+}: {
+  isMobile: boolean;
+  conversationId: string | null;
+  composing: boolean;
+}) {
+  const modalOpen = Boolean(conversationId || composing);
+  return { modalOpen, backgroundInert: isMobile && modalOpen };
+}

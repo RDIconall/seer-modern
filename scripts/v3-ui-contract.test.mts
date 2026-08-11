@@ -48,6 +48,10 @@ assert.match(client, /restoreSearch|fetchSearch/);
 assert.match(client, /mobile-compose|onCompose/);
 assert.match(client, /modalOpen|isMobile/);
 assert.match(client, /inert/);
+assert.match(client, /useSyncExternalStore/);
+assert.match(client, /getServerSnapshot/);
+assert.match(client, /getServerMobileSnapshot/);
+assert.match(client, /getServerHashSnapshot/);
 
 for (const label of ["Inbox", "Sent", "Trash", "Atlas", "Triage", "Settings"]) {
   assert.match(navigation, new RegExp(label), `navigation is missing ${label}`);
