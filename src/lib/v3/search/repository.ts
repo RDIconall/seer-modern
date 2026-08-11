@@ -61,8 +61,12 @@ export async function searchWithMetadata(
             d.due_date
        from seer.conversations c
        left join seer.conversation_decisions d
-         on d.conversation_id = c.id and d.is_current
-       left join seer.matters mt on mt.id = d.matter_id
+         on d.conversation_id = c.id
+        and d.is_current
+        and d.account_id = $1
+       left join seer.matters mt
+         on mt.id = d.matter_id
+        and mt.account_id = $1
       where c.account_id = $1
         and c.is_deleted = false
         and c.provider_conversation_id = any($2::text[])`,

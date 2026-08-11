@@ -83,7 +83,7 @@ export function Compose({
         if (!providerConversationId) throw new Error("conversation required");
         result = await dispatchCommand({
           type: "forward",
-          conversationId: providerConversationId,
+          providerConversationId,
           to: parseRecipients(to),
           bodyHtml,
         });
@@ -91,7 +91,7 @@ export function Compose({
         if (!providerConversationId) throw new Error("conversation required");
         result = await dispatchCommand({
           type: "reply",
-          conversationId: providerConversationId,
+          providerConversationId,
           all: mode === "replyAll",
           bodyHtml,
         });

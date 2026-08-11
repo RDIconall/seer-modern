@@ -4,6 +4,13 @@ import type { AccountId } from "../db/types";
 import { findByIdempotencyKey } from "@/lib/v3/outbox/repository";
 import type { CommandResult } from "./types";
 
+const OUTBOUND_UNKNOWN: CommandResult = {
+  ok: false,
+  replayed: true,
+  unknown: true,
+  error: "outcome unknown — reconcile Sent",
+};
+
 /**
  * Idempotency and audit for commands. A receipt keyed by (account, idempotency
  * key) makes replays safe: a retried or double-tapped command returns its first
@@ -19,7 +26,10 @@ export async function existingReceipt(
     [accountId, idempotencyKey],
   );
   const row = r.rows[0];
-  if (row) return { ...row.result, replayed: true };
+  if (row) {
+    if (row.result.pending === true) return { ...OUTBOUND_UNKNOWN };
+    return { ...row.result, replayed: true };
+  }
 
   // A concurrent enqueue may have committed the outbox row before its receipt.
   const outbox = await findByIdempotencyKey(accountId, idempotencyKey);
@@ -46,6 +56,59 @@ export async function saveReceipt(
        on conflict (account_id, idempotency_key) do nothing`,
     [accountId, idempotencyKey, commandType, JSON.stringify(result)],
   );
+}
+
+const PENDING_OUTBOUND: CommandResult = { ok: false, replayed: false, pending: true };
+
+/**
+ * Reserve an outbound command receipt before calling the provider. Returns
+ * `reserved` for the winner; `exists` when another request already holds the key.
+ */
+export async function reserveOutboundReceipt(
+  accountId: AccountId,
+  idempotencyKey: string,
+  commandType: string,
+): Promise<"reserved" | "exists"> {
+  const r = await db().query<{ id: string }>(
+    `insert into seer.command_receipts (account_id, idempotency_key, command_type, result)
+       values ($1, $2, $3, $4::jsonb)
+       on conflict (account_id, idempotency_key) do nothing
+       returning id`,
+    [accountId, idempotencyKey, commandType, JSON.stringify(PENDING_OUTBOUND)],
+  );
+  return (r.rowCount ?? 0) > 0 ? "reserved" : "exists";
+}
+
+/** Finalize a reserved outbound receipt with success or failure. */
+export async function completeOutboundReceipt(
+  accountId: AccountId,
+  idempotencyKey: string,
+  result: CommandResult,
+): Promise<void> {
+  await db().query(
+    `update seer.command_receipts
+        set result = $3::jsonb
+      where account_id = $1
+        and idempotency_key = $2
+        and (result->>'pending')::boolean is true`,
+    [accountId, idempotencyKey, JSON.stringify({ ...result, pending: undefined })],
+  );
+}
+
+const UUID_RE =
+  /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+
+/** Reject reply/forward when the id is a corpus conversation UUID. */
+export async function isCorpusConversationId(
+  accountId: AccountId,
+  id: string,
+): Promise<boolean> {
+  if (!UUID_RE.test(id)) return false;
+  const r = await db().query(
+    "select 1 from seer.conversations where account_id = $1 and id = $2::uuid",
+    [accountId, id],
+  );
+  return (r.rowCount ?? 0) > 0;
 }
 
 export async function recordEvent(

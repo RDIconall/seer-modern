@@ -5,13 +5,10 @@ import {
   resolveAttachmentMeta,
   verifyMessageOwnership,
 } from "@/lib/v3/attachments/repository";
+import { attachmentResponseHeaders } from "@/lib/v3/attachments/headers";
 
 export const dynamic = "force-dynamic";
 export const maxDuration = 60;
-
-function safeFilename(name: string): string {
-  return name.replace(/[^\w.\- ()]/g, "_");
-}
 
 /**
  * Stream one attachment through the provider adapter after verifying the
@@ -36,13 +33,15 @@ export async function GET(
   try {
     const provider = await providerFor(account);
     const content = await provider.getAttachment(providerMessageId, attachmentId);
-    const mimeType = content.mimeType || "application/octet-stream";
-    const filename = safeFilename(content.filename || meta.filename);
-    const inline = /^(application\/pdf|image\/|text\/plain)/.test(mimeType);
+    const headers = attachmentResponseHeaders(
+      content.mimeType,
+      content.filename || meta.filename,
+    );
     return new NextResponse(new Uint8Array(content.body), {
       headers: {
-        "Content-Type": mimeType,
-        "Content-Disposition": `${inline ? "inline" : "attachment"}; filename="${filename}"`,
+        "Content-Type": headers.contentType,
+        "Content-Disposition": headers.contentDisposition,
+        "X-Content-Type-Options": headers.xContentTypeOptions,
         "Cache-Control": "private, max-age=3600",
       },
     });

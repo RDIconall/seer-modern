@@ -83,7 +83,7 @@ export function Reader({
 
 export type ReaderCommandOptions = {
   providerConversationId: string;
-  corpusConversationId?: string;
+  corpusConversationId: string;
   deleteToken?: string;
   onCompose: (intent: ReaderComposeIntent) => void;
   onCommandComplete?: () => void;
@@ -91,7 +91,7 @@ export type ReaderCommandOptions = {
 
 /**
  * Wire reader actions to the v2 command bus: reply/reply-all open compose;
- * archive/delete dispatch mutation commands immediately.
+ * archive/delete dispatch mutation commands immediately (corpus conversation id).
  */
 export function useReaderCommands({
   providerConversationId,
@@ -127,7 +127,7 @@ export function useReaderCommands({
     onArchive: () =>
       void dispatchCommand({
         type: "archive",
-        conversationId: corpusConversationId ?? providerConversationId,
+        conversationId: corpusConversationId,
       }),
     onDelete: () => {
       if (!deleteToken) {
@@ -135,7 +135,7 @@ export function useReaderCommands({
       }
       return dispatchCommand({
         type: "delete",
-        conversationId: corpusConversationId ?? providerConversationId,
+        conversationId: corpusConversationId,
         deleteToken,
       });
     },

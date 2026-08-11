@@ -150,7 +150,7 @@ try {
     { accountId, provider },
     {
       type: "forward",
-      conversationId: "p-thread",
+      providerConversationId: "p-thread",
       to: ["bob@example.com"],
       bodyHtml: "<p>see below</p>",
     },
@@ -175,18 +175,18 @@ try {
   );
   assert.match(attachRoute, /verifyMessageOwnership/);
   assert.match(attachRoute, /getAttachment/);
-  assert.match(attachRoute, /Content-Disposition/);
-  assert.match(attachRoute, /Content-Type/);
+  assert.match(attachRoute, /attachmentResponseHeaders/);
+  assert.match(attachRoute, /X-Content-Type-Options/);
   assert.ok(!/accessToken|refreshToken|ciphertext/i.test(attachRoute));
 
-  // Reader/Compose wiring: command bus + attachment URLs + sanitized HTML.
+  const composeSrc = readFileSync(path.join(HERE, "../src/components/v2/Compose.tsx"), "utf8");
+  assert.match(composeSrc, /providerConversationId/);
+  assert.match(composeSrc, /\/api\/v2\/commands/);
+
   const readerSrc = readFileSync(path.join(HERE, "../src/components/v2/Reader.tsx"), "utf8");
   assert.match(readerSrc, /\/api\/v3\/messages\//);
   assert.match(readerSrc, /dispatchCommand|useReaderCommands/);
-
-  const composeSrc = readFileSync(path.join(HERE, "../src/components/v2/Compose.tsx"), "utf8");
-  assert.match(composeSrc, /forward|reply/i);
-  assert.match(composeSrc, /\/api\/v2\/commands/);
+  assert.match(readerSrc, /corpusConversationId/);
 
   const htmlSrc = readFileSync(path.join(HERE, "../src/components/v2/MessageHtml.tsx"), "utf8");
   assert.match(htmlSrc, /sanitizeEmailHtml/);

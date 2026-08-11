@@ -5,6 +5,7 @@ import {
   mutationErrorIsNoOp,
 } from "./mutation-idempotent";
 import { nativeUrlFor } from "./native-url";
+import { gmailForwardHtml } from "./forward-html";
 import type {
   Address,
   AttachmentContent,
@@ -275,9 +276,10 @@ export class GmailProvider implements MailProvider {
   async forward(command: ForwardCommand, _key: string): Promise<SendReceipt> {
     void _key;
     const convo = await this.thread(command.conversationId);
+    const bodyHtml = gmailForwardHtml(convo, command.bodyHtml);
     const raw = this.encodeRaw(
       [`To: ${command.to.map((a) => a.email).join(", ")}`, `Subject: Fwd: ${convo.subject}`],
-      command.bodyHtml,
+      bodyHtml,
     );
     const r = await this.post<{ id: string; threadId: string }>("/messages/send", {
       raw,

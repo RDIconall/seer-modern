@@ -121,6 +121,45 @@ try {
   assert.match(searchRoute, /providerFor/);
   assert.ok(!/accessToken|refreshToken|ciphertext/i.test(searchRoute));
 
+  const searchRepo = readFileSync(
+    path.join(HERE, "../src/lib/v3/search/repository.ts"),
+    "utf8",
+  );
+  assert.match(searchRepo, /d\.account_id = \$1/);
+  assert.match(searchRepo, /mt\.account_id = \$1/);
+  assert.match(searchRepo, /d\.is_current/);
+
+  // Cross-account: corrupt matter link must not leak another account's title.
+  const otherUserId = await upsertUser("search-other@example.com");
+  const otherAccountId = await upsertAccount({
+    userId: otherUserId,
+    provider: "google",
+    email: "search-other@example.com",
+  });
+  const otherSynced = await seedCorpus(db.pool, otherAccountId, "p-synced", "Other alpha");
+  const foreignMatter = await db.pool.query<{ id: string }>(
+    "insert into seer.matters (account_id, title, org_unit) values ($1, 'Foreign Deal', 'legal') returning id",
+    [otherAccountId],
+  );
+  await saveDecision({
+    accountId: otherAccountId,
+    conversationId: otherSynced,
+    home: "matter",
+    proposedHome: "matter",
+    summary: "Foreign summary",
+    rationale: "x",
+    owner: "you",
+    matterId: foreignMatter.rows[0].id,
+    vetoReasons: [],
+    yields: [],
+    evidence: [],
+    priority: 10,
+  });
+  const cross = await searchWithMetadata(accountId, provider, "alpha", null);
+  assert.equal(cross.rows[0].matterTitle, "Deal Alpha");
+  assert.notEqual(cross.rows[0].matterTitle, "Foreign Deal");
+  assert.notEqual(cross.rows[0].decisionSummary, "Foreign summary");
+
   console.log("v3-search: OK");
 } finally {
   await db.stop();

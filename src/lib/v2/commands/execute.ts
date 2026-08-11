@@ -7,9 +7,12 @@ import { verifyDecisionToken } from "../view/token";
 import { enqueueOptimistic } from "@/lib/v3/outbox/repository";
 import type { OutboxMutationKind } from "@/lib/v3/outbox/types";
 import {
+  completeOutboundReceipt,
   currentDeleteDecision,
   existingReceipt,
+  isCorpusConversationId,
   recordEvent,
+  reserveOutboundReceipt,
   saveReceipt,
 } from "./repository";
 import type { Command, CommandResult } from "./types";
@@ -19,14 +22,18 @@ import type { Command, CommandResult } from "./types";
  * only honored when the signed token maps to the conversation's CURRENT decision
  * and that decision's home is still delete — the browser cannot delete from a
  * raw field, a stale decision, or a guessed bucket. Mail mutations (archive,
- * delete, restore, markUnread) enqueue to the write-behind outbox; send/reply
- * and user corrections remain synchronous.
+ * delete, restore, markUnread) enqueue to the write-behind outbox; send/reply/
+ * forward reserve a durable receipt before any provider side effect.
  */
 
 export type CommandContext = {
   accountId: AccountId;
   provider: MailProvider;
 };
+
+function isOutbound(command: Command): boolean {
+  return command.type === "send" || command.type === "reply" || command.type === "forward";
+}
 
 export async function executeCommand(
   ctx: CommandContext,
@@ -36,9 +43,41 @@ export async function executeCommand(
   const replay = await existingReceipt(ctx.accountId, idempotencyKey);
   if (replay) return replay;
 
+  if (isOutbound(command)) {
+    return executeOutbound(ctx, command, idempotencyKey);
+  }
+
   const result = await run(ctx, command, idempotencyKey);
   await saveReceipt(ctx.accountId, idempotencyKey, command.type, result);
   return result;
+}
+
+async function executeOutbound(
+  ctx: CommandContext,
+  command: Command,
+  idempotencyKey: string,
+): Promise<CommandResult> {
+  const reserved = await reserveOutboundReceipt(ctx.accountId, idempotencyKey, command.type);
+  if (reserved === "exists") {
+    const replay = await existingReceipt(ctx.accountId, idempotencyKey);
+    if (replay) return replay;
+    return {
+      ok: false,
+      replayed: true,
+      unknown: true,
+      error: "outcome unknown — reconcile Sent",
+    };
+  }
+
+  try {
+    const result = await run(ctx, command, idempotencyKey);
+    await completeOutboundReceipt(ctx.accountId, idempotencyKey, result);
+    return result;
+  } catch (e) {
+    const failed = fail(e instanceof Error ? e.message : "outbound command failed");
+    await completeOutboundReceipt(ctx.accountId, idempotencyKey, failed);
+    return failed;
+  }
 }
 
 async function enqueueMutation(
@@ -59,6 +98,16 @@ async function enqueueMutation(
     if (msg === "conversation not found") return fail("conversation not found");
     throw e;
   }
+}
+
+async function rejectCorpusId(
+  ctx: CommandContext,
+  providerConversationId: string,
+): Promise<CommandResult | null> {
+  if (await isCorpusConversationId(ctx.accountId, providerConversationId)) {
+    return fail("providerConversationId must not be a corpus conversation id");
+  }
+  return null;
 }
 
 async function run(
@@ -160,23 +209,34 @@ async function run(
     }
 
     case "reply": {
+      const rejected = await rejectCorpusId(ctx, command.providerConversationId);
+      if (rejected) return rejected;
       const receipt = await ctx.provider.reply(
-        { conversationId: command.conversationId, all: command.all, bodyHtml: command.bodyHtml },
+        {
+          conversationId: command.providerConversationId,
+          all: command.all,
+          bodyHtml: command.bodyHtml,
+        },
         idempotencyKey,
       );
       await recordEvent(
         ctx.accountId,
         "mail_reply",
-        { conversationId: command.conversationId, providerMessageId: receipt.providerMessageId },
+        {
+          conversationId: command.providerConversationId,
+          providerMessageId: receipt.providerMessageId,
+        },
         idempotencyKey,
       );
       return { ok: true, replayed: false, detail: { ...receipt } };
     }
 
     case "forward": {
+      const rejected = await rejectCorpusId(ctx, command.providerConversationId);
+      if (rejected) return rejected;
       const receipt = await ctx.provider.forward(
         {
-          conversationId: command.conversationId,
+          conversationId: command.providerConversationId,
           to: command.to.map((email) => ({ email })),
           bodyHtml: command.bodyHtml,
         },
@@ -185,7 +245,10 @@ async function run(
       await recordEvent(
         ctx.accountId,
         "mail_forward",
-        { conversationId: command.conversationId, providerMessageId: receipt.providerMessageId },
+        {
+          conversationId: command.providerConversationId,
+          providerMessageId: receipt.providerMessageId,
+        },
         idempotencyKey,
       );
       return { ok: true, replayed: false, detail: { ...receipt } };

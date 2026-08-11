@@ -15,8 +15,8 @@ export type Command =
   | { type: "correctConversation"; conversationId: string; home: Home; note?: string }
   | { type: "teachSender"; email: string; instruction: "vip" | "always_delete" | "never_delete" }
   | { type: "send"; to: string[]; subject: string; bodyHtml: string }
-  | { type: "reply"; conversationId: string; all: boolean; bodyHtml: string }
-  | { type: "forward"; conversationId: string; to: string[]; bodyHtml: string };
+  | { type: "reply"; providerConversationId: string; all: boolean; bodyHtml: string }
+  | { type: "forward"; providerConversationId: string; to: string[]; bodyHtml: string };
 
 export type CommandResult = {
   ok: boolean;
@@ -28,4 +28,8 @@ export type CommandResult = {
   /** Present when the command was enqueued to the write-behind outbox. */
   outboxId?: string;
   optimistic?: boolean;
+  /** Outbound command reserved but provider outcome not yet recorded. */
+  pending?: boolean;
+  /** Outbound command may have succeeded before crash — do not resend. */
+  unknown?: boolean;
 };
