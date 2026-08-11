@@ -139,7 +139,7 @@ export async function saveDecision(
 export async function ensureMatter(
   accountId: AccountId,
   title: string,
-  tie?: { text: string; counterparty: string },
+  tie?: { text: string; counterparty: string; own?: Set<string> },
 ): Promise<string> {
   const clean = title.trim().slice(0, 120) || "Untitled matter";
   return inTransaction(async (client) => {
@@ -163,7 +163,7 @@ export async function ensureMatter(
         [accountId],
       );
       const match = resolveMatterMatch(
-        { title: clean, text: tie.text, counterparty: tie.counterparty },
+        { title: clean, text: tie.text, counterparty: tie.counterparty, own: tie.own },
         open.rows.map((r) => ({
           matterId: r.id,
           title: r.title,

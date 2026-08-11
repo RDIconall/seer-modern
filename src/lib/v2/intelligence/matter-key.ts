@@ -35,6 +35,51 @@ const STOP = new Set([
   "meeting", "call", "review", "reviewed", "action", "inform", "notification",
 ]);
 
+/**
+ * Words that say people TALKED without saying what the work is. A model
+ * reading one conversation at a time falls back on these — "RDI engagement /
+ * Conall call" — and because every email in the mailbox involves the user,
+ * such a name fits everything. Eleven separate concerns were once filed under
+ * that exact title, and four unrelated pieces of internal work merged into one
+ * matter because the repeated vague title acted as their tie.
+ *
+ * These words may appear in a name; they just never COUNT as evidence that two
+ * conversations are the same work.
+ */
+const VAGUE = new Set([
+  "engagement", "call", "calls", "chat", "sync", "intro", "introduction",
+  "catch", "catchup", "connect", "connecting", "connection", "conversation",
+  "discussion", "followup", "follow", "outreach", "touch", "touchpoint",
+  "checkin", "check", "hello", "thanks", "today", "great",
+]);
+
+/**
+ * The user's own identity, as match-noise. Every matter on this desk involves
+ * the user and their company, so their names identify nothing. Derived from
+ * the account email ("conall@rditrials.com" → conall, rditrials), plus any
+ * display-name words the caller knows.
+ */
+export function ownTokens(ownEmail: string, ownName?: string): Set<string> {
+  const tokens = new Set<string>();
+  const [local, domain] = ownEmail.toLowerCase().split("@");
+  for (const t of (local ?? "").split(/[._-]/)) if (t) tokens.add(t);
+  const firstLabel = (domain ?? "").split(".")[0];
+  if (firstLabel) tokens.add(firstLabel);
+  for (const t of (ownName ?? "").toLowerCase().split(/\s+/)) {
+    if (t) tokens.add(t);
+  }
+  return tokens;
+}
+
+/** The words in a name that actually identify work. */
+export function informativeWords(text: string, own?: Set<string>): Set<string> {
+  const words = significantWords(text);
+  for (const w of [...words]) {
+    if (VAGUE.has(w) || own?.has(w)) words.delete(w);
+  }
+  return words;
+}
+
 export function extractCodes(text: string): string[] {
   const found = new Set<string>();
   for (const pattern of CODE_PATTERNS) {
@@ -83,6 +128,7 @@ export function matterNameFrom(
   subject: string,
   counterparty: string,
   text: string,
+  own?: Set<string>,
 ): string {
   const clean = (s: string) =>
     s
@@ -90,8 +136,17 @@ export function matterNameFrom(
       .replace(/\s+/g, " ")
       .trim();
 
+  // A proposal is only a name if it names WORK. "RDI engagement / Conall
+  // call" survives every format check and identifies nothing — the user and a
+  // conversation are present in every matter on the desk. Reject it and let
+  // the code/subject path produce something that actually distinguishes.
   const fromModel = proposed?.trim();
-  if (fromModel && !/^(?:re|fw|fwd|inform|action)\s*:/i.test(fromModel)) {
+  if (
+    fromModel &&
+    !/^(?:re|fw|fwd|inform|action)\s*:/i.test(fromModel) &&
+    (informativeWords(fromModel, own).size > 0 ||
+      extractCodes(fromModel).length > 0)
+  ) {
     return fromModel.slice(0, 120);
   }
 
@@ -165,6 +220,8 @@ export type ConversationKey = {
   /** Text to mine for codes: subject + proposed name + body excerpt. */
   text: string;
   counterparty: string;
+  /** The user's own name/company tokens — never evidence of shared work. */
+  own?: Set<string>;
 };
 
 /** How much request overlap is required to tie two conversations together. */
@@ -188,7 +245,11 @@ export function resolveMatterMatch(
   candidates: MatterCandidate[],
 ): MatterCandidate | null {
   const codes = extractCodes(key.text);
-  const words = significantWords(key.title);
+  // Only words that identify WORK count toward a tie. "RDI engagement /
+  // Conall call" shares three words with its own duplicates and none of them
+  // say what the work is — without this, four unrelated internal concerns
+  // merged because a model kept proposing the same vague name.
+  const words = informativeWords(key.title, key.own);
 
   // 1. Same code = same work. Strongest and cheapest signal.
   if (codes.length > 0) {
@@ -215,7 +276,7 @@ export function resolveMatterMatch(
   let best: { candidate: MatterCandidate; score: number } | null = null;
   for (const candidate of candidates) {
     if (candidate.counterparty !== key.counterparty) continue;
-    const candidateWords = significantWords(candidate.title);
+    const candidateWords = informativeWords(candidate.title, key.own);
     let shared = 0;
     for (const w of words) if (candidateWords.has(w)) shared++;
     if (shared >= MIN_SHARED_WORDS && (!best || shared > best.score)) {

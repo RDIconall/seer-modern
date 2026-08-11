@@ -1,7 +1,7 @@
 import type { AccountId, ConversationId } from "../db/types";
 import type { Conversation } from "../providers/types";
 import { compileContext, type ContextInput } from "./context";
-import { counterpartyOf, matterNameFrom } from "./matter-key";
+import { counterpartyOf, matterNameFrom, ownTokens } from "./matter-key";
 import {
   addressedDirectly,
   computeSalience,
@@ -167,10 +167,13 @@ export async function readConversation(
       input.conversation.messages[input.conversation.messages.length - 1]?.from.email ?? "",
       input.context.ownDomain,
     );
+    // The user's own name and company identify nothing: they are in every
+    // matter on this desk, so they neither name work nor tie it together.
+    const own = ownTokens(input.context.ownEmail ?? `x@${input.context.ownDomain}`);
     matterId = await ensureMatter(
       input.accountId,
-      matterNameFrom(read.matterRef, input.conversation.subject, counterparty, tieText),
-      { text: tieText, counterparty },
+      matterNameFrom(read.matterRef, input.conversation.subject, counterparty, tieText, own),
+      { text: tieText, counterparty, own },
     );
     await linkConversationToMatter(matterId, input.conversationId);
   }
