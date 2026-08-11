@@ -44,12 +44,12 @@ Manual route check:
 
 - Development server returned `GET /dev/preview 200`.
 - The response contained representative `Inbox`, `RMS Amendment`, `Dashboard redesign`, `Search mail`, `Compose`, and `Triage` content.
-- No browser/screenshot tooling was available in this subagent, so visual screenshots and tap/keyboard interaction were not captured.
+- Browser screenshot verification is documented below.
 - Production `/dev/preview` returning 404 is intentional because the route is development-only.
 
 ## Concerns / follow-ups
 
-- Full `npm run lint` currently scans generated `.vercel/output` files after a build and fails on generated launcher errors plus thousands of generated-code warnings. Targeted lint for the changed source passes; no generated output was committed.
+- Full `npm run lint` is documented below; generated `.vercel/output/**` is ignored.
 - Settings is a navigable shell placeholder pending Task 8 account cutover.
 - Mailbox list rows do not carry safety delete tokens, so reader delete remains visibly blocked with a safety-token message; Triage remains the authorized delete surface.
 - Provider-only search results are shown as transient and cannot open a corpus reader until synced.
@@ -113,7 +113,36 @@ mail-folder-pane: 1
 mail-mobile-compose: 1
 ```
 
-No browser/screenshot tooling was available, so breakpoint screenshots and interactive touch/keyboard recordings were not captured.
+## Final reviewer follow-ups
+
+### Hydration-safe mobile modal state
+
+Implemented in `542eaaf` (`fix(v3): satisfy hydration hook lint`):
+
+- `useIsMobile` now uses `useSyncExternalStore` over `matchMedia`, with stable `getServerMobileSnapshot() === false`.
+- Hash state also uses `useSyncExternalStore` with a stable empty server snapshot. A pending hash conversation marks the mobile background inert before the hash restoration effect commits the reader state.
+- `modalBackgroundState` is covered by a direct regression test for mobile and desktop modal semantics.
+- Hash changes dispatch the existing subscription event after `replaceState`, keeping the URL and modal state synchronized without hydration warnings.
+
+### Browser verification
+
+Used the installed headless Chrome 148 DevTools Protocol against the development preview at `http://localhost:3000/dev/preview`. No Playwright or browser MCP was installed, and no dependency was added.
+
+| State | Viewport | Screenshot | Finding |
+| --- | ---: | --- | --- |
+| Desktop split pane | 1440×1000 | `/tmp/v3-shell-shots/desktop-split-pane.png` | Folder rows remain visible and selectable in the first pane while the RMS Amendment reader occupies the second pane. |
+| Mobile folder | 390×844 | `/tmp/v3-shell-shots/mobile-folder.png` | Inbox rows, compose FAB, and bottom navigation are visible. |
+| Mobile full-screen reader | 390×844 | `/tmp/v3-shell-shots/mobile-reader.png` | Reader covers the viewport with Back control; bottom navigation and compose FAB are absent. |
+| Mobile full-screen compose | 390×844 | `/tmp/v3-shell-shots/mobile-compose.png` | Send compose covers the viewport with close, fields, and actions; bottom navigation and compose FAB are absent. |
+| Triage selection | 390×844 | `/tmp/v3-shell-shots/triage-selection.png` | Triage renders and checkbox selection updates the toolbar to `10 selected` with bulk actions. |
+
+Browser console contained only React DevTools/Fast Refresh notices; page exceptions were empty.
+
+### Full lint after build
+
+The existing flat ESLint config now ignores `.vercel/output/**`. `npm run build` was run first to generate the output, then full `npm run lint` completed with exit 0. Lint reports eight pre-existing warnings in unrelated `scripts/v2-*` and `scripts/v3-*` tests, but no errors and no generated `.vercel/output` diagnostics.
+
+Breakpoint screenshots and representative click interactions are documented in the final reviewer follow-up above.
 
 ## Mobile modal overlay follow-up
 
