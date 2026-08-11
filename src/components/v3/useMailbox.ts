@@ -178,9 +178,10 @@ export function useMailbox(
 
   const prefetchBody = useCallback((conversationId: string) => {
     if (!accountId) return;
+    const accountKey = accountId;
     const ids = prefetchAdjacentIds(viewRef.current, conversationId);
     for (const id of ids) {
-      const bodyKey = `${accountId}:${id}`;
+      const bodyKey = `${accountKey}:${id}`;
       if (bodyCache.has(bodyKey)) continue;
       bodyCache.set(bodyKey, true);
       const run = () => {
