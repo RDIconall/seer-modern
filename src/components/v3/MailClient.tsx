@@ -57,6 +57,20 @@ function writeHash(section: MailSection, conversation: string | null, query: str
   window.history.replaceState(null, "", `#${params.toString()}`);
 }
 
+function useIsMobile(): boolean {
+  const [isMobile, setIsMobile] = useState(false);
+
+  useEffect(() => {
+    const media = window.matchMedia("(max-width: 700px)");
+    const update = () => setIsMobile(media.matches);
+    update();
+    media.addEventListener("change", update);
+    return () => media.removeEventListener("change", update);
+  }, []);
+
+  return isMobile;
+}
+
 function SearchResults({
   rows,
   onOpen,
@@ -116,6 +130,9 @@ export function MailClient({ preview }: { preview?: MailClientPreview } = {}) {
   const [notice, setNotice] = useState<{ message: string; error: boolean; outboxId?: string } | null>(null);
   const [hashReady, setHashReady] = useState(false);
   const restoredSearchRef = useRef<string | null>(null);
+  const isMobile = useIsMobile();
+  const modalOpen = Boolean(conversationId || compose);
+  const mobileModalOpen = isMobile && modalOpen;
 
   const folder = isFolder(section) ? section : "inbox";
   const mailbox = useMailbox(folder, {
@@ -285,10 +302,23 @@ export function MailClient({ preview }: { preview?: MailClientPreview } = {}) {
 
   const content = isFolder(section) ? (
     <div className="mail-workspace">
-      <div className="mail-folder-pane" aria-label={`${section} folder`}>
+      <div
+        className="mail-folder-pane"
+        aria-label={`${section} folder`}
+        aria-hidden={mobileModalOpen ? true : undefined}
+        inert={mobileModalOpen ? true : undefined}
+      >
         {folderContent}
       </div>
-      {readerContent && <div className="mail-reader-pane">{readerContent}</div>}
+      {readerContent && (
+        <div
+          className="mail-reader-pane"
+          aria-hidden={mobileModalOpen && Boolean(compose) ? true : undefined}
+          inert={mobileModalOpen && Boolean(compose) ? true : undefined}
+        >
+          {readerContent}
+        </div>
+      )}
     </div>
   ) : conversationId ? (
     readerContent
@@ -319,9 +349,22 @@ export function MailClient({ preview }: { preview?: MailClientPreview } = {}) {
 
   return (
     <div className="mail-client" data-reader-open={conversationId ? "true" : "false"}>
-      <Navigation active={section} onNavigate={navigate} onCompose={() => setCompose({ mode: "send" })} />
-      <main className="mail-main">
-        <header className="mail-toolbar">
+      <Navigation
+        active={section}
+        onNavigate={navigate}
+        onCompose={() => setCompose({ mode: "send" })}
+        modalOpen={modalOpen}
+      />
+      <main
+        className="mail-main"
+        aria-hidden={mobileModalOpen && Boolean(compose) ? true : undefined}
+        inert={mobileModalOpen && Boolean(compose) ? true : undefined}
+      >
+        <header
+          className="mail-toolbar"
+          aria-hidden={mobileModalOpen ? true : undefined}
+          inert={mobileModalOpen ? true : undefined}
+        >
           <SearchBox
             initialQuery={query}
             onSearch={search}

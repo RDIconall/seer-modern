@@ -64,10 +64,12 @@ export function Navigation({
   active,
   onNavigate,
   onCompose,
+  modalOpen,
 }: {
   active: MailSection;
   onNavigate: (section: MailSection) => void;
   onCompose: () => void;
+  modalOpen: boolean;
 }) {
   return (
     <>
@@ -96,30 +98,34 @@ export function Navigation({
         </nav>
       </aside>
 
-      <nav className="mail-bottom-nav" aria-label="Mobile mailbox navigation">
-        {items.slice(0, 5).map((item) => (
+      {!modalOpen && (
+        <nav className="mail-bottom-nav" aria-label="Mobile mailbox navigation">
+          {items.slice(0, 5).map((item) => (
+            <NavButton
+              key={item.id}
+              item={item}
+              active={active}
+              onNavigate={onNavigate}
+            />
+          ))}
           <NavButton
-            key={item.id}
-            item={item}
+            item={items[5]}
             active={active}
             onNavigate={onNavigate}
           />
-        ))}
-        <NavButton
-          item={items[5]}
-          active={active}
-          onNavigate={onNavigate}
-        />
-      </nav>
-      <button
-        type="button"
-        className="mail-mobile-compose mail-focus-ring"
-        aria-label="Compose new message"
-        onClick={onCompose}
-      >
-        <span aria-hidden>＋</span>
-        <span>Compose</span>
-      </button>
+        </nav>
+      )}
+      {!modalOpen && (
+        <button
+          type="button"
+          className="mail-mobile-compose mail-focus-ring"
+          aria-label="Compose new message"
+          onClick={onCompose}
+        >
+          <span aria-hidden>＋</span>
+          <span>Compose</span>
+        </button>
+      )}
     </>
   );
 }

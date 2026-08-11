@@ -38,5 +38,7 @@ assert.match(css, /@media\s*\(max-width:\s*700px\)/, "missing mobile shell rules
 assert.match(css, /\.mail-bottom-nav\b/, "missing mobile bottom navigation styles");
 assert.match(css, /\.mail-reader-full\b/, "missing mobile full-screen reader styles");
 assert.match(css, /\.mail-focus-ring\b/, "missing keyboard focus styles");
+assert.match(css, /\.mail-reader-full[\s\S]*z-index:\s*50/, "reader modal must stack above navigation");
+assert.match(css, /\.mail-compose[\s\S]*z-index:\s*60/, "compose modal must stack above navigation");
 
 console.log(`v3-styles: OK (${used.size} classes all styled)`);

@@ -1048,7 +1048,7 @@ body {
   position: fixed;
   right: 28px;
   bottom: 24px;
-  z-index: 30;
+  z-index: 60;
   width: min(480px, calc(100vw - 56px));
   max-height: calc(100dvh - 48px);
   overflow: auto;
@@ -1247,7 +1247,7 @@ body {
   .mail-reader-full {
     position: fixed;
     inset: 0;
-    z-index: 20;
+    z-index: 50;
     overflow: auto;
     padding: calc(12px + var(--safe-top)) 14px calc(30px + var(--safe-bottom));
     background: var(--bg);
@@ -1267,6 +1267,7 @@ body {
 
   .mail-compose {
     inset: 0;
+    z-index: 60;
     width: auto;
     max-height: none;
     padding: calc(14px + var(--safe-top)) 14px calc(20px + var(--safe-bottom));

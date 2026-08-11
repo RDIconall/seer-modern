@@ -84,7 +84,16 @@ export function ReaderPane({
 
   if (loading) {
     return (
-      <section className="mail-reader mail-reader-loading" aria-label="Loading conversation">
+      <section
+        className="mail-reader mail-reader-full mail-reader-loading"
+        role="dialog"
+        aria-modal="true"
+        aria-label="Loading conversation"
+      >
+        <button type="button" className="mail-reader-back mail-focus-ring" onClick={onBack}>
+          <ArrowLeft aria-hidden />
+          <span>Back to mail</span>
+        </button>
         <LoaderCircle className="mail-spinner" aria-hidden />
         <span>Opening conversation…</span>
       </section>
@@ -92,7 +101,12 @@ export function ReaderPane({
   }
   if (error || !data) {
     return (
-      <section className="mail-reader mail-reader-error" role="alert">
+      <section
+        className="mail-reader mail-reader-full mail-reader-error"
+        role="dialog"
+        aria-modal="true"
+        aria-label="Conversation unavailable"
+      >
         <button type="button" className="mail-reader-back mail-focus-ring" onClick={onBack}>
           <ArrowLeft aria-hidden /> Back to mail
         </button>
@@ -102,7 +116,12 @@ export function ReaderPane({
   }
 
   return (
-    <section className="mail-reader mail-reader-full" aria-label={`Reading ${data.conversation.subject}`}>
+    <section
+      className="mail-reader mail-reader-full"
+      role="dialog"
+      aria-modal="true"
+      aria-label={`Reading ${data.conversation.subject}`}
+    >
       <header className="mail-reader-header">
         <button type="button" className="mail-reader-back mail-focus-ring" onClick={onBack}>
           <ArrowLeft aria-hidden />

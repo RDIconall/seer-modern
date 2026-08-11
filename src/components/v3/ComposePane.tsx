@@ -26,9 +26,14 @@ export function ComposePane({
     mode === "replyAll" ? "Reply all" : mode[0].toUpperCase() + mode.slice(1);
 
   return (
-    <aside className="mail-compose" aria-label={title}>
+    <aside
+      className="mail-compose"
+      role="dialog"
+      aria-modal="true"
+      aria-labelledby="mail-compose-title"
+    >
       <header className="mail-compose-header">
-        <h2>{title}</h2>
+        <h2 id="mail-compose-title">{title}</h2>
         <button type="button" className="mail-close mail-focus-ring" aria-label="Close compose" onClick={onClose}>
           <X aria-hidden />
         </button>

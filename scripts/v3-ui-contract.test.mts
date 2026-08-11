@@ -33,6 +33,7 @@ const client = await read("MailClient.tsx");
 const mailbox = await read("useMailbox.ts");
 const navigation = await read("Navigation.tsx");
 const reader = await read("ReaderPane.tsx");
+const compose = await read("ComposePane.tsx");
 
 assert.match(client, /MailClient/);
 assert.match(client, /useMailbox/);
@@ -45,6 +46,8 @@ assert.match(client, /mail-folder-pane/);
 assert.match(client, /mail-reader-pane/);
 assert.match(client, /restoreSearch|fetchSearch/);
 assert.match(client, /mobile-compose|onCompose/);
+assert.match(client, /modalOpen|isMobile/);
+assert.match(client, /inert/);
 
 for (const label of ["Inbox", "Sent", "Trash", "Atlas", "Triage", "Settings"]) {
   assert.match(navigation, new RegExp(label), `navigation is missing ${label}`);
@@ -53,6 +56,8 @@ assert.match(navigation, /bottom|mobile/i);
 assert.match(navigation, /aria-label/);
 assert.match(navigation, /mail-mobile-compose/);
 assert.match(navigation, /onCompose/);
+assert.match(navigation, /modalOpen/);
+assert.match(navigation, /!modalOpen/);
 
 assert.match(mailbox, /localStorage/);
 assert.match(mailbox, /stale|cache/i);
@@ -65,6 +70,11 @@ assert.match(mailbox, /\/api\/v3\/mailbox/);
 assert.match(reader, /Reader/);
 assert.match(reader, /native|provider/i);
 assert.match(reader, /aria-label/);
+assert.match(reader, /aria-modal/);
+assert.match(reader, /mail-reader-full/);
+assert.match(reader, /onBack/);
+assert.match(compose, /aria-modal/);
+assert.match(compose, /onClose/);
 
 for (const page of ["src/app/page.tsx", "src/app/m/page.tsx"]) {
   const source = await fs.readFile(path.join(root, page), "utf8");
@@ -105,8 +115,15 @@ const ssrPreview = {
 const ssr = renderToString(createElement(MailClient, { preview: ssrPreview }));
 assert.match(ssr, /mail-folder-pane/, "SSR must include the selectable folder pane");
 assert.match(ssr, /mail-reader-pane/, "SSR must include the open reader pane");
-assert.match(ssr, /mail-mobile-compose/, "SSR must include the mobile compose action");
 assert.match(ssr, /mail-compose/, "compose state must render ComposePane");
+assert.doesNotMatch(ssr, /mail-bottom-nav/, "modal SSR must not expose bottom navigation");
+assert.doesNotMatch(ssr, /mail-mobile-compose/, "modal SSR must not expose compose FAB");
+
+const normalSsr = renderToString(
+  createElement(MailClient, { preview: v3Preview }),
+);
+assert.match(normalSsr, /mail-bottom-nav/, "normal SSR keeps mobile navigation");
+assert.match(normalSsr, /mail-mobile-compose/, "normal SSR keeps compose FAB");
 
 const emptySentPreview = {
   ...v3Preview,
