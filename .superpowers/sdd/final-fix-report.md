@@ -1,8 +1,8 @@
 # V3 final-review fix report
 
-Status: implemented locally. No live production migration, password change, or
-provider mutation was performed in this fix. The branch is committed but
-intentionally not pushed, per the request.
+Status: implemented. No live production migration, password change, or provider
+mutation was performed in this fix. The final re-review follow-up is committed
+and pushed on the feature branch.
 
 ## Fixes delivered
 
@@ -50,6 +50,14 @@ intentionally not pushed, per the request.
     `last_error`. Refresh failures mark only that account for reconnect;
     successful save/refresh clears the health error. The account API exposes
     status metadata only, and Settings identifies accounts needing reconnect.
+13. The inbox brain now scopes yields through the current, non-deleted inbox
+    conversation projection. Provider tombstones consult the same outbox
+    `SyncMask` as snapshot cleanup, preserving optimistic restore/archive
+    membership while commands are active or converging.
+14. Search requests now share account-generation/query-token guards and
+    `AbortController` cancellation. Account changes abort pending work, and
+    stale responses cannot update the visible search results. Provider JSON
+    parsing also performs a final deadline check.
 
 ## Migration inventory and operator provisioning
 
@@ -88,6 +96,7 @@ pooler form `seer_app.<project>`). No live mutation was run here.
 - `56c2a8b` — credential health schema gate
 - `34276f1` — snapshot generation test contract
 - `e6c410c` — production KV probe-only gate
+- `4cbe085` — final re-review projection, tombstone-mask, and search-race fixes
 
 ## Verification
 
@@ -119,6 +128,12 @@ All commands below passed:
 The final `npm run test:v2 && npm run test:v3` run passed after the migration
 rename and documentation updates. `npm test`, `npm run lint`, `npx tsc --noEmit`,
 and `npm run build` also passed.
+
+The final re-review targeted regressions also passed:
+
+- `npx tsx scripts/v2-inbox-view.test.mts`
+- `npx tsx scripts/v3-outbox-sync-mask.test.mts`
+- `npx tsx scripts/v3-search.test.mts`
 
 ## Remaining concerns
 

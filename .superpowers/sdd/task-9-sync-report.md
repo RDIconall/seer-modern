@@ -45,6 +45,32 @@ Production Outlook Sent has ~25,140 messages. `/api/v2/sync?mode=full` spent 300
 | `npx tsc --noEmit` | pass |
 | `npm run build` | pass |
 
+## Final re-review follow-up
+
+Commit `4cbe085` closes the remaining projection, tombstone, and account-switch
+search races:
+
+- Brain yields join the current account's non-deleted inbox conversations.
+- Provider tombstones call the outbox `SyncMask` before removing membership.
+- Search requests use shared generation/query tokens and abort controllers;
+  account changes invalidate both provider and hash-restored searches.
+- Provider JSON parsing checks the absolute deadline after parsing.
+
+| Command | Result |
+|---------|--------|
+| `npx tsx scripts/v2-inbox-view.test.mts` | pass |
+| `npx tsx scripts/v3-outbox-sync-mask.test.mts` | pass |
+| `npx tsx scripts/v3-search.test.mts` | pass |
+| `npm test` | pass |
+| `npm run test:v2` | pass |
+| `npm run test:v3` | pass |
+| `npm run lint` | pass |
+| `npx tsc --noEmit` | pass |
+| `npm run build` | pass |
+
+This follow-up was pushed to the feature branch. No live migration, password
+provisioning, or provider mutation was performed.
+
 ## Final follow-up verification
 
 After the UUID snapshot, production role/URL, KV probe-only, provider deadline,
