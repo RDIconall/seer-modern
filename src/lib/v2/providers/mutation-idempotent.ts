@@ -45,6 +45,23 @@ export function conversationFetchNotFound(
 }
 
 /**
+ * Graph may return 200 with an empty page when a conversation is missing.
+ * Treat that like an ambiguous initial fetch — reconciliation required.
+ */
+export function conversationFetchEmpty(
+  messages: unknown[],
+  provider: string,
+  conversationId: string,
+): void {
+  if (messages.length === 0) {
+    throw new ProviderReconcileError(
+      provider,
+      `conversation ${conversationId} returned no messages for mutation`,
+    );
+  }
+}
+
+/**
  * Gmail/Outlook ignore client idempotency keys, but folder mutations are
  * state-setting: repeating archive/trash/restore/markUnread when the target
  * state is already reached (or the message is gone after a prior move) is a

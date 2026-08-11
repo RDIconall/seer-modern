@@ -1,5 +1,6 @@
 import { providerFetch, type ProviderHttpOptions } from "./http";
 import {
+  conversationFetchEmpty,
   conversationFetchNotFound,
   mutationErrorIsNoOp,
   outlookMutationAlreadyApplied,
@@ -294,6 +295,7 @@ export class OutlookProvider implements MailProvider {
     } catch (err) {
       conversationFetchNotFound(err, "outlook", id);
     }
+    conversationFetchEmpty(msgs, "outlook", id);
     const processed: string[] = [];
     const failed: string[] = [];
     for (const m of msgs) {

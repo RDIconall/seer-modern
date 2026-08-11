@@ -104,6 +104,9 @@ const mockFetch = (async (url: string, init?: RequestInit) => {
     if (conv[1] === "missing-thread") {
       return new Response("not found", { status: 404 });
     }
+    if (conv[1] === "empty-thread") {
+      return json({ value: [] });
+    }
     return json({ value: CONVOS[conv[1]] ?? [] });
   }
 
@@ -203,6 +206,12 @@ await assert.rejects(
   (err: unknown) =>
     isProviderReconcileError(err) ||
     (err instanceof ProviderHttpError && err.status === 404),
+);
+
+// Graph 200 + empty value[] on initial fetch is ambiguous — reconcile, not no-op.
+await assert.rejects(
+  () => provider.mutateConversation("empty-thread", "archive", "idem-empty"),
+  isProviderReconcileError,
 );
 
 console.log("v2-provider-outlook: OK");

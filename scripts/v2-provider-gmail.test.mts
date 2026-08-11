@@ -5,7 +5,7 @@
 import assert from "node:assert/strict";
 import { runProviderContract, type ContractHarness } from "../src/lib/v2/providers/contract.ts";
 import { GmailProvider } from "../src/lib/v2/providers/gmail.ts";
-import { ProviderReconcileError, isProviderReconcileError } from "../src/lib/v2/providers/mutation-idempotent.ts";
+import { isProviderReconcileError } from "../src/lib/v2/providers/mutation-idempotent.ts";
 import { ProviderHttpError } from "../src/lib/v2/providers/http.ts";
 
 function b64url(s: string): string {

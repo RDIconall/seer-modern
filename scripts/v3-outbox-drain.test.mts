@@ -13,6 +13,7 @@ import {
 } from "../src/lib/v3/outbox/drain.ts";
 import { ProviderHttpError } from "../src/lib/v2/providers/http.ts";
 import { GmailProvider } from "../src/lib/v2/providers/gmail.ts";
+import { OutlookProvider } from "../src/lib/v2/providers/outlook.ts";
 import { FakeProvider } from "../src/lib/v2/providers/fake.ts";
 import { asAccountId, type AccountId } from "../src/lib/v2/db/types.ts";
 import type { MailProvider } from "../src/lib/v2/providers/types.ts";
@@ -341,6 +342,49 @@ try {
     [accountId, "gmail-fetch-404-key"],
   );
   assert.ok(gmailEvents.rows.some((e) => e.kind === "outbox_reconcile_needed"));
+
+  // Outlook adapter: initial conversation fetch 200+empty must reach drain reconcile path.
+  const outlookEmptyFetch = (async (url: string, init?: RequestInit) => {
+    const u = String(url);
+    const method = init?.method ?? "GET";
+    const conv = decodeURIComponent(u).match(/conversationId eq '([^']+)'/);
+    if (method === "GET" && u.includes("$filter") && conv) {
+      return new Response(JSON.stringify({ value: [] }), {
+        status: 200,
+        headers: { "content-type": "application/json" },
+      });
+    }
+    throw new Error(`unexpected request: ${method} ${u}`);
+  }) as unknown as typeof fetch;
+  const outlookEmptyId = await seedConversation(
+    db.pool,
+    accountId,
+    "p-outlook-empty",
+    ["inbox"],
+    false,
+  );
+  await enqueueOptimistic(
+    accountId,
+    { type: "archive", conversationId: outlookEmptyId },
+    "outlook-empty-key",
+  );
+  const outlookProvider = new OutlookProvider({
+    accessToken: "test-token",
+    accountEmail: "outbox-drain@example.com",
+    fetchImpl: outlookEmptyFetch,
+  });
+  const outlookDrain = await drainOutbox(accountId, outlookProvider, { limit: 1 });
+  assert.equal(outlookDrain.failed, 1);
+  const outlookRow = await db.pool.query<{ reconcile_needed: boolean }>(
+    "select reconcile_needed from seer.outbox where idempotency_key = $1",
+    ["outlook-empty-key"],
+  );
+  assert.equal(outlookRow.rows[0].reconcile_needed, true);
+  const outlookEvents = await db.pool.query<{ kind: string }>(
+    "select kind from seer.events where account_id = $1 and idempotency_key = $2",
+    [accountId, "outlook-empty-key"],
+  );
+  assert.ok(outlookEvents.rows.some((e) => e.kind === "outbox_reconcile_needed"));
 
   // -------------------------------------------------------------------------
   // Permanent auth failure — no retry budget consumed
