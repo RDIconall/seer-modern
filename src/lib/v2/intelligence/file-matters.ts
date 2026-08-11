@@ -7,7 +7,7 @@ import {
   conversationsNeedingFiling,
   fileConversation,
   fileMatter,
-  listFunctions,
+  listRegistry,
   mattersNeedingFiling,
 } from "./functions";
 
@@ -40,16 +40,27 @@ const filingSchema = z.object({
   ),
 });
 
-export const FILING_SYSTEM = `You file work onto an executive's whiteboard.
+export const FILING_SYSTEM = `You file an executive's mail onto their board.
 
-Each item is one piece of work. Choose the SECTION of the business it belongs to.
+Each item is one piece of work or one piece of mail. Choose the SECTION it
+belongs under.
+
+Sections come in two kinds:
+- FUNCTIONS are parts of the business, where real work belongs
+  ("sales — contracting", "recruiting", "operations — studies").
+- TOPICS describe what a piece of mail IS, for things that are nobody's work:
+  notifications, newsletters, bulletins, digests.
 
 Rules:
 - Choose ONLY from the provided sections. Never invent one, never reword one.
+- If the item is real work someone must carry, use a FUNCTION.
+- If it is a notification, newsletter or bulletin that no one is working on,
+  use a TOPIC. A vendor newsletter is not engineering work; an invoice you must
+  pay is finance work, but a receipt filed for the record is a notice.
 - File by the KIND OF WORK, not by who it is with. The same company appears in
   several sections: a software fix for Acme is systems work, an Acme purchase
   order is sales, an Acme invoice is finance, an Acme candidate is recruiting.
-- If no section genuinely fits, return null. Do not force a guess.
+- If nothing genuinely fits, return null. Do not force a guess.
 - Return one entry for every id you were given.`;
 
 /** Batch size: items are short, so one call files a large part of a board. */
@@ -68,11 +79,12 @@ type Item = { id: string; [key: string]: unknown };
  */
 async function fileBatch(
   accountId: AccountId,
-  functions: string[],
+  sections: { functions: string[]; topics: string[] },
   items: Item[],
   model: string,
   apply: (id: string, section: string) => Promise<unknown>,
 ): Promise<{ filed: number; unfiled: number }> {
+  const functions = [...sections.functions, ...sections.topics];
   const started = Date.now();
   const result = await generateText({
     model,
@@ -87,7 +99,11 @@ async function fileBatch(
       },
     },
     system: FILING_SYSTEM,
-    prompt: JSON.stringify({ sections: functions, items }),
+    prompt: JSON.stringify({
+      functions: sections.functions,
+      topics: sections.topics,
+      items,
+    }),
   });
 
   const allowed = new Set(functions);
@@ -139,7 +155,8 @@ export async function fileMatters(
   options: { limit?: number; model?: string } = {},
 ): Promise<FilingResult> {
   const empty = { attempted: 0, filed: 0, unfiled: 0 };
-  const functions = await listFunctions(accountId);
+  const functions = await listRegistry(accountId, "function");
+  const topics = await listRegistry(accountId, "topic");
   if (functions.length === 0) return { matters: empty, conversations: empty };
 
   const limit = options.limit ?? 200;
@@ -157,8 +174,14 @@ export async function fileMatters(
       title: m.title,
       counterparty: m.orgUnit ?? "",
     }));
-    const outcome = await fileBatch(accountId, functions, batch, model, (id, s) =>
-      fileMatter(id, s, "inferred"),
+    // A matter is work by definition, so it may only take a function. Offering
+    // topics here would let real work be filed as "Newsletters".
+    const outcome = await fileBatch(
+      accountId,
+      { functions, topics: [] },
+      batch,
+      model,
+      (id, s) => fileMatter(id, s, "inferred"),
     );
     matters.filed += outcome.filed;
     matters.unfiled += outcome.unfiled;
@@ -175,8 +198,13 @@ export async function fileMatters(
       // The read's own summary is the best short description of the work.
       about: c.summary.slice(0, 160),
     }));
-    const outcome = await fileBatch(accountId, functions, batch, model, (id, s) =>
-      fileConversation(id, s, "inferred"),
+    // Loose mail may be work or may be noise, so it sees both axes.
+    const outcome = await fileBatch(
+      accountId,
+      { functions, topics },
+      batch,
+      model,
+      (id, s) => fileConversation(id, s, "inferred"),
     );
     conversations.filed += outcome.filed;
     conversations.unfiled += outcome.unfiled;

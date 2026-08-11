@@ -16,11 +16,21 @@ create table if not exists seer.functions (
   id uuid primary key default gen_random_uuid(),
   account_id uuid not null references seer.mail_accounts (id) on delete cascade,
   name text not null,
+  -- Two axes, because the previous system had two and needed both:
+  --   'function' — a part of the business, where WORK belongs ("recruiting").
+  --   'topic'    — what a piece of mail IS, for the disposable end that is not
+  --               anyone's work ("Newsletters & vendor mail").
+  -- Without topics, notifications get forced into a function and a newsletter
+  -- ends up filed under "systems (it)" as though it were engineering work.
+  kind text not null default 'function' check (kind in ('function', 'topic')),
   -- Registry order drives the order of sections and board columns.
   position int not null default 0,
   created_at timestamptz not null default now(),
   unique (account_id, name)
 );
+
+create index if not exists functions_account_kind_idx
+  on seer.functions (account_id, kind, position);
 
 create index if not exists functions_account_position_idx
   on seer.functions (account_id, position);

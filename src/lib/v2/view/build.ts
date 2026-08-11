@@ -109,9 +109,13 @@ export async function buildInboxView(
   );
 
   // Registry order decides the order of sections and board columns, so the
-  // whiteboard reads the same way every time it is opened.
+  // whiteboard reads the same way every time it is opened. Functions (parts of
+  // the business) come before topics (what a piece of mail is), so both the
+  // board and triage lead with the work and end with the noise.
   const registry = await db().query<{ name: string }>(
-    "select name from seer.functions where account_id = $1 order by position, name",
+    `select name from seer.functions
+      where account_id = $1
+      order by case kind when 'function' then 0 else 1 end, position, name`,
     [accountId],
   );
 

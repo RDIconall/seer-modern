@@ -25,31 +25,78 @@ export const DEFAULT_FUNCTIONS = [
   "personal",
 ];
 
+/**
+ * The second axis, for the disposable end of the inbox: what a piece of mail
+ * IS, rather than which part of the business owns it. The previous system
+ * produced these alongside the functions and triage showed both; these names
+ * are taken from what it actually generated for this corpus.
+ *
+ * Without them everything is forced onto the work axis, and a vendor newsletter
+ * gets filed under "systems (it)" as though it were engineering work.
+ */
+export const DEFAULT_TOPICS = [
+  "Newsletters & vendor mail",
+  "IT & software notices",
+  "Meetings, events & travel",
+  "Business & internal reports",
+  "Regulatory & compliance bulletins",
+  "Data & analytics",
+  "Project & document collaboration",
+  "Networking & outreach",
+  "Financial & tax notices",
+  "Shipping & logistics",
+  "Personal & social",
+];
+
 /** Where a matter goes when nothing fits — never invent a section for it. */
 export const UNFILED = "unfiled";
 
-export async function listFunctions(accountId: AccountId): Promise<string[]> {
+export type RegistryKind = "function" | "topic";
+
+/**
+ * The registry, work axis first. Functions come before topics everywhere, so a
+ * board and a triage list both lead with the business and end with the noise.
+ */
+export async function listRegistry(
+  accountId: AccountId,
+  kind?: RegistryKind,
+): Promise<string[]> {
   const result = await db().query<{ name: string }>(
-    "select name from seer.functions where account_id = $1 order by position, name",
-    [accountId],
+    `select name from seer.functions
+      where account_id = $1 and ($2::text is null or kind = $2)
+      order by case kind when 'function' then 0 else 1 end, position, name`,
+    [accountId, kind ?? null],
   );
   return result.rows.map((r) => r.name);
 }
 
-/** Seed the registry once. Existing names keep their position. */
-export async function seedFunctions(
+/** Just the parts of the business. Matters may only be filed under these. */
+export function listFunctions(accountId: AccountId): Promise<string[]> {
+  return listRegistry(accountId, "function");
+}
+
+/** Seed one axis of the registry. Existing names keep their position. */
+export async function seedRegistry(
   accountId: AccountId,
-  names: string[] = DEFAULT_FUNCTIONS,
+  names: string[],
+  kind: RegistryKind,
 ): Promise<number> {
   if (names.length === 0) return 0;
   const result = await db().query(
-    `insert into seer.functions (account_id, name, position)
-     select $1, name, ordinality - 1
+    `insert into seer.functions (account_id, name, position, kind)
+     select $1, name, ordinality - 1, $3
        from unnest($2::text[]) with ordinality as t(name, ordinality)
      on conflict (account_id, name) do nothing`,
-    [accountId, names],
+    [accountId, names, kind],
   );
   return result.rowCount ?? 0;
+}
+
+/** Seed both axes: the org chart, and the kinds of mail that are not work. */
+export async function seedFunctions(accountId: AccountId): Promise<number> {
+  const functions = await seedRegistry(accountId, DEFAULT_FUNCTIONS, "function");
+  const topics = await seedRegistry(accountId, DEFAULT_TOPICS, "topic");
+  return functions + topics;
 }
 
 /**

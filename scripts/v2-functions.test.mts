@@ -11,9 +11,11 @@ import { startTestDb } from "./v2-testdb.mts";
 import { upsertUser, upsertAccount } from "../src/lib/v2/db/accounts.ts";
 import {
   DEFAULT_FUNCTIONS,
+  DEFAULT_TOPICS,
   UNFILED,
   fileMatter,
   listFunctions,
+  listRegistry,
   mattersNeedingFiling,
   seedFunctions,
 } from "../src/lib/v2/intelligence/functions.ts";
@@ -32,6 +34,16 @@ try {
   await seedFunctions(accountId);
   const functions = await listFunctions(accountId);
   assert.deepEqual(functions, DEFAULT_FUNCTIONS, "registry order is the user's own");
+
+  // Two axes: parts of the business, and what a piece of mail is. Without the
+  // second, a vendor newsletter gets forced onto the work axis and filed under
+  // "systems (it)" as though someone were engineering it.
+  assert.deepEqual(await listRegistry(accountId, "topic"), DEFAULT_TOPICS);
+  assert.deepEqual(
+    await listRegistry(accountId),
+    [...DEFAULT_FUNCTIONS, ...DEFAULT_TOPICS],
+    "the work axis always comes before the noise axis",
+  );
 
   const newMatter = async (title: string) => {
     const r = await db.pool.query<{ id: string }>(
