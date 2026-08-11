@@ -36,14 +36,14 @@ export function validateProductionDatabaseUrl(raw: string | undefined): string {
 }
 
 export function resolveDatabaseUrl(
-  env: Pick<
+  env: Partial<Pick<
     NodeJS.ProcessEnv,
     | "NODE_ENV"
     | "SEER_V2_DATABASE_URL"
     | "POSTGRES_URL"
     | "POSTGRES_PRISMA_URL"
     | "DATABASE_URL"
-  > = process.env,
+  >> = process.env,
 ): string | null {
   if (env.NODE_ENV === "production") {
     return validateProductionDatabaseUrl(env.SEER_V2_DATABASE_URL);

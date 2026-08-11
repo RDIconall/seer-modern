@@ -58,7 +58,7 @@ let schemaReady: Promise<boolean> | null = null;
 let lastSchemaError: string | null = null;
 
 export function shouldProvisionKvSchema(
-  env: Pick<NodeJS.ProcessEnv, "NODE_ENV" | "SEER_KV_SETUP"> = process.env,
+  env: Partial<Pick<NodeJS.ProcessEnv, "NODE_ENV" | "SEER_KV_SETUP">> = process.env,
 ): boolean {
   return env.NODE_ENV !== "production" || env.SEER_KV_SETUP === "1";
 }

@@ -57,7 +57,7 @@ export async function providerFetch(
   const method = (init.method ?? "GET").toString().toUpperCase();
   const retrySafe = method === "GET" || method === "HEAD";
   const attempts = retrySafe ? maxRetries : 0;
-  const callerSignal = opts.signal ?? init.signal;
+  const callerSignal = opts.signal ?? init.signal ?? undefined;
 
   for (let attempt = 0; attempt <= attempts; attempt++) {
     if (callerSignal?.aborted || (opts.deadlineMs !== undefined && Date.now() >= opts.deadlineMs)) {
