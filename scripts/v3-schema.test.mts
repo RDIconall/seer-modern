@@ -5,10 +5,45 @@
 import assert from "node:assert/strict";
 import { startTestDb } from "./v2-testdb.mts";
 
-/** Provider-neutral folder ids stored on conversations and sync state. */
-const MAIL_FOLDERS = ["inbox", "sent", "trash", "archive"] as const;
 const SYNC_FOLDERS = ["inbox", "sent", "trash"] as const;
 const OUTBOX_STATUSES = ["pending", "inflight", "done", "failed", "cancelled"] as const;
+
+async function indexDef(
+  pool: Awaited<ReturnType<typeof startTestDb>>["pool"],
+  name: string,
+): Promise<{ indexdef: string; method: string }> {
+  const r = await pool.query<{ indexdef: string; method: string }>(
+    `select pg_get_indexdef(i.oid) as indexdef, am.amname as method
+       from pg_class i
+       join pg_namespace n on n.oid = i.relnamespace
+       join pg_am am on am.oid = i.relam
+      where n.nspname = 'seer'
+        and i.relkind = 'i'
+        and i.relname = $1`,
+    [name],
+  );
+  assert.equal(r.rowCount, 1, `index ${name} must exist`);
+  return r.rows[0];
+}
+
+async function pkColumns(
+  pool: Awaited<ReturnType<typeof startTestDb>>["pool"],
+  table: string,
+): Promise<string[]> {
+  const r = await pool.query<{ attname: string; ord: number }>(
+    `select a.attname, array_position(i.indkey, a.attnum) as ord
+       from pg_index i
+       join pg_class t on t.oid = i.indrelid
+       join pg_namespace n on n.oid = t.relnamespace
+       join pg_attribute a on a.attrelid = t.oid and a.attnum = any(i.indkey)
+      where n.nspname = 'seer'
+        and t.relname = $1
+        and i.indisprimary
+      order by ord`,
+    [table],
+  );
+  return r.rows.map((row) => row.attname);
+}
 
 const db = await startTestDb();
 try {
@@ -40,8 +75,6 @@ try {
   assert.equal(col("last_synced_at").data_type, "timestamp with time zone", "last_synced_at is timestamptz");
   assert.equal(col("last_synced_at").is_nullable, "YES", "last_synced_at is nullable");
 
-  void MAIL_FOLDERS; // archive is corpus-only; sync cursors cover inbox/sent/trash.
-
   // -------------------------------------------------------------------------
   // folder_sync_state: one cursor row per account × sync folder
   // -------------------------------------------------------------------------
@@ -62,15 +95,14 @@ try {
     "folder_sync_state columns",
   );
 
-  const fssPk = await db.pool.query<{ constraint_name: string }>(
-    `select constraint_name from information_schema.table_constraints
-      where table_schema = 'seer' and table_name = 'folder_sync_state'
-        and constraint_type = 'PRIMARY KEY'`,
+  assert.deepEqual(
+    await pkColumns(db.pool, "folder_sync_state"),
+    ["account_id", "folder"],
+    "folder_sync_state PK must be exactly (account_id, folder)",
   );
-  assert.equal(fssPk.rowCount, 1, "folder_sync_state primary key on (account_id, folder)");
 
-  const fssFolderCheck = await db.pool.query<{ conname: string; definition: string }>(
-    `select c.conname, pg_get_constraintdef(c.oid) as definition
+  const fssFolderCheck = await db.pool.query<{ definition: string }>(
+    `select pg_get_constraintdef(c.oid) as definition
        from pg_constraint c
        join pg_class t on t.oid = c.conrelid
        join pg_namespace n on n.oid = t.relnamespace
@@ -81,16 +113,31 @@ try {
   assert.ok(
     fssFolderCheck.rows.some((r) => {
       const def = r.definition.toLowerCase();
-      return (
-        def.includes("folder") &&
-        def.includes("inbox") &&
-        def.includes("sent") &&
-        def.includes("trash")
-      );
+      return SYNC_FOLDERS.every((f) => def.includes(`'${f}'`));
     }),
     "folder_sync_state.folder must be inbox|sent|trash",
   );
-  void SYNC_FOLDERS;
+
+  const user = await db.pool.query<{ id: string }>(
+    "insert into seer.users (email) values ('v3-schema@test.local') returning id",
+  );
+  const account = await db.pool.query<{ id: string }>(
+    `insert into seer.mail_accounts (user_id, provider, email)
+     values ($1, 'google', 'v3-schema@test.local') returning id`,
+    [user.rows[0].id],
+  );
+  const accountId = account.rows[0].id;
+
+  await assert.rejects(
+    () =>
+      db.pool.query(
+        `insert into seer.folder_sync_state (account_id, folder)
+         values ($1, 'archive')`,
+        [accountId],
+      ),
+    /check constraint|violates check constraint/i,
+    "folder_sync_state must reject archive (corpus-only folder)",
+  );
 
   // -------------------------------------------------------------------------
   // outbox: durable write-behind queue with idempotency and retry state
@@ -123,12 +170,12 @@ try {
     "outbox columns",
   );
 
-  const outboxUnique = await db.pool.query<{ indexname: string }>(
-    `select indexname from pg_indexes
-      where schemaname = 'seer' and tablename = 'outbox'
-        and indexdef ilike '%unique%' and indexdef ilike '%idempotency_key%'`,
+  const outboxUnique = await indexDef(db.pool, "outbox_account_id_idempotency_key_key");
+  assert.match(
+    outboxUnique.indexdef,
+    /unique.*\(account_id,\s*idempotency_key\)/i,
+    "outbox idempotency must be scoped to (account_id, idempotency_key)",
   );
-  assert.ok(outboxUnique.rowCount >= 1, "outbox.idempotency_key must be unique");
 
   const outboxStatusCheck = await db.pool.query<{ definition: string }>(
     `select pg_get_constraintdef(c.oid) as definition
@@ -147,20 +194,43 @@ try {
     "outbox.status must allow pending|inflight|done|failed|cancelled",
   );
 
+  // Same idempotency key on two accounts must both succeed.
+  const other = await db.pool.query<{ id: string }>(
+    `insert into seer.mail_accounts (user_id, provider, email)
+     values ($1, 'google', 'v3-schema-other@test.local') returning id`,
+    [user.rows[0].id],
+  );
+  await db.pool.query(
+    `insert into seer.outbox (account_id, command, idempotency_key)
+     values ($1, '{"type":"archive"}', 'shared-key'), ($2, '{"type":"archive"}', 'shared-key')`,
+    [accountId, other.rows[0].id],
+  );
+
   // -------------------------------------------------------------------------
   // Indexes for mailbox folder lists and outbox drain
   // -------------------------------------------------------------------------
-  const indexes = await db.pool.query<{ indexname: string }>(
-    `select indexname from pg_indexes where schemaname = 'seer' order by indexname`,
+  const accountIdx = await indexDef(db.pool, "conversations_account_folders_account_idx");
+  assert.match(
+    accountIdx.indexdef,
+    /\(account_id\)/i,
+    "account btree index must cover account_id",
   );
-  const indexNames = new Set(indexes.rows.map((r) => r.indexname));
-  assert.ok(
-    indexNames.has("conversations_account_folders_idx"),
-    "GIN index on conversations.folders for folder membership queries",
+  assert.equal(accountIdx.method, "btree", "account index must use btree");
+
+  const foldersGin = await indexDef(db.pool, "conversations_account_folders_gin_idx");
+  assert.match(foldersGin.indexdef, /\(folders\)/i, "folders GIN index must cover folders");
+  assert.equal(foldersGin.method, "gin", "folders index must use GIN");
+
+  const pendingIdx = await indexDef(db.pool, "outbox_account_pending_idx");
+  assert.match(
+    pendingIdx.indexdef,
+    /\(account_id,\s*next_attempt_at\)/i,
+    "pending drain index must order by next_attempt_at per account",
   );
-  assert.ok(
-    indexNames.has("outbox_account_pending_idx"),
-    "partial index for pending outbox drain ordered by next_attempt_at",
+  assert.match(
+    pendingIdx.indexdef,
+    /where\s*\(status\s*=\s*'pending'::text\)/i,
+    "pending drain index must filter status = pending",
   );
 
   // -------------------------------------------------------------------------
@@ -195,6 +265,29 @@ try {
     const privs = new Set(grants.rows.map((r) => r.privilege_type));
     for (const need of ["SELECT", "INSERT", "UPDATE", "DELETE"]) {
       assert.ok(privs.has(need), `seer_app must have ${need} on seer.${table}`);
+    }
+  }
+
+  const seqGrants = await db.pool.query<{ object_name: string; privilege_type: string }>(
+    `select object_name, privilege_type
+       from information_schema.usage_privileges
+      where grantee = 'seer_app'
+        and object_schema = 'seer'
+        and object_type = 'SEQUENCE'`,
+  );
+  const sequences = await db.pool.query<{ relname: string }>(
+    `select c.relname
+       from pg_class c
+       join pg_namespace n on n.oid = c.relnamespace
+      where n.nspname = 'seer' and c.relkind = 'S'`,
+  );
+  if (sequences.rowCount > 0) {
+    const granted = new Set(seqGrants.rows.map((r) => `${r.object_name}:${r.privilege_type}`));
+    for (const seq of sequences.rows) {
+      assert.ok(
+        granted.has(`${seq.relname}:USAGE`),
+        `seer_app must have USAGE on seer.${seq.relname}`,
+      );
     }
   }
 
