@@ -1,5 +1,6 @@
 import { cookies } from "next/headers";
 import { kvGet, kvSet } from "@/lib/store/kv";
+import { open, seal, type StoredSecret } from "@/lib/store/secret-at-rest";
 
 const ACCOUNTS_KEY = "accounts";
 export const ACTIVE_ACCOUNT_COOKIE = "seer_active_account";
@@ -21,17 +22,49 @@ type StoreShape = {
   accounts: StoredAccount[];
 };
 
+/**
+ * On disk the tokens are sealed. Callers still see plaintext: the boundary
+ * below opens on read and seals on write, so a database dump yields no usable
+ * mailbox credential.
+ */
+type PersistedAccount = Omit<StoredAccount, "accessToken" | "refreshToken"> & {
+  accessToken?: StoredSecret;
+  refreshToken?: StoredSecret;
+};
+
+type PersistedShape = { accounts: PersistedAccount[] };
+
 function accountId(provider: MailProvider, email: string) {
   return `${provider}:${email.toLowerCase()}`;
 }
 
 async function readStore(): Promise<StoreShape> {
-  const parsed = await kvGet<StoreShape>(ACCOUNTS_KEY);
-  return { accounts: parsed?.accounts ?? [] };
+  const parsed = await kvGet<PersistedShape>(ACCOUNTS_KEY);
+  const accounts = (parsed?.accounts ?? []).map((account) => ({
+    ...account,
+    accessToken: open(account.accessToken, account.id),
+    refreshToken: open(account.refreshToken, account.id),
+  }));
+  return { accounts };
 }
 
 async function writeStore(store: StoreShape) {
-  await kvSet(ACCOUNTS_KEY, store);
+  const accounts: PersistedAccount[] = store.accounts.map((account) => ({
+    ...account,
+    accessToken: seal(account.accessToken, account.id),
+    refreshToken: seal(account.refreshToken, account.id),
+  }));
+  await kvSet(ACCOUNTS_KEY, { accounts });
+}
+
+/**
+ * Re-seal everything already on disk. Reading opens legacy plaintext and
+ * writing seals it, so the round trip is the migration.
+ */
+export async function resealAccounts(): Promise<number> {
+  const store = await readStore();
+  await writeStore(store);
+  return store.accounts.length;
 }
 
 export async function listAccounts(): Promise<

@@ -1,4 +1,5 @@
 import { Pool } from "pg";
+import { resolveSsl } from "@/lib/v2/db/pool";
 
 /**
  * POSTGRES (Supabase) — the durable, queryable home for Seer's memory.
@@ -17,6 +18,11 @@ import { Pool } from "pg";
 
 function connectionString(): string | null {
   return (
+    // Prefer the least-privilege application role: it can read and write the
+    // corpus but cannot run DDL, reach another schema, or escalate. The
+    // privileged URLs remain as a fallback so a missing variable degrades to
+    // working rather than to an outage.
+    process.env.SEER_V2_DATABASE_URL ||
     process.env.POSTGRES_URL ||
     process.env.POSTGRES_PRISMA_URL ||
     process.env.DATABASE_URL ||
@@ -37,18 +43,15 @@ function getPool(): Pool | null {
     pool = null;
     return pool;
   }
-  // Supabase's pooled endpoint presents a cert not in the runtime's CA
-  // bundle. `sslmode=require` in the connection string forces node-pg to
-  // verify it, which then overrides our ssl option and fails with
-  // "self-signed certificate in certificate chain". Strip sslmode so the
-  // explicit { rejectUnauthorized: false } below is what takes effect.
-  const sanitized = cs.replace(/([?&])sslmode=[^&]*(&|$)/i, (_m, pre, post) =>
-    pre === "?" && post === "" ? "" : pre === "?" ? "?" : post,
-  );
+  // One TLS policy for the whole app: strip the ssl parameters that would
+  // otherwise make node-pg discard our settings, and verify against Supabase's
+  // pinned root. This connection carries the mail corpus and, until V3
+  // replaces this store, the sealed OAuth tokens — turning verification off
+  // would encrypt the link while accepting any certificate offered.
+  const resolved = resolveSsl(cs);
   pool = new Pool({
-    connectionString: sanitized,
-    // TLS on, certificate verification off — Supabase over the pooler.
-    ssl: { rejectUnauthorized: false },
+    connectionString: resolved.connectionString,
+    ssl: resolved.ssl,
     // Serverless: keep the footprint small; the transaction pooler fans out.
     max: 3,
     idleTimeoutMillis: 10_000,
@@ -90,6 +93,19 @@ function ensureSchema(): Promise<boolean> {
   schemaReady = (async () => {
     const p = getPool();
     if (!p) return false;
+
+    // Ask whether the table is usable before trying to build it. The app now
+    // connects as a least-privilege role that deliberately cannot run DDL, so
+    // "I cannot create this" and "this does not work" are different answers —
+    // treating them the same would take the store down on every cold start.
+    try {
+      await withTimeout(p.query("select 1 from seer_kv limit 1"), "probe");
+      lastSchemaError = null;
+      return true;
+    } catch {
+      // Fall through and try to provision it.
+    }
+
     // Statements run one at a time: some poolers reject multi-statement
     // simple queries, and a REVOKE on a role that doesn't exist must not
     // sink the CREATE TABLE.

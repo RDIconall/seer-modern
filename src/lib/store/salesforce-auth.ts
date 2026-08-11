@@ -1,5 +1,6 @@
 import type { SalesforceCreds } from "@/lib/crm/salesforce-api";
 import { accountKey, kvDelete, kvGet, kvSet } from "@/lib/store/kv";
+import { open, seal, type StoredSecret } from "@/lib/store/secret-at-rest";
 
 /**
  * "LOG IN WITH SALESFORCE" — the connection, owned by the user.
@@ -40,16 +41,31 @@ export type SalesforceConnection = {
 const appKey = (email: string) => `salesforce-app:${accountKey(email)}`;
 const connKey = (email: string) => `salesforce-conn:${accountKey(email)}`;
 
+/** What binds the ciphertext to its owner, so it cannot be replayed. */
+const scope = (email: string) => `salesforce:${accountKey(email)}`;
+
+/** The consumer key is public under PKCE; the secret and refresh token are not. */
+type PersistedApp = Omit<SalesforceApp, "source" | "clientSecret"> & {
+  clientSecret?: StoredSecret;
+};
+type PersistedConnection = Omit<SalesforceConnection, "refreshToken"> & {
+  refreshToken?: StoredSecret;
+};
+
 export const DEFAULT_LOGIN_URL = "https://login.salesforce.com";
 
 /** The Connected App to authorize against: the user's, else the deploy's. */
 export async function loadApp(
   accountEmail: string,
 ): Promise<SalesforceApp | null> {
-  const stored = await kvGet<Omit<SalesforceApp, "source">>(
-    appKey(accountEmail),
-  );
-  if (stored?.clientId) return { ...stored, source: "settings" };
+  const stored = await kvGet<PersistedApp>(appKey(accountEmail));
+  if (stored?.clientId) {
+    return {
+      ...stored,
+      clientSecret: open(stored.clientSecret, scope(accountEmail)),
+      source: "settings",
+    };
+  }
 
   const clientId =
     process.env.SALESFORCE_CLIENT_ID ?? process.env.SF_CLIENT_ID;
@@ -70,20 +86,52 @@ export async function saveApp(
   accountEmail: string,
   app: Omit<SalesforceApp, "source">,
 ): Promise<void> {
-  await kvSet(appKey(accountEmail), app);
+  const persisted: PersistedApp = {
+    ...app,
+    clientSecret: seal(app.clientSecret, scope(accountEmail)),
+  };
+  await kvSet(appKey(accountEmail), persisted);
 }
 
 export async function loadConnection(
   accountEmail: string,
 ): Promise<SalesforceConnection | null> {
-  return await kvGet<SalesforceConnection>(connKey(accountEmail));
+  const stored = await kvGet<PersistedConnection>(connKey(accountEmail));
+  if (!stored) return null;
+  const refreshToken = open(stored.refreshToken, scope(accountEmail));
+  // Without a refresh token the connection cannot sync; treat it as absent so
+  // the caller falls back to the environment flows rather than half-working.
+  if (!refreshToken) return null;
+  return { ...stored, refreshToken };
 }
 
 export async function saveConnection(
   accountEmail: string,
   conn: SalesforceConnection,
 ): Promise<void> {
-  await kvSet(connKey(accountEmail), conn);
+  const persisted: PersistedConnection = {
+    ...conn,
+    refreshToken: seal(conn.refreshToken, scope(accountEmail)),
+  };
+  await kvSet(connKey(accountEmail), persisted);
+}
+
+/** Re-seal stored CRM secrets; the read/write round trip is the migration. */
+export async function resealSalesforce(accountEmail: string): Promise<{
+  app: boolean;
+  connection: boolean;
+}> {
+  const app = await loadApp(accountEmail);
+  const connection = await loadConnection(accountEmail);
+  if (app && app.source === "settings") {
+    await saveApp(accountEmail, {
+      clientId: app.clientId,
+      clientSecret: app.clientSecret,
+      loginUrl: app.loginUrl,
+    });
+  }
+  if (connection) await saveConnection(accountEmail, connection);
+  return { app: Boolean(app && app.source === "settings"), connection: Boolean(connection) };
 }
 
 export async function clearConnection(accountEmail: string): Promise<void> {
