@@ -29,7 +29,7 @@ Final implementation commit before this report: `90c2500`.
 ## Concerns and follow-up
 
 - The migration script was intentionally not executed against production because this task forbids live-data mutation. Task 9 must run it, verify token refresh for each provider, and then remove the fallback flag and legacy account paths.
-- The NextAuth server JWT still needs provider credentials internally for its refresh callback; browser session exposure is gated off after cutover.
+- The NextAuth server JWT retains only provider/expiry/account identity metadata after callback persistence; refresh reads encrypted relational credentials server-side and browser sessions expose none.
 - Microsoft grant revocation remains best-effort/unsupported by the existing provider integration; reconnect requests fresh consent.
 - The pre-existing non-V3 `/api/accounts` and legacy cron paths remain available only when their legacy account fallback is explicitly enabled. They should be retired with the fallback in Task 9.
 
@@ -45,3 +45,25 @@ The follow-up review findings are addressed:
 
 Security-remediation commit: `d469f5a`.
 Final verification commit before this report update: `77da6bf`.
+
+## Latest re-review remediation
+
+- Removal computes the effective active account from the valid cookie or the
+  session-email fallback, so removing the displayed fallback account also
+  returns `requiresSignOut: true`, clears the cookie, and triggers Settings
+  sign-out. A no-cookie regression test covers this path.
+- Add-account OAuth now uses server actions that persist a 10-minute,
+  HMAC-authenticated, httpOnly/SameSite owner-link state with a nonce and
+  one-time replay marker. The callback consumes and validates provider,
+  owner, expiry, and optional reconnect target before writing mailbox B under
+  owner A. The callback keeps owner A in the session identity and activates
+  the linked mailbox.
+- Tampered, expired, provider-mismatched, owner-mismatched, and replayed link
+  states fail closed. Direct authenticated provider sign-in without a link
+  state cannot silently create a second owner.
+- Initial OAuth credentials and refresh credentials are cleared from the JWT
+  after encrypted relational persistence. The callback refreshes from
+  `oauth_credentials` rather than JWT token fields.
+
+Latest implementation commit: `a5d3de0`; latest test-order correction:
+`0c595f8`.
