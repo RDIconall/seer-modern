@@ -142,6 +142,17 @@ export async function saveFolderCursor(
   );
 }
 
+export async function hasFolderSyncState(
+  accountId: AccountId,
+  folder: SyncFolder,
+): Promise<boolean> {
+  const r = await db().query(
+    "select 1 from seer.folder_sync_state where account_id = $1 and folder = $2",
+    [accountId, folder],
+  );
+  return (r.rowCount ?? 0) > 0;
+}
+
 export async function loadFolderCursor(
   accountId: AccountId,
   folder: SyncFolder,
@@ -150,7 +161,9 @@ export async function loadFolderCursor(
     "select cursor from seer.folder_sync_state where account_id = $1 and folder = $2",
     [accountId, folder],
   );
-  return r.rows[0]?.cursor ?? null;
+  if ((r.rowCount ?? 0) > 0) return r.rows[0].cursor ?? null;
+  if (folder === "inbox") return loadCursor(accountId);
+  return null;
 }
 
 /** Legacy inbox cursor table — retained until full cutover to folder_sync_state. */

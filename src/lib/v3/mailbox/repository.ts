@@ -1,6 +1,7 @@
 import { db } from "@/lib/v2/db/pool";
 import type { AccountId } from "@/lib/v2/db/types";
 import { personName } from "@/lib/v2/view/person-name";
+import { decodeMailboxCursor, encodeMailboxCursor } from "./cursor";
 import type { MailboxFolder, MailboxRow, MailboxView } from "./types";
 
 type MailboxRowDb = {
@@ -79,6 +80,7 @@ export async function getMailboxView(
   before?: string,
 ): Promise<MailboxView> {
   const bounded = Math.max(1, Math.min(200, limit));
+  const cursor = decodeMailboxCursor(before);
   const totalRow = await db().query<{ n: number }>(
     `select count(*)::int as n
        from seer.conversations c
@@ -129,10 +131,13 @@ export async function getMailboxView(
       where c.account_id = $1
         and c.is_deleted = false
         and c.folders @> array[$2]::text[]
-        and ($3::timestamptz is null or c.last_message_at < $3)
-      order by c.last_message_at desc nulls last
-      limit $4`,
-    [accountId, folder, before ?? null, bounded + 1],
+        and (
+          $3::timestamptz is null
+          or (c.last_message_at, c.id) < ($3::timestamptz, $4::uuid)
+        )
+      order by c.last_message_at desc nulls last, c.id desc
+      limit $5`,
+    [accountId, folder, cursor?.at ?? null, cursor?.id ?? null, bounded + 1],
   );
 
   const hasMore = rows.rows.length > bounded;
@@ -143,6 +148,12 @@ export async function getMailboxView(
     folder,
     rows: page.map(mapRow),
     total: totalRow.rows[0]?.n ?? 0,
-    nextCursor: hasMore && last?.last_message_at ? isoTimestamp(last.last_message_at) : null,
+    nextCursor:
+      hasMore && last?.last_message_at
+        ? encodeMailboxCursor({
+            at: isoTimestamp(last.last_message_at),
+            id: last.conversation_id,
+          })
+        : null,
   };
 }

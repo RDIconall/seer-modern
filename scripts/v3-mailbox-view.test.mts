@@ -8,6 +8,7 @@ import { upsertUser, upsertAccount } from "../src/lib/v2/db/accounts.ts";
 import { saveDecision } from "../src/lib/v2/intelligence/repository.ts";
 import { conversationsNeedingRead } from "../src/lib/v2/intelligence/queue.ts";
 import { getMailboxView } from "../src/lib/v3/mailbox/repository.ts";
+import { parseMailboxLimit } from "../src/lib/v3/mailbox/limit.ts";
 import { asConversationId, type AccountId } from "../src/lib/v2/db/types.ts";
 
 async function seedConversation(
@@ -166,6 +167,49 @@ try {
     !queue.includes(asConversationId(sentOnly.rows[0].id)),
     "sent-only conversations must not enter read queue",
   );
+
+  assert.equal(parseMailboxLimit(null), 50);
+  assert.equal(parseMailboxLimit(""), 50);
+  assert.equal(parseMailboxLimit("nope"), 50);
+  assert.equal(parseMailboxLimit("10"), 10);
+  assert.equal(parseMailboxLimit("999"), 200);
+  assert.equal(parseMailboxLimit("0"), 1);
+
+  const sharedAt = "2026-08-10T12:00:00Z";
+  const tieUserId = await upsertUser("tie@example.com");
+  const tieAccountId = await upsertAccount({
+    userId: tieUserId,
+    provider: "google",
+    email: "tie@example.com",
+  });
+  for (let i = 0; i < 4; i++) {
+    const row = await db.pool.query<{ id: string }>(
+      `insert into seer.conversations
+         (account_id, provider_conversation_id, subject, last_message_at, folders, is_unread)
+       values ($1, $2, $3, $4, array['inbox']::text[], false)
+       returning id`,
+      [tieAccountId, `p-tie-${i}`, `Tie ${i}`, sharedAt],
+    );
+    await db.pool.query(
+      `insert into seer.messages
+         (account_id, conversation_id, provider_message_id, from_email, sent_at, snippet, is_unread, is_outgoing)
+       values ($1, $2, $3, 'tie@example.com', $4, 'tie', false, false)`,
+      [tieAccountId, row.rows[0].id, `p-tie-${i}-m1`, sharedAt],
+    );
+  }
+
+  const seen = new Set<string>();
+  let cursor: string | undefined;
+  for (let pageNum = 0; pageNum < 10; pageNum++) {
+    const page = await getMailboxView(tieAccountId, "inbox", 1, cursor);
+    if (page.rows.length === 0) break;
+    const id = page.rows[0].conversationId;
+    assert.ok(!seen.has(id), `conversation ${id} must appear only once across pages`);
+    seen.add(id);
+    cursor = page.nextCursor ?? undefined;
+    if (!cursor) break;
+  }
+  assert.equal(seen.size, 4, "all tied-timestamp rows must paginate without skips");
 
   console.log("v3-mailbox-view: OK");
 } finally {

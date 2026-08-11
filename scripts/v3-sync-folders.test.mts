@@ -158,6 +158,33 @@ try {
   );
   assert.equal(after.rows[0].n, before.rows[0].n, "re-sync must dedupe by provider conversation id");
 
+  // Legacy inbox cursor fallback: first incremental run with no folder_sync_state row.
+  const userId2 = await upsertUser("legacy-cursor@example.com");
+  const accountId2 = await upsertAccount({
+    userId: userId2,
+    provider: "google",
+    email: "legacy-cursor@example.com",
+  });
+  await db.pool.query(
+    `insert into seer.sync_state (account_id, cursor, provider_total)
+     values ($1, '2', 5)`,
+    [accountId2],
+  );
+  const legacyProvider = new FakeProvider({
+    pageSize: 2,
+    conversations: Array.from({ length: 5 }, (_, i) => ({
+      providerConversationId: `legacy-${i}`,
+      subject: `Legacy ${i}`,
+      messages: [msg(`legacy-${i}-m1`, "inbox")],
+    })),
+  });
+  const legacyRun = await syncFolder(accountId2, legacyProvider, "inbox", "incremental");
+  assert.equal(
+    legacyRun.pages,
+    2,
+    "incremental inbox must resume from legacy sync_state cursor, not full drain",
+  );
+
   console.log("v3-sync-folders: OK");
 } finally {
   await db.stop();

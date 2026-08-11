@@ -1,7 +1,7 @@
 import { NextResponse } from "next/server";
 import { listAllAccounts } from "@/lib/v2/db/list-accounts";
 import { providerFor } from "@/lib/v2/providers/provider";
-import { syncFolder } from "@/lib/v2/sync/engine";
+import { syncAccountFolders } from "@/lib/v2/sync/report";
 import type { SyncFolder } from "@/lib/v2/providers/types";
 
 export const maxDuration = 300;
@@ -37,23 +37,17 @@ export async function GET(request: Request) {
   const accounts = await listAllAccounts();
   const report: Record<string, unknown>[] = [];
   for (const account of accounts) {
+    let provider;
     try {
-      const provider = await providerFor(account);
-      for (const folder of SYNC_FOLDERS) {
-        const run = await syncFolder(account.id, provider, folder, mode);
-        report.push({
-          email: account.email,
-          folder,
-          traceId: run.traceId,
-          ...run.coverage,
-        });
-      }
+      provider = await providerFor(account);
     } catch (e) {
       report.push({
         email: account.email,
         error: e instanceof Error ? e.message.slice(0, 160) : "sync failed",
       });
+      continue;
     }
+    report.push(...(await syncAccountFolders(account, provider, mode, SYNC_FOLDERS)));
   }
   return NextResponse.json({ ok: true, mode, report });
 }
