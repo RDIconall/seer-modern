@@ -10,6 +10,26 @@ export type ProviderKind = "google" | "microsoft";
 /** Folders the provider sync API exposes. Archive is corpus-only. */
 export type SyncFolder = "inbox" | "sent" | "trash";
 
+export type SyncContext = {
+  /** Absolute deadline shared by the whole bounded sync slice. */
+  deadlineMs?: number;
+  /** Optional caller cancellation signal. */
+  signal?: AbortSignal;
+};
+
+export class SyncDeadlineError extends Error {
+  constructor(message = "provider sync deadline exceeded") {
+    super(message);
+    this.name = "SyncDeadlineError";
+  }
+}
+
+export function assertSyncBudget(context?: SyncContext): void {
+  if (context?.signal?.aborted || (context?.deadlineMs !== undefined && Date.now() >= context.deadlineMs)) {
+    throw new SyncDeadlineError();
+  }
+}
+
 export type Address = { email: string; name?: string };
 
 export type Attachment = {
@@ -108,7 +128,11 @@ export type AttachmentContent = {
 export interface MailProvider {
   readonly kind: ProviderKind;
   sync(cursor?: string | null): Promise<SyncPage>;
-  syncFolder(folder: SyncFolder, cursor?: string | null): Promise<SyncPage>;
+  syncFolder(
+    folder: SyncFolder,
+    cursor?: string | null,
+    context?: SyncContext,
+  ): Promise<SyncPage>;
   getConversation(id: string): Promise<Conversation>;
   search(query: string, cursor?: string | null): Promise<SearchResult>;
   send(command: SendCommand, idempotencyKey: string): Promise<SendReceipt>;

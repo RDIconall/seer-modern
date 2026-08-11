@@ -9,6 +9,7 @@ import {
   SYNC_PAGE_SAFETY_HEADROOM_MS,
   syncFolder,
 } from "../src/lib/v2/sync/engine.ts";
+import { conversationsNeedingRead } from "../src/lib/v2/intelligence/queue.ts";
 import type { Message } from "../src/lib/v2/providers/types.ts";
 
 function msg(id: string, folder: "inbox" | "sent"): Message & { folder: typeof folder } {
@@ -172,6 +173,119 @@ try {
   );
   assert.equal(afterAbortIncremental.polledHead, true, "next incremental must head-poll, not restart backfill");
   assert.equal(afterAbortIncremental.backfillComplete, true);
+
+  // A bounded snapshot carries one generation across ticks. A head poll after
+  // an archive on the provider may add/update but must not remove membership.
+  const userId4 = await upsertUser("snapshot-reconcile@example.com");
+  const accountId4 = await upsertAccount({
+    userId: userId4,
+    provider: "google",
+    email: "snapshot-reconcile@example.com",
+  });
+  const snapshotConversations = Array.from({ length: 4 }, (_, i) => ({
+    providerConversationId: `snapshot-${i}`,
+    subject: `Snapshot ${i}`,
+    messages: [msg(`snapshot-${i}-m`, "inbox")],
+  }));
+  const snapshotProvider = new FakeProvider({
+    pageSize: 2,
+    conversations: snapshotConversations,
+  });
+  const snapshotFirst = await syncFolder(accountId4, snapshotProvider, "inbox", "full", {
+    maxPages: 1,
+  });
+  assert.equal(snapshotFirst.complete, false);
+  const scanStart = await db.pool.query<{
+    scan_generation: string;
+    scan_started_at: Date | null;
+  }>(
+    `select scan_generation, scan_started_at from seer.folder_sync_state
+      where account_id = $1 and folder = 'inbox'`,
+    [accountId4],
+  );
+  assert.ok(scanStart.rows[0].scan_started_at, "snapshot start must be durable");
+  const snapshotGeneration = scanStart.rows[0].scan_generation;
+
+  const snapshotSecond = await syncFolder(accountId4, snapshotProvider, "inbox", "full", {
+    maxPages: 1,
+  });
+  assert.equal(snapshotSecond.complete, true);
+  const scanSeen = await db.pool.query<{ n: number }>(
+    `select count(*)::int as n from seer.folder_sync_seen
+      where account_id = $1 and folder = 'inbox' and scan_generation = $2`,
+    [accountId4, snapshotGeneration],
+  );
+  assert.equal(scanSeen.rows[0].n, 4, "each bounded page must mark its provider rows seen");
+
+  (snapshotConversations[0].messages[0] as { folder: string }).folder = "archive";
+  const headAfterArchive = await syncFolder(
+    accountId4,
+    snapshotProvider,
+    "inbox",
+    "incremental",
+    { maxPages: 1 },
+  );
+  assert.equal(headAfterArchive.polledHead, true);
+  const retainedDuringHead = await db.pool.query<{ folders: string[] }>(
+    `select folders from seer.conversations
+      where account_id = $1 and provider_conversation_id = 'snapshot-0'`,
+    [accountId4],
+  );
+  assert.ok(retainedDuringHead.rows[0].folders.includes("inbox"), "head poll must never remove");
+
+  const rescanFirst = await syncFolder(accountId4, snapshotProvider, "inbox", "full", {
+    maxPages: 1,
+  });
+  assert.equal(rescanFirst.complete, false, "rescan must remain bounded");
+  const staleBeforeComplete = await db.pool.query<{ folders: string[] }>(
+    `select folders from seer.conversations
+      where account_id = $1 and provider_conversation_id = 'snapshot-0'`,
+    [accountId4],
+  );
+  assert.ok(staleBeforeComplete.rows[0].folders.includes("inbox"));
+  const rescanSecond = await syncFolder(accountId4, snapshotProvider, "inbox", "full", {
+    maxPages: 1,
+  });
+  assert.equal(rescanSecond.complete, true);
+  const staleAfterComplete = await db.pool.query<{ folders: string[] }>(
+    `select folders from seer.conversations
+      where account_id = $1 and provider_conversation_id = 'snapshot-0'`,
+    [accountId4],
+  );
+  assert.ok(!staleAfterComplete.rows[0].folders.includes("inbox"));
+
+  // A provider-side trash/restore converges both folder memberships, and the
+  // removed inbox row cannot remain in the paid read queue.
+  (snapshotConversations[1].messages[0] as { folder: string }).folder = "trash";
+  await syncFolder(accountId4, snapshotProvider, "trash", "full");
+  await syncFolder(accountId4, snapshotProvider, "inbox", "full");
+  const trashed = await db.pool.query<{ folders: string[] }>(
+    `select folders from seer.conversations
+      where account_id = $1 and provider_conversation_id = 'snapshot-1'`,
+    [accountId4],
+  );
+  assert.ok(trashed.rows[0].folders.includes("trash"));
+  assert.ok(!trashed.rows[0].folders.includes("inbox"));
+  const staleRead = await conversationsNeedingRead(accountId4);
+  const trashedId = await db.pool.query<{ id: string }>(
+    `select id from seer.conversations
+      where account_id = $1 and provider_conversation_id = 'snapshot-1'`,
+    [accountId4],
+  );
+  assert.ok(
+    !staleRead.some((id) => String(id) === trashedId.rows[0].id),
+    "trash must not enter read queue",
+  );
+  (snapshotConversations[1].messages[0] as { folder: string }).folder = "inbox";
+  await syncFolder(accountId4, snapshotProvider, "inbox", "full");
+  await syncFolder(accountId4, snapshotProvider, "trash", "full");
+  const restored = await db.pool.query<{ folders: string[] }>(
+    `select folders from seer.conversations
+      where account_id = $1 and provider_conversation_id = 'snapshot-1'`,
+    [accountId4],
+  );
+  assert.ok(restored.rows[0].folders.includes("inbox"));
+  assert.ok(!restored.rows[0].folders.includes("trash"));
 
   console.log("v3-sync-backfill: OK");
 } finally {

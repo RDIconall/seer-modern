@@ -7,6 +7,31 @@ import { startTestDb } from "./v2-testdb.mts";
 
 const SYNC_FOLDERS = ["inbox", "sent", "trash"] as const;
 const OUTBOX_STATUSES = ["pending", "inflight", "done", "failed", "cancelled"] as const;
+const CORE_TABLES = [
+  "users",
+  "mail_accounts",
+  "oauth_credentials",
+  "conversations",
+  "messages",
+  "people",
+  "relationship_evidence",
+  "matters",
+  "matter_codes",
+  "matter_conversations",
+  "conversation_decisions",
+  "decision_evidence",
+  "yields",
+  "interest_signals",
+  "events",
+  "command_receipts",
+  "sync_state",
+  "sync_runs",
+  "model_usage",
+  "functions",
+  "folder_sync_state",
+  "folder_sync_seen",
+  "outbox",
+] as const;
 
 async function indexDef(
   pool: Awaited<ReturnType<typeof startTestDb>>["pool"],
@@ -98,6 +123,9 @@ try {
       "provider_total",
       "updated_at",
       "backfill_complete",
+      "scan_generation",
+      "scan_started_at",
+      "last_reconciled_at",
     ],
     "folder_sync_state columns",
   );
@@ -123,6 +151,17 @@ try {
       return SYNC_FOLDERS.every((f) => def.includes(`'${f}'`));
     }),
     "folder_sync_state.folder must be inbox|sent|trash",
+  );
+
+  const seen = await db.pool.query<{ table_name: string }>(
+    `select table_name from information_schema.tables
+      where table_schema = 'seer' and table_name = 'folder_sync_seen'`,
+  );
+  assert.equal(seen.rowCount, 1, "seer.folder_sync_seen must exist");
+  assert.deepEqual(
+    await pkColumns(db.pool, "folder_sync_seen"),
+    ["account_id", "folder", "scan_generation", "provider_conversation_id"],
+    "folder_sync_seen PK must identify one provider conversation in one scan",
   );
 
   const user = await db.pool.query<{ id: string }>(
@@ -259,7 +298,7 @@ try {
   );
 
   // -------------------------------------------------------------------------
-  // RLS + seer_app grants on the new account-scoped tables
+  // RLS + seer_app grants/policies on every account-scoped table
   // -------------------------------------------------------------------------
   const rls = await db.pool.query<{ relname: string; relrowsecurity: boolean }>(
     `select c.relname, c.relrowsecurity
@@ -267,18 +306,33 @@ try {
        join pg_namespace n on n.oid = c.relnamespace
       where n.nspname = 'seer'
         and c.relkind = 'r'
-        and c.relname in ('folder_sync_state', 'outbox')`,
+        and c.relname = any($1::text[])`,
+    [CORE_TABLES],
   );
-  for (const t of ["folder_sync_state", "outbox"]) {
+  assert.equal(rls.rowCount, CORE_TABLES.length, "all core/V3 tables must be present");
+  for (const t of CORE_TABLES) {
     assert.equal(rls.rows.find((r) => r.relname === t)?.relrowsecurity, true, `RLS on seer.${t}`);
   }
+
+  const kv = await db.pool.query<{ table_name: string }>(
+    `select table_name from information_schema.tables
+      where table_schema = 'public' and table_name = 'seer_kv'`,
+  );
+  assert.equal(kv.rowCount, 1, "public.seer_kv must be migration-created");
+  const kvRls = await db.pool.query<{ relrowsecurity: boolean }>(
+    `select c.relrowsecurity
+       from pg_class c
+       join pg_namespace n on n.oid = c.relnamespace
+      where n.nspname = 'public' and c.relname = 'seer_kv'`,
+  );
+  assert.equal(kvRls.rows[0]?.relrowsecurity, true, "RLS on public.seer_kv");
 
   const role = await db.pool.query<{ exists: boolean }>(
     "select exists(select 1 from pg_roles where rolname = 'seer_app') as exists",
   );
   assert.equal(role.rows[0].exists, true, "seer_app role must exist for least-privilege grants");
 
-  for (const table of ["folder_sync_state", "outbox"]) {
+  for (const table of CORE_TABLES) {
     const grants = await db.pool.query<{ privilege_type: string }>(
       `select privilege_type
          from information_schema.role_table_grants
@@ -291,6 +345,19 @@ try {
     for (const need of ["SELECT", "INSERT", "UPDATE", "DELETE"]) {
       assert.ok(privs.has(need), `seer_app must have ${need} on seer.${table}`);
     }
+  }
+  const kvGrants = await db.pool.query<{ privilege_type: string }>(
+    `select privilege_type
+       from information_schema.role_table_grants
+      where grantee = 'seer_app'
+        and table_schema = 'public'
+        and table_name = 'seer_kv'`,
+  );
+  for (const need of ["SELECT", "INSERT", "UPDATE", "DELETE"]) {
+    assert.ok(
+      new Set(kvGrants.rows.map((r) => r.privilege_type)).has(need),
+      `seer_app must have ${need} on public.seer_kv`,
+    );
   }
 
   const seqGrants = await db.pool.query<{ object_name: string; privilege_type: string }>(
@@ -320,14 +387,36 @@ try {
     `select tablename, policyname, roles
        from pg_policies
       where schemaname = 'seer'
-        and tablename in ('folder_sync_state', 'outbox')
+        and tablename = any($1::text[])
         and 'seer_app' = any(roles)`,
+    [CORE_TABLES],
   );
   assert.equal(
     policies.rowCount,
-    2,
-    "each new table needs an explicit seer_app RLS policy",
+    CORE_TABLES.length,
+    "each core/V3 table needs an explicit seer_app RLS policy",
   );
+  const kvPolicy = await db.pool.query<{ policyname: string; roles: string[] }>(
+    `select policyname, roles
+       from pg_policies
+      where schemaname = 'public'
+        and tablename = 'seer_kv'
+        and 'seer_app' = any(roles)`,
+  );
+  assert.equal(kvPolicy.rowCount, 1, "public.seer_kv needs an explicit seer_app RLS policy");
+  for (const role of ["anon", "authenticated"]) {
+    const exists = await db.pool.query<{ exists: boolean }>(
+      "select exists(select 1 from pg_roles where rolname = $1) as exists",
+      [role],
+    );
+    if (exists.rows[0].exists) {
+      const denied = await db.pool.query<{ allowed: boolean }>(
+        "select has_table_privilege($1, 'public.seer_kv', 'select') as allowed",
+        [role],
+      );
+      assert.equal(denied.rows[0].allowed, false, `${role} must not read public.seer_kv`);
+    }
+  }
 
   console.log("v3-schema: OK");
 } finally {

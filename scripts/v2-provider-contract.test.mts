@@ -120,6 +120,40 @@ await runProviderContract(makeHarness);
   assert.equal(calls, 2, "must retry a 503 then succeed");
 }
 
+// State-setting POSTs are intentionally single-attempt: a timeout or 5xx is
+// ambiguous and must be resolved by the outbox/idempotency layer, never by
+// replaying the provider mutation inside the HTTP helper.
+{
+  let calls = 0;
+  const fetchImpl = (async () => {
+    calls++;
+    return new Response("provider failed", { status: 503 });
+  }) as unknown as typeof fetch;
+  await assert.rejects(() =>
+    providerFetch(
+      "https://example.com/send",
+      { method: "POST" },
+      { provider: "test", fetchImpl, sleep: async () => {} },
+    ),
+  );
+  assert.equal(calls, 1, "a POST 5xx must not be retried");
+}
+{
+  let calls = 0;
+  const fetchImpl = (async () => {
+    calls++;
+    throw new Error("socket closed after provider accepted the request");
+  }) as unknown as typeof fetch;
+  await assert.rejects(() =>
+    providerFetch(
+      "https://example.com/send",
+      { method: "POST" },
+      { provider: "test", fetchImpl, sleep: async () => {} },
+    ),
+  );
+  assert.equal(calls, 1, "a POST network error must not be retried");
+}
+
 // Empty 2xx body is success (Graph 202 on send).
 {
   const fetchImpl = (async () =>

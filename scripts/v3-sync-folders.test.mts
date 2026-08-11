@@ -7,6 +7,7 @@ import { startTestDb } from "./v2-testdb.mts";
 import { upsertUser, upsertAccount } from "../src/lib/v2/db/accounts.ts";
 import { FakeProvider } from "../src/lib/v2/providers/fake.ts";
 import { syncFolder } from "../src/lib/v2/sync/engine.ts";
+import { writeConversationPage } from "../src/lib/v2/sync/repository.ts";
 import type { Message } from "../src/lib/v2/providers/types.ts";
 
 function msg(
@@ -193,6 +194,41 @@ try {
     2,
     "incremental inbox must resume from legacy sync_state cursor, not full drain",
   );
+
+  // A Postgres error in one conversation rolls back only that savepoint; the
+  // valid row after it still commits in the page transaction.
+  const userId3 = await upsertUser("savepoint@example.com");
+  const accountId3 = await upsertAccount({
+    userId: userId3,
+    provider: "google",
+    email: "savepoint@example.com",
+  });
+  const malformed = {
+    providerConversationId: "malformed-middle",
+    subject: "Malformed",
+    messages: [{ ...msg("bad-message", "inbox"), providerMessageId: null as unknown as string }],
+    lastMessageAt: "2026-08-01T10:00:00Z",
+  };
+  const valid = {
+    providerConversationId: "valid-after-malformed",
+    subject: "Valid",
+    messages: [msg("valid-after-message", "inbox")],
+    lastMessageAt: "2026-08-01T10:01:00Z",
+  };
+  const pageResult = await writeConversationPage(
+    accountId3,
+    "inbox",
+    [malformed, valid],
+    [],
+  );
+  assert.equal(pageResult.failed, 1);
+  assert.equal(pageResult.stored, 1);
+  const afterMalformed = await db.pool.query<{ n: number }>(
+    `select count(*)::int as n from seer.conversations
+      where account_id = $1 and provider_conversation_id = 'valid-after-malformed'`,
+    [accountId3],
+  );
+  assert.equal(afterMalformed.rows[0].n, 1, "later valid conversation must commit");
 
   console.log("v3-sync-folders: OK");
 } finally {

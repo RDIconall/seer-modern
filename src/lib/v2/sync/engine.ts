@@ -1,7 +1,14 @@
 import { randomUUID } from "node:crypto";
 import type { AccountId } from "../db/types";
-import type { MailProvider, SyncFolder } from "../providers/types";
 import {
+  SyncDeadlineError,
+  type MailProvider,
+  type SyncFolder,
+  type SyncPage,
+} from "../providers/types";
+import {
+  beginFolderSnapshot,
+  completeFolderSnapshot,
   folderCoverage,
   loadFolderSyncState,
   saveCursor,
@@ -25,10 +32,15 @@ export type SyncFolderOptions = {
   maxPages?: number;
   /** Absolute wall-clock deadline; stops before starting a page that would exceed it. */
   deadlineMs?: number;
+  signal?: AbortSignal;
 };
 
 /** Safety margin for provider latency and per-page persistence before deadline. */
 export const SYNC_PAGE_SAFETY_HEADROOM_MS = 15_000;
+/** Inbox phone actions converge without restarting the large historical scan. */
+export const INBOX_RECONCILIATION_INTERVAL_MS = 15 * 60 * 1000;
+/** Sent and Trash are browsable history; rescan them less often than Inbox. */
+export const HISTORY_RECONCILIATION_INTERVAL_MS = 6 * 60 * 60 * 1000;
 
 export type SyncRun = {
   traceId: string;
@@ -47,6 +59,18 @@ export type SyncRun = {
 export function isPastSyncDeadline(deadlineMs: number | undefined): boolean {
   if (deadlineMs === undefined) return false;
   return Date.now() + SYNC_PAGE_SAFETY_HEADROOM_MS >= deadlineMs;
+}
+
+function reconciliationInterval(folder: SyncFolder): number {
+  return folder === "inbox"
+    ? INBOX_RECONCILIATION_INTERVAL_MS
+    : HISTORY_RECONCILIATION_INTERVAL_MS;
+}
+
+function snapshotDue(folder: SyncFolder, state: FolderSyncState): boolean {
+  if (!state.backfillComplete) return state.scanGeneration === 0;
+  if (!state.lastReconciledAt) return true;
+  return Date.now() - state.lastReconciledAt.getTime() >= reconciliationInterval(folder);
 }
 
 async function persistFolderState(
@@ -78,12 +102,20 @@ export async function syncFolder(
 
   const durableState = await loadFolderSyncState(accountId, folder);
   let workingState = durableState;
-
-  if (mode === "full" && durableState.backfillComplete) {
-    workingState = { ...durableState, backfillComplete: false, cursor: null };
+  const canStartSnapshot = !isPastSyncDeadline(deadlineMs);
+  const startSnapshot =
+    canStartSnapshot &&
+    ((mode === "full" && durableState.backfillComplete) ||
+      (mode === "incremental" && snapshotDue(folder, durableState)) ||
+      (!durableState.backfillComplete && durableState.scanGeneration === 0));
+  if (startSnapshot) {
+    workingState = await beginFolderSnapshot(accountId, folder);
   }
 
-  const headPoll = mode === "incremental" && durableState.backfillComplete;
+  const headPoll =
+    mode === "incremental" &&
+    durableState.backfillComplete &&
+    !startSnapshot;
   const effectiveMaxPages = headPoll ? 1 : maxPages;
 
   let failed = 0;
@@ -98,13 +130,29 @@ export async function syncFolder(
     if (effectiveMaxPages !== undefined && pages >= effectiveMaxPages) break;
     if (isPastSyncDeadline(deadlineMs)) break;
 
-    const page = await provider.syncFolder(folder, providerCursor);
+    let page: SyncPage;
+    try {
+      page = await provider.syncFolder(folder, providerCursor, {
+        deadlineMs,
+        signal: options.signal,
+      });
+    } catch (error) {
+      if (
+        error instanceof SyncDeadlineError ||
+        options.signal?.aborted ||
+        (error instanceof Error && /deadline|budget|aborted/i.test(error.message))
+      ) {
+        break;
+      }
+      throw error;
+    }
     providerTotal = page.providerTotal;
     const result = await writeConversationPage(
       accountId,
       folder,
       page.conversations,
       page.deletedConversationIds,
+      headPoll ? undefined : workingState.scanGeneration,
     );
     failed += result.failed;
     pages++;
@@ -125,26 +173,43 @@ export async function syncFolder(
       backfillFinishedThisRun = true;
       backfillComplete = true;
       providerCursor = null;
-      await persistFolderState(accountId, folder, {
+      const completedState: FolderSyncState = {
         cursor: null,
         backfillComplete: true,
         providerTotal,
-      });
+        scanGeneration: workingState.scanGeneration,
+        scanStartedAt: workingState.scanStartedAt,
+        lastReconciledAt: new Date(),
+      };
+      if (!headPoll) {
+        await completeFolderSnapshot(
+          accountId,
+          folder,
+          workingState.scanGeneration,
+          providerTotal,
+        );
+      }
+      await persistFolderState(accountId, folder, completedState);
+      workingState = completedState;
       break;
     }
 
     providerCursor = page.nextCursor;
     backfillComplete = false;
-    await persistFolderState(accountId, folder, {
+    workingState = {
       cursor: page.nextCursor,
       backfillComplete: false,
       providerTotal,
-    });
+      scanGeneration: workingState.scanGeneration,
+      scanStartedAt: workingState.scanStartedAt,
+      lastReconciledAt: workingState.lastReconciledAt,
+    };
+    await persistFolderState(accountId, folder, workingState);
   }
 
   if (pages === 0) {
-    backfillComplete = durableState.backfillComplete;
-    providerCursor = durableState.backfillComplete ? null : durableState.cursor;
+    backfillComplete = workingState.backfillComplete;
+    providerCursor = workingState.backfillComplete ? null : workingState.cursor;
   }
 
   const complete =

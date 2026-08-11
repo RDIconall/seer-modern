@@ -20,8 +20,10 @@ import type {
   SearchResult,
   SendCommand,
   SendReceipt,
+  SyncContext,
   SyncFolder,
   SyncPage,
+  assertSyncBudget,
 } from "./types";
 
 /**
@@ -104,8 +106,13 @@ export class OutlookProvider implements MailProvider {
     return { authorization: `Bearer ${this.deps.accessToken}` };
   }
 
-  private async get<T>(url: string): Promise<T> {
-    return (await providerFetch(url, { headers: this.auth() }, this.http)) as T;
+  private async get<T>(url: string, context?: SyncContext): Promise<T> {
+    assertSyncBudget(context);
+    return (await providerFetch(
+      url,
+      { headers: this.auth() },
+      { ...this.http, deadlineMs: context?.deadlineMs, signal: context?.signal },
+    )) as T;
   }
 
   private async post<T>(path: string, body: unknown): Promise<T> {
@@ -133,7 +140,10 @@ export class OutlookProvider implements MailProvider {
   }
 
   /** Every message in a conversation, across all folders, paginated. */
-  private async conversationMessages(conversationId: string): Promise<GraphMessage[]> {
+  private async conversationMessages(
+    conversationId: string,
+    context?: SyncContext,
+  ): Promise<GraphMessage[]> {
     const messages: GraphMessage[] = [];
     let url: string | null =
       `${API}/messages?$filter=${encodeURIComponent(
@@ -142,8 +152,9 @@ export class OutlookProvider implements MailProvider {
       // Metadata only — never the file bytes.
       `&$expand=attachments($select=id,name,contentType,size)`;
     while (url) {
+      assertSyncBudget(context);
       const page: { value?: GraphMessage[]; "@odata.nextLink"?: string } =
-        await this.get(url);
+        await this.get(url, context);
       messages.push(...(page.value ?? []));
       url = page["@odata.nextLink"] ?? null;
     }
@@ -174,10 +185,11 @@ export class OutlookProvider implements MailProvider {
   }
 
   /** Graph folder message-item estimate — not an exact conversation count. */
-  private async folderTotal(folder: SyncFolder): Promise<number> {
+  private async folderTotal(folder: SyncFolder, context?: SyncContext): Promise<number> {
     try {
       const r: { totalItemCount?: number } = await this.get(
         `${API}/mailFolders/${this.folderPath(folder)}?$select=totalItemCount`,
+        context,
       );
       return r.totalItemCount ?? 0;
     } catch {
@@ -189,7 +201,12 @@ export class OutlookProvider implements MailProvider {
     return this.syncFolder("inbox", cursor);
   }
 
-  async syncFolder(folder: SyncFolder, cursor?: string | null): Promise<SyncPage> {
+  async syncFolder(
+    folder: SyncFolder,
+    cursor?: string | null,
+    context?: SyncContext,
+  ): Promise<SyncPage> {
+    assertSyncBudget(context);
     const url =
       cursor ??
       `${API}/mailFolders/${this.folderPath(folder)}/messages?$top=${this.pageSize}&$select=id,conversationId,subject,from,toRecipients,ccRecipients,receivedDateTime,bodyPreview,body,isRead,hasAttachments&$expand=attachments($select=id,name,contentType,size)&$orderby=receivedDateTime desc`;
@@ -197,22 +214,25 @@ export class OutlookProvider implements MailProvider {
       value?: GraphMessage[];
       "@odata.nextLink"?: string;
       "@odata.count"?: number;
-    } = await this.get(url);
+    } = await this.get(url, context);
     // Deduplicate conversation ids while preserving first-seen order on this page.
     const conversationIds = [
       ...new Set((page.value ?? []).map((m) => m.conversationId)),
     ];
-    const conversations = await Promise.all(
-      conversationIds.map(async (id) =>
-        this.toConversation(id, await this.conversationMessages(id)),
-      ),
-    );
+    const conversations: Conversation[] = [];
+    for (const id of conversationIds) {
+      assertSyncBudget(context);
+      conversations.push(
+        this.toConversation(id, await this.conversationMessages(id, context)),
+      );
+    }
     return {
       conversations,
       deletedConversationIds: [],
       nextCursor: page["@odata.nextLink"] ?? null,
       // Graph counts folder messages, not conversations — an item estimate only.
-      providerTotal: page["@odata.count"] ?? (await this.folderTotal(folder)),
+      providerTotal:
+        page["@odata.count"] ?? (await this.folderTotal(folder, context)),
     };
   }
 

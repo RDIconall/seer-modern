@@ -20,8 +20,10 @@ import type {
   SearchResult,
   SendCommand,
   SendReceipt,
+  SyncContext,
   SyncFolder,
   SyncPage,
+  assertSyncBudget,
 } from "./types";
 
 /**
@@ -137,8 +139,13 @@ export class GmailProvider implements MailProvider {
     return { authorization: `Bearer ${this.deps.accessToken}` };
   }
 
-  private async get<T>(path: string): Promise<T> {
-    return (await providerFetch(`${API}${path}`, { headers: this.auth() }, this.http)) as T;
+  private async get<T>(path: string, context?: SyncContext): Promise<T> {
+    assertSyncBudget(context);
+    return (await providerFetch(
+      `${API}${path}`,
+      { headers: this.auth() },
+      { ...this.http, deadlineMs: context?.deadlineMs, signal: context?.signal },
+    )) as T;
   }
 
   private async post<T>(path: string, body: unknown): Promise<T> {
@@ -153,8 +160,9 @@ export class GmailProvider implements MailProvider {
     )) as T;
   }
 
-  private async thread(id: string): Promise<Conversation> {
-    const t = await this.get<GmailThread>(`/threads/${id}?format=full`);
+  private async thread(id: string, context?: SyncContext): Promise<Conversation> {
+    assertSyncBudget(context);
+    const t = await this.get<GmailThread>(`/threads/${id}?format=full`, context);
     const messages = (t.messages ?? [])
       .map((m) => toMessage(m, this.deps.accountEmail))
       .sort((a, b) => a.sentAt.localeCompare(b.sentAt));
@@ -181,7 +189,12 @@ export class GmailProvider implements MailProvider {
     return this.syncFolder("inbox", cursor);
   }
 
-  async syncFolder(folder: SyncFolder, cursor?: string | null): Promise<SyncPage> {
+  async syncFolder(
+    folder: SyncFolder,
+    cursor?: string | null,
+    context?: SyncContext,
+  ): Promise<SyncPage> {
+    assertSyncBudget(context);
     const list = await this.get<{
       threads?: { id: string }[];
       nextPageToken?: string;
@@ -190,9 +203,11 @@ export class GmailProvider implements MailProvider {
       `/threads?q=${encodeURIComponent(this.folderQuery(folder))}&maxResults=${this.pageSize}` +
         (cursor ? `&pageToken=${encodeURIComponent(cursor)}` : ""),
     );
-    const conversations = await Promise.all(
-      (list.threads ?? []).map((t) => this.thread(t.id)),
-    );
+    const conversations: Conversation[] = [];
+    for (const t of list.threads ?? []) {
+      assertSyncBudget(context);
+      conversations.push(await this.thread(t.id, context));
+    }
     return {
       conversations,
       deletedConversationIds: [],

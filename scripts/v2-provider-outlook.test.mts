@@ -214,4 +214,51 @@ await assert.rejects(
   isProviderReconcileError,
 );
 
+// A large conversation hydration must stop before requesting another Graph
+// page when the sync slice deadline expires.
+{
+  let hydrationPages = 0;
+  const hugeThreadFetch = (async (url: string) => {
+    const u = String(url);
+    await new Promise((resolve) => setTimeout(resolve, 2));
+    if (u.includes("/mailFolders/inbox/messages")) {
+      return json({
+        value: [graphMsg("huge-m1", "huge", "2026-08-01T10:00:00Z", "sender@example.com", "Huge")],
+      });
+    }
+    if (u.includes("$filter")) {
+      hydrationPages++;
+      return json({
+        value: [
+          graphMsg(
+            `huge-page-${hydrationPages}`,
+            "huge",
+            "2026-08-01T10:00:00Z",
+            "sender@example.com",
+            "Huge",
+          ),
+        ],
+        "@odata.nextLink": `${u}&page=${hydrationPages + 1}`,
+      });
+    }
+    throw new Error(`unexpected huge-thread request: ${u}`);
+  }) as unknown as typeof fetch;
+  const hugeProvider = new OutlookProvider({
+    accessToken: "test-token",
+    accountEmail: "me@example.com",
+    fetchImpl: hugeThreadFetch,
+    pageSize: 1,
+  });
+  const started = Date.now();
+  await assert.rejects(
+    () =>
+      hugeProvider.syncFolder("inbox", null, {
+        deadlineMs: started + 20,
+      }),
+    /deadline|budget|aborted/i,
+  );
+  assert.ok(hydrationPages < 10, "deadline must stop before unbounded thread hydration");
+  assert.ok(Date.now() - started < 500, "a huge thread must not starve later sync slices");
+}
+
 console.log("v2-provider-outlook: OK");
