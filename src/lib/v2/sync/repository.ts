@@ -2,7 +2,7 @@ import type { PoolClient } from "pg";
 import { db } from "../db/pool";
 import { inTransaction } from "../db/transaction";
 import type { AccountId } from "../db/types";
-import { blockedSyncFolders } from "../../v3/outbox/sync-mask";
+import { getSyncMask } from "../../v3/outbox/sync-mask";
 import type { Conversation, SyncFolder } from "../providers/types";
 
 /**
@@ -74,8 +74,13 @@ async function writeConversation(
     ],
   );
   const conversationId = conv.rows[0].id;
-  const blocked = await blockedSyncFolders(client, accountId, conversationId);
-  if (!blocked.has(folder)) {
+  const mask = await getSyncMask(
+    client,
+    accountId,
+    conversationId,
+    convo.lastMessageAt || null,
+  );
+  if (!mask.blockedFolders.has(folder)) {
     await client.query(
       `update seer.conversations
           set folders = (
@@ -118,16 +123,18 @@ async function writeConversation(
     );
   }
 
-  await client.query(
-    `update seer.conversations c
-        set is_unread = (
-          select coalesce(bool_or(m.is_unread), false)
-            from seer.messages m
-           where m.conversation_id = c.id
-        )
-      where c.id = $1`,
-    [conversationId],
-  );
+  if (!mask.protectUnread) {
+    await client.query(
+      `update seer.conversations c
+          set is_unread = (
+            select coalesce(bool_or(m.is_unread), false)
+              from seer.messages m
+             where m.conversation_id = c.id
+          )
+        where c.id = $1`,
+      [conversationId],
+    );
+  }
 }
 
 export async function saveFolderCursor(

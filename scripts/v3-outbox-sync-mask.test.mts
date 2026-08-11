@@ -1,30 +1,38 @@
 /**
- * Outbox sync mask gate: pending archive must block stale inbox sync re-adding inbox.
+ * Outbox sync mask gate: folder/unread protection across pending, failed
+ * reconcile, done convergence window, and newer provider activity.
  */
 import assert from "node:assert/strict";
 import { startTestDb } from "./v2-testdb.mts";
 import { upsertUser, upsertAccount } from "../src/lib/v2/db/accounts.ts";
 import { enqueueOptimistic } from "../src/lib/v3/outbox/repository.ts";
+import { drainOutbox } from "../src/lib/v3/outbox/drain.ts";
 import { writeConversationPage } from "../src/lib/v2/sync/repository.ts";
+import { DONE_CONVERGENCE_MS } from "../src/lib/v3/outbox/types.ts";
+import { FakeProvider } from "../src/lib/v2/providers/fake.ts";
 import { asAccountId, type AccountId } from "../src/lib/v2/db/types.ts";
 import type { Conversation } from "../src/lib/v2/providers/types.ts";
 
-function convo(providerId: string): Conversation {
+function convo(
+  providerId: string,
+  lastMessageAt: string,
+  unread: boolean,
+): Conversation {
   return {
     providerConversationId: providerId,
-    subject: "Stale inbox",
-    lastMessageAt: "2026-08-01T10:00:00Z",
+    subject: "Sync",
+    lastMessageAt,
     messages: [
       {
         providerMessageId: `${providerId}-m1`,
         from: { email: "sender@example.com" },
         to: [{ email: "me@example.com" }],
         cc: [],
-        sentAt: "2026-08-01T10:00:00Z",
+        sentAt: lastMessageAt,
         snippet: "s",
         bodyHtml: null,
         bodyText: "t",
-        isUnread: true,
+        isUnread: unread,
         isOutgoing: false,
         attachments: [],
       },
@@ -32,49 +40,274 @@ function convo(providerId: string): Conversation {
   };
 }
 
+const STALE_AT = "2026-08-01T10:00:00Z";
+
+async function account(email: string): Promise<AccountId> {
+  const userId = await upsertUser(email);
+  return asAccountId(await upsertAccount({ userId, provider: "google", email }));
+}
+
 const db = await startTestDb();
 try {
-  const userId = await upsertUser("outbox-sync@example.com");
-  const accountId = asAccountId(
-    await upsertAccount({
-      userId,
-      provider: "google",
-      email: "outbox-sync@example.com",
-    }),
-  );
-
-  const inserted = await db.pool.query<{ id: string }>(
+  // -------------------------------------------------------------------------
+  // Partial drain failure: failed+reconcile_needed blocks immediate stale sync
+  // -------------------------------------------------------------------------
+  const partialAccount = await account("partial-sync@example.com");
+  const partialProvider = new FakeProvider({
+    conversations: [
+      {
+        providerConversationId: "partial-sync",
+        subject: "Partial",
+        messages: [
+          {
+            providerMessageId: "m-ok",
+            from: { email: "a@example.com" },
+            to: [{ email: "me@example.com" }],
+            cc: [],
+            sentAt: STALE_AT,
+            snippet: "s",
+            bodyHtml: null,
+            bodyText: "t",
+            isUnread: false,
+            isOutgoing: false,
+            attachments: [],
+            folder: "inbox",
+          },
+          {
+            providerMessageId: "m-bad",
+            from: { email: "a@example.com" },
+            to: [{ email: "me@example.com" }],
+            cc: [],
+            sentAt: STALE_AT,
+            snippet: "s",
+            bodyHtml: null,
+            bodyText: "t",
+            isUnread: false,
+            isOutgoing: false,
+            attachments: [],
+            folder: "inbox",
+            failMutation: true,
+          },
+        ],
+      },
+    ],
+  });
+  const partial = await db.pool.query<{ id: string }>(
     `insert into seer.conversations
-       (account_id, provider_conversation_id, subject, folders, is_unread)
-     values ($1, 'mask-1', 'Mask', array['inbox']::text[], true)
+       (account_id, provider_conversation_id, subject, folders, is_unread, last_message_at)
+     values ($1, 'partial-sync', 'Partial', array['inbox']::text[], false, $2)
      returning id`,
-    [accountId],
+    [partialAccount, STALE_AT],
   );
-  const conversationId = inserted.rows[0].id;
-
   await enqueueOptimistic(
-    accountId,
-    { type: "archive", conversationId },
-    "mask-archive",
+    partialAccount,
+    { type: "trash", conversationId: partial.rows[0].id },
+    "partial-sync-key",
   );
-
-  const before = await db.pool.query<{ folders: string[] }>(
+  await drainOutbox(partialAccount, partialProvider, { limit: 1 });
+  const partialOutbox = await db.pool.query<{
+    reconcile_needed: boolean;
+    status: string;
+  }>(
+    "select reconcile_needed, status from seer.outbox where idempotency_key = $1",
+    ["partial-sync-key"],
+  );
+  assert.equal(partialOutbox.rows[0].status, "failed");
+  assert.equal(partialOutbox.rows[0].reconcile_needed, true);
+  await writeConversationPage(
+    partialAccount,
+    "inbox",
+    [convo("partial-sync", STALE_AT, true)],
+    [],
+  );
+  const partialAfter = await db.pool.query<{ folders: string[] }>(
     "select folders from seer.conversations where id = $1",
-    [conversationId],
+    [partial.rows[0].id],
   );
-  assert.deepEqual(before.rows[0].folders.sort(), ["archive"]);
+  assert.deepEqual(partialAfter.rows[0].folders.sort(), ["trash"]);
 
-  await writeConversationPage(accountId, "inbox", [convo("mask-1")], []);
-
-  const after = await db.pool.query<{ folders: string[] }>(
+  // -------------------------------------------------------------------------
+  // Pending archive blocks stale inbox folder merge
+  // -------------------------------------------------------------------------
+  const pendingAccount = await account("pending-mask@example.com");
+  const pending = await db.pool.query<{ id: string }>(
+    `insert into seer.conversations
+       (account_id, provider_conversation_id, subject, folders, is_unread, last_message_at)
+     values ($1, 'mask-pending', 'Mask', array['inbox']::text[], false, $2)
+     returning id`,
+    [pendingAccount, STALE_AT],
+  );
+  await enqueueOptimistic(
+    pendingAccount,
+    { type: "archive", conversationId: pending.rows[0].id },
+    "mask-pending",
+  );
+  await writeConversationPage(
+    pendingAccount,
+    "inbox",
+    [convo("mask-pending", STALE_AT, true)],
+    [],
+  );
+  const pendingAfter = await db.pool.query<{ folders: string[] }>(
     "select folders from seer.conversations where id = $1",
-    [conversationId],
+    [pending.rows[0].id],
   );
-  assert.deepEqual(
-    after.rows[0].folders.sort(),
-    ["archive"],
-    "stale inbox sync must not re-add inbox while archive outbox is active",
+  assert.deepEqual(pendingAfter.rows[0].folders.sort(), ["archive"]);
+
+  // -------------------------------------------------------------------------
+  // markUnread pending protects is_unread from stale provider read state
+  // -------------------------------------------------------------------------
+  const unreadAccount = await account("unread-mask@example.com");
+  const unread = await db.pool.query<{ id: string }>(
+    `insert into seer.conversations
+       (account_id, provider_conversation_id, subject, folders, is_unread, last_message_at)
+     values ($1, 'mask-unread', 'Unread', array['inbox']::text[], false, $2)
+     returning id`,
+    [unreadAccount, STALE_AT],
   );
+  await enqueueOptimistic(
+    unreadAccount,
+    { type: "markUnread", conversationId: unread.rows[0].id },
+    "mask-unread",
+  );
+  await writeConversationPage(
+    unreadAccount,
+    "inbox",
+    [convo("mask-unread", STALE_AT, false)],
+    [],
+  );
+  const unreadAfter = await db.pool.query<{ is_unread: boolean }>(
+    "select is_unread from seer.conversations where id = $1",
+    [unread.rows[0].id],
+  );
+  assert.equal(unreadAfter.rows[0].is_unread, true);
+
+  // -------------------------------------------------------------------------
+  // Done within convergence window: stale provider activity still masked
+  // -------------------------------------------------------------------------
+  const doneAccount = await account("done-mask@example.com");
+  const doneProvider = new FakeProvider({
+    conversations: [
+      {
+        providerConversationId: "done-mask",
+        subject: "Done",
+        messages: [
+          {
+            providerMessageId: "m-done",
+            from: { email: "a@example.com" },
+            to: [{ email: "me@example.com" }],
+            cc: [],
+            sentAt: STALE_AT,
+            snippet: "s",
+            bodyHtml: null,
+            bodyText: "t",
+            isUnread: false,
+            isOutgoing: false,
+            attachments: [],
+            folder: "inbox",
+          },
+        ],
+      },
+      {
+        providerConversationId: "expired-mask",
+        subject: "Expired",
+        messages: [
+          {
+            providerMessageId: "m-expired",
+            from: { email: "a@example.com" },
+            to: [{ email: "me@example.com" }],
+            cc: [],
+            sentAt: STALE_AT,
+            snippet: "s",
+            bodyHtml: null,
+            bodyText: "t",
+            isUnread: false,
+            isOutgoing: false,
+            attachments: [],
+            folder: "inbox",
+          },
+        ],
+      },
+    ],
+  });
+  const done = await db.pool.query<{ id: string }>(
+    `insert into seer.conversations
+       (account_id, provider_conversation_id, subject, folders, is_unread, last_message_at)
+     values ($1, 'done-mask', 'Done', array['inbox']::text[], false, $2)
+     returning id`,
+    [doneAccount, STALE_AT],
+  );
+  await enqueueOptimistic(
+    doneAccount,
+    { type: "archive", conversationId: done.rows[0].id },
+    "done-mask-key",
+  );
+  await drainOutbox(doneAccount, doneProvider, { limit: 1 });
+
+  const recentDone = new Date(Date.now() - 60_000).toISOString();
+  await db.pool.query(
+    "update seer.outbox set updated_at = $2 where idempotency_key = $1",
+    ["done-mask-key", recentDone],
+  );
+  const staleIncoming = new Date(Date.parse(recentDone) - 60_000).toISOString();
+  await writeConversationPage(
+    doneAccount,
+    "inbox",
+    [convo("done-mask", staleIncoming, true)],
+    [],
+  );
+  const doneStale = await db.pool.query<{ folders: string[] }>(
+    "select folders from seer.conversations where id = $1",
+    [done.rows[0].id],
+  );
+  assert.deepEqual(doneStale.rows[0].folders.sort(), ["archive"]);
+
+  // Done + newer provider reply: inbox must be re-added
+  const newerIncoming = new Date(Date.parse(recentDone) + 60_000).toISOString();
+  await writeConversationPage(
+    doneAccount,
+    "inbox",
+    [convo("done-mask", newerIncoming, true)],
+    [],
+  );
+  const doneNewer = await db.pool.query<{ folders: string[]; is_unread: boolean }>(
+    "select folders, is_unread from seer.conversations where id = $1",
+    [done.rows[0].id],
+  );
+  assert.ok(doneNewer.rows[0].folders.includes("inbox"));
+  assert.equal(doneNewer.rows[0].is_unread, true);
+
+  // Done outside convergence window: mask expires
+  const expired = await db.pool.query<{ id: string }>(
+    `insert into seer.conversations
+       (account_id, provider_conversation_id, subject, folders, is_unread, last_message_at)
+     values ($1, 'expired-mask', 'Expired', array['inbox']::text[], false, $2)
+     returning id`,
+    [doneAccount, STALE_AT],
+  );
+  await enqueueOptimistic(
+    doneAccount,
+    { type: "archive", conversationId: expired.rows[0].id },
+    "expired-mask-key",
+  );
+  await drainOutbox(doneAccount, doneProvider, { limit: 1 });
+  await db.pool.query(
+    `update seer.outbox
+        set updated_at = now() - ($2::int * interval '1 millisecond')
+      where idempotency_key = $1`,
+    ["expired-mask-key", DONE_CONVERGENCE_MS + 60_000],
+  );
+  await writeConversationPage(
+    doneAccount,
+    "inbox",
+    [convo("expired-mask", STALE_AT, true)],
+    [],
+  );
+  const expiredAfter = await db.pool.query<{ folders: string[] }>(
+    "select folders from seer.conversations where id = $1",
+    [expired.rows[0].id],
+  );
+  assert.ok(expiredAfter.rows[0].folders.includes("inbox"));
 
   console.log("v3-outbox-sync-mask: OK");
 } finally {

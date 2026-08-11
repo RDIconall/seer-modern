@@ -245,6 +245,67 @@ try {
     "partial failure must queue reconciliation",
   );
 
+  const partialReconcile = await db.pool.query<{ reconcile_needed: boolean }>(
+    "select reconcile_needed from seer.outbox where idempotency_key = $1",
+    ["partial-key"],
+  );
+  assert.equal(partialReconcile.rows[0].reconcile_needed, true);
+
+  // -------------------------------------------------------------------------
+  // Reconcile-classified 404 must emit outbox_reconcile_needed (never failed)
+  // -------------------------------------------------------------------------
+  const notFoundId = await seedConversation(db.pool, accountId, "p-404", ["inbox"], false);
+  await enqueueOptimistic(
+    accountId,
+    { type: "archive", conversationId: notFoundId },
+    "404-key",
+  );
+  const notFoundProvider = new ThrowingProvider(
+    new ProviderHttpError(404, "gmail", "not found"),
+    {
+      conversations: [
+        {
+          providerConversationId: "p-404",
+          subject: "404",
+          messages: [
+            {
+              providerMessageId: "m-404",
+              from: { email: "a@example.com" },
+              to: [{ email: "me@example.com" }],
+              cc: [],
+              sentAt: "2026-08-01T10:00:00Z",
+              snippet: "s",
+              bodyHtml: null,
+              bodyText: "t",
+              isUnread: false,
+              isOutgoing: false,
+              attachments: [],
+              folder: "inbox",
+            },
+          ],
+        },
+      ],
+    },
+  );
+  await drainOutbox(accountId, notFoundProvider, { limit: 1 });
+  const notFoundEvents = await db.pool.query<{ kind: string }>(
+    "select kind from seer.events where account_id = $1 and idempotency_key = $2",
+    [accountId, "404-key"],
+  );
+  assert.ok(
+    notFoundEvents.rows.some((e) => e.kind === "outbox_reconcile_needed"),
+    "404 reconcile disposition must emit outbox_reconcile_needed",
+  );
+  assert.ok(
+    !notFoundEvents.rows.some((e) => e.kind === "outbox_failed"),
+    "404 must never emit outbox_failed",
+  );
+  const notFoundRow = await db.pool.query<{ reconcile_needed: boolean }>(
+    "select reconcile_needed from seer.outbox where idempotency_key = $1",
+    ["404-key"],
+  );
+  assert.equal(notFoundRow.rows[0].reconcile_needed, true);
+
   // -------------------------------------------------------------------------
   // Permanent auth failure — no retry budget consumed
   // -------------------------------------------------------------------------

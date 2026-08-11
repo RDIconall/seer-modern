@@ -1,10 +1,15 @@
 import type { PoolClient } from "pg";
 import type { AccountId } from "@/lib/v2/db/types";
-import type { OutboxCommand, OutboxMutationKind } from "./types";
+import { DONE_CONVERGENCE_MS, type OutboxCommand, type OutboxMutationKind, type SyncMask } from "./types";
 
-const MASK_STATUSES = ["pending", "inflight", "done"] as const;
+type MaskRow = {
+  command: OutboxCommand;
+  status: string;
+  reconcile_needed: boolean;
+  updated_at: Date;
+};
 
-/** Folders additive sync must not re-introduce while outbox commands are active. */
+/** Folders additive sync must not re-introduce while an outbox command masks. */
 function foldersBlockedByCommand(type: OutboxMutationKind): string[] {
   switch (type) {
     case "archive":
@@ -22,29 +27,61 @@ function foldersBlockedByCommand(type: OutboxMutationKind): string[] {
   }
 }
 
+function rowMaskActive(
+  row: MaskRow,
+  incomingLastMessageAt: string | null,
+  nowMs: number,
+): boolean {
+  if (row.status === "pending" || row.status === "inflight") return true;
+  if (row.status === "failed" && row.reconcile_needed) return true;
+  if (row.status === "done") {
+    const completedMs = row.updated_at.getTime();
+    if (nowMs - completedMs > DONE_CONVERGENCE_MS) return false;
+    if (!incomingLastMessageAt) return true;
+    const incomingMs = Date.parse(incomingLastMessageAt);
+    if (Number.isNaN(incomingMs)) return true;
+    return incomingMs <= completedMs;
+  }
+  return false;
+}
+
 /**
- * Folders that must not be merged back in by additive sync for a conversation
- * with active outbox commands (pending, inflight, or done awaiting provider
- * convergence).
+ * Compute the sync mask for one conversation. Pending/inflight and
+ * failed+reconcile_needed always mask. Done rows mask only during the bounded
+ * convergence window and while provider activity is not newer than completion.
  */
-export async function blockedSyncFolders(
+export async function getSyncMask(
   client: PoolClient,
   accountId: AccountId,
   conversationId: string,
-): Promise<Set<string>> {
-  const r = await client.query<{ command: OutboxCommand }>(
-    `select command
+  incomingLastMessageAt: string | null,
+  nowMs: number = Date.now(),
+): Promise<SyncMask> {
+  const r = await client.query<MaskRow>(
+    `select command, status, reconcile_needed, updated_at
        from seer.outbox
       where account_id = $1
-        and status = any($2::text[])
-        and command->>'conversationId' = $3`,
-    [accountId, MASK_STATUSES, conversationId],
+        and command->>'conversationId' = $2
+        and (
+          status in ('pending', 'inflight')
+          or (status = 'failed' and reconcile_needed = true)
+          or status = 'done'
+        )`,
+    [accountId, conversationId],
   );
-  const blocked = new Set<string>();
+
+  const blockedFolders = new Set<string>();
+  let protectUnread = false;
+
   for (const row of r.rows) {
+    if (!rowMaskActive(row, incomingLastMessageAt, nowMs)) continue;
     for (const folder of foldersBlockedByCommand(row.command.type)) {
-      blocked.add(folder);
+      blockedFolders.add(folder);
+    }
+    if (row.command.type === "markUnread") {
+      protectUnread = true;
     }
   }
-  return blocked;
+
+  return { blockedFolders, protectUnread };
 }

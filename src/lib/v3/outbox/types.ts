@@ -39,6 +39,7 @@ export type OutboxItem = {
   status: OutboxStatus;
   attempts: number;
   lastError: string | null;
+  reconcileNeeded: boolean;
   nextAttemptAt: string;
   createdAt: string;
   updatedAt: string;
@@ -50,4 +51,12 @@ export type DrainReport = {
   failed: number;
   retried: number;
   reclaimed: number;
+};
+
+/** Bounded window during which a `done` outbox row may still mask stale sync. */
+export const DONE_CONVERGENCE_MS = 10 * 60 * 1000;
+
+export type SyncMask = {
+  blockedFolders: Set<string>;
+  protectUnread: boolean;
 };

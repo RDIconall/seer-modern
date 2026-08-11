@@ -23,6 +23,7 @@ create table if not exists seer.outbox (
     check (status in ('pending', 'inflight', 'done', 'failed', 'cancelled')),
   attempts int not null default 0,
   last_error text,
+  reconcile_needed boolean not null default false,
   next_attempt_at timestamptz not null default now(),
   created_at timestamptz not null default now(),
   updated_at timestamptz not null default now(),

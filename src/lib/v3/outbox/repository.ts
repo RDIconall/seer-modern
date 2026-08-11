@@ -19,6 +19,7 @@ type OutboxRow = {
   status: OutboxItem["status"];
   attempts: number;
   last_error: string | null;
+  reconcile_needed: boolean;
   next_attempt_at: Date;
   created_at: Date;
   updated_at: Date;
@@ -33,6 +34,7 @@ function mapRow(row: OutboxRow): OutboxItem {
     status: row.status,
     attempts: row.attempts,
     lastError: row.last_error,
+    reconcileNeeded: row.reconcile_needed,
     nextAttemptAt: row.next_attempt_at.toISOString(),
     createdAt: row.created_at.toISOString(),
     updatedAt: row.updated_at.toISOString(),
@@ -47,7 +49,7 @@ export async function findByIdempotencyKey(
   const runner = client ?? db();
   const r = await runner.query<OutboxRow>(
     `select id, account_id, command, idempotency_key, status, attempts,
-            last_error, next_attempt_at, created_at, updated_at
+            last_error, reconcile_needed, next_attempt_at, created_at, updated_at
        from seer.outbox
       where account_id = $1 and idempotency_key = $2`,
     [accountId, idempotencyKey],
@@ -84,7 +86,7 @@ export async function enqueueOptimistic(
        values ($1, $2::jsonb, $3)
        on conflict (account_id, idempotency_key) do nothing
        returning id, account_id, command, idempotency_key, status, attempts,
-                 last_error, next_attempt_at, created_at, updated_at`,
+                 last_error, reconcile_needed, next_attempt_at, created_at, updated_at`,
       [accountId, JSON.stringify(command), idempotencyKey],
     );
 
@@ -115,7 +117,7 @@ export async function cancelPending(
           and account_id = $2
           and status = 'pending'
       returning id, account_id, command, idempotency_key, status, attempts,
-                last_error, next_attempt_at, created_at, updated_at`,
+                last_error, reconcile_needed, next_attempt_at, created_at, updated_at`,
       [outboxId, accountId],
     );
     const row = r.rows[0];

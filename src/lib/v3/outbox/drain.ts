@@ -19,6 +19,7 @@ type OutboxRow = {
   status: OutboxItem["status"];
   attempts: number;
   last_error: string | null;
+  reconcile_needed: boolean;
   next_attempt_at: Date;
   created_at: Date;
   updated_at: Date;
@@ -39,6 +40,7 @@ function mapRow(row: OutboxRow): OutboxItem {
     status: row.status,
     attempts: row.attempts,
     lastError: row.last_error,
+    reconcileNeeded: row.reconcile_needed,
     nextAttemptAt: row.next_attempt_at.toISOString(),
     createdAt: row.created_at.toISOString(),
     updatedAt: row.updated_at.toISOString(),
@@ -97,7 +99,8 @@ async function claimPending(
        from claimed c
       where o.id = c.id
       returning o.id, o.account_id, o.command, o.idempotency_key, o.status,
-                o.attempts, o.last_error, o.next_attempt_at, o.created_at, o.updated_at`,
+                o.attempts, o.last_error, o.reconcile_needed, o.next_attempt_at,
+                o.created_at, o.updated_at`,
     [accountId, limit],
   );
   return r.rows.map(mapRow);
@@ -106,7 +109,7 @@ async function claimPending(
 async function markDone(client: PoolClient, outboxId: string): Promise<void> {
   await client.query(
     `update seer.outbox
-        set status = 'done', last_error = null, updated_at = now()
+        set status = 'done', last_error = null, reconcile_needed = false, updated_at = now()
       where id = $1`,
     [outboxId],
   );
@@ -131,35 +134,40 @@ async function scheduleRetry(
   );
 }
 
+type PermanentFailOpts = {
+  receipt?: MutationReceipt;
+  revert?: boolean;
+  needsReconcile: boolean;
+};
+
 async function markPermanentFailed(
   client: PoolClient,
   accountId: AccountId,
   item: OutboxItem,
   error: string,
-  receipt?: MutationReceipt,
-  revert: boolean = true,
+  opts: PermanentFailOpts,
 ): Promise<void> {
+  const revert = opts.revert ?? true;
   await client.query(
     `update seer.outbox
         set status = 'failed',
             attempts = attempts + 1,
             last_error = $2,
+            reconcile_needed = $3,
             updated_at = now()
       where id = $1`,
-    [item.id, error.slice(0, 500)],
+    [item.id, error.slice(0, 500), opts.needsReconcile],
   );
 
   let revertOutcome: "reverted" | "conflict" | "skipped" = "skipped";
-  if (revert && (!receipt || receipt.processed.length === 0)) {
+  if (revert && (!opts.receipt || opts.receipt.processed.length === 0)) {
     revertOutcome = await revertIfOwned(client, accountId, item.command);
   }
 
   const kind =
-    receipt && receipt.processed.length > 0
+    opts.needsReconcile || revertOutcome === "conflict"
       ? "outbox_reconcile_needed"
-      : revertOutcome === "conflict"
-        ? "outbox_reconcile_needed"
-        : "outbox_failed";
+      : "outbox_failed";
 
   await recordEvent(
     accountId,
@@ -168,10 +176,11 @@ async function markPermanentFailed(
       outboxId: item.id,
       command: item.command,
       error: error.slice(0, 500),
-      receipt: receipt
-        ? { processed: receipt.processed, failed: receipt.failed }
+      receipt: opts.receipt
+        ? { processed: opts.receipt.processed, failed: opts.receipt.failed }
         : undefined,
       revertOutcome,
+      needsReconcile: opts.needsReconcile,
     },
     item.idempotencyKey,
     client,
@@ -188,9 +197,11 @@ async function processOne(
     item.command.conversationId,
   );
   if (!providerId) {
-    const error = "conversation not found";
     await inTransaction(async (client) => {
-      await markPermanentFailed(client, accountId, item, error, undefined, true);
+      await markPermanentFailed(client, accountId, item, "conversation not found", {
+        needsReconcile: false,
+        revert: true,
+      });
     });
     return "failed";
   }
@@ -206,14 +217,22 @@ async function processOne(
       const error = `provider partial failure: ${receipt.processed.length} processed, ${receipt.failed.length} failed`;
       if (receipt.processed.length > 0) {
         await inTransaction(async (client) => {
-          await markPermanentFailed(client, accountId, item, error, receipt, false);
+          await markPermanentFailed(client, accountId, item, error, {
+            receipt,
+            revert: false,
+            needsReconcile: true,
+          });
         });
         return "failed";
       }
       const attempts = item.attempts + 1;
       if (attempts >= MAX_OUTBOX_ATTEMPTS) {
         await inTransaction(async (client) => {
-          await markPermanentFailed(client, accountId, item, error, receipt, true);
+          await markPermanentFailed(client, accountId, item, error, {
+            receipt,
+            revert: true,
+            needsReconcile: false,
+          });
         });
         return "failed";
       }
@@ -233,14 +252,20 @@ async function processOne(
 
     if (disposition === "permanent") {
       await inTransaction(async (client) => {
-        await markPermanentFailed(client, accountId, item, error, undefined, true);
+        await markPermanentFailed(client, accountId, item, error, {
+          needsReconcile: false,
+          revert: true,
+        });
       });
       return "failed";
     }
 
     if (disposition === "reconcile") {
       await inTransaction(async (client) => {
-        await markPermanentFailed(client, accountId, item, error, undefined, false);
+        await markPermanentFailed(client, accountId, item, error, {
+          needsReconcile: true,
+          revert: false,
+        });
       });
       return "failed";
     }
@@ -248,7 +273,10 @@ async function processOne(
     const attempts = item.attempts + 1;
     if (attempts >= MAX_OUTBOX_ATTEMPTS) {
       await inTransaction(async (client) => {
-        await markPermanentFailed(client, accountId, item, error, undefined, true);
+        await markPermanentFailed(client, accountId, item, error, {
+          needsReconcile: false,
+          revert: true,
+        });
       });
       return "failed";
     }

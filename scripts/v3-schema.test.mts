@@ -163,12 +163,30 @@ try {
       "status",
       "attempts",
       "last_error",
+      "reconcile_needed",
       "next_attempt_at",
       "created_at",
       "updated_at",
     ],
     "outbox columns",
   );
+
+  const reconcileCol = await db.pool.query<{
+    column_name: string;
+    data_type: string;
+    is_nullable: string;
+    column_default: string | null;
+  }>(
+    `select column_name, data_type, is_nullable, column_default
+       from information_schema.columns
+      where table_schema = 'seer'
+        and table_name = 'outbox'
+        and column_name = 'reconcile_needed'`,
+  );
+  assert.equal(reconcileCol.rowCount, 1, "outbox must have reconcile_needed");
+  assert.equal(reconcileCol.rows[0].data_type, "boolean");
+  assert.equal(reconcileCol.rows[0].is_nullable, "NO");
+  assert.match(reconcileCol.rows[0].column_default ?? "", /false/i);
 
   const outboxUnique = await indexDef(db.pool, "outbox_account_id_idempotency_key_key");
   assert.match(
