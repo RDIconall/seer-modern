@@ -4,6 +4,8 @@ import { open, seal, type StoredSecret } from "@/lib/store/secret-at-rest";
 
 const ACCOUNTS_KEY = "accounts";
 export const ACTIVE_ACCOUNT_COOKIE = "seer_active_account";
+export const LEGACY_ACCOUNT_FALLBACK_ENV =
+  "SEER_V3_LEGACY_ACCOUNT_FALLBACK";
 
 export type MailProvider = "google" | "microsoft-entra-id";
 
@@ -34,6 +36,17 @@ type PersistedAccount = Omit<StoredAccount, "accessToken" | "refreshToken"> & {
 
 type PersistedShape = { accounts: PersistedAccount[] };
 
+/** Temporary migration escape hatch. It is deliberately disabled by default. */
+export function legacyAccountFallbackEnabled(): boolean {
+  return process.env[LEGACY_ACCOUNT_FALLBACK_ENV] === "1";
+}
+
+function requireLegacyAccountStore(): void {
+  if (!legacyAccountFallbackEnabled()) {
+    throw new Error("legacy account store is disabled after v3 cutover");
+  }
+}
+
 function accountId(provider: MailProvider, email: string) {
   return `${provider}:${email.toLowerCase()}`;
 }
@@ -62,6 +75,7 @@ async function writeStore(store: StoreShape) {
  * writing seals it, so the round trip is the migration.
  */
 export async function resealAccounts(): Promise<number> {
+  requireLegacyAccountStore();
   const store = await readStore();
   await writeStore(store);
   return store.accounts.length;
@@ -70,6 +84,7 @@ export async function resealAccounts(): Promise<number> {
 export async function listAccounts(): Promise<
   Omit<StoredAccount, "accessToken" | "refreshToken">[]
 > {
+  requireLegacyAccountStore();
   const store = await readStore();
   return store.accounts.map((account) => ({
     id: account.id,
@@ -84,12 +99,14 @@ export async function listAccounts(): Promise<
 export async function getAccount(
   id: string,
 ): Promise<StoredAccount | undefined> {
+  requireLegacyAccountStore();
   const store = await readStore();
   return store.accounts.find((a) => a.id === id);
 }
 
 /** Full accounts WITH tokens — background services only (cron sync). */
 export async function listAccountsWithTokens(): Promise<StoredAccount[]> {
+  requireLegacyAccountStore();
   const store = await readStore();
   return store.accounts;
 }
@@ -102,6 +119,7 @@ export async function upsertAccount(input: {
   refreshToken?: string;
   expiresAt?: number;
 }): Promise<StoredAccount> {
+  requireLegacyAccountStore();
   const email = input.email.toLowerCase();
   const id = accountId(input.provider, email);
   const store = await readStore();
@@ -126,6 +144,7 @@ export async function upsertAccount(input: {
 
 /** Drop dead tokens (after revocation) while keeping the account entry. */
 export async function clearAccountTokens(id: string) {
+  requireLegacyAccountStore();
   const store = await readStore();
   const account = store.accounts.find((a) => a.id === id);
   if (!account) return;
@@ -137,6 +156,7 @@ export async function clearAccountTokens(id: string) {
 }
 
 export async function removeAccount(id: string) {
+  requireLegacyAccountStore();
   const store = await readStore();
   store.accounts = store.accounts.filter((a) => a.id !== id);
   await writeStore(store);
@@ -175,6 +195,7 @@ export async function resolveActiveAccount(
     name?: string | null;
   },
 ): Promise<StoredAccount | null> {
+  if (!legacyAccountFallbackEnabled()) return null;
   const activeId = await getActiveAccountId();
   if (activeId) {
     const fromStore = await getAccount(activeId);

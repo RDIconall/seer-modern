@@ -1,9 +1,18 @@
 import { auth } from "@/auth";
 import { refreshAccessToken } from "@/lib/mail/refresh-token";
 import {
+  getCredentials,
+  getOwnedAccount,
+  getOwnedAccountByEmail,
+  saveCredentials,
+  upsertUser,
+  type MailProviderKind,
+} from "@/lib/v2/db/accounts";
+import { asAccountId } from "@/lib/v2/db/types";
+import {
+  getActiveAccountId,
+  legacyAccountFallbackEnabled,
   resolveActiveAccount,
-  upsertAccount,
-  type MailProvider,
 } from "@/lib/store/accounts";
 
 export async function requireMailSession() {
@@ -12,71 +21,112 @@ export async function requireMailSession() {
     return null;
   }
 
-  if (session.error && !session.accessToken) {
-    throw new Error("Session expired — open Settings and reconnect");
-  }
-
   const allowed = process.env.ALLOWED_EMAIL?.trim().toLowerCase();
   const sessionEmail = session.user.email?.toLowerCase();
 
-  let account = await resolveActiveAccount({
+  if (!sessionEmail) return null;
+
+  const userId = await upsertUser(sessionEmail);
+  const provider = toV2Provider(session.provider);
+  const activeId = await getActiveAccountId();
+  let account = activeId
+    ? await getOwnedAccount(userId, asAccountId(activeId))
+    : null;
+  if (!account && provider) {
+    account = await getOwnedAccountByEmail(userId, sessionEmail, provider);
+  }
+
+  if (account) {
+    const credentials = await getCredentials(account.id);
+    if (!credentials) {
+      throw new Error("No mail credentials — open Settings and reconnect");
+    }
+
+    let accessToken = credentials.accessToken;
+    const expiresAtSeconds = credentials.expiresAt
+      ? Math.floor(credentials.expiresAt / 1000)
+      : undefined;
+    if (
+      credentials.refreshToken &&
+      (!accessToken ||
+        (credentials.expiresAt !== undefined &&
+          Date.now() >= credentials.expiresAt - 60_000))
+    ) {
+      const refreshed = await refreshAccessToken({
+        accessToken,
+        refreshToken: credentials.refreshToken,
+        expiresAt: expiresAtSeconds,
+        provider: account.provider === "google" ? "google" : "microsoft-entra-id",
+      });
+      if (!refreshed.accessToken || refreshed.error) {
+        throw new Error("Session expired — open Settings and reconnect");
+      }
+      accessToken = refreshed.accessToken;
+      await saveCredentials(account.id, account.provider, {
+        accessToken: refreshed.accessToken,
+        refreshToken: refreshed.refreshToken,
+        expiresAt: refreshed.expiresAt,
+      });
+    }
+
+    if (!accessToken) {
+      throw new Error("No mail token — open Settings and connect an account");
+    }
+
+    const email = account.email.toLowerCase();
+    if (allowed && email && email !== allowed) {
+      throw new Error(`This app is limited to ${allowed}`);
+    }
+    return {
+      accessToken,
+      provider: account.provider === "google" ? "google" : "microsoft-entra-id",
+      email: account.email,
+      name: account.displayName ?? account.email,
+      accountId: account.id,
+    };
+  }
+
+  // During migration only, old sessions and the sealed KV store remain a
+  // read-only compatibility path. The canonical path never dual-writes.
+  if (!legacyAccountFallbackEnabled()) return null;
+  const legacy = await resolveActiveAccount({
     provider: session.provider,
     email: session.user.email,
     name: session.user.name,
     accessToken: session.accessToken,
   });
+  if (!legacy?.accessToken) return null;
 
-  if (!account?.accessToken) {
-    if (!session.accessToken || !session.provider) return null;
-    account = {
-      id: `${session.provider}:${sessionEmail}`,
-      provider: session.provider as MailProvider,
-      email: sessionEmail ?? "",
-      name: session.user.name ?? sessionEmail ?? "",
-      accessToken: session.accessToken,
-      updatedAt: new Date().toISOString(),
-    };
-  }
-
-  const email = account.email.toLowerCase();
+  const email = legacy.email.toLowerCase();
   if (allowed && email && email !== allowed) {
     throw new Error(`This app is limited to ${allowed}`);
   }
 
   if (
-    account.refreshToken &&
-    account.expiresAt &&
-    Date.now() >= account.expiresAt * 1000 - 60_000
+    legacy.refreshToken &&
+    legacy.expiresAt &&
+    Date.now() >= legacy.expiresAt * 1000 - 60_000
   ) {
-    const refreshed = await refreshAccessToken({
-      accessToken: account.accessToken,
-      refreshToken: account.refreshToken,
-      expiresAt: account.expiresAt,
-      provider: account.provider,
-    });
-    if (refreshed.accessToken && !refreshed.error) {
-      account = await upsertAccount({
-        provider: account.provider,
-        email: account.email,
-        name: account.name,
-        accessToken: refreshed.accessToken,
-        refreshToken: refreshed.refreshToken,
-        expiresAt: refreshed.expiresAt,
-      });
-    } else if (refreshed.error) {
+    const refreshed = await refreshAccessToken(legacy);
+    if (!refreshed.accessToken || refreshed.error) {
       throw new Error("Session expired — open Settings and reconnect");
     }
-  }
-
-  if (!account.accessToken) {
-    throw new Error("No mail token — open Settings and connect an account");
+    legacy.accessToken = refreshed.accessToken;
   }
 
   return {
-    accessToken: account.accessToken,
-    provider: account.provider,
-    email: account.email,
-    name: account.name,
-    accountId: account.id,
+    accessToken: legacy.accessToken,
+    provider: legacy.provider,
+    email: legacy.email,
+    name: legacy.name,
+    accountId: legacy.id,
   };
+}
+
+function toV2Provider(provider: string | undefined): MailProviderKind | undefined {
+  if (provider === "google") return "google";
+  if (provider === "microsoft-entra-id" || provider === "microsoft") {
+    return "microsoft";
+  }
+  return undefined;
 }

@@ -6,7 +6,13 @@ import {
   accessTokenNeedsRefresh,
   refreshAccessToken,
 } from "@/lib/mail/refresh-token";
-import { setActiveAccountId, upsertAccount } from "@/lib/store/accounts";
+import {
+  upsertAccountWithCredentials,
+  upsertUser,
+  saveCredentials,
+} from "@/lib/v2/db/accounts";
+import { asAccountId } from "@/lib/v2/db/types";
+import { setActiveAccountId } from "@/lib/store/accounts";
 
 const googleConfigured =
   Boolean(process.env.AUTH_GOOGLE_ID) &&
@@ -83,12 +89,15 @@ export const { handlers, auth, signIn, signOut } = NextAuth({
         const email =
           (profile as { email?: string } | undefined)?.email ??
           (token.email as string | undefined);
-        if (email && account.provider) {
+        const provider = toV2Provider(account.provider);
+        if (email && provider) {
           token.email = email;
-          const saved = await upsertAccount({
-            provider: account.provider as "google" | "microsoft-entra-id",
+          const userId = await upsertUser(email);
+          const saved = await upsertAccountWithCredentials({
+            userId,
+            provider,
             email,
-            name:
+            displayName:
               (profile as { name?: string } | undefined)?.name ??
               email,
             accessToken: account.access_token,
@@ -111,15 +120,32 @@ export const { handlers, auth, signIn, signOut } = NextAuth({
           refreshed.accessToken &&
           !refreshed.error &&
           token.email &&
-          token.provider
+          token.provider &&
+          toV2Provider(token.provider)
         ) {
-          await upsertAccount({
-            provider: token.provider as "google" | "microsoft-entra-id",
-            email: token.email as string,
-            accessToken: refreshed.accessToken,
-            refreshToken: refreshed.refreshToken,
-            expiresAt: refreshed.expiresAt,
-          });
+          const provider = toV2Provider(token.provider);
+          if (!provider) return refreshed;
+          const userId = await upsertUser(token.email as string);
+          if (token.activeAccountId) {
+            await saveCredentials(
+              asAccountId(token.activeAccountId),
+              provider,
+              {
+                accessToken: refreshed.accessToken,
+                refreshToken: refreshed.refreshToken,
+                expiresAt: refreshed.expiresAt,
+              },
+            );
+          } else {
+            await upsertAccountWithCredentials({
+              userId,
+              provider,
+              email: token.email as string,
+              accessToken: refreshed.accessToken,
+              refreshToken: refreshed.refreshToken,
+              expiresAt: refreshed.expiresAt,
+            });
+          }
         }
         return refreshed;
       }
@@ -137,3 +163,13 @@ export const { handlers, auth, signIn, signOut } = NextAuth({
     },
   },
 });
+
+function toV2Provider(
+  provider: string | undefined,
+): "google" | "microsoft" | undefined {
+  if (provider === "google") return "google";
+  if (provider === "microsoft-entra-id" || provider === "microsoft") {
+    return "microsoft";
+  }
+  return undefined;
+}

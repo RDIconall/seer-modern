@@ -20,6 +20,7 @@ import { ComposePane } from "./ComposePane";
 import { FolderList } from "./FolderList";
 import { Navigation, type MailSection } from "./Navigation";
 import { ReaderPane } from "./ReaderPane";
+import { Settings } from "./Settings";
 import { fetchSearch, SearchBox, type SearchResult } from "./SearchBox";
 import type { ReaderComposeIntent } from "@/components/v2/Reader";
 import { useMailbox } from "./useMailbox";
@@ -400,11 +401,7 @@ export function MailClient({ preview }: { preview?: MailClientPreview } = {}) {
       <p className="mail-empty">{inbox.error ?? "Reading Triage…"}</p>
     )
   ) : (
-    <section className="mail-settings" aria-label="Settings">
-      <h1>Settings</h1>
-      <p>Account and provider connections will live here.</p>
-      <p className="mail-native-note">Provider-native settings remain available from the account menu.</p>
-    </section>
+    <Settings />
   );
 
   return (
