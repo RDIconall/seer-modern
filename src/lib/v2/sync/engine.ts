@@ -68,7 +68,7 @@ function reconciliationInterval(folder: SyncFolder): number {
 }
 
 function snapshotDue(folder: SyncFolder, state: FolderSyncState): boolean {
-  if (!state.backfillComplete) return state.scanGeneration === 0;
+  if (!state.backfillComplete) return state.snapshotGeneration === null;
   if (!state.lastReconciledAt) return true;
   return Date.now() - state.lastReconciledAt.getTime() >= reconciliationInterval(folder);
 }
@@ -107,7 +107,7 @@ export async function syncFolder(
     canStartSnapshot &&
     ((mode === "full" && durableState.backfillComplete) ||
       (mode === "incremental" && snapshotDue(folder, durableState)) ||
-      (!durableState.backfillComplete && durableState.scanGeneration === 0));
+      (!durableState.backfillComplete && durableState.snapshotGeneration === null));
   if (startSnapshot) {
     workingState = await beginFolderSnapshot(accountId, folder);
   }
@@ -152,7 +152,7 @@ export async function syncFolder(
       folder,
       page.conversations,
       headPoll ? [] : page.deletedConversationIds,
-      headPoll ? undefined : workingState.scanGeneration,
+      headPoll ? undefined : workingState.snapshotGeneration,
     );
     failed += result.failed;
     pages++;
@@ -165,7 +165,7 @@ export async function syncFolder(
         cursor: null,
         backfillComplete: true,
         providerTotal,
-        scanGeneration: workingState.scanGeneration,
+        snapshotGeneration: workingState.snapshotGeneration,
         scanStartedAt: workingState.scanStartedAt,
         lastReconciledAt: workingState.lastReconciledAt,
       });
@@ -180,20 +180,27 @@ export async function syncFolder(
         cursor: null,
         backfillComplete: true,
         providerTotal,
-        scanGeneration: workingState.scanGeneration,
+        snapshotGeneration: workingState.snapshotGeneration,
         scanStartedAt: workingState.scanStartedAt,
         lastReconciledAt: new Date(),
       };
       if (!headPoll) {
-        await completeFolderSnapshot(
+        const published = await completeFolderSnapshot(
           accountId,
           folder,
-          workingState.scanGeneration,
+          workingState.snapshotGeneration as string,
           providerTotal,
         );
+        if (published && folder === "inbox") {
+          await saveCursor(accountId, null, providerTotal, true);
+        }
+        workingState = published
+          ? completedState
+          : await loadFolderSyncState(accountId, folder);
+      } else {
+        await persistFolderState(accountId, folder, completedState);
+        workingState = completedState;
       }
-      await persistFolderState(accountId, folder, completedState);
-      workingState = completedState;
       break;
     }
 
@@ -203,7 +210,7 @@ export async function syncFolder(
       cursor: page.nextCursor,
       backfillComplete: false,
       providerTotal,
-      scanGeneration: workingState.scanGeneration,
+      snapshotGeneration: workingState.snapshotGeneration,
       scanStartedAt: workingState.scanStartedAt,
       lastReconciledAt: workingState.lastReconciledAt,
     };

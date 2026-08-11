@@ -26,6 +26,7 @@ type PublicAccount = {
   name: string;
   label: string;
   active: boolean;
+  status: "active" | "reconnect_required";
 };
 
 function providerLabel(provider: PublicAccount["provider"]): string {
@@ -43,6 +44,7 @@ function publicAccount(
     name: account.displayName ?? account.email,
     label: providerLabel(account.provider),
     active: account.id === activeId,
+    status: account.status,
   };
 }
 

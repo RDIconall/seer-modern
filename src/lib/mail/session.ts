@@ -4,6 +4,7 @@ import {
   getCredentials,
   getOwnedAccount,
   getOwnedAccountByEmail,
+  markCredentialsReconnectRequired,
   saveCredentials,
   upsertUser,
   type MailProviderKind,
@@ -59,6 +60,10 @@ export async function requireMailSession() {
         provider: account.provider === "google" ? "google" : "microsoft-entra-id",
       });
       if (!refreshed.accessToken || refreshed.error) {
+        await markCredentialsReconnectRequired(
+          account.id,
+          refreshed.error ?? "refresh access token missing",
+        );
         throw new Error("Session expired — open Settings and reconnect");
       }
       accessToken = refreshed.accessToken;

@@ -1,13 +1,13 @@
 import { Pool } from "pg";
-import { resolveSsl } from "@/lib/v2/db/pool";
+import { resolveDatabaseUrl, resolveSsl } from "@/lib/v2/db/pool";
 
 /**
  * POSTGRES (Supabase) — the durable, queryable home for Seer's memory.
  *
  * The whole app talks to storage through the kv facade; this module is the
- * Postgres backend behind it. It provisions its own schema at runtime
- * (the connection string is only available in the deployment, never on a
- * developer's machine), so there is no migration step to forget.
+ * Postgres backend behind it. Development/test instances may provision the
+ * compatibility table; production only probes the migration-owned table unless
+ * an operator explicitly enables the one-time setup escape hatch.
  *
  * Security (per Supabase's own guidance): every table lives in `public`,
  * which is reachable through the Data API, so RLS is ENABLED with NO
@@ -17,17 +17,7 @@ import { resolveSsl } from "@/lib/v2/db/pool";
  */
 
 function connectionString(): string | null {
-  return (
-    // Prefer the least-privilege application role: it can read and write the
-    // corpus but cannot run DDL, reach another schema, or escalate. The
-    // privileged URLs remain as a fallback so a missing variable degrades to
-    // working rather than to an outage.
-    process.env.SEER_V2_DATABASE_URL ||
-    process.env.POSTGRES_URL ||
-    process.env.POSTGRES_PRISMA_URL ||
-    process.env.DATABASE_URL ||
-    null
-  );
+  return resolveDatabaseUrl();
 }
 
 export function pgEnabled(): boolean {
@@ -67,6 +57,12 @@ function getPool(): Pool | null {
 let schemaReady: Promise<boolean> | null = null;
 let lastSchemaError: string | null = null;
 
+export function shouldProvisionKvSchema(
+  env: Pick<NodeJS.ProcessEnv, "NODE_ENV" | "SEER_KV_SETUP"> = process.env,
+): boolean {
+  return env.NODE_ENV !== "production" || env.SEER_KV_SETUP === "1";
+}
+
 /**
  * Storage must never hang a user request. A cold pool plus first-use DDL
  * once pushed a reply past the function limit, which returned an empty
@@ -103,7 +99,12 @@ function ensureSchema(): Promise<boolean> {
       lastSchemaError = null;
       return true;
     } catch {
-      // Fall through and try to provision it.
+      if (!shouldProvisionKvSchema()) {
+        lastSchemaError =
+          "public.seer_kv is missing or inaccessible; apply migrations before production startup";
+        return false;
+      }
+      // Fall through and provision only in development/test or explicit setup.
     }
 
     // Statements run one at a time: some poolers reject multi-statement

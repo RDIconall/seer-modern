@@ -7,7 +7,11 @@ import { startTestDb } from "./v2-testdb.mts";
 import { upsertUser, upsertAccount } from "../src/lib/v2/db/accounts.ts";
 import { enqueueOptimistic } from "../src/lib/v3/outbox/repository.ts";
 import { drainOutbox } from "../src/lib/v3/outbox/drain.ts";
-import { writeConversationPage } from "../src/lib/v2/sync/repository.ts";
+import {
+  beginFolderSnapshot,
+  completeFolderSnapshot,
+  writeConversationPage,
+} from "../src/lib/v2/sync/repository.ts";
 import { DONE_CONVERGENCE_MS } from "../src/lib/v3/outbox/types.ts";
 import { FakeProvider } from "../src/lib/v2/providers/fake.ts";
 import { asAccountId, type AccountId } from "../src/lib/v2/db/types.ts";
@@ -153,6 +157,59 @@ try {
     [pending.rows[0].id],
   );
   assert.deepEqual(pendingAfter.rows[0].folders.sort(), ["archive"]);
+
+  // Pending restore protects its optimistic inbox membership from an
+  // authoritative snapshot that has not caught up with the provider yet.
+  const restoreAccount = await account("restore-mask@example.com");
+  const restore = await db.pool.query<{ id: string }>(
+    `insert into seer.conversations
+       (account_id, provider_conversation_id, subject, folders, is_unread, last_message_at)
+     values ($1, 'mask-restore', 'Restore', array['trash']::text[], false, $2)
+     returning id`,
+    [restoreAccount, STALE_AT],
+  );
+  await enqueueOptimistic(
+    restoreAccount,
+    { type: "restore", conversationId: restore.rows[0].id },
+    "mask-restore",
+  );
+  const restoreSnapshot = await beginFolderSnapshot(restoreAccount, "inbox");
+  await completeFolderSnapshot(
+    restoreAccount,
+    "inbox",
+    restoreSnapshot.snapshotGeneration,
+    0,
+  );
+  const restoreMasked = await db.pool.query<{ folders: string[] }>(
+    "select folders from seer.conversations where id = $1",
+    [restore.rows[0].id],
+  );
+  assert.ok(
+    restoreMasked.rows[0].folders.includes("inbox"),
+    "pending restore must preserve optimistic inbox during stale cleanup",
+  );
+  await db.pool.query(
+    `update seer.outbox
+        set status = 'done',
+            updated_at = now() - ($2::int * interval '1 millisecond')
+      where idempotency_key = $1`,
+    ["mask-restore", DONE_CONVERGENCE_MS + 60_000],
+  );
+  const expiredRestoreSnapshot = await beginFolderSnapshot(restoreAccount, "inbox");
+  await completeFolderSnapshot(
+    restoreAccount,
+    "inbox",
+    expiredRestoreSnapshot.snapshotGeneration,
+    0,
+  );
+  const restoreExpired = await db.pool.query<{ folders: string[] }>(
+    "select folders from seer.conversations where id = $1",
+    [restore.rows[0].id],
+  );
+  assert.ok(
+    !restoreExpired.rows[0].folders.includes("inbox"),
+    "expired restore mask may reconcile stale inbox membership",
+  );
 
   // -------------------------------------------------------------------------
   // markUnread pending protects is_unread from stale provider read state

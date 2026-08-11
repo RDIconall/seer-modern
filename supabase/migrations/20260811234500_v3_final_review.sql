@@ -4,21 +4,22 @@
 --   * migration-owned legacy KV table (the app role may use it, Data API roles may not)
 
 alter table seer.folder_sync_state
-  add column if not exists scan_generation bigint not null default 0,
+  add column if not exists snapshot_generation uuid
+    default gen_random_uuid(),
   add column if not exists scan_started_at timestamptz,
   add column if not exists last_reconciled_at timestamptz;
 
 create table if not exists seer.folder_sync_seen (
   account_id uuid not null references seer.mail_accounts (id) on delete cascade,
   folder text not null check (folder in ('inbox', 'sent', 'trash')),
-  scan_generation bigint not null,
+  snapshot_generation uuid not null default gen_random_uuid(),
   provider_conversation_id text not null,
   seen_at timestamptz not null default now(),
-  primary key (account_id, folder, scan_generation, provider_conversation_id)
+  primary key (account_id, folder, snapshot_generation, provider_conversation_id)
 );
 
 create index if not exists folder_sync_seen_lookup_idx
-  on seer.folder_sync_seen (account_id, folder, scan_generation);
+  on seer.folder_sync_seen (account_id, folder, snapshot_generation);
 
 -- The legacy KV facade is still used for non-mail state during the cutover. It
 -- is migration-owned so a fresh database has the same least-privilege shape as
@@ -64,7 +65,9 @@ declare
   ];
 begin
   if not exists (select 1 from pg_roles where rolname = 'seer_app') then
-    create role seer_app nologin;
+    create role seer_app login noinherit;
+  else
+    alter role seer_app login noinherit;
   end if;
 
   grant usage on schema seer, public to seer_app;

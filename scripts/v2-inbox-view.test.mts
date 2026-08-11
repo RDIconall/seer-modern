@@ -19,8 +19,9 @@ async function addConversation(
   fromEmail: string,
 ) {
   const c = await pool.query<{ id: string }>(
-    `insert into seer.conversations (account_id, provider_conversation_id, subject, last_message_at)
-       values ($1, $2, $3, now()) returning id`,
+    `insert into seer.conversations
+       (account_id, provider_conversation_id, subject, last_message_at, folders)
+       values ($1, $2, $3, now(), array['inbox']::text[]) returning id`,
     [accountId, providerId, subject],
   );
   await pool.query(
@@ -146,6 +147,48 @@ try {
   assert.equal(view.coverage.stored, 4);
   assert.equal(view.coverage.read, 3);
   assert.equal(view.coverage.pending, 1);
+
+  // Atlas, Triage, and records are inbox-brain projections. Archive-only and
+  // trash-only conversations remain in the corpus but must not enter them.
+  const cArchived = await addConversation(
+    db.pool,
+    accountId,
+    "p-archived-only",
+    "Archived",
+    "archive@example.com",
+  );
+  const cTrashOnly = await addConversation(
+    db.pool,
+    accountId,
+    "p-trash-only",
+    "Trash",
+    "trash@example.com",
+  );
+  await db.pool.query(
+    "update seer.conversations set folders = array['archive']::text[] where id = $1",
+    [cArchived],
+  );
+  await db.pool.query(
+    "update seer.conversations set folders = array['trash']::text[] where id = $1",
+    [cTrashOnly],
+  );
+  await saveDecision({
+    accountId, conversationId: cArchived, home: "record", proposedHome: "record",
+    summary: "Archived", rationale: "stored", owner: "nobody", vetoReasons: [], yields: [], evidence: [],
+  });
+  await saveDecision({
+    accountId, conversationId: cTrashOnly, home: "matter", proposedHome: "matter",
+    summary: "Trash", rationale: "work", owner: "you", matterId, vetoReasons: [], yields: [], evidence: [],
+  });
+  const inboxOnlyView = await buildInboxView(accountId, "google");
+  const projectedIds = [
+    ...inboxOnlyView.records.map((row) => row.conversationId),
+    ...inboxOnlyView.safeToDelete.map((row) => row.conversationId),
+    ...inboxOnlyView.undecided.map((row) => row.conversationId),
+    ...inboxOnlyView.atlas.flatMap((card) => card.conversations.map((row) => row.conversationId)),
+  ];
+  assert.equal(projectedIds.includes(cArchived), false);
+  assert.equal(projectedIds.includes(cTrashOnly), false);
 
   console.log("v2-inbox-view: OK");
 } finally {

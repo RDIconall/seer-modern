@@ -15,7 +15,7 @@ create schema if not exists seer;
 do $$
 begin
   if not exists (select 1 from pg_roles where rolname = 'seer_app') then
-    create role seer_app nologin;
+    create role seer_app login noinherit;
   end if;
 end $$;
 

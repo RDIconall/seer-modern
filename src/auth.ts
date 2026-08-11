@@ -9,6 +9,7 @@ import {
 import {
   getCredentials,
   getOwnedAccount,
+  markCredentialsReconnectRequired,
   upsertAccountWithCredentials,
   upsertUser,
   saveCredentials,
@@ -175,6 +176,12 @@ export const { handlers, auth, signIn, signOut } = NextAuth({
           asAccountId(token.activeAccountId),
         );
         if (!credentials?.refreshToken) {
+          if (token.activeAccountId) {
+            await markCredentialsReconnectRequired(
+              asAccountId(token.activeAccountId),
+              "refresh token missing",
+            );
+          }
           return { ...token, error: "RefreshTokenMissing" };
         }
         const refreshed = await refreshAccessToken({
@@ -186,6 +193,10 @@ export const { handlers, auth, signIn, signOut } = NextAuth({
           provider: accountProvider(token.provider),
         });
         if (!refreshed.accessToken || refreshed.error) {
+          await markCredentialsReconnectRequired(
+            asAccountId(token.activeAccountId),
+            refreshed.error ?? "refresh access token missing",
+          );
           return {
             ...token,
             accessToken: undefined,

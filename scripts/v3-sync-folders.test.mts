@@ -7,7 +7,11 @@ import { startTestDb } from "./v2-testdb.mts";
 import { upsertUser, upsertAccount } from "../src/lib/v2/db/accounts.ts";
 import { FakeProvider } from "../src/lib/v2/providers/fake.ts";
 import { syncFolder } from "../src/lib/v2/sync/engine.ts";
-import { writeConversationPage } from "../src/lib/v2/sync/repository.ts";
+import {
+  beginFolderSnapshot,
+  completeFolderSnapshot,
+  writeConversationPage,
+} from "../src/lib/v2/sync/repository.ts";
 import type { Message } from "../src/lib/v2/providers/types.ts";
 
 function msg(
@@ -229,6 +233,45 @@ try {
     [accountId3],
   );
   assert.equal(afterMalformed.rows[0].n, 1, "later valid conversation must commit");
+
+  // Overlapping bounded snapshots must not let an older completion delete the
+  // newer generation's membership.
+  const userId4 = await upsertUser("overlap@example.com");
+  const accountId4 = await upsertAccount({
+    userId: userId4,
+    provider: "google",
+    email: "overlap@example.com",
+  });
+  const generationA = await beginFolderSnapshot(accountId4, "inbox");
+  await writeConversationPage(
+    accountId4,
+    "inbox",
+    [{ providerConversationId: "overlap-a", subject: "A", messages: [msg("overlap-a-m", "inbox")], lastMessageAt: "2026-08-01T10:00:00Z" }],
+    [],
+    generationA.snapshotGeneration,
+  );
+  const generationB = await beginFolderSnapshot(accountId4, "inbox");
+  await writeConversationPage(
+    accountId4,
+    "inbox",
+    [{ providerConversationId: "overlap-b", subject: "B", messages: [msg("overlap-b-m", "inbox")], lastMessageAt: "2026-08-01T10:01:00Z" }],
+    [],
+    generationB.snapshotGeneration,
+  );
+  await completeFolderSnapshot(accountId4, "inbox", generationB.snapshotGeneration, 1);
+  await completeFolderSnapshot(accountId4, "inbox", generationA.snapshotGeneration, 1);
+  const overlapRows = await db.pool.query<{ provider_conversation_id: string; folders: string[] }>(
+    `select provider_conversation_id, folders
+       from seer.conversations
+      where account_id = $1 and provider_conversation_id in ('overlap-a', 'overlap-b')
+      order by provider_conversation_id`,
+    [accountId4],
+  );
+  assert.deepEqual(
+    overlapRows.rows.find((row) => row.provider_conversation_id === "overlap-b")?.folders,
+    ["inbox"],
+    "an older completion must not delete newer snapshot membership",
+  );
 
   console.log("v3-sync-folders: OK");
 } finally {

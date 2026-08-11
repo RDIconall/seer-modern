@@ -5,7 +5,7 @@
 import { runProviderContract, type ContractHarness } from "../src/lib/v2/providers/contract.ts";
 import { FakeProvider } from "../src/lib/v2/providers/fake.ts";
 import { providerFetch, ProviderHttpError } from "../src/lib/v2/providers/http.ts";
-import type { Message } from "../src/lib/v2/providers/types.ts";
+import { SyncDeadlineError, type Message } from "../src/lib/v2/providers/types.ts";
 import assert from "node:assert/strict";
 
 function msg(
@@ -183,6 +183,116 @@ await runProviderContract(makeHarness);
     (e) => e instanceof ProviderHttpError && e.status === 400,
   );
   assert.equal(calls, 1, "4xx must not be retried");
+}
+
+// The deadline covers response-body consumption, not only receipt of headers.
+{
+  const fetchImpl = (async () => ({
+    status: 200,
+    ok: true,
+    headers: new Headers(),
+    text: () => new Promise<string>(() => {}),
+  })) as unknown as typeof fetch;
+  const started = Date.now();
+  await assert.rejects(
+    Promise.race([
+      providerFetch(
+        "https://example.com/slow-body",
+        { method: "GET" },
+        {
+          provider: "test",
+          fetchImpl,
+          timeoutMs: 1_000,
+          deadlineMs: started + 25,
+        },
+      ),
+      new Promise((_, reject) =>
+        setTimeout(() => reject(new Error("body deadline was not enforced")), 200),
+      ),
+    ]),
+    (error) => error instanceof SyncDeadlineError,
+  );
+}
+
+// Caller cancellation also aborts body consumption.
+{
+  const controller = new AbortController();
+  const fetchImpl = (async () => ({
+    status: 200,
+    ok: true,
+    headers: new Headers(),
+    text: () => new Promise<string>(() => {}),
+  })) as unknown as typeof fetch;
+  setTimeout(() => controller.abort(), 10);
+  await assert.rejects(
+    Promise.race([
+      providerFetch(
+        "https://example.com/aborted-body",
+        { method: "GET", signal: controller.signal },
+        { provider: "test", fetchImpl, timeoutMs: 1_000 },
+      ),
+      new Promise((_, reject) =>
+        setTimeout(() => reject(new Error("body abort was not enforced")), 200),
+      ),
+    ]),
+    (error) => error instanceof SyncDeadlineError,
+  );
+}
+
+// Retry-After cannot make the helper sleep beyond the shared deadline.
+{
+  let calls = 0;
+  const sleeps: number[] = [];
+  const fetchImpl = (async () => {
+    calls++;
+    return calls === 1
+      ? new Response("", { status: 503, headers: { "retry-after": "3600" } })
+      : new Response(JSON.stringify({ ok: true }), { status: 200 });
+  }) as unknown as typeof fetch;
+  const deadlineMs = Date.now() + 500;
+  const body = await providerFetch(
+    "https://example.com/huge-retry-after",
+    { method: "GET" },
+    {
+      provider: "test",
+      fetchImpl,
+      deadlineMs,
+      sleep: async (ms) => {
+        sleeps.push(ms);
+      },
+    },
+  );
+  assert.deepEqual(body, { ok: true });
+  assert.equal(calls, 2);
+  assert.ok(sleeps[0] <= 500, "Retry-After must be capped to remaining deadline");
+}
+
+// A retry is not started when the deadline has no meaningful request headroom.
+{
+  let calls = 0;
+  let sleeps = 0;
+  const fetchImpl = (async () => {
+    calls++;
+    return new Response("", { status: 503 });
+  }) as unknown as typeof fetch;
+  await assert.rejects(
+    providerFetch(
+      "https://example.com/no-retry-headroom",
+      { method: "GET" },
+      {
+        provider: "test",
+        fetchImpl,
+        timeoutMs: 100,
+        deadlineMs: Date.now() + 10,
+        sleep: async () => {
+          sleeps++;
+        },
+      },
+    ),
+    (error) => error instanceof SyncDeadlineError,
+  );
+  assert.equal(calls, 1);
+  assert.equal(sleeps, 0);
 }
 
 console.log("v2-provider-contract: OK");

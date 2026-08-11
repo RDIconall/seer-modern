@@ -123,12 +123,26 @@ try {
       "provider_total",
       "updated_at",
       "backfill_complete",
-      "scan_generation",
+      "snapshot_generation",
       "scan_started_at",
       "last_reconciled_at",
     ],
     "folder_sync_state columns",
   );
+  const snapshotColumn = await db.pool.query<{
+    data_type: string;
+    is_nullable: string;
+    column_default: string | null;
+  }>(
+    `select data_type, is_nullable, column_default
+       from information_schema.columns
+      where table_schema = 'seer'
+        and table_name = 'folder_sync_state'
+        and column_name = 'snapshot_generation'`,
+  );
+  assert.equal(snapshotColumn.rows[0]?.data_type, "uuid");
+  assert.equal(snapshotColumn.rows[0]?.is_nullable, "NO");
+  assert.match(snapshotColumn.rows[0]?.column_default ?? "", /gen_random_uuid/i);
 
   assert.deepEqual(
     await pkColumns(db.pool, "folder_sync_state"),
@@ -160,7 +174,7 @@ try {
   assert.equal(seen.rowCount, 1, "seer.folder_sync_seen must exist");
   assert.deepEqual(
     await pkColumns(db.pool, "folder_sync_seen"),
-    ["account_id", "folder", "scan_generation", "provider_conversation_id"],
+    ["account_id", "folder", "snapshot_generation", "provider_conversation_id"],
     "folder_sync_seen PK must identify one provider conversation in one scan",
   );
 
@@ -327,10 +341,18 @@ try {
   );
   assert.equal(kvRls.rows[0]?.relrowsecurity, true, "RLS on public.seer_kv");
 
-  const role = await db.pool.query<{ exists: boolean }>(
-    "select exists(select 1 from pg_roles where rolname = 'seer_app') as exists",
+  const role = await db.pool.query<{
+    exists: boolean;
+    can_login: boolean;
+    inherits: boolean;
+  }>(
+    `select exists(select 1 from pg_roles where rolname = 'seer_app') as exists,
+            coalesce((select rolcanlogin from pg_roles where rolname = 'seer_app'), false) as can_login,
+            coalesce((select rolinherit from pg_roles where rolname = 'seer_app'), true) as inherits`,
   );
   assert.equal(role.rows[0].exists, true, "seer_app role must exist for least-privilege grants");
+  assert.equal(role.rows[0].can_login, true, "seer_app must be a login role");
+  assert.equal(role.rows[0].inherits, false, "seer_app must be NOINHERIT");
 
   for (const table of CORE_TABLES) {
     const grants = await db.pool.query<{ privilege_type: string }>(

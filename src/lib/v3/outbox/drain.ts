@@ -100,10 +100,16 @@ async function claimPending(
              where older.account_id = seer.outbox.account_id
                and older.command->>'conversationId' =
                    seer.outbox.command->>'conversationId'
-               and older.created_at < seer.outbox.created_at
+               and (
+                 older.created_at < seer.outbox.created_at
+                 or (
+                   older.created_at = seer.outbox.created_at
+                   and older.id < seer.outbox.id
+                 )
+               )
                and older.status in ('pending', 'inflight')
           )
-        order by created_at asc
+        order by created_at asc, id asc
         limit $2
         for update skip locked
      )

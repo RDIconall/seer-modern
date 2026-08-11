@@ -58,5 +58,7 @@ export const DONE_CONVERGENCE_MS = 10 * 60 * 1000;
 
 export type SyncMask = {
   blockedFolders: Set<string>;
+  /** Optimistic folders that stale provider cleanup must not remove yet. */
+  protectedFolders: Set<string>;
   protectUnread: boolean;
 };

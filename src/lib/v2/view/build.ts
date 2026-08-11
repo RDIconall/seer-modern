@@ -94,7 +94,9 @@ export async function buildInboxView(
          on d.conversation_id = c.id
         and d.account_id = c.account_id
         and d.is_current
-      where c.account_id = $1 and c.is_deleted = false
+      where c.account_id = $1
+        and c.is_deleted = false
+        and c.folders @> array['inbox']::text[]
       -- Loudest first; within a bucket, whatever is due soonest.
       order by d.priority desc, d.due_date asc nulls last, c.last_message_at desc nulls last`,
     [accountId],

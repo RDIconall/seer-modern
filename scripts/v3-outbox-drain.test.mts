@@ -212,9 +212,18 @@ try {
   });
   await enqueueOptimistic(accountId, { type: "archive", conversationId: orderedId }, "ordered-archive");
   await enqueueOptimistic(accountId, { type: "restore", conversationId: orderedId }, "ordered-restore");
-  const firstWorker = drainOutbox(accountId, orderedProvider, { limit: 2 });
+  await db.pool.query(
+    `update seer.outbox
+        set id = case idempotency_key
+                   when 'ordered-archive' then '00000000-0000-0000-0000-000000000001'::uuid
+                   when 'ordered-restore' then '00000000-0000-0000-0000-000000000002'::uuid
+                 end,
+            created_at = '2026-08-11T00:00:00Z'::timestamptz
+      where idempotency_key in ('ordered-archive', 'ordered-restore')`,
+  );
+  const firstWorker = drainOutbox(accountId, orderedProvider, { limit: 1 });
   await orderedProvider.started;
-  const secondWorker = await drainOutbox(accountId, orderedProvider, { limit: 2 });
+  const secondWorker = await drainOutbox(accountId, orderedProvider, { limit: 1 });
   assert.equal(secondWorker.processed, 0, "second worker must not claim the newer command");
   orderedProvider.release();
   const firstWorkerReport = await firstWorker;

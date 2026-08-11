@@ -21,6 +21,7 @@ type Account = {
   name: string;
   label: string;
   active: boolean;
+  status: "active" | "reconnect_required";
 };
 
 type AccountData = {
@@ -138,6 +139,9 @@ export function Settings({ mobile = false }: { mobile?: boolean }) {
                   {account.active ? "Current" : "Switch"} {account.email}
                 </button>
                 <span>{account.label}</span>
+                {account.status === "reconnect_required" && (
+                  <strong role="status">Needs reconnect</strong>
+                )}
                 <button
                   type="button"
                   disabled={busy === account.id}

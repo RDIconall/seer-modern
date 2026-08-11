@@ -193,6 +193,36 @@ try {
   const rotated = await accounts.getCredentials(accountA.id);
   assert.equal(rotated?.accessToken, "access-a-rotated");
   assert.equal(rotated?.refreshToken, "refresh-a");
+  assert.equal(
+    (await accounts.listOwnedAccounts(userA)).find((account) => account.id === accountA.id)?.status,
+    "active",
+  );
+
+  // A failed refresh is durable per account and never exposes its error as a
+  // credential or account secret.
+  await accounts.saveCredentials(accountA.id, "google", {
+    accessToken: "expired-access",
+    expiresAt: Date.now() - 1,
+  });
+  const tokenService = await import("../src/lib/v2/providers/token-service.ts");
+  await assert.rejects(
+    tokenService.freshAccessToken(accountA.id, "google", async () => {
+      throw new Error("invalid_grant");
+    }),
+    /invalid_grant/,
+  );
+  const reconnectRequired = (await accounts.listOwnedAccounts(userA)).find(
+    (account) => account.id === accountA.id,
+  );
+  assert.equal(reconnectRequired?.status, "reconnect_required");
+  await accounts.saveCredentials(accountA.id, "google", {
+    accessToken: "healthy-access",
+    expiresAt: Date.now() + 3_600_000,
+  });
+  const healthy = (await accounts.listOwnedAccounts(userA)).find(
+    (account) => account.id === accountA.id,
+  );
+  assert.equal(healthy?.status, "active");
 
   const apiSource = await fs.readFile(
     path.join(process.cwd(), "src/app/api/v3/accounts/route.ts"),
@@ -213,6 +243,8 @@ try {
     /accessToken|refreshToken|ciphertext/,
     "account API must not serialize credential fields",
   );
+  assert.match(serializerSource, /status/);
+  assert.doesNotMatch(serializerSource, /lastError|last_error/);
 
   const sessionSource = await fs.readFile(
     path.join(process.cwd(), "src/lib/mail/session.ts"),
@@ -315,6 +347,7 @@ try {
   for (const label of ["Current account", "Reconnect", "Add account", "Remove", "Switch", "Sign out"]) {
     assert.match(settingsSource, new RegExp(label, "i"));
   }
+  assert.match(settingsSource, /reconnect_required|Needs reconnect/i);
   assert.match(settingsSource, /requiresSignOut/);
   assert.match(settingsSource, /logout/);
   assert.match(settingsSource, /onAccountSwitch|clearMailboxCaches/);
@@ -325,6 +358,16 @@ try {
   assert.match(mailboxSource, /accountKey/);
   assert.match(mailboxSource, /bodyCache/);
   assert.match(mailboxSource, /clearMailboxCaches/);
+  const inboxViewSource = await fs.readFile(
+    path.join(process.cwd(), "src/components/v2/useInboxView.ts"),
+    "utf8",
+  );
+  assert.match(inboxViewSource, /ACCOUNT_CHANGED_EVENT/);
+  assert.match(
+    inboxViewSource,
+    /setView\(null\)[\s\S]*void load\(\)/,
+    "Atlas/Triage must clear stale account data before reloading",
+  );
 
   assert.equal(await accounts.deleteOwnedAccount(userA, accountA.id), true);
   assert.equal(

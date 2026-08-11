@@ -1,6 +1,7 @@
 import { db } from "../db/pool";
 import {
   getCredentials,
+  markCredentialsReconnectRequired,
   rotateCredentials,
   type MailProviderKind,
   type ProviderCredential,
@@ -50,9 +51,23 @@ export async function freshAccessToken(
       return afterLock.accessToken as string;
     }
     if (!afterLock?.refreshToken) {
-      throw new Error(`no refresh token for account ${accountId}`);
+      const error = `no refresh token for account ${accountId}`;
+      await markCredentialsReconnectRequired(accountId, error);
+      throw new Error(error);
     }
-    const refreshed = await refreshFn(afterLock.refreshToken);
+    let refreshed: Awaited<ReturnType<RefreshFn>>;
+    try {
+      refreshed = await refreshFn(afterLock.refreshToken);
+    } catch (error) {
+      const message = error instanceof Error ? error.message : "provider refresh failed";
+      await markCredentialsReconnectRequired(accountId, message);
+      throw error;
+    }
+    if (!refreshed.accessToken) {
+      const error = "provider refresh returned no access token";
+      await markCredentialsReconnectRequired(accountId, error);
+      throw new Error(error);
+    }
     const ok = await rotateCredentials(accountId, afterLock.version, {
       accessToken: refreshed.accessToken,
       refreshToken: refreshed.refreshToken,

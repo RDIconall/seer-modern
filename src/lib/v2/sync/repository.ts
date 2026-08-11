@@ -1,4 +1,5 @@
 import type { PoolClient } from "pg";
+import { randomUUID } from "node:crypto";
 import { db } from "../db/pool";
 import { inTransaction } from "../db/transaction";
 import type { AccountId } from "../db/types";
@@ -17,7 +18,7 @@ export type FolderSyncState = {
   cursor: string | null;
   backfillComplete: boolean;
   providerTotal: number;
-  scanGeneration: number;
+  snapshotGeneration: string | null;
   scanStartedAt: Date | null;
   lastReconciledAt: Date | null;
 };
@@ -27,23 +28,23 @@ export async function writeConversationPage(
   folder: SyncFolder,
   conversations: Conversation[],
   deletedProviderIds: string[],
-  scanGeneration?: number,
+  snapshotGeneration?: string | null,
 ): Promise<PageWriteResult> {
   return inTransaction(async (client) => {
     let stored = 0;
     let failed = 0;
     for (const [index, convo] of conversations.entries()) {
       const savepoint = `v3_conversation_row_${index}`;
-      if (scanGeneration !== undefined) {
+      if (snapshotGeneration) {
         // Record provider visibility outside the row savepoint. If hydration
         // is malformed, the conversation was still observed in this
         // authoritative snapshot and must not be removed as stale.
         await client.query(
           `insert into seer.folder_sync_seen
-             (account_id, folder, scan_generation, provider_conversation_id)
+             (account_id, folder, snapshot_generation, provider_conversation_id)
            values ($1, $2, $3, $4)
            on conflict do nothing`,
-          [accountId, folder, scanGeneration, convo.providerConversationId],
+          [accountId, folder, snapshotGeneration, convo.providerConversationId],
         );
       }
       await client.query(`savepoint ${savepoint}`);
@@ -172,68 +173,75 @@ export async function saveFolderSyncState(
   folder: SyncFolder,
   state: FolderSyncState,
 ): Promise<void> {
+  const snapshotGeneration = state.snapshotGeneration ?? randomUUID();
   await db().query(
     `insert into seer.folder_sync_state
        (account_id, folder, cursor, provider_total, backfill_complete,
-        scan_generation, scan_started_at, last_reconciled_at, updated_at)
+        snapshot_generation, scan_started_at, last_reconciled_at, updated_at)
        values ($1, $2, $3, $4, $5, $6, $7, $8, now())
        on conflict (account_id, folder) do update
          set cursor = excluded.cursor,
              provider_total = excluded.provider_total,
              backfill_complete = excluded.backfill_complete,
-             scan_generation = excluded.scan_generation,
+             snapshot_generation = excluded.snapshot_generation,
              scan_started_at = excluded.scan_started_at,
              last_reconciled_at = excluded.last_reconciled_at,
-             updated_at = now()`,
+             updated_at = now()
+       where seer.folder_sync_state.snapshot_generation =
+             excluded.snapshot_generation`,
     [
       accountId,
       folder,
       state.cursor,
       state.providerTotal,
       state.backfillComplete,
-      state.scanGeneration,
+      snapshotGeneration,
       state.scanStartedAt,
       state.lastReconciledAt,
     ],
   );
 }
 
-/** Start a durable provider snapshot. Old seen rows are disposable because a
- * generation is the complete membership set for one folder scan. */
+/** Start a durable provider snapshot under the folder state row lock. */
 export async function beginFolderSnapshot(
   accountId: AccountId,
   folder: SyncFolder,
 ): Promise<FolderSyncState> {
   return inTransaction(async (client) => {
+    // Materialize the state row before locking it so two first-time scans
+    // serialize on the same row instead of racing an absent-row SELECT FOR
+    // UPDATE.
+    await client.query(
+      `insert into seer.folder_sync_state
+         (account_id, folder)
+       values ($1, $2)
+       on conflict (account_id, folder) do nothing`,
+      [accountId, folder],
+    );
     const current = await client.query<{
       provider_total: number;
-      scan_generation: string | number;
+      snapshot_generation: string;
       last_reconciled_at: Date | null;
     }>(
-      `select provider_total, scan_generation, last_reconciled_at
+      `select provider_total, snapshot_generation, last_reconciled_at
          from seer.folder_sync_state
         where account_id = $1 and folder = $2
         for update`,
       [accountId, folder],
     );
     const previous = current.rows[0];
-    const generation = Number(previous?.scan_generation ?? 0) + 1;
+    const generation = randomUUID();
     const startedAt = new Date();
-    await client.query(
-      `delete from seer.folder_sync_seen
-        where account_id = $1 and folder = $2`,
-      [accountId, folder],
-    );
     await client.query(
       `insert into seer.folder_sync_state
          (account_id, folder, cursor, provider_total, backfill_complete,
-          scan_generation, scan_started_at, last_reconciled_at, updated_at)
+          snapshot_generation, scan_started_at, last_reconciled_at, updated_at)
        values ($1, $2, null, $3, false, $4, $5, $6, now())
        on conflict (account_id, folder) do update
          set cursor = null,
              provider_total = excluded.provider_total,
              backfill_complete = false,
-             scan_generation = excluded.scan_generation,
+             snapshot_generation = excluded.snapshot_generation,
              scan_started_at = excluded.scan_started_at,
              last_reconciled_at = excluded.last_reconciled_at,
              updated_at = now()`,
@@ -250,7 +258,7 @@ export async function beginFolderSnapshot(
       cursor: null,
       providerTotal: previous?.provider_total ?? 0,
       backfillComplete: false,
-      scanGeneration: generation,
+      snapshotGeneration: generation,
       scanStartedAt: startedAt,
       lastReconciledAt: previous?.last_reconciled_at ?? null,
     };
@@ -261,17 +269,27 @@ export async function beginFolderSnapshot(
 export async function completeFolderSnapshot(
   accountId: AccountId,
   folder: SyncFolder,
-  generation: number,
+  generation: string,
   providerTotal: number,
-): Promise<void> {
-  await inTransaction(async (client) => {
-    await client.query(
-      `update seer.conversations c
-          set folders = coalesce((
-                select array_agg(distinct f order by f)
-                  from unnest(array_remove(c.folders, $2::text)) as f
-              ), '{}'::text[]),
-              updated_at = now()
+): Promise<boolean> {
+  return inTransaction(async (client) => {
+    const current = await client.query<{ snapshot_generation: string }>(
+      `select snapshot_generation
+         from seer.folder_sync_state
+        where account_id = $1 and folder = $2
+        for update`,
+      [accountId, folder],
+    );
+    if (current.rows[0]?.snapshot_generation !== generation) {
+      return false;
+    }
+
+    const stale = await client.query<{
+      id: string;
+      last_message_at: Date | null;
+    }>(
+      `select c.id, c.last_message_at
+         from seer.conversations c
         where c.account_id = $1
           and c.folders @> array[$2::text]
           and not exists (
@@ -279,11 +297,33 @@ export async function completeFolderSnapshot(
               from seer.folder_sync_seen s
              where s.account_id = c.account_id
                and s.folder = $2
-               and s.scan_generation = $3
+               and s.snapshot_generation = $3
                and s.provider_conversation_id = c.provider_conversation_id
-          )`,
+          )
+        for update`,
       [accountId, folder, generation],
     );
+
+    for (const row of stale.rows) {
+      const mask = await getSyncMask(
+        client,
+        accountId,
+        row.id,
+        row.last_message_at?.toISOString() ?? null,
+      );
+      if (mask.protectedFolders.has(folder)) continue;
+      await client.query(
+        `update seer.conversations
+            set folders = coalesce((
+                  select array_agg(distinct f order by f)
+                    from unnest(array_remove(folders, $2::text)) as f
+                ), '{}'::text[]),
+                updated_at = now()
+          where id = $1 and account_id = $3`,
+        [row.id, folder, accountId],
+      );
+    }
+
     await client.query(
       `update seer.folder_sync_state
           set cursor = null,
@@ -291,9 +331,11 @@ export async function completeFolderSnapshot(
               backfill_complete = true,
               last_reconciled_at = now(),
               updated_at = now()
-        where account_id = $1 and folder = $2 and scan_generation = $3`,
+        where account_id = $1 and folder = $2
+          and snapshot_generation = $3`,
       [accountId, folder, generation, providerTotal],
     );
+    return true;
   });
 }
 
@@ -308,7 +350,7 @@ export async function saveFolderCursor(
     cursor,
     providerTotal,
     backfillComplete: cursor === null && providerTotal > 0,
-    scanGeneration: 0,
+    snapshotGeneration: null,
     scanStartedAt: null,
     lastReconciledAt: null,
   });
@@ -322,11 +364,11 @@ export async function loadFolderSyncState(
     cursor: string | null;
     provider_total: number;
     backfill_complete: boolean;
-    scan_generation: string | number;
+    snapshot_generation: string;
     scan_started_at: Date | null;
     last_reconciled_at: Date | null;
   }>(
-    `select cursor, provider_total, backfill_complete, scan_generation,
+    `select cursor, provider_total, backfill_complete, snapshot_generation,
             scan_started_at, last_reconciled_at
        from seer.folder_sync_state
       where account_id = $1 and folder = $2`,
@@ -338,7 +380,7 @@ export async function loadFolderSyncState(
       cursor: row.cursor ?? null,
       backfillComplete: row.backfill_complete,
       providerTotal: row.provider_total,
-      scanGeneration: Number(row.scan_generation ?? 0),
+      snapshotGeneration: row.snapshot_generation,
       scanStartedAt: row.scan_started_at,
       lastReconciledAt: row.last_reconciled_at,
     };
@@ -357,11 +399,10 @@ export async function loadFolderSyncState(
         cursor: row.cursor ?? null,
         providerTotal: row.provider_total,
         backfillComplete: row.cursor === null && row.provider_total > 0,
-        // A legacy cursor is already in the middle of a historical scan. Give
-        // it a generation so the first resumed page can participate in the
-        // durable snapshot without incorrectly restarting at page one.
-        scanGeneration: row.cursor === null ? 0 : 1,
-        scanStartedAt: row.cursor === null ? null : new Date(),
+        // Legacy state has no durable snapshot identity. The next invocation
+        // starts a fresh UUID generation before writing a page.
+        snapshotGeneration: null,
+        scanStartedAt: null,
         lastReconciledAt: null,
       };
     }
@@ -371,7 +412,7 @@ export async function loadFolderSyncState(
     cursor: null,
     backfillComplete: false,
     providerTotal: 0,
-    scanGeneration: 0,
+    snapshotGeneration: null,
     scanStartedAt: null,
     lastReconciledAt: null,
   };

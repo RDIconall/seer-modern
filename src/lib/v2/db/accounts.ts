@@ -21,6 +21,7 @@ import {
  */
 
 export type MailProviderKind = "google" | "microsoft";
+export type CredentialStatus = "active" | "reconnect_required";
 
 export type MailAccount = {
   id: AccountId;
@@ -28,6 +29,7 @@ export type MailAccount = {
   provider: MailProviderKind;
   email: string;
   displayName: string | null;
+  status: CredentialStatus;
 };
 
 export type ProviderCredential = {
@@ -84,14 +86,16 @@ async function saveCredentialsWithRunner(
 
   await runner.query(
     `insert into seer.oauth_credentials
-       (account_id, provider, ciphertext, expires_at, version, rotated_at)
-       values ($1, $2, $3::jsonb, to_timestamp($4), 1, now())
+       (account_id, provider, ciphertext, expires_at, version, rotated_at, status, last_error)
+       values ($1, $2, $3::jsonb, to_timestamp($4), 1, now(), 'active', null)
        on conflict (account_id) do update
          set provider = excluded.provider,
              ciphertext = excluded.ciphertext,
              expires_at = excluded.expires_at,
              version = seer.oauth_credentials.version + 1,
-             rotated_at = now()`,
+             rotated_at = now(),
+             status = 'active',
+             last_error = null`,
     [accountId, provider, JSON.stringify(payload), expiresMs ? expiresMs / 1000 : null],
   );
 }
@@ -164,6 +168,9 @@ export async function upsertAccountWithCredentials(input: {
       provider: row.provider,
       email: row.email,
       displayName: row.display_name,
+      status: input.accessToken || input.refreshToken || input.expiresAt
+        ? "active"
+        : "reconnect_required",
     };
     if (input.accessToken || input.refreshToken || input.expiresAt) {
       await saveCredentialsWithRunner(client, account.id, input.provider, input);
@@ -178,8 +185,11 @@ export async function getOwnedAccount(
   accountId: AccountId,
 ): Promise<MailAccount | null> {
   const r = await db().query(
-    `select id, user_id, provider, email, display_name
-       from seer.mail_accounts where id = $1 and user_id = $2`,
+    `select a.id, a.user_id, a.provider, a.email, a.display_name,
+            coalesce(c.status, 'reconnect_required') as status
+       from seer.mail_accounts a
+       left join seer.oauth_credentials c on c.account_id = a.id
+      where a.id = $1 and a.user_id = $2`,
     [accountId, userId],
   );
   const row = r.rows[0];
@@ -190,16 +200,19 @@ export async function getOwnedAccount(
     provider: row.provider,
     email: row.email,
     displayName: row.display_name,
+    status: row.status,
   };
 }
 
 /** List only account metadata owned by this user. Never joins credentials. */
 export async function listOwnedAccounts(userId: UserId): Promise<MailAccount[]> {
   const r = await db().query(
-    `select id, user_id, provider, email, display_name
-       from seer.mail_accounts
-      where user_id = $1
-      order by lower(email), provider`,
+    `select a.id, a.user_id, a.provider, a.email, a.display_name,
+            coalesce(c.status, 'reconnect_required') as status
+       from seer.mail_accounts a
+       left join seer.oauth_credentials c on c.account_id = a.id
+      where a.user_id = $1
+      order by lower(a.email), a.provider`,
     [userId],
   );
   return r.rows.map((row) => ({
@@ -208,6 +221,7 @@ export async function listOwnedAccounts(userId: UserId): Promise<MailAccount[]> 
     provider: row.provider,
     email: row.email,
     displayName: row.display_name,
+    status: row.status,
   }));
 }
 
@@ -217,11 +231,13 @@ export async function getOwnedAccountByEmail(
   provider?: MailProviderKind,
 ): Promise<MailAccount | null> {
   const r = await db().query(
-    `select id, user_id, provider, email, display_name
-       from seer.mail_accounts
-      where user_id = $1 and email = $2
-        and ($3::text is null or provider = $3)
-      order by provider
+    `select a.id, a.user_id, a.provider, a.email, a.display_name,
+            coalesce(c.status, 'reconnect_required') as status
+       from seer.mail_accounts a
+       left join seer.oauth_credentials c on c.account_id = a.id
+      where a.user_id = $1 and a.email = $2
+        and ($3::text is null or a.provider = $3)
+      order by a.provider
       limit 1`,
     [userId, email.toLowerCase(), provider ?? null],
   );
@@ -233,6 +249,7 @@ export async function getOwnedAccountByEmail(
         provider: row.provider,
         email: row.email,
         displayName: row.display_name,
+       status: row.status,
       }
     : null;
 }
@@ -263,6 +280,21 @@ export async function clearCredentials(accountId: AccountId): Promise<void> {
   await db().query(
     "delete from seer.oauth_credentials where account_id = $1",
     [accountId],
+  );
+}
+
+/** Record a provider refresh failure without storing provider secrets. */
+export async function markCredentialsReconnectRequired(
+  accountId: AccountId,
+  error: string,
+): Promise<void> {
+  await db().query(
+    `update seer.oauth_credentials
+        set status = 'reconnect_required',
+            last_error = $2,
+            rotated_at = now()
+      where account_id = $1`,
+    [accountId, error.slice(0, 500)],
   );
 }
 
@@ -315,7 +347,9 @@ export async function rotateCredentials(
           set ciphertext = $2::jsonb,
               expires_at = to_timestamp($3),
               version = version + 1,
-              rotated_at = now()
+              rotated_at = now(),
+              status = 'active',
+              last_error = null
         where account_id = $1`,
       [
         accountId,

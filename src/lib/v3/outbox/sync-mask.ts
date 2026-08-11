@@ -69,6 +69,7 @@ export async function getSyncMask(
   );
 
   const blockedFolders = new Set<string>();
+  const protectedFolders = new Set<string>();
   let protectUnread = false;
 
   for (const row of r.rows) {
@@ -76,10 +77,15 @@ export async function getSyncMask(
     for (const folder of foldersBlockedByCommand(row.command.type)) {
       blockedFolders.add(folder);
     }
+    if (row.command.type !== "markUnread") {
+      for (const folder of row.command.expected.folders) {
+        protectedFolders.add(folder);
+      }
+    }
     if (row.command.type === "markUnread") {
       protectUnread = true;
     }
   }
 
-  return { blockedFolders, protectUnread };
+  return { blockedFolders, protectedFolders, protectUnread };
 }

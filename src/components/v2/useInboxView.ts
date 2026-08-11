@@ -3,6 +3,7 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import type { InboxView } from "@/lib/v2/view/types";
 import type { Command, CommandResult } from "@/lib/v2/commands/types";
+import { ACCOUNT_CHANGED_EVENT } from "@/components/v3/useMailbox";
 
 /**
  * The one data hook for the v2 app. It fetches the server projection, refreshes
@@ -17,15 +18,19 @@ export function useInboxView(
   const [view, setView] = useState<InboxView | null>(initialView ?? null);
   const [error, setError] = useState<string | null>(null);
   const snapshot = useRef<InboxView | null>(null);
+  const accountGeneration = useRef(0);
 
   const load = useCallback(async () => {
+    const requestGeneration = accountGeneration.current;
     try {
       const res = await fetch("/api/v2/inbox", { cache: "no-store" });
       if (!res.ok) throw new Error(`inbox ${res.status}`);
       const json = (await res.json()) as { view: InboxView };
+      if (requestGeneration !== accountGeneration.current) return;
       setView(json.view);
       setError(null);
     } catch (e) {
+      if (requestGeneration !== accountGeneration.current) return;
       setError(e instanceof Error ? e.message : "failed to load");
     }
   }, []);
@@ -35,7 +40,18 @@ export function useInboxView(
     void load();
     const onFocus = () => void load();
     window.addEventListener("focus", onFocus);
-    return () => window.removeEventListener("focus", onFocus);
+    const onAccountChanged = () => {
+      accountGeneration.current += 1;
+      snapshot.current = null;
+      setView(null);
+      setError(null);
+      void load();
+    };
+    window.addEventListener(ACCOUNT_CHANGED_EVENT, onAccountChanged);
+    return () => {
+      window.removeEventListener("focus", onFocus);
+      window.removeEventListener(ACCOUNT_CHANGED_EVENT, onAccountChanged);
+    };
   }, [disabled, load]);
 
   const dispatch = useCallback(
