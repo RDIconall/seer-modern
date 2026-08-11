@@ -24,7 +24,7 @@ import type {
   SyncFolder,
   SyncPage,
 } from "./types";
-import { assertSyncBudget } from "./types";
+import { SyncDeadlineError, assertSyncBudget } from "./types";
 
 /**
  * Outlook / Microsoft Graph adapter. Translates Graph message payloads into the
@@ -192,7 +192,8 @@ export class OutlookProvider implements MailProvider {
         context,
       );
       return r.totalItemCount ?? 0;
-    } catch {
+    } catch (error) {
+      if (error instanceof SyncDeadlineError) throw error;
       return 0;
     }
   }
