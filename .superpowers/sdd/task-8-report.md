@@ -43,4 +43,5 @@ The follow-up review findings are addressed:
 - Active removal clears credentials and the active cookie, returns `requiresSignOut: true`, and Settings invokes authenticated sign-out. Provider revocation is best effort, with Microsoft's limitation retained and local deletion unconditional.
 - V3 account mutation POSTs reject missing or cross-origin `Origin` headers in production. Same-origin and cross-origin cases are covered by regression tests.
 
-Security-remediation commit: `d469f5a` (final branch hash is recorded after this report commit).
+Security-remediation commit: `d469f5a`.
+Final verification commit before this report update: `77da6bf`.
