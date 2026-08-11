@@ -166,7 +166,7 @@ try {
     "utf8",
   );
   assert.match(v2SessionSource, /getActiveAccountId/);
-  assert.match(v2SessionSource, /getOwnedAccount/);
+  assert.match(v2SessionSource, /listOwnedAccounts|getOwnedAccount/);
   assert.match(v2SessionSource, /fallback|cookie/i);
 
   const authSource = await fs.readFile(
