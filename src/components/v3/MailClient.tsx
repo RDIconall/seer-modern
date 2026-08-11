@@ -357,6 +357,7 @@ export function MailClient({
       }}
       onCompose={(intent) => setCompose(intent)}
       onNotice={(message, error = false) => setNotice({ message, error })}
+      accountId={mailbox.view?.accountId}
       onCommandComplete={() => {
         void mailbox.reload();
         setConversationId(null);

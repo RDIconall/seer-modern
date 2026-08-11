@@ -22,6 +22,7 @@ export function ReaderPane({
   onNotice,
   onCommandComplete,
   onProviderConversationId,
+  accountId,
   preview,
 }: {
   conversationId: string;
@@ -30,6 +31,7 @@ export function ReaderPane({
   onNotice: (message: string, error?: boolean) => void;
   onCommandComplete?: () => void;
   onProviderConversationId?: (id: string) => void;
+  accountId?: string;
   preview?: ReaderResponse;
 }) {
   const [data, setData] = useState<ReaderResponse | null>(preview ?? null);
@@ -41,7 +43,8 @@ export function ReaderPane({
     let cancelled = false;
     setLoading(true);
     setError(null);
-    void fetch(`/api/v3/conversations/${encodeURIComponent(conversationId)}`, {
+    const scope = accountId ? `?account=${encodeURIComponent(accountId)}` : "";
+    void fetch(`/api/v3/conversations/${encodeURIComponent(conversationId)}${scope}`, {
       cache: "force-cache",
     })
       .then(async (response) => {
@@ -64,7 +67,7 @@ export function ReaderPane({
     return () => {
       cancelled = true;
     };
-  }, [conversationId, onProviderConversationId, preview]);
+  }, [accountId, conversationId, onProviderConversationId, preview]);
 
   useEffect(() => {
     if (data) onProviderConversationId?.(data.conversation.providerConversationId);

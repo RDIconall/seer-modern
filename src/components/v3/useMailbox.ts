@@ -185,9 +185,10 @@ export function useMailbox(
       if (bodyCache.has(bodyKey)) continue;
       bodyCache.set(bodyKey, true);
       const run = () => {
-        void fetch(`/api/v3/conversations/${encodeURIComponent(id)}`, {
-          cache: "force-cache",
-        })
+        void fetch(
+          `/api/v3/conversations/${encodeURIComponent(id)}?account=${encodeURIComponent(accountKey)}`,
+          { cache: "force-cache" },
+        )
           .then(async (response) => {
             if (!response.ok) throw new Error("body prefetch failed");
             bodyCache.set(bodyKey, await response.json());
