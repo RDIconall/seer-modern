@@ -325,7 +325,6 @@ body {
 /* --- Section headings ---------------------------------------- */
 
 .seer-atlas h2,
-.seer-triage h2,
 .seer-worth-reading h2 {
   font-size: 14px;
   font-weight: 700;
@@ -333,15 +332,10 @@ body {
   margin: 0 0 8px;
 }
 
-.seer-triage > h2,
 .seer-worth-reading > h2 {
   margin-top: 28px;
   padding-bottom: 6px;
   border-bottom: 1px solid var(--border);
-}
-
-.seer-triage > h2:first-child {
-  margin-top: 0;
 }
 
 /* --- Atlas: the board of live matters ------------------------ */
@@ -511,82 +505,6 @@ body {
   text-decoration: none;
   font-size: 13px;
   font-weight: 700;
-}
-
-/* --- Triage ---------------------------------------------------- */
-
-.seer-triage table {
-  width: 100%;
-  border-collapse: collapse;
-}
-
-.seer-triage td {
-  padding: 8px 10px 8px 0;
-  border-bottom: 1px solid var(--border);
-  font-size: 13.5px;
-  vertical-align: top;
-}
-
-.seer-triage td:first-child {
-  color: var(--fg-strong);
-  white-space: nowrap;
-  max-width: 180px;
-  overflow: hidden;
-  text-overflow: ellipsis;
-}
-
-.seer-triage td:nth-child(3) {
-  color: var(--muted);
-}
-
-.seer-triage td:last-child {
-  white-space: nowrap;
-  text-align: right;
-  padding-right: 0;
-}
-
-.seer-triage td:last-child button {
-  color: var(--accent);
-  border-color: color-mix(in srgb, var(--accent) 35%, var(--border));
-  margin-right: 10px;
-}
-
-/* On a phone the four-column table becomes stacked cards. */
-@media (max-width: 700px) {
-  .seer-triage table,
-  .seer-triage tbody {
-    display: block;
-  }
-  .seer-triage tr {
-    display: flex;
-    flex-direction: column;
-    gap: 2px;
-    padding: 10px 0;
-    border-bottom: 1px solid var(--border);
-  }
-  .seer-triage td {
-    display: block;
-    border: 0;
-    padding: 0;
-    max-width: none !important;
-    white-space: normal !important;
-  }
-  .seer-triage td:last-child {
-    text-align: left;
-    margin-top: 8px;
-  }
-}
-
-.seer-triage ul {
-  list-style: none;
-  margin: 0;
-  padding: 0;
-}
-
-.seer-triage ul li {
-  padding: 8px 0;
-  border-bottom: 1px solid var(--border);
-  font-size: 13.5px;
 }
 
 /* --- Reader ----------------------------------------------------- */
