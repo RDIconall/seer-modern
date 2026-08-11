@@ -1,5 +1,6 @@
 "use client";
 
+import * as React from "react";
 import { Search, X } from "lucide-react";
 import { useEffect, useState } from "react";
 
@@ -16,6 +17,20 @@ export type SearchResult = {
   priority: number | null;
   dueDate: string | null;
 };
+
+export async function fetchSearch(query: string): Promise<SearchResult[]> {
+  const response = await fetch(`/api/v3/search?q=${encodeURIComponent(query)}`, {
+    cache: "no-store",
+  });
+  const json = (await response.json()) as {
+    view?: { rows: SearchResult[] };
+    error?: string;
+  };
+  if (!response.ok || !json.view) {
+    throw new Error(json.error ?? `search ${response.status}`);
+  }
+  return json.view.rows;
+}
 
 export function SearchBox({
   initialQuery = "",
@@ -39,15 +54,7 @@ export function SearchBox({
     setBusy(true);
     setError(null);
     try {
-      const response = await fetch(`/api/v3/search?q=${encodeURIComponent(value)}`, {
-        cache: "no-store",
-      });
-      const json = (await response.json()) as {
-        view?: { rows: SearchResult[] };
-        error?: string;
-      };
-      if (!response.ok || !json.view) throw new Error(json.error ?? `search ${response.status}`);
-      onSearch(value, json.view.rows);
+      onSearch(value, await fetchSearch(value));
     } catch (cause) {
       setError(cause instanceof Error ? cause.message : "search failed");
       onSearch(value, []);

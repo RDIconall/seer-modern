@@ -3,6 +3,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import type { Command, CommandResult } from "@/lib/v2/commands/types";
 import type { MailboxFolder, MailboxRow, MailboxView } from "@/lib/v3/mailbox/types";
+import { prefetchAdjacentIds, viewForFolder } from "./mailbox-state";
 
 const CACHE_VERSION = 1;
 const mailboxCache = new Map<MailboxFolder, MailboxView>();
@@ -77,13 +78,12 @@ export function useMailbox(
   const viewRef = useRef<MailboxView | null>(initial);
 
   useEffect(() => {
-    if (initial) {
-      viewRef.current = initial;
-      setView(initial);
-      setLoading(false);
-      setRefreshing(Boolean(!options.disabled && initial));
-    }
-  }, [initial, options.disabled]);
+    viewRef.current = initial;
+    setView(initial);
+    setLoading(!initial);
+    setRefreshing(Boolean(!options.disabled && initial));
+    setError(null);
+  }, [folder, initial, options.disabled]);
 
   const reload = useCallback(async () => {
     if (options.disabled) return;
@@ -96,11 +96,16 @@ export function useMailbox(
       );
       if (!response.ok) throw new Error(`mailbox ${response.status}`);
       const json = (await response.json()) as { view: MailboxView };
+      if (json.view.folder !== folder) {
+        throw new Error(`mailbox returned ${json.view.folder} for ${folder}`);
+      }
       writeCache(json.view);
       viewRef.current = json.view;
       setView(json.view);
       setError(null);
     } catch (cause) {
+      viewRef.current = null;
+      setView(null);
       setError(cause instanceof Error ? cause.message : "failed to load mailbox");
     } finally {
       setLoading(false);
@@ -117,32 +122,33 @@ export function useMailbox(
   }, [options.disabled, reload]);
 
   const prefetchBody = useCallback((conversationId: string) => {
-    if (bodyCache.has(conversationId)) return;
-    bodyCache.set(conversationId, true);
-    const run = () => {
-      void fetch(`/api/v3/conversations/${encodeURIComponent(conversationId)}`, {
-        cache: "force-cache",
-      })
-        .then(async (response) => {
-          if (!response.ok) throw new Error("body prefetch failed");
-          bodyCache.set(conversationId, await response.json());
+    const ids = prefetchAdjacentIds(viewRef.current, conversationId);
+    for (const id of ids) {
+      if (bodyCache.has(id)) continue;
+      bodyCache.set(id, true);
+      const run = () => {
+        void fetch(`/api/v3/conversations/${encodeURIComponent(id)}`, {
+          cache: "force-cache",
         })
-        .catch(() => {
-          bodyCache.delete(conversationId);
-        });
-    };
-    const idle = (
-      window as Window & {
-        requestIdleCallback?: (
-          callback: () => void,
-          options?: { timeout?: number },
-        ) => number;
-      }
-    ).requestIdleCallback;
-    if (idle) {
-      idle(run, { timeout: 700 });
-    } else {
-      globalThis.setTimeout(run, 0);
+          .then(async (response) => {
+            if (!response.ok) throw new Error("body prefetch failed");
+            bodyCache.set(id, await response.json());
+          })
+          .catch(() => {
+            bodyCache.delete(id);
+          });
+      };
+      if (typeof window === "undefined") continue;
+      const idle = (
+        window as Window & {
+          requestIdleCallback?: (
+            callback: () => void,
+            options?: { timeout?: number },
+          ) => number;
+        }
+      ).requestIdleCallback;
+      if (idle) idle(run, { timeout: 700 });
+      else globalThis.setTimeout(run, 0);
     }
   }, []);
 
@@ -195,7 +201,15 @@ export function useMailbox(
     [reload],
   );
 
-  return { view, loading, refreshing, error, reload, prefetchBody, dispatch };
+  return {
+    view: viewForFolder(view, folder),
+    loading,
+    refreshing,
+    error,
+    reload,
+    prefetchBody,
+    dispatch,
+  };
 }
 
 export function rowLabel(row: MailboxRow): string {

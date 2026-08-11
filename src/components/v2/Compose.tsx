@@ -1,5 +1,6 @@
 "use client";
 
+import * as React from "react";
 import { useState } from "react";
 import type { Command, CommandResult } from "@/lib/v2/commands/types";
 

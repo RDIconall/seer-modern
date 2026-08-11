@@ -1,5 +1,6 @@
 "use client";
 
+import * as React from "react";
 import { useEffect, useState } from "react";
 import { Archive, RotateCcw } from "lucide-react";
 import type { MailboxRow, MailboxView } from "@/lib/v3/mailbox/types";
@@ -88,15 +89,22 @@ export function FolderList({
                   className="mail-list-checkbox mail-focus-ring"
                   checked={checked}
                   aria-label={`Select ${rowLabel(row)}`}
-                  onChange={() => toggle(row.conversationId)}
+                  onChange={() => {
+                    onPrefetch(row.conversationId);
+                    toggle(row.conversationId);
+                  }}
                 />
                 <button
                   type="button"
                   className="mail-list-open mail-focus-ring"
                   aria-label={`Open ${rowLabel(row)}`}
-                  onClick={() => onOpen(row)}
+                  onClick={() => {
+                    onPrefetch(row.conversationId);
+                    onOpen(row);
+                  }}
                   onFocus={() => onPrefetch(row.conversationId)}
                   onMouseEnter={() => onPrefetch(row.conversationId)}
+                  onTouchStart={() => onPrefetch(row.conversationId)}
                 >
                   <span className="mail-list-main">
                     <span className="mail-list-sender">{row.senderDisplayName || "Unknown sender"}</span>

@@ -1,5 +1,6 @@
 "use client";
 
+import * as React from "react";
 import type { Conversation } from "@/lib/v2/providers/types";
 import type { ProviderKind } from "@/lib/v2/providers/types";
 import { nativeUrlFor } from "@/lib/v2/providers/native-url";

@@ -1,6 +1,7 @@
 "use client";
 
-import { useCallback, useEffect, useMemo, useState } from "react";
+import * as React from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { Atlas } from "@/components/v2/Atlas";
 import { Triage } from "@/components/v2/Triage";
 import { WorthReading } from "@/components/v2/WorthReading";
@@ -12,10 +13,15 @@ import { ComposePane } from "./ComposePane";
 import { FolderList } from "./FolderList";
 import { Navigation, type MailSection } from "./Navigation";
 import { ReaderPane } from "./ReaderPane";
-import { SearchBox, type SearchResult } from "./SearchBox";
+import { fetchSearch, SearchBox, type SearchResult } from "./SearchBox";
 import type { ReaderComposeIntent } from "@/components/v2/Reader";
 import { useMailbox } from "./useMailbox";
 import { useInboxView } from "@/components/v2/useInboxView";
+import {
+  clearSearchState,
+  parseMailHash,
+  type MailHash,
+} from "./mail-client-state";
 
 type PreviewReader = {
   conversation: Conversation;
@@ -26,6 +32,9 @@ export type MailClientPreview = {
   mailbox: Record<MailboxFolder, MailboxView>;
   inboxView: InboxView;
   reader: PreviewReader;
+  initialSection?: MailSection;
+  initialConversationId?: string;
+  initialCompose?: boolean;
 };
 
 const folderSet = new Set<MailboxFolder>(["inbox", "sent", "trash"]);
@@ -34,21 +43,9 @@ function isFolder(section: MailSection): section is MailboxFolder {
   return folderSet.has(section as MailboxFolder);
 }
 
-function readHash(): {
-  section?: MailSection;
-  conversation?: string;
-  query?: string;
-} {
+function readHash(): MailHash {
   if (typeof window === "undefined") return {};
-  const params = new URLSearchParams(window.location.hash.slice(1));
-  const section = params.get("section") as MailSection | null;
-  return {
-    section: section && ["inbox", "sent", "trash", "atlas", "triage", "settings"].includes(section)
-      ? section
-      : undefined,
-    conversation: params.get("conversation") ?? undefined,
-    query: params.get("q") ?? undefined,
-  };
+  return parseMailHash(window.location.hash);
 }
 
 function writeHash(section: MailSection, conversation: string | null, query: string): void {
@@ -106,14 +103,19 @@ function SearchResults({
 }
 
 export function MailClient({ preview }: { preview?: MailClientPreview } = {}) {
-  const [section, setSection] = useState<MailSection>("inbox");
-  const [conversationId, setConversationId] = useState<string | null>(null);
+  const [section, setSection] = useState<MailSection>(preview?.initialSection ?? "inbox");
+  const [conversationId, setConversationId] = useState<string | null>(
+    preview?.initialConversationId ?? null,
+  );
   const [providerConversationId, setProviderConversationId] = useState<string | null>(null);
-  const [compose, setCompose] = useState<ReaderComposeIntent | { mode: "send" } | null>(null);
+  const [compose, setCompose] = useState<ReaderComposeIntent | { mode: "send" } | null>(
+    preview?.initialCompose ? { mode: "send" } : null,
+  );
   const [query, setQuery] = useState("");
   const [searchRows, setSearchRows] = useState<SearchResult[] | null>(null);
   const [notice, setNotice] = useState<{ message: string; error: boolean; outboxId?: string } | null>(null);
   const [hashReady, setHashReady] = useState(false);
+  const restoredSearchRef = useRef<string | null>(null);
 
   const folder = isFolder(section) ? section : "inbox";
   const mailbox = useMailbox(folder, {
@@ -125,13 +127,24 @@ export function MailClient({ preview }: { preview?: MailClientPreview } = {}) {
     Boolean(preview),
   );
 
+  const restoreSearch = useCallback(async (value: string) => {
+    if (restoredSearchRef.current === value) return;
+    restoredSearchRef.current = value;
+    setQuery(value);
+    try {
+      setSearchRows(await fetchSearch(value));
+    } catch {
+      setSearchRows([]);
+    }
+  }, []);
+
   useEffect(() => {
     const hash = readHash();
     if (hash.section) setSection(hash.section);
     if (hash.conversation) setConversationId(hash.conversation);
-    if (hash.query) setQuery(hash.query);
+    if (hash.query) void restoreSearch(hash.query);
     setHashReady(true);
-  }, []);
+  }, [restoreSearch]);
 
   useEffect(() => {
     if (hashReady) writeHash(section, conversationId, query);
@@ -150,6 +163,7 @@ export function MailClient({ preview }: { preview?: MailClientPreview } = {}) {
     setCompose(null);
     setSearchRows(null);
     setQuery("");
+    restoredSearchRef.current = null;
     setNotice(null);
   };
 
@@ -205,10 +219,20 @@ export function MailClient({ preview }: { preview?: MailClientPreview } = {}) {
   };
 
   const search = (value: string, rows: SearchResult[]) => {
+    restoredSearchRef.current = value;
     setQuery(value);
     setSearchRows(rows);
     setConversationId(null);
     setProviderConversationId(null);
+  };
+
+  const clearSearch = () => {
+    const cleared = clearSearchState(section);
+    setQuery(cleared.query);
+    setSearchRows(cleared.rows);
+    setConversationId(cleared.conversation);
+    setProviderConversationId(null);
+    restoredSearchRef.current = null;
   };
 
   const openSearchResult = (row: SearchResult) => {
@@ -229,7 +253,7 @@ export function MailClient({ preview }: { preview?: MailClientPreview } = {}) {
     });
   };
 
-  const content = conversationId ? (
+  const readerContent = conversationId ? (
     <ReaderPane
       conversationId={conversationId}
       onBack={() => {
@@ -241,22 +265,35 @@ export function MailClient({ preview }: { preview?: MailClientPreview } = {}) {
       onProviderConversationId={rememberProviderConversationId}
       preview={readerPreview}
     />
+  ) : null;
+
+  const folderContent = searchRows ? (
+    <SearchResults rows={searchRows} onOpen={openSearchResult} />
+  ) : activeMailbox ? (
+    <FolderList
+      view={activeMailbox}
+      refreshing={mailbox.refreshing}
+      onOpen={openRow}
+      onPrefetch={mailbox.prefetchBody}
+      onAction={(row, kind) => void action(row, kind)}
+    />
+  ) : (
+    <section className="mail-folder-layout mail-reader-loading" aria-label="Loading mailbox">
+      <p>{mailbox.error ? `Couldn’t load mail: ${mailbox.error}` : "Reading your mail…"}</p>
+    </section>
+  );
+
+  const content = isFolder(section) ? (
+    <div className="mail-workspace">
+      <div className="mail-folder-pane" aria-label={`${section} folder`}>
+        {folderContent}
+      </div>
+      {readerContent && <div className="mail-reader-pane">{readerContent}</div>}
+    </div>
+  ) : conversationId ? (
+    readerContent
   ) : searchRows ? (
     <SearchResults rows={searchRows} onOpen={openSearchResult} />
-  ) : isFolder(section) ? (
-    activeMailbox ? (
-      <FolderList
-        view={activeMailbox}
-        refreshing={mailbox.refreshing}
-        onOpen={openRow}
-        onPrefetch={mailbox.prefetchBody}
-        onAction={(row, kind) => void action(row, kind)}
-      />
-    ) : (
-      <section className="mail-folder-layout mail-reader-loading" aria-label="Loading mailbox">
-        <p>{mailbox.error ? `Couldn’t load mail: ${mailbox.error}` : "Reading your mail…"}</p>
-      </section>
-    )
   ) : section === "atlas" ? (
     inbox.view ? (
       <>
@@ -288,10 +325,7 @@ export function MailClient({ preview }: { preview?: MailClientPreview } = {}) {
           <SearchBox
             initialQuery={query}
             onSearch={search}
-            onClear={() => {
-              setQuery("");
-              setSearchRows(null);
-            }}
+            onClear={clearSearch}
           />
           <span className="mail-toolbar-status" aria-live="polite">
             {mailbox.refreshing ? "Syncing…" : ""}

@@ -1,5 +1,6 @@
 "use client";
 
+import * as React from "react";
 import { ArrowLeft, LoaderCircle } from "lucide-react";
 import { useEffect, useState } from "react";
 import type { Conversation, ProviderKind } from "@/lib/v2/providers/types";

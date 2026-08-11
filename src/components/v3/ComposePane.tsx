@@ -1,5 +1,6 @@
 "use client";
 
+import * as React from "react";
 import { X } from "lucide-react";
 import { Compose, type ComposeMode } from "@/components/v2/Compose";
 import type { CommandResult } from "@/lib/v2/commands/types";

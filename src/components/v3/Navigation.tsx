@@ -1,5 +1,6 @@
 "use client";
 
+import * as React from "react";
 import {
   Inbox,
   LayoutGrid,
@@ -110,6 +111,15 @@ export function Navigation({
           onNavigate={onNavigate}
         />
       </nav>
+      <button
+        type="button"
+        className="mail-mobile-compose mail-focus-ring"
+        aria-label="Compose new message"
+        onClick={onCompose}
+      >
+        <span aria-hidden>＋</span>
+        <span>Compose</span>
+      </button>
     </>
   );
 }

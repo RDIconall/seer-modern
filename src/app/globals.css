@@ -778,6 +778,26 @@ body {
   overflow: auto;
 }
 
+.mail-workspace {
+  display: flex;
+  min-height: 0;
+  flex: 1;
+}
+
+.mail-folder-pane {
+  min-width: 0;
+  flex: 1;
+}
+
+.mail-reader-pane {
+  display: none;
+  min-width: 0;
+}
+
+.mail-mobile-compose {
+  display: none;
+}
+
 .mail-folder-layout {
   min-width: 0;
   padding: 24px 30px 80px;
@@ -1120,18 +1140,23 @@ body {
 }
 
 @media (min-width: 701px) {
-  .mail-client[data-reader-open="true"] .mail-content {
+  .mail-client[data-reader-open="true"] .mail-workspace {
     display: grid;
     grid-template-columns: minmax(320px, 0.9fr) minmax(420px, 1.1fr);
     overflow: hidden;
   }
 
-  .mail-client[data-reader-open="true"] .mail-folder-layout {
+  .mail-client[data-reader-open="true"] .mail-reader-pane {
+    display: block;
     overflow: auto;
-    border-right: 1px solid var(--border);
+    border-left: 1px solid var(--border);
   }
 
-  .mail-client[data-reader-open="true"] .mail-reader {
+  .mail-client[data-reader-open="true"] .mail-folder-pane {
+    overflow: auto;
+  }
+
+  .mail-client[data-reader-open="true"] .mail-reader-pane .mail-reader {
     overflow: auto;
   }
 }
@@ -1166,6 +1191,18 @@ body {
 
   .mail-content {
     overflow: visible;
+  }
+
+  .mail-workspace {
+    display: block;
+  }
+
+  .mail-client[data-reader-open="true"] .mail-folder-pane {
+    display: none;
+  }
+
+  .mail-client[data-reader-open="true"] .mail-reader-pane {
+    display: block;
   }
 
   .mail-folder-layout,
@@ -1242,6 +1279,30 @@ body {
     bottom: calc(72px + var(--safe-bottom));
     left: 12px;
     max-width: none;
+  }
+
+  .mail-mobile-compose {
+    position: fixed;
+    right: 16px;
+    bottom: calc(73px + var(--safe-bottom));
+    z-index: 34;
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    min-height: 44px;
+    padding: 0 14px;
+    border: 1px solid var(--border);
+    border-radius: 999px;
+    color: var(--fg-strong);
+    background: var(--bg);
+    box-shadow: 0 5px 18px rgba(0, 0, 0, 0.14);
+    font-size: 13px;
+    font-weight: 700;
+  }
+
+  .mail-mobile-compose span:first-child {
+    font-size: 20px;
+    line-height: 1;
   }
 
   .mail-bottom-nav {
