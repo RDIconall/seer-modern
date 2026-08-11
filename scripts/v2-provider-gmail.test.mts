@@ -5,6 +5,8 @@
 import assert from "node:assert/strict";
 import { runProviderContract, type ContractHarness } from "../src/lib/v2/providers/contract.ts";
 import { GmailProvider } from "../src/lib/v2/providers/gmail.ts";
+import { ProviderReconcileError, isProviderReconcileError } from "../src/lib/v2/providers/mutation-idempotent.ts";
+import { ProviderHttpError } from "../src/lib/v2/providers/http.ts";
 
 function b64url(s: string): string {
   return Buffer.from(s, "utf8").toString("base64").replace(/\+/g, "-").replace(/\//g, "_").replace(/=+$/, "");
@@ -112,7 +114,11 @@ const mockFetch = (async (url: string, init?: RequestInit) => {
 
   const threadGet = u.match(/\/threads\/([^?]+)\?format=full/);
   if (method === "GET" && threadGet) {
-    const t = THREADS[decodeURIComponent(threadGet[1])];
+    const threadId = decodeURIComponent(threadGet[1]);
+    if (threadId === "missing-thread") {
+      return new Response("not found", { status: 404 });
+    }
+    const t = THREADS[threadId];
     return json({ id: t.id, messages: t.messages });
   }
 
@@ -201,5 +207,13 @@ THREADS.gone = {
 const gone = await provider.mutateConversation("gone", "archive", "idem-3");
 assert.equal(gone.failed.length, 0);
 assert.equal(gone.processed.length, 1);
+
+// Initial thread fetch 404 is ambiguous — must throw reconcile error, not no-op receipt.
+await assert.rejects(
+  () => provider.mutateConversation("missing-thread", "archive", "idem-missing"),
+  (err: unknown) =>
+    isProviderReconcileError(err) ||
+    (err instanceof ProviderHttpError && err.status === 404),
+);
 
 console.log("v2-provider-gmail: OK");

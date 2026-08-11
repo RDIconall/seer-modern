@@ -1,5 +1,6 @@
 import { providerFetch, type ProviderHttpOptions } from "./http";
 import {
+  conversationFetchNotFound,
   gmailMutationAlreadyApplied,
   mutationErrorIsNoOp,
 } from "./mutation-idempotent";
@@ -293,10 +294,7 @@ export class GmailProvider implements MailProvider {
     try {
       raw = await this.get<GmailThread>(`/threads/${id}?format=full`);
     } catch (err) {
-      if (mutationErrorIsNoOp(err)) {
-        return { conversationId: id, action, processed: [], failed: [] };
-      }
-      throw err;
+      conversationFetchNotFound(err, "gmail", id);
     }
     const processed: string[] = [];
     const failed: string[] = [];

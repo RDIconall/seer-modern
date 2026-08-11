@@ -1,5 +1,6 @@
 import { providerFetch, type ProviderHttpOptions } from "./http";
 import {
+  conversationFetchNotFound,
   mutationErrorIsNoOp,
   outlookMutationAlreadyApplied,
 } from "./mutation-idempotent";
@@ -291,10 +292,7 @@ export class OutlookProvider implements MailProvider {
     try {
       msgs = await this.conversationMessages(id);
     } catch (err) {
-      if (mutationErrorIsNoOp(err)) {
-        return { conversationId: id, action, processed: [], failed: [] };
-      }
-      throw err;
+      conversationFetchNotFound(err, "outlook", id);
     }
     const processed: string[] = [];
     const failed: string[] = [];

@@ -3,7 +3,10 @@
  */
 import assert from "node:assert/strict";
 import { ProviderHttpError } from "../src/lib/v2/providers/http.ts";
+import { ProviderReconcileError } from "../src/lib/v2/providers/mutation-idempotent.ts";
 import { classifyDrainError } from "../src/lib/v3/outbox/retry.ts";
+
+assert.equal(classifyDrainError(new ProviderReconcileError("gmail", "missing")), "reconcile");
 
 assert.equal(classifyDrainError(new ProviderHttpError(401, "gmail", "auth")), "permanent");
 assert.equal(classifyDrainError(new ProviderHttpError(403, "gmail", "forbidden")), "permanent");

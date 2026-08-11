@@ -1,4 +1,5 @@
 import { ProviderHttpError } from "@/lib/v2/providers/http";
+import { isProviderReconcileError } from "@/lib/v2/providers/mutation-idempotent";
 
 /** How a provider/drain error should be handled. */
 export type RetryDisposition = "transient" | "permanent" | "reconcile";
@@ -25,6 +26,7 @@ function httpStatus(err: unknown): number | null {
  * separately.
  */
 export function classifyDrainError(err: unknown): RetryDisposition {
+  if (isProviderReconcileError(err)) return "reconcile";
   const status = httpStatus(err);
   if (status !== null) {
     if (status === 401 || status === 403) return "permanent";

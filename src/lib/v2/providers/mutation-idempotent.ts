@@ -2,6 +2,49 @@ import { ProviderHttpError } from "./http";
 import type { MutationAction } from "./types";
 
 /**
+ * Conversation-level mutation failure that requires corpus/provider
+ * reconciliation. Distinct from per-message 404 no-ops after a successful
+ * initial fetch.
+ */
+export class ProviderReconcileError extends Error {
+  readonly name = "ProviderReconcileError";
+
+  constructor(
+    readonly provider: string,
+    message: string,
+  ) {
+    super(message);
+  }
+}
+
+export function isProviderReconcileError(err: unknown): boolean {
+  return (
+    err instanceof ProviderReconcileError ||
+    (typeof err === "object" &&
+      err !== null &&
+      (err as { name?: string }).name === "ProviderReconcileError")
+  );
+}
+
+/**
+ * Initial conversation/thread fetch returned 404 — ambiguous target state;
+ * drain must reconcile rather than treat as a successful no-op.
+ */
+export function conversationFetchNotFound(
+  err: unknown,
+  provider: string,
+  conversationId: string,
+): never {
+  if (mutationErrorIsNoOp(err)) {
+    throw new ProviderReconcileError(
+      provider,
+      `conversation ${conversationId} not found for mutation`,
+    );
+  }
+  throw err;
+}
+
+/**
  * Gmail/Outlook ignore client idempotency keys, but folder mutations are
  * state-setting: repeating archive/trash/restore/markUnread when the target
  * state is already reached (or the message is gone after a prior move) is a

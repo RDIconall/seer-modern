@@ -7,6 +7,8 @@
 import assert from "node:assert/strict";
 import { runProviderContract, type ContractHarness } from "../src/lib/v2/providers/contract.ts";
 import { OutlookProvider } from "../src/lib/v2/providers/outlook.ts";
+import { isProviderReconcileError } from "../src/lib/v2/providers/mutation-idempotent.ts";
+import { ProviderHttpError } from "../src/lib/v2/providers/http.ts";
 
 function graphMsg(id: string, convId: string, when: string, from: string, subject: string) {
   return {
@@ -99,6 +101,9 @@ const mockFetch = (async (url: string, init?: RequestInit) => {
   // Conversation messages by conversationId filter (URL is percent-encoded).
   const conv = decodeURIComponent(u).match(/conversationId eq '([^']+)'/);
   if (method === "GET" && u.includes("$filter") && conv) {
+    if (conv[1] === "missing-thread") {
+      return new Response("not found", { status: 404 });
+    }
     return json({ value: CONVOS[conv[1]] ?? [] });
   }
 
@@ -191,5 +196,13 @@ CONVOS.gone = [
 const gone = await provider.mutateConversation("gone", "archive", "idem-2");
 assert.equal(gone.failed.length, 0);
 assert.equal(gone.processed.length, 1);
+
+// Initial conversation fetch 404 is ambiguous — must throw reconcile error.
+await assert.rejects(
+  () => provider.mutateConversation("missing-thread", "archive", "idem-missing"),
+  (err: unknown) =>
+    isProviderReconcileError(err) ||
+    (err instanceof ProviderHttpError && err.status === 404),
+);
 
 console.log("v2-provider-outlook: OK");

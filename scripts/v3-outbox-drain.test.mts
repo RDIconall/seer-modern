@@ -12,6 +12,7 @@ import {
   INFLIGHT_LEASE_MS,
 } from "../src/lib/v3/outbox/drain.ts";
 import { ProviderHttpError } from "../src/lib/v2/providers/http.ts";
+import { GmailProvider } from "../src/lib/v2/providers/gmail.ts";
 import { FakeProvider } from "../src/lib/v2/providers/fake.ts";
 import { asAccountId, type AccountId } from "../src/lib/v2/db/types.ts";
 import type { MailProvider } from "../src/lib/v2/providers/types.ts";
@@ -305,6 +306,41 @@ try {
     ["404-key"],
   );
   assert.equal(notFoundRow.rows[0].reconcile_needed, true);
+
+  // Gmail adapter: initial thread fetch 404 must reach drain reconcile path.
+  const gmailFetch404 = (async (url: string, init?: RequestInit) => {
+    const u = String(url);
+    const method = init?.method ?? "GET";
+    const threadGet = u.match(/\/threads\/([^?]+)\?format=full/);
+    if (method === "GET" && threadGet) {
+      return new Response("not found", { status: 404 });
+    }
+    throw new Error(`unexpected request: ${method} ${u}`);
+  }) as unknown as typeof fetch;
+  const gmail404Id = await seedConversation(db.pool, accountId, "p-gmail-fetch-404", ["inbox"], false);
+  await enqueueOptimistic(
+    accountId,
+    { type: "archive", conversationId: gmail404Id },
+    "gmail-fetch-404-key",
+  );
+  const gmailProvider = new GmailProvider({
+    accessToken: "test-token",
+    accountEmail: "outbox-drain@example.com",
+    fetchImpl: gmailFetch404,
+  });
+  const gmailDrain = await drainOutbox(accountId, gmailProvider, { limit: 1 });
+  assert.equal(gmailDrain.failed, 1);
+  const gmailRow = await db.pool.query<{ reconcile_needed: boolean; status: string }>(
+    "select reconcile_needed, status from seer.outbox where idempotency_key = $1",
+    ["gmail-fetch-404-key"],
+  );
+  assert.equal(gmailRow.rows[0].status, "failed");
+  assert.equal(gmailRow.rows[0].reconcile_needed, true);
+  const gmailEvents = await db.pool.query<{ kind: string }>(
+    "select kind from seer.events where account_id = $1 and idempotency_key = $2",
+    [accountId, "gmail-fetch-404-key"],
+  );
+  assert.ok(gmailEvents.rows.some((e) => e.kind === "outbox_reconcile_needed"));
 
   // -------------------------------------------------------------------------
   // Permanent auth failure — no retry budget consumed
