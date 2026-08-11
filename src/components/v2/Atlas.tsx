@@ -1,6 +1,6 @@
 "use client";
 
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { ChevronDown, ChevronRight, ExternalLink } from "lucide-react";
 import type { AtlasSection, InboxView, MatterCard } from "@/lib/v2/view/types";
 import { useCollapsed } from "./useCollapsed";
@@ -40,8 +40,23 @@ export function Atlas({ view }: { view: InboxView }) {
     [sections],
   );
 
-  const { collapsed, toggle, collapseAll, expandAll } =
+  const { collapsed, loaded, hasStored, toggle, collapseAll, expandAll } =
     useCollapsed("seer.atlas.collapsed");
+
+  // On a first visit, open the sections but fold the matters. A real board runs
+  // to a hundred matters and several hundred conversations; opened flat that is
+  // a wall of text with no shape. Folded, the outline of the business is
+  // legible at a glance and you open only what you are working on. After that
+  // the arrangement is the user's and is remembered.
+  const seeded = useRef(false);
+  useEffect(() => {
+    if (!loaded || hasStored || seeded.current) return;
+    seeded.current = true;
+    const matterIds = sections.flatMap((s) =>
+      s.matters.map((m) => `m:${m.matterId}`),
+    );
+    if (matterIds.length > 0) collapseAll(matterIds);
+  }, [loaded, hasStored, sections, collapseAll]);
 
   const matterCount = sections.reduce((n, s) => n + s.matters.length, 0);
 
@@ -244,7 +259,9 @@ function AtlasBoard({
   toggle: (id: string) => void;
 }) {
   return (
-    <div className="flex snap-x gap-3 overflow-x-auto px-4 py-3">
+    // items-start: a column is as tall as its own work. Stretching them all to
+    // the tallest leaves dead space under the short ones and reads as unfinished.
+    <div className="flex snap-x items-start gap-3 overflow-x-auto px-4 py-3">
       {sections.map((section) => {
         const sectionId = `s:${section.name}`;
         const open = !collapsed.has(sectionId);

@@ -13,13 +13,18 @@ import { useCallback, useEffect, useState } from "react";
 export function useCollapsed(storageKey: string) {
   const [collapsed, setCollapsed] = useState<Set<string>>(new Set());
   const [loaded, setLoaded] = useState(false);
+  /** False on a first visit, so a caller can choose a sensible default shape. */
+  const [hasStored, setHasStored] = useState(false);
 
   // Read after mount: localStorage does not exist during a server render, and
   // seeding state from it directly would desynchronise the first paint.
   useEffect(() => {
     try {
       const raw = window.localStorage.getItem(storageKey);
-      if (raw) setCollapsed(new Set(JSON.parse(raw) as string[]));
+      if (raw) {
+        setCollapsed(new Set(JSON.parse(raw) as string[]));
+        setHasStored(true);
+      }
     } catch {
       // A corrupt or unavailable store must never stop the board rendering.
     }
@@ -61,5 +66,5 @@ export function useCollapsed(storageKey: string) {
   );
   const expandAll = useCallback(() => persist(new Set()), [persist]);
 
-  return { collapsed, loaded, toggle, collapseAll, expandAll };
+  return { collapsed, loaded, hasStored, toggle, collapseAll, expandAll };
 }
