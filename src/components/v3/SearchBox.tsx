@@ -2,7 +2,9 @@
 
 import * as React from "react";
 import { Search, X } from "lucide-react";
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
+import { ACCOUNT_CHANGED_EVENT } from "./useMailbox";
+import { SearchRequestGuard } from "./search-request";
 
 export type SearchResult = {
   providerConversationId: string;
@@ -18,9 +20,13 @@ export type SearchResult = {
   dueDate: string | null;
 };
 
-export async function fetchSearch(query: string): Promise<SearchResult[]> {
+export async function fetchSearch(
+  query: string,
+  signal?: AbortSignal,
+): Promise<SearchResult[]> {
   const response = await fetch(`/api/v3/search?q=${encodeURIComponent(query)}`, {
     cache: "no-store",
+    signal,
   });
   const json = (await response.json()) as {
     view?: { rows: SearchResult[] };
@@ -36,30 +42,48 @@ export function SearchBox({
   initialQuery = "",
   onSearch,
   onClear,
+  requestGuard,
 }: {
   initialQuery?: string;
   onSearch: (query: string, rows: SearchResult[]) => void;
   onClear: () => void;
+  requestGuard?: SearchRequestGuard;
 }) {
   const [query, setQuery] = useState(initialQuery);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const localGuard = useRef(new SearchRequestGuard());
+  const guard = requestGuard ?? localGuard.current;
 
   useEffect(() => setQuery(initialQuery), [initialQuery]);
+
+  useEffect(() => {
+    const onAccountChanged = () => {
+      guard.invalidateForAccountChange();
+      setBusy(false);
+      setError(null);
+    };
+    window.addEventListener(ACCOUNT_CHANGED_EVENT, onAccountChanged);
+    return () => window.removeEventListener(ACCOUNT_CHANGED_EVENT, onAccountChanged);
+  }, [guard]);
 
   async function submit(event: React.FormEvent<HTMLFormElement>) {
     event.preventDefault();
     const value = query.trim();
     if (!value || busy) return;
+    const token = guard.start();
     setBusy(true);
     setError(null);
     try {
-      onSearch(value, await fetchSearch(value));
+      const rows = await fetchSearch(value, token.signal);
+      if (!guard.isCurrent(token)) return;
+      onSearch(value, rows);
     } catch (cause) {
+      if (!guard.isCurrent(token)) return;
       setError(cause instanceof Error ? cause.message : "search failed");
       onSearch(value, []);
     } finally {
-      setBusy(false);
+      if (guard.isCurrent(token)) setBusy(false);
     }
   }
 
@@ -84,6 +108,7 @@ export function SearchBox({
             className="mail-search-clear mail-focus-ring"
             aria-label="Clear search"
             onClick={() => {
+              guard.cancel();
               setQuery("");
               onClear();
             }}

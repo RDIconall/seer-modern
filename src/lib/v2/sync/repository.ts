@@ -61,6 +61,19 @@ export async function writeConversationPage(
       }
     }
     for (const providerId of deletedProviderIds) {
+      const existing = await client.query<{
+        id: string;
+      }>(
+        `select id
+           from seer.conversations
+          where account_id = $1 and provider_conversation_id = $2
+          for update`,
+        [accountId, providerId],
+      );
+      const conversation = existing.rows[0];
+      if (!conversation) continue;
+      const mask = await getSyncMask(client, accountId, conversation.id, null);
+      if (mask.protectedFolders.has(folder)) continue;
       await client.query(
         `update seer.conversations
             set folders = array_remove(folders, $3::text),

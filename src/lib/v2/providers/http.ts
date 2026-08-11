@@ -103,7 +103,11 @@ export async function providerFetch(
         );
       }
       // Empty 2xx body (e.g. Graph 202 on send/mutate) is success.
-      return text ? (JSON.parse(text) as unknown) : null;
+      const parsed = text ? (JSON.parse(text) as unknown) : null;
+      if (opts.deadlineMs !== undefined && Date.now() >= opts.deadlineMs) {
+        throw new SyncDeadlineError();
+      }
+      return parsed;
     } catch (err) {
       clearTimeout(timer);
       callerSignal?.removeEventListener("abort", abortFromCaller);

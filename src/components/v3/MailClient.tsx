@@ -22,6 +22,7 @@ import { Navigation, type MailSection } from "./Navigation";
 import { ReaderPane } from "./ReaderPane";
 import { Settings } from "./Settings";
 import { fetchSearch, SearchBox, type SearchResult } from "./SearchBox";
+import { SearchRequestGuard } from "./search-request";
 import type { ReaderComposeIntent } from "@/components/v2/Reader";
 import { ACCOUNT_CHANGED_EVENT, useMailbox } from "./useMailbox";
 import { useInboxView } from "@/components/v2/useInboxView";
@@ -167,6 +168,7 @@ export function MailClient({
   const [notice, setNotice] = useState<{ message: string; error: boolean; outboxId?: string } | null>(null);
   const [hashReady, setHashReady] = useState(false);
   const restoredSearchRef = useRef<string | null>(null);
+  const searchGuard = useRef(new SearchRequestGuard());
   const hashAppliedRef = useRef(false);
   const isMobile = useIsMobile();
   const hashSnapshot = useSyncExternalStore(
@@ -201,11 +203,13 @@ export function MailClient({
   const restoreSearch = useCallback(async (value: string) => {
     if (restoredSearchRef.current === value) return;
     restoredSearchRef.current = value;
+    const token = searchGuard.current.start();
     setQuery(value);
     try {
-      setSearchRows(await fetchSearch(value));
+      const rows = await fetchSearch(value, token.signal);
+      if (searchGuard.current.isCurrent(token)) setSearchRows(rows);
     } catch {
-      setSearchRows([]);
+      if (searchGuard.current.isCurrent(token)) setSearchRows([]);
     }
   }, []);
 
@@ -234,6 +238,7 @@ export function MailClient({
   useEffect(() => {
     if (typeof window === "undefined") return;
     const onAccountChanged = () => {
+      searchGuard.current.invalidateForAccountChange();
       setConversationId(null);
       setProviderConversationId(null);
       setSearchRows(null);
@@ -252,6 +257,7 @@ export function MailClient({
   );
 
   const navigate = (next: MailSection) => {
+    searchGuard.current.cancel();
     setSection(next);
     setConversationId(null);
     setProviderConversationId(null);
@@ -322,6 +328,7 @@ export function MailClient({
   };
 
   const clearSearch = () => {
+    searchGuard.current.cancel();
     const cleared = clearSearchState(section);
     setQuery(cleared.query);
     setSearchRows(cleared.rows);
@@ -449,6 +456,7 @@ export function MailClient({
             initialQuery={query}
             onSearch={search}
             onClear={clearSearch}
+            requestGuard={searchGuard.current}
           />
           <span className="mail-toolbar-status" aria-live="polite">
             {mailbox.refreshing ? "Syncing…" : ""}

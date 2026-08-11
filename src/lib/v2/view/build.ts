@@ -111,8 +111,14 @@ export async function buildInboxView(
   }>(
     `select y.conversation_id, y.kind, y.headline, y.detail, m.title as matter_title
        from seer.yields y
+       join seer.conversations c
+         on c.id = y.conversation_id
+        and c.account_id = y.account_id
        left join seer.matters m on m.id = y.matter_id and m.account_id = y.account_id
-      where y.account_id = $1`,
+      where y.account_id = $1
+        and c.account_id = $1
+        and c.is_deleted = false
+        and c.folders @> array['inbox']::text[]`,
     [accountId],
   );
 

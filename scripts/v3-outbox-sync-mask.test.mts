@@ -366,6 +366,36 @@ try {
   );
   assert.ok(expiredAfter.rows[0].folders.includes("inbox"));
 
+  // A provider tombstone must also respect the optimistic folder mask. A
+  // pending restore wins over a stale provider-side archive/tombstone.
+  const tombstoneAccount = await account("restore-tombstone-mask@example.com");
+  const tombstone = await db.pool.query<{ id: string }>(
+    `insert into seer.conversations
+       (account_id, provider_conversation_id, subject, folders, is_unread, last_message_at)
+     values ($1, 'mask-tombstone', 'Tombstone', array['trash']::text[], false, $2)
+     returning id`,
+    [tombstoneAccount, STALE_AT],
+  );
+  await enqueueOptimistic(
+    tombstoneAccount,
+    { type: "restore", conversationId: tombstone.rows[0].id },
+    "mask-tombstone",
+  );
+  await writeConversationPage(
+    tombstoneAccount,
+    "inbox",
+    [],
+    ["mask-tombstone"],
+  );
+  const tombstoneAfter = await db.pool.query<{ folders: string[] }>(
+    "select folders from seer.conversations where id = $1",
+    [tombstone.rows[0].id],
+  );
+  assert.ok(
+    tombstoneAfter.rows[0].folders.includes("inbox"),
+    "pending restore must preserve inbox against a provider tombstone",
+  );
+
   console.log("v3-outbox-sync-mask: OK");
 } finally {
   await db.stop();

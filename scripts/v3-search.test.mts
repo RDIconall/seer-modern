@@ -13,6 +13,7 @@ import { searchWithMetadata } from "../src/lib/v3/search/repository.ts";
 import { FakeProvider } from "../src/lib/v2/providers/fake.ts";
 import { asConversationId, type AccountId } from "../src/lib/v2/db/types.ts";
 import type { Message } from "../src/lib/v2/providers/types.ts";
+import { SearchRequestGuard } from "../src/components/v3/search-request.ts";
 
 const HERE = path.dirname(fileURLToPath(import.meta.url));
 
@@ -120,6 +121,40 @@ try {
   assert.match(searchRoute, /searchWithMetadata/);
   assert.match(searchRoute, /providerFor/);
   assert.ok(!/accessToken|refreshToken|ciphertext/i.test(searchRoute));
+
+  const searchBox = readFileSync(
+    path.join(HERE, "../src/components/v3/SearchBox.tsx"),
+    "utf8",
+  );
+  assert.match(searchBox, /ACCOUNT_CHANGED_EVENT/, "search must observe account changes");
+  assert.match(searchBox, /isCurrent/, "stale search responses must not commit");
+  const searchGuardSource = readFileSync(
+    path.join(HERE, "../src/components/v3/search-request.ts"),
+    "utf8",
+  );
+  assert.match(searchGuardSource, /AbortController/, "search must abort on account changes");
+
+  // A delayed response from the previous account must be abortable and must
+  // fail both the account-generation and query-token checks before committing.
+  const searchGuard = new SearchRequestGuard();
+  const staleRequest = searchGuard.start();
+  let committed: string[] | null = null;
+  let resolveDelayed!: (rows: string[]) => void;
+  const delayed = new Promise<string[]>((resolve) => {
+    resolveDelayed = resolve;
+  });
+  void delayed.then((rows) => {
+    if (searchGuard.isCurrent(staleRequest)) committed = rows;
+  });
+  searchGuard.invalidateForAccountChange();
+  resolveDelayed(["old-account-result"]);
+  await delayed;
+  assert.equal(staleRequest.signal.aborted, true);
+  assert.equal(committed, null, "stale search response must not commit after account switch");
+
+  const currentRequest = searchGuard.start();
+  assert.equal(searchGuard.isCurrent(currentRequest), true);
+  assert.notEqual(currentRequest.queryToken, staleRequest.queryToken);
 
   const searchRepo = readFileSync(
     path.join(HERE, "../src/lib/v3/search/repository.ts"),

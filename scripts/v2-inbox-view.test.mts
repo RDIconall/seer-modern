@@ -180,6 +180,38 @@ try {
     accountId, conversationId: cTrashOnly, home: "matter", proposedHome: "matter",
     summary: "Trash", rationale: "work", owner: "you", matterId, vetoReasons: [], yields: [], evidence: [],
   });
+  const cSentWorth = await addConversation(
+    db.pool,
+    accountId,
+    "p-sent-worth",
+    "Sent worth reading",
+    "sent@example.com",
+  );
+  const cTrashWorth = await addConversation(
+    db.pool,
+    accountId,
+    "p-trash-worth",
+    "Trash worth reading",
+    "trash-worth@example.com",
+  );
+  await db.pool.query(
+    "update seer.conversations set folders = array['sent']::text[] where id = $1",
+    [cSentWorth],
+  );
+  await db.pool.query(
+    "update seer.conversations set folders = array['trash']::text[] where id = $1",
+    [cTrashWorth],
+  );
+  await saveDecision({
+    accountId, conversationId: cSentWorth, home: "record", proposedHome: "record",
+    summary: "Sent worth reading", rationale: "keep", owner: "nobody", vetoReasons: [],
+    yields: [{ kind: "worth_reading", headline: "Sent article" }], evidence: [],
+  });
+  await saveDecision({
+    accountId, conversationId: cTrashWorth, home: "record", proposedHome: "record",
+    summary: "Trash worth reading", rationale: "keep", owner: "nobody", vetoReasons: [],
+    yields: [{ kind: "worth_reading", headline: "Trash article" }], evidence: [],
+  });
   const inboxOnlyView = await buildInboxView(accountId, "google");
   const projectedIds = [
     ...inboxOnlyView.records.map((row) => row.conversationId),
@@ -189,6 +221,16 @@ try {
   ];
   assert.equal(projectedIds.includes(cArchived), false);
   assert.equal(projectedIds.includes(cTrashOnly), false);
+  assert.equal(
+    inboxOnlyView.worthReading.some((row) => row.conversationId === cSentWorth),
+    false,
+    "sent-only worth_reading yield must stay out of the inbox brain",
+  );
+  assert.equal(
+    inboxOnlyView.worthReading.some((row) => row.conversationId === cTrashWorth),
+    false,
+    "trash-only worth_reading yield must stay out of the inbox brain",
+  );
 
   console.log("v2-inbox-view: OK");
 } finally {
