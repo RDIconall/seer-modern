@@ -142,6 +142,8 @@ Used the installed headless Chrome 148 DevTools Protocol against the development
 
 Browser console contained only React DevTools/Fast Refresh notices; page exceptions were empty.
 
+Direct hash-open check at 390×844 also passed: `#section=inbox&conversation=preview-c-1` rendered the RMS Amendment reader, omitted bottom navigation and FAB, marked `.mail-folder-pane[inert]`, and reported `errors: []`.
+
 ### Full lint after build
 
 The existing flat ESLint config now ignores `.vercel/output/**`. `npm run build` was run first to generate the output, then full `npm run lint` completed with exit 0. Lint reports eight pre-existing warnings in unrelated `scripts/v2-*` and `scripts/v3-*` tests, but no errors and no generated `.vercel/output` diagnostics.
