@@ -4,10 +4,10 @@ import { db } from "@/lib/v2/db/pool";
 import { recordEvent } from "@/lib/v2/commands/repository";
 import type { AccountId } from "@/lib/v2/db/types";
 import {
-  applyExpected,
+  applyOptimistic,
   computeExpected,
   lockConversation,
-  revertIfOwned,
+  revertOptimistic,
 } from "./optimistic";
 import type { EnqueueInput, OutboxCommand, OutboxItem } from "./types";
 
@@ -96,7 +96,7 @@ export async function enqueueOptimistic(
       return existing;
     }
 
-    await applyExpected(client, accountId, command);
+    await applyOptimistic(client, accountId, command);
     return mapRow(inserted.rows[0]);
   });
 }
@@ -123,7 +123,7 @@ export async function cancelPending(
     const row = r.rows[0];
     if (!row) return false;
 
-    const outcome = await revertIfOwned(client, accountId, row.command);
+    const outcome = await revertOptimistic(client, accountId, row.command);
     if (outcome === "conflict") {
       await recordEvent(
         accountId,

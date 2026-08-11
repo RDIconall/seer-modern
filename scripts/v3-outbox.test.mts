@@ -10,9 +10,9 @@ import {
   cancelPending,
 } from "../src/lib/v3/outbox/repository.ts";
 import {
-  applyExpected,
+  applyOptimistic,
   computeExpected,
-  revertIfOwned,
+  revertOptimistic,
   lockConversation,
 } from "../src/lib/v3/outbox/optimistic.ts";
 import { inTransaction } from "../src/lib/v2/db/transaction.ts";
@@ -78,7 +78,7 @@ try {
       expected: computeExpected(type, previous),
     };
     await inTransaction(async (client) => {
-      await applyExpected(client, accountId, command);
+      await applyOptimistic(client, accountId, command);
     });
   }
 
@@ -95,7 +95,7 @@ try {
   assert.equal((await readConversation(db.pool, unreadId)).is_unread, true);
 
   await inTransaction(async (client) => {
-    const outcome = await revertIfOwned(client, accountId, {
+    const outcome = await revertOptimistic(client, accountId, {
       type: "markUnread",
       conversationId: unreadId,
       previous: { folders: ["inbox"], isUnread: false },
@@ -121,7 +121,7 @@ try {
           previous,
           expected: computeExpected("archive", previous),
         };
-        await applyExpected(client, accountId, command);
+        await applyOptimistic(client, accountId, command);
         await client.query(
           `insert into seer.outbox (account_id, command, idempotency_key, status)
            values ($1, $2::jsonb, $3, 'not-a-status')`,

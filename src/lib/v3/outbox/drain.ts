@@ -4,7 +4,7 @@ import { recordEvent } from "@/lib/v2/commands/repository";
 import { providerConversationId } from "@/lib/v2/commands/repository";
 import type { AccountId } from "@/lib/v2/db/types";
 import type { MailProvider, MutationReceipt } from "@/lib/v2/providers/types";
-import { revertIfOwned } from "./optimistic";
+import { revertOptimistic } from "./optimistic";
 import { classifyDrainError } from "./retry";
 import type { DrainReport, OutboxCommand, OutboxItem } from "./types";
 
@@ -161,7 +161,7 @@ async function markPermanentFailed(
 
   let revertOutcome: "reverted" | "conflict" | "skipped" = "skipped";
   if (revert && (!opts.receipt || opts.receipt.processed.length === 0)) {
-    revertOutcome = await revertIfOwned(client, accountId, item.command);
+    revertOutcome = await revertOptimistic(client, accountId, item.command);
   }
 
   const kind =

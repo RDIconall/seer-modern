@@ -73,10 +73,10 @@ export async function lockConversation(
 }
 
 /**
- * Apply the stored expected snapshot to the corpus. Caller must hold the
- * conversation lock in the same transaction.
+ * Apply an optimistic corpus patch from `command.expected`. Caller must hold
+ * the conversation lock in the same transaction.
  */
-export async function applyExpected(
+export async function applyOptimistic(
   client: PoolClient,
   accountId: AccountId,
   command: OutboxCommand,
@@ -94,16 +94,18 @@ export async function applyExpected(
   );
 }
 
+export type RevertOptimisticOutcome = "reverted" | "conflict";
+
 /**
  * Revert only when the corpus still reflects this command's optimistic patch.
  * Returns `conflict` when a later command or sync has changed state — caller
  * must record a reconcile event instead of clobbering.
  */
-export async function revertIfOwned(
+export async function revertOptimistic(
   client: PoolClient,
   accountId: AccountId,
   command: OutboxCommand,
-): Promise<"reverted" | "conflict"> {
+): Promise<RevertOptimisticOutcome> {
   const current = await lockConversation(client, accountId, command.conversationId);
   if (!current) return "conflict";
   const now: CorpusSnapshot = {
