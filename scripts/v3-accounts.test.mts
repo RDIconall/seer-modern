@@ -141,6 +141,18 @@ try {
     null,
     "legacy fallback must not select another user's first token",
   );
+  const migratedUser = await accounts.upsertUser("owner@example.com");
+  const migratedAccount = await accounts.upsertAccountWithCredentials({
+    userId: migratedUser,
+    provider: "google",
+    email: ownerFallback!.email,
+    accessToken: ownerFallback!.accessToken,
+    refreshToken: ownerFallback!.refreshToken,
+    expiresAt: ownerFallback!.expiresAt,
+  });
+  const migratedCredentials = await accounts.getCredentials(migratedAccount.id);
+  assert.equal(migratedCredentials?.accessToken, "legacy-owner-access");
+  assert.equal(migratedCredentials?.refreshToken, "legacy-owner-refresh");
 
   const rawA = await accounts.rawCredentialRow(accountA.id);
   assert.doesNotMatch(rawA, /access-a|refresh-a/);
