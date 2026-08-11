@@ -178,6 +178,31 @@ try {
     "folder_sync_seen PK must identify one provider conversation in one scan",
   );
 
+  const credentialHealth = await db.pool.query<{
+    column_name: string;
+    data_type: string;
+    is_nullable: string;
+    column_default: string | null;
+  }>(
+    `select column_name, data_type, is_nullable, column_default
+       from information_schema.columns
+      where table_schema = 'seer'
+        and table_name = 'oauth_credentials'
+        and column_name in ('status', 'last_error')
+      order by column_name`,
+  );
+  assert.deepEqual(
+    credentialHealth.rows.map((row) => row.column_name),
+    ["last_error", "status"],
+    "OAuth health metadata must be durable",
+  );
+  assert.equal(credentialHealth.rows.find((row) => row.column_name === "status")?.data_type, "text");
+  assert.equal(credentialHealth.rows.find((row) => row.column_name === "status")?.is_nullable, "NO");
+  assert.equal(
+    credentialHealth.rows.find((row) => row.column_name === "status")?.column_default,
+    "'active'::text",
+  );
+
   const user = await db.pool.query<{ id: string }>(
     "insert into seer.users (email) values ('v3-schema@test.local') returning id",
   );
