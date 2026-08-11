@@ -8,7 +8,6 @@ import { fileURLToPath } from "node:url";
 import path from "node:path";
 import { startTestDb } from "./v2-testdb.mts";
 import { upsertUser, upsertAccount } from "../src/lib/v2/db/accounts.ts";
-import { saveDecision } from "../src/lib/v2/intelligence/repository.ts";
 import { executeCommand } from "../src/lib/v2/commands/execute.ts";
 import { getCorpusConversation } from "../src/lib/v3/reader/repository.ts";
 import { verifyMessageOwnership, resolveAttachmentMeta } from "../src/lib/v3/attachments/repository.ts";

@@ -88,7 +88,6 @@ try {
   const cDel = await seedConversation(db.pool, accountId, "pc-del", ["inbox"]);
   const cRest = await seedConversation(db.pool, accountId, "pc-rest", ["trash"]);
   const cUnread = await seedConversation(db.pool, accountId, "pc-unread", ["inbox"]);
-  const cSend = await seedConversation(db.pool, accountId, "pc-send", ["inbox"]);
 
   // Queueable mutations do not need a provider instance (and therefore do not
   // need an access-token refresh). Outbound commands still fail visibly when

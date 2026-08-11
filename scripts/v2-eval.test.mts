@@ -6,7 +6,7 @@
  */
 import assert from "node:assert/strict";
 import { compareDecision, releaseVerdict } from "../src/lib/v2/eval/compare.ts";
-import type { EvalCase, BaselineResult, SeerOutcome } from "../src/lib/v2/eval/types.ts";
+import type { EvalCase, BaselineResult } from "../src/lib/v2/eval/types.ts";
 import type { Conversation } from "../src/lib/v2/providers/types.ts";
 
 const conversation: Conversation = {

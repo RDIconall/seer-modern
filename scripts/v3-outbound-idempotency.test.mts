@@ -36,6 +36,7 @@ class NonIdempotentProvider implements MailProvider {
     return { conversations: [], deletedConversationIds: [], nextCursor: null, providerTotal: 0 };
   }
   async syncFolder(_folder: SyncFolder): Promise<SyncPage> {
+    void _folder;
     return this.sync();
   }
   async getConversation(id: string) {

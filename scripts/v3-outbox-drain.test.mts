@@ -49,6 +49,9 @@ class ThrowingProvider extends FakeProvider {
     _action: Parameters<MailProvider["mutateConversation"]>[1],
     _key: string,
   ) {
+    void _id;
+    void _action;
+    void _key;
     this.calls += 1;
     throw this.error;
   }
@@ -166,7 +169,7 @@ try {
   const oldId = await seedConversation(db.pool, accountId, "p-old", ["inbox"], false);
   const newId = await seedConversation(db.pool, accountId, "p-new", ["inbox"], false);
 
-  const first = await enqueueOptimistic(
+  await enqueueOptimistic(
     accountId,
     { type: "archive", conversationId: oldId },
     "drain-old",
