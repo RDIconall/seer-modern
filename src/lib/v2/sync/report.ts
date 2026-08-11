@@ -38,6 +38,10 @@ export type SyncBudgetOptions = {
 const DEFAULT_PAGES_PER_FOLDER = 2;
 const DEFAULT_ROUNDS = 2;
 
+function sliceKey(accountId: string, folder: SyncFolder): string {
+  return `${accountId}:${folder}`;
+}
+
 function runToReport(email: string, run: SyncRun): SyncFolderReport {
   return {
     email,
@@ -121,6 +125,7 @@ export async function syncTickRoundRobin(
   const rounds = budget.rounds ?? DEFAULT_ROUNDS;
   const tickSlot = budget.tickSlot ?? 0;
   const accountOrder = rotate(entries, tickSlot % entries.length);
+  const satisfiedSlices = new Set<string>();
 
   for (let round = 0; round < rounds; round++) {
     if (isPastSyncDeadline(budget.deadlineMs)) break;
@@ -128,12 +133,17 @@ export async function syncTickRoundRobin(
     for (const { account, provider } of accountOrder) {
       for (const folder of folderOrder) {
         if (isPastSyncDeadline(budget.deadlineMs)) break;
+        const key = sliceKey(account.id, folder);
+        if (round > 0 && satisfiedSlices.has(key)) continue;
         try {
           const run = await syncFolder(account.id, provider, folder, mode, {
             maxPages: 1,
             deadlineMs: budget.deadlineMs,
           });
           report.push(runToReport(account.email, run));
+          if (run.polledHead || run.complete) {
+            satisfiedSlices.add(key);
+          }
         } catch (e) {
           report.push({
             email: account.email,

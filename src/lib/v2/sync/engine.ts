@@ -76,21 +76,21 @@ export async function syncFolder(
   const started = new Date();
   const { maxPages, deadlineMs } = options;
 
-  let state = await loadFolderSyncState(accountId, folder);
+  const durableState = await loadFolderSyncState(accountId, folder);
+  let workingState = durableState;
 
-  if (mode === "full" && state.backfillComplete) {
-    state = { ...state, backfillComplete: false, cursor: null };
-    await persistFolderState(accountId, folder, state);
+  if (mode === "full" && durableState.backfillComplete) {
+    workingState = { ...durableState, backfillComplete: false, cursor: null };
   }
 
-  const headPoll = mode === "incremental" && state.backfillComplete;
+  const headPoll = mode === "incremental" && durableState.backfillComplete;
   const effectiveMaxPages = headPoll ? 1 : maxPages;
 
   let failed = 0;
   let pages = 0;
-  let providerTotal = state.providerTotal;
-  let providerCursor: string | null = headPoll ? null : state.cursor;
-  let backfillComplete = state.backfillComplete;
+  let providerTotal = workingState.providerTotal;
+  let providerCursor: string | null = headPoll ? null : workingState.cursor;
+  let backfillComplete = workingState.backfillComplete;
   let polledHead = false;
   let backfillFinishedThisRun = false;
 
@@ -140,6 +140,11 @@ export async function syncFolder(
       backfillComplete: false,
       providerTotal,
     });
+  }
+
+  if (pages === 0) {
+    backfillComplete = durableState.backfillComplete;
+    providerCursor = durableState.backfillComplete ? null : durableState.cursor;
   }
 
   const complete =

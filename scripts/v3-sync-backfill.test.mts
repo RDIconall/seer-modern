@@ -130,6 +130,49 @@ try {
   assert.equal(deadlineBeforePage.pages, 0);
   assert.equal(deadlineBeforePage.complete, false);
 
+  const userId3 = await upsertUser("full-deadline@example.com");
+  const accountId3 = await upsertAccount({
+    userId: userId3,
+    provider: "google",
+    email: "full-deadline@example.com",
+  });
+  const completedInbox = new FakeProvider({
+    pageSize: 5,
+    conversations: Array.from({ length: 3 }, (_, i) => ({
+      providerConversationId: `done-inbox-${i}`,
+      subject: `Done ${i}`,
+      messages: [msg(`done-inbox-${i}-m`, "inbox")],
+    })),
+  });
+  await syncFolder(accountId3, completedInbox, "inbox", "full");
+
+  const abortedFull = await syncFolder(
+    accountId3,
+    completedInbox,
+    "inbox",
+    "full",
+    { maxPages: 1, deadlineMs: Date.now() + SYNC_PAGE_SAFETY_HEADROOM_MS - 1 },
+  );
+  assert.equal(abortedFull.pages, 0);
+  assert.equal(abortedFull.backfillComplete, true, "deadline before first page must preserve completed state");
+
+  const durableAfterAbort = await db.pool.query<{ backfill_complete: boolean }>(
+    `select backfill_complete from seer.folder_sync_state
+      where account_id = $1 and folder = 'inbox'`,
+    [accountId3],
+  );
+  assert.equal(durableAfterAbort.rows[0].backfill_complete, true);
+
+  const afterAbortIncremental = await syncFolder(
+    accountId3,
+    completedInbox,
+    "inbox",
+    "incremental",
+    { maxPages: 5 },
+  );
+  assert.equal(afterAbortIncremental.polledHead, true, "next incremental must head-poll, not restart backfill");
+  assert.equal(afterAbortIncremental.backfillComplete, true);
+
   console.log("v3-sync-backfill: OK");
 } finally {
   await db.stop();
