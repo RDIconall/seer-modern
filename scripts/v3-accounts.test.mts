@@ -8,9 +8,14 @@ import { promises as fs } from "node:fs";
 import path from "node:path";
 import { startTestDb } from "./v2-testdb.mts";
 import { asAccountId } from "../src/lib/v2/db/types.ts";
+import { seal } from "../src/lib/store/secret-at-rest.ts";
 
 const accounts = await import("../src/lib/v2/db/accounts.ts");
+const dataDir = await fs.mkdtemp(path.join(process.cwd(), ".tmp-v3-accounts-"));
+process.env.SEER_DATA_DIR = dataDir;
+process.env.SEER_V3_LEGACY_ACCOUNT_FALLBACK = "1";
 const legacy = await import("../src/lib/store/accounts.ts");
+const kv = await import("../src/lib/store/kv.ts");
 const db = await startTestDb();
 
 try {
@@ -50,6 +55,45 @@ try {
   );
   assert.ok(await accounts.getOwnedAccount(userB, accountB.id));
 
+  // Legacy fallback opens sealed records but never crosses the authenticated
+  // owner boundary or chooses the first global token.
+  await kv.kvSet("accounts", {
+    accounts: [
+      {
+        id: "google:owner@example.com",
+        provider: "google",
+        email: "owner@example.com",
+        name: "Owner",
+        accessToken: seal("legacy-owner-access", "google:owner@example.com"),
+        refreshToken: seal("legacy-owner-refresh", "google:owner@example.com"),
+        updatedAt: new Date().toISOString(),
+      },
+      {
+        id: "google:other@example.com",
+        provider: "google",
+        email: "other@example.com",
+        name: "Other",
+        accessToken: seal("legacy-other-access", "google:other@example.com"),
+        refreshToken: seal("legacy-other-refresh", "google:other@example.com"),
+        updatedAt: new Date().toISOString(),
+      },
+    ],
+  });
+  assert.equal(typeof legacy.selectOwnedAccount, "function");
+  const hydratedLegacy = await legacy.listAccountsWithTokens();
+  const ownerFallback = legacy.selectOwnedAccount(
+    hydratedLegacy,
+    "owner@example.com",
+    null,
+  );
+  assert.equal(ownerFallback?.email, "owner@example.com");
+  assert.equal(ownerFallback?.accessToken, "legacy-owner-access");
+  assert.equal(
+    legacy.selectOwnedAccount(hydratedLegacy, "missing@example.com", null),
+    null,
+    "legacy fallback must not select another user's first token",
+  );
+
   const rawA = await accounts.rawCredentialRow(accountA.id);
   assert.doesNotMatch(rawA, /access-a|refresh-a/);
   const credentialA = await accounts.getCredentials(accountA.id);
@@ -76,6 +120,8 @@ try {
   assert.match(apiSource, /listOwnedAccounts/);
   assert.match(apiSource, /deleteOwnedAccount/);
   assert.match(apiSource, /confirmed/);
+  assert.match(apiSource, /requiresSignOut/);
+  assert.match(apiSource, /originAllowed/);
   const serializerSource = apiSource.slice(
     apiSource.indexOf("function publicAccount"),
     apiSource.indexOf("async function currentUser"),
@@ -93,6 +139,14 @@ try {
   assert.match(sessionSource, /getOwnedAccount|listOwnedAccounts/);
   assert.match(sessionSource, /SEER_V3_LEGACY_ACCOUNT_FALLBACK/);
   assert.match(sessionSource, /legacyAccountFallbackEnabled/);
+
+  const v2SessionSource = await fs.readFile(
+    path.join(process.cwd(), "src/lib/v2/session.ts"),
+    "utf8",
+  );
+  assert.match(v2SessionSource, /getActiveAccountId/);
+  assert.match(v2SessionSource, /getOwnedAccount/);
+  assert.match(v2SessionSource, /fallback|cookie/i);
 
   const authSource = await fs.readFile(
     path.join(process.cwd(), "src/auth.ts"),
@@ -114,6 +168,8 @@ try {
   assert.match(migrationSource, /--apply/);
   assert.match(migrationSource, /dry-run|dryRun/);
   assert.match(migrationSource, /upsertAccountWithCredentials/);
+  assert.match(migrationSource, /listAccountsWithTokens/);
+  assert.doesNotMatch(migrationSource, /kvGet/);
 
   const settingsSource = await fs.readFile(
     path.join(process.cwd(), "src/components/v3/Settings.tsx"),
@@ -122,6 +178,8 @@ try {
   for (const label of ["Current account", "Reconnect", "Add account", "Remove", "Switch", "Sign out"]) {
     assert.match(settingsSource, new RegExp(label, "i"));
   }
+  assert.match(settingsSource, /requiresSignOut/);
+  assert.match(settingsSource, /logout/);
 
   assert.equal(await accounts.deleteOwnedAccount(userA, accountA.id), true);
   assert.equal(
@@ -140,4 +198,5 @@ try {
   console.log("v3-accounts: OK");
 } finally {
   await db.stop();
+  await fs.rm(dataDir, { recursive: true, force: true });
 }
