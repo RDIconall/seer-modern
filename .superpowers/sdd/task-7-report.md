@@ -53,3 +53,64 @@ Manual route check:
 - Settings is a navigable shell placeholder pending Task 8 account cutover.
 - Mailbox list rows do not carry safety delete tokens, so reader delete remains visibly blocked with a safety-token message; Triage remains the authorized delete surface.
 - Provider-only search results are shown as transient and cannot open a corpus reader until synced.
+
+## Review follow-up
+
+Review findings fixed in `e712381` (`fix(v3): address responsive shell review findings`):
+
+- Folder and reader now render as sibling semantic panes when a folder conversation is open. CSS only changes their desktop/mobile placement; the folder remains mounted and selectable.
+- Mobile navigation has an always-visible, labeled Compose action; the SSR contract exercises the compose-open state.
+- `useMailbox` clears mismatched or failed views, validates response folder identity, and exposes only `viewForFolder(view, activeFolder)`. Empty Sent cannot retain Inbox rows.
+- Hash `q` restoration calls the existing search API once, renders restored results, and clear resets the search state while retaining the active folder.
+- Focus, hover, touch selection, and opening a row all call bounded, deduplicated adjacent body prefetch for N-1/N/N+1.
+
+Exact review verification output:
+
+```text
+v3-mailbox-state: OK
+v3-mail-client-state: OK
+v3-ui-contract: OK
+v3-styles: OK (58 classes all styled)
+v2-contrast: ok (light and dark pass AA)
+
+npx tsc --noEmit
+exit 0
+
+targeted eslint
+exit 0
+
+npm run test:v3
+v3-schema: OK
+v3-sync-folders: OK
+v3-mailbox-view: OK
+v2-sync-report: OK
+v3-outbox: OK
+v3-outbox-drain: OK
+v3-outbox-retry: OK
+v3-outbox-sync-mask: OK
+v3-command-outbox: OK
+v3-reader-api: OK
+v3-search: OK
+v3-attachment-security: OK
+v3-outbound-idempotency: OK
+v3-mailbox-state: OK
+v3-mail-client-state: OK
+v3-ui-contract: OK
+v3-styles: OK (58 classes all styled)
+
+npm test
+exit 0
+
+npm run build
+Compiled successfully
+Generating static pages (52/52)
+exit 0
+
+manual development preview
+GET /dev/preview status=200 bytes=35648
+mail-compose: 1
+mail-folder-pane: 1
+mail-mobile-compose: 1
+```
+
+No browser/screenshot tooling was available, so breakpoint screenshots and interactive touch/keyboard recordings were not captured.
