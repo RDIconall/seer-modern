@@ -76,27 +76,27 @@ export function Atlas({ view }: { view: InboxView }) {
 
   return (
     <section aria-label="Atlas — the whiteboard" className="-mx-4">
-      <header className="flex flex-wrap items-baseline justify-between gap-3 border-b border-[var(--border)] px-4 py-3">
+      <header className="flex flex-wrap items-center justify-between gap-4 px-4 pb-5 pt-2">
         <div>
-          <h1 className="text-[17px] font-bold text-[var(--fg-strong)]">
+          <h1 className="text-[24px] font-semibold tracking-[-0.01em] text-[var(--fg-strong)]">
             Whiteboard
           </h1>
-          <p className="text-[14px] text-[var(--fg)]">
+          <p className="mt-0.5 text-[14px] text-[var(--muted)]">
             {matterCount} matters · {sections.length} sections
           </p>
         </div>
-        <div className="flex items-center gap-3 text-[12px]">
-          <div className="inline-flex overflow-hidden rounded-md border border-[var(--border)]">
-            {(["list", "board"] as Mode[]).map((m) => (
+        <div className="flex items-center gap-1.5 text-[13px]">
+          <div className="inline-flex rounded-full bg-[var(--card)] p-[3px]">
+            {(["board", "list"] as Mode[]).map((m) => (
               <button
                 key={m}
                 type="button"
                 onClick={() => setMode(m)}
                 aria-pressed={mode === m}
-                className={`px-3 py-1 font-bold capitalize ${
+                className={`rounded-full px-3.5 py-1.5 capitalize transition-colors ${
                   mode === m
-                    ? "bg-[var(--card)] text-[var(--fg-strong)]"
-                    : "text-[var(--fg)] hover:bg-[var(--row-hover)]"
+                    ? "bg-[var(--bg)] font-medium text-[var(--fg-strong)] shadow-[0_1px_3px_rgba(0,0,0,0.06)]"
+                    : "text-[var(--muted)] hover:text-[var(--fg-strong)]"
                 }`}
               >
                 {m}
@@ -106,14 +106,14 @@ export function Atlas({ view }: { view: InboxView }) {
           <button
             type="button"
             onClick={() => collapseAll(allIds)}
-            className="font-bold text-[var(--fg)] hover:text-[var(--fg-strong)]"
+            className="rounded-full px-3 py-1.5 text-[var(--muted)] transition-colors hover:bg-[var(--row-hover)] hover:text-[var(--fg-strong)]"
           >
             Collapse all
           </button>
           <button
             type="button"
             onClick={expandAll}
-            className="font-bold text-[var(--fg)] hover:text-[var(--fg-strong)]"
+            className="rounded-full px-3 py-1.5 text-[var(--muted)] transition-colors hover:bg-[var(--row-hover)] hover:text-[var(--fg-strong)]"
           >
             Expand all
           </button>
@@ -151,13 +151,13 @@ function AtlasList({
               type="button"
               onClick={() => toggle(sectionId)}
               aria-expanded={open}
-              className="flex w-full items-center gap-1.5 rounded-md px-2 py-1.5 text-left hover:bg-[var(--row-hover)]"
+              className="flex w-full items-center gap-2 rounded-lg px-2 py-2 text-left transition-colors hover:bg-[var(--row-hover)]"
             >
               <Chevron open={open} />
-              <span className="text-[14px] font-bold text-[var(--fg-strong)]">
+              <span className="text-[14px] font-medium text-[var(--fg-strong)]">
                 {sectionLabel(section.name)}
               </span>
-              <span className="text-[12px] text-[var(--fg)]">
+              <span className="text-[13px] tabular-nums text-[var(--muted)]">
                 {section.matters.length}
               </span>
             </button>
@@ -193,7 +193,7 @@ function MatterOutline({
 
   return (
     <div className="ml-4">
-      <div className="flex items-center gap-1.5 rounded-md px-2 py-1 hover:bg-[var(--row-hover)]">
+      <div className="flex items-center gap-2 rounded-lg px-2 py-1.5 transition-colors hover:bg-[var(--row-hover)]">
         {hasChildren ? (
           <button
             type="button"
@@ -207,42 +207,42 @@ function MatterOutline({
         ) : (
           <span className="inline-block h-4 w-4 shrink-0" />
         )}
-        <span className="min-w-0 flex-1 truncate text-[14px] text-[var(--fg-strong)]">
+        <span className="min-w-0 flex-1 truncate text-[14.5px] text-[var(--fg-strong)]">
           {matter.title}
         </span>
         {matter.orgUnit && (
-          <span className="shrink-0 rounded-full bg-[var(--brand-soft)] px-2 py-0.5 text-[11px] font-bold uppercase tracking-wide text-[var(--brand-strong)]">
+          <span className="shrink-0 rounded-full bg-[var(--card)] px-2 py-0.5 text-[11.5px] text-[var(--muted)]">
             {matter.orgUnit}
           </span>
         )}
-        <span className="shrink-0 text-[12px] text-[var(--fg)]">
+        <span className="shrink-0 text-[13px] tabular-nums text-[var(--muted)]">
           {matter.conversations.length}
         </span>
       </div>
 
       {open && hasChildren && (
-        <div className="ml-5 border-l border-[var(--border)] pl-3">
+        <div className="ml-6 space-y-px pl-1">
           {matter.conversations.map((c) => (
             <a
               key={c.conversationId}
               href={c.nativeUrl}
               target="_blank"
               rel="noopener noreferrer"
-              className="group flex items-baseline gap-2 rounded-md px-2 py-1 hover:bg-[var(--row-hover)]"
+              className="group flex items-baseline gap-2 rounded-lg px-2 py-1 transition-colors hover:bg-[var(--row-hover)]"
             >
-              <span className="min-w-0 flex-1 truncate text-[13.5px] text-[var(--fg-strong)]">
+              <span className="min-w-0 flex-1 truncate text-[13.5px] text-[var(--fg)]">
                 {c.subject || "(no subject)"}
               </span>
-              <span className="shrink-0 truncate text-[12px] text-[var(--fg)]">
+              <span className="shrink-0 truncate text-[12.5px] text-[var(--muted)]">
                 {c.from}
               </span>
-              <ExternalLink className="h-3 w-3 shrink-0 text-[var(--fg)] opacity-0 group-hover:opacity-100" />
+              <ExternalLink className="h-3 w-3 shrink-0 text-[var(--muted)] opacity-0 group-hover:opacity-100" />
             </a>
           ))}
           {matter.yields.map((y, i) => (
             <p
               key={i}
-              className="border-l-2 border-[var(--brand)] px-2 py-1 text-[13px] text-[var(--fg)]"
+              className="px-2 py-1 text-[13px] text-[var(--brand-strong)]"
             >
               {y.headline}
             </p>
@@ -309,15 +309,12 @@ function AtlasBoard({
       {buckets.map((column, i) => (
         <div key={i} className="min-w-0">
           {column.map((section) => (
-            <section key={section.name} className="mb-5">
-              <h2 className="text-[15px] font-bold text-[var(--fg-strong)]">
+            <section key={section.name} className="mb-7">
+              <h2 className="px-1.5 text-[13px] font-semibold uppercase tracking-[0.06em] text-[var(--muted)]">
                 {sectionLabel(section.name)}
-                <span className="font-normal text-[var(--muted)]">
-                  {" "}
-                  · {section.matters.length}
-                </span>
+                <span className="font-normal"> · {section.matters.length}</span>
               </h2>
-              <ul className="mt-1">
+              <ul className="mt-1.5">
                 {section.matters.map((matter) => (
                   <BoardMatter
                     key={matter.matterId}
@@ -351,40 +348,36 @@ function BoardMatter({
         type="button"
         onClick={onToggle}
         aria-expanded={open}
-        className="flex w-full items-baseline gap-1.5 rounded py-[3px] text-left hover:bg-[var(--row-hover)]"
+        className="flex w-full items-baseline gap-2 rounded-lg px-1.5 py-[5px] text-left transition-colors hover:bg-[var(--row-hover)]"
       >
-        <span
-          aria-hidden
-          className="mt-[7px] h-1 w-1 shrink-0 self-start rounded-full bg-[var(--brand)]"
-        />
-        <span className="min-w-0 flex-1 text-[14px] leading-5 text-[var(--fg-strong)]">
+        <span className="min-w-0 flex-1 text-[14.5px] leading-[1.45] text-[var(--fg-strong)]">
           {matter.title}
         </span>
         {matter.conversations.length > 1 && (
-          <span className="shrink-0 text-[11px] text-[var(--muted)] opacity-0 group-hover:opacity-100">
+          <span className="shrink-0 text-[12px] tabular-nums text-[var(--muted)]">
             {matter.conversations.length}
           </span>
         )}
       </button>
       {open && (
-        <ul className="mb-1 ml-3 border-l border-[var(--border)] pl-2.5">
+        <ul className="mb-2 ml-1.5 space-y-px pl-3">
           {matter.conversations.map((c) => (
             <li key={c.conversationId}>
               <a
                 href={c.nativeUrl}
                 target="_blank"
                 rel="noopener noreferrer"
-                className="block truncate py-[2px] text-[12.5px] text-[var(--fg)] hover:underline"
+                className="block truncate rounded-lg px-1.5 py-[3px] text-[13px] text-[var(--muted)] transition-colors hover:bg-[var(--row-hover)] hover:text-[var(--fg)]"
               >
                 {c.subject || "(no subject)"}
-                <span className="text-[var(--muted)]"> — {c.from}</span>
+                <span className="opacity-70"> — {c.from}</span>
               </a>
             </li>
           ))}
           {matter.yields.map((y, i) => (
             <li
               key={`y${i}`}
-              className="py-[2px] text-[12.5px] text-[var(--brand-strong)]"
+              className="px-1.5 py-[3px] text-[13px] text-[var(--brand-strong)]"
             >
               {y.headline}
             </li>

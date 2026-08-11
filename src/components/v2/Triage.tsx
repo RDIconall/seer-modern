@@ -237,13 +237,13 @@ export function Triage({
   const bucket = (rows: Row[], label: string) =>
     rows.length === 0 ? null : (
       <>
-        <tr className="border-b border-[var(--border)]">
+        <tr>
           <td
             colSpan={5}
-            className="px-4 py-1 text-[12px] font-bold text-[var(--fg-strong)]"
+            className="px-4 pb-1 pt-3 text-[12px] font-medium text-[var(--muted)]"
           >
             {label}
-            <span className="ml-1 font-normal">· {rows.length}</span>
+            <span className="font-normal"> · {rows.length}</span>
           </td>
         </tr>
         {rows.map((row) => {
@@ -254,7 +254,7 @@ export function Triage({
             <tr
               key={row.conversationId}
               data-row-id={row.conversationId}
-              className={`border-b border-[var(--border)] align-top ${
+              className={`align-top transition-colors ${
                 checked ? "bg-[var(--selection)]" : "hover:bg-[var(--row-hover)]"
               }`}
             >
@@ -330,12 +330,12 @@ export function Triage({
       ref={scrollRef}
       className="-mx-4 min-h-0 flex-1 overflow-auto text-[var(--fg)]"
     >
-      <header className="flex items-baseline justify-between gap-3 border-b border-[var(--border)] px-4 py-3">
+      <header className="flex items-center justify-between gap-3 px-4 pb-4 pt-2">
         <div>
-          <h1 className="text-[17px] font-bold text-[var(--fg-strong)]">
+          <h1 className="text-[24px] font-semibold tracking-[-0.01em] text-[var(--fg-strong)]">
             Triage
           </h1>
-          <p className="text-[14px] text-[var(--fg)]">
+          <p className="mt-0.5 text-[14px] text-[var(--muted)]">
             {totalRows} to clear · {sections.length} sections
             {view.coverage.pending
               ? ` · ${view.coverage.pending} still being read`
@@ -344,7 +344,7 @@ export function Triage({
         </div>
         <a
           href="/api/export/inbox"
-          className="flex shrink-0 items-center gap-1 text-[12px] text-[var(--fg)] hover:text-[var(--fg-strong)]"
+          className="flex shrink-0 items-center gap-1.5 rounded-full px-3 py-1.5 text-[13px] text-[var(--muted)] transition-colors hover:bg-[var(--row-hover)] hover:text-[var(--fg-strong)]"
         >
           <Download className="h-4 w-4" />
           Export
@@ -358,16 +358,16 @@ export function Triage({
         <div
           role="toolbar"
           aria-label="Actions for selected conversations"
-          className="sticky top-0 z-20 flex flex-wrap items-center gap-2 border-b border-[var(--border)] bg-[var(--card)] px-4 py-2"
+          className="sticky top-0 z-20 mx-2 mb-2 flex flex-wrap items-center gap-2 rounded-2xl bg-[var(--card)] px-3 py-2 shadow-[0_1px_3px_rgba(0,0,0,0.06)] backdrop-blur"
         >
-          <span className="text-[13px] font-bold text-[var(--fg-strong)]">
+          <span className="px-1 text-[13px] font-medium text-[var(--fg-strong)]">
             {selectedCount} selected
           </span>
           <button
             type="button"
             disabled={busy}
             onClick={() => actOnSelection("archive")}
-            className="flex items-center gap-1 rounded-md border border-[var(--border)] bg-[var(--bg)] px-2.5 py-1 text-[13px] font-bold text-[var(--fg-strong)] hover:bg-[var(--row-hover)] disabled:opacity-50"
+            className="flex items-center gap-1.5 rounded-full bg-[var(--bg)] px-3 py-1.5 text-[13px] font-medium text-[var(--fg-strong)] transition-colors hover:bg-[var(--row-hover)] disabled:opacity-40"
           >
             <Archive className="h-4 w-4" />
             Archive
@@ -381,13 +381,13 @@ export function Triage({
                 ? "Delete the selected conversations"
                 : "Only conversations Seer cleared for deletion will be deleted"
             }
-            className="flex items-center gap-1 rounded-md border border-[var(--border)] bg-[var(--bg)] px-2.5 py-1 text-[13px] font-bold text-[var(--accent)] hover:bg-[var(--row-hover)] disabled:opacity-50"
+            className="flex items-center gap-1.5 rounded-full bg-[var(--bg)] px-3 py-1.5 text-[13px] font-medium text-[var(--accent)] transition-colors hover:bg-[var(--row-hover)] disabled:opacity-40"
           >
             <Trash2 className="h-4 w-4" />
             Delete{canDelete !== selectedCount ? ` (${canDelete})` : ""}
           </button>
           {canDelete !== selectedCount && (
-            <span className="text-[12px] text-[var(--muted)]">
+            <span className="text-[12.5px] text-[var(--muted)]">
               {selectedCount - canDelete} of these aren&apos;t cleared for
               deletion
             </span>
@@ -395,7 +395,7 @@ export function Triage({
           <button
             type="button"
             onClick={() => setSelected(new Set())}
-            className="ml-auto flex items-center gap-1 text-[12px] font-bold text-[var(--fg)] hover:text-[var(--fg-strong)]"
+            className="ml-auto flex items-center gap-1 rounded-full px-2.5 py-1.5 text-[12.5px] text-[var(--muted)] transition-colors hover:bg-[var(--row-hover)] hover:text-[var(--fg-strong)]"
           >
             <X className="h-4 w-4" />
             Clear
@@ -417,7 +417,7 @@ export function Triage({
             <col />
           </colgroup>
           <thead>
-            <tr className="border-b border-[var(--border)] text-[12px] font-bold text-[var(--fg-strong)]">
+            <tr className="text-[12px] font-medium text-[var(--muted)]">
               <th className="relative py-2 pl-4 pr-1 text-left">
                 <span className="flex items-center gap-2">
                   <Check
@@ -452,10 +452,10 @@ export function Triage({
             );
             return (
               <tbody key={section.name}>
-                <tr className="border-b border-[var(--border)] bg-[var(--card)]">
+                <tr>
                   <th
                     colSpan={5}
-                    className="px-4 py-1.5 text-left text-[13px] font-bold text-[var(--fg-strong)]"
+                    className="px-4 pb-1 pt-6 text-left text-[13px] font-semibold uppercase tracking-[0.06em] text-[var(--muted)]"
                   >
                     <span className="flex items-center gap-2">
                       <Check
@@ -466,7 +466,9 @@ export function Triage({
                         label={`Select all in ${sectionLabel(section.name)}`}
                       />
                       {sectionLabel(section.name)}
-                      <span className="font-normal">· {ids.length}</span>
+                      <span className="font-normal normal-case tracking-normal">
+                        · {ids.length}
+                      </span>
                     </span>
                   </th>
                 </tr>

@@ -5,45 +5,57 @@
  * Ink · Paper · Field · Brand · Signal · Action · Mute
  * Dual eye mark. Klim National 2 — one typeface, 400 and 700 only.
  */
+/*
+ * Near-monochrome, almost no rules, and space instead of lines. Colour is
+ * reserved for the few things that must be noticed, so an accent means
+ * something when it appears rather than being decoration.
+ */
 :root {
   --bg: #ffffff;
-  --fg: #2c333a;
-  --fg-strong: #0b0d10;
-  --card: #f1f3f5;
-  --border: #d4dae0;
-  --muted: #5a6570;
-  --nav-muted: #5a6570;
-  --brand: #0b7f74;
-  --brand-strong: #08655c;
-  --brand-soft: #e6f3f1;
-  --primary: #1f5fd1;
-  --primary-soft: #e4edfb;
-  --accent: #e5671a;
-  --row-hover: #f4f6f7;
-  --unread: #0b0d10;
-  --selection: #e4edfb;
+  --fg: #3d3d3d;
+  --fg-strong: #0d0d0d;
+  --card: #f9f9f9;
+  /* Hairline, and mostly unused: separation comes from space. */
+  --border: rgba(0, 0, 0, 0.08);
+  /*
+   * Secondary text still has to be read. Section headings and senders are
+   * carried in this colour, so it sits at ~5.3:1 on paper — quiet, not faint.
+   * The lighter grey this replaced measured 3.5:1 and failed at 13px.
+   */
+  --muted: #6b6b6b;
+  --nav-muted: #6b6b6b;
+  --brand: #0d8f7f;
+  --brand-strong: #0a7264;
+  --brand-soft: #edf6f4;
+  /* Actions are ink, not blue. */
+  --primary: #0d0d0d;
+  --primary-soft: #ececec;
+  --accent: #c93400;
+  --row-hover: #f0f0f0;
+  --unread: #0d0d0d;
+  --selection: #eceef1;
   --safe-top: env(safe-area-inset-top, 0px);
   --safe-bottom: env(safe-area-inset-bottom, 0px);
 }
 
 @media (prefers-color-scheme: dark) {
   :root {
-    --bg: #0b0d10;
-    --fg: #c5ccd3;
-    --fg-strong: #f1f3f5;
-    --card: #1a1f24;
-    --border: #2c333a;
-    --muted: #8a949e;
-    --nav-muted: #8a949e;
-    --brand: #14a090;
-    --brand-strong: #2bb8a6;
-    --brand-soft: #0f2f2c;
-    --primary: #5b8ef0;
-    --primary-soft: #1a2f55;
-    --accent: #e5671a;
-    --row-hover: #12161a;
+    --bg: #212121;
+    --fg: #b4b4b4;
+    --fg-strong: #ececec;
+    --card: #303030;
+    --border: rgba(255, 255, 255, 0.1);
+    --muted: #a5a5a5;
+    --nav-muted: #a5a5a5;
+    --brand: #2ab8a6;
+    --brand-strong: #46cbba;
+    --brand-soft: #14332f;
+    --primary: #ececec;
+    --primary-soft: #3a3a3a;
+    --accent: #ff8a65;
+    --row-hover: #2f2f2f;
     --unread: #ffffff;
-    --selection: #1a2f55;
+    --selection: #37373a;
   }
 }
 
@@ -249,9 +261,9 @@ body {
 
 .seer-app {
   min-height: 100dvh;
-  max-width: 1080px;
+  max-width: 1180px;
   margin: 0 auto;
-  padding: 0 16px calc(24px + var(--safe-bottom));
+  padding: 0 24px calc(48px + var(--safe-bottom));
 }
 
 .seer-loading,
@@ -270,6 +282,7 @@ body {
 
 /* --- Top bar: tabs + coverage ------------------------------- */
 
+/* No rule under the bar: the blur and the gap do the separating. */
 .seer-topbar {
   position: sticky;
   top: 0;
@@ -278,23 +291,20 @@ body {
   align-items: center;
   justify-content: space-between;
   gap: 12px;
-  padding: calc(10px + var(--safe-top)) 0 10px;
-  margin: 0 -16px 16px;
-  padding-left: 16px;
-  padding-right: 16px;
-  background: color-mix(in srgb, var(--bg) 88%, transparent);
-  backdrop-filter: blur(12px);
-  -webkit-backdrop-filter: blur(12px);
-  border-bottom: 1px solid var(--border);
+  padding: calc(14px + var(--safe-top)) 24px 14px;
+  margin: 0 -24px 8px;
+  background: color-mix(in srgb, var(--bg) 80%, transparent);
+  backdrop-filter: blur(20px);
+  -webkit-backdrop-filter: blur(20px);
 }
 
+/* A pill segmented control: a soft track, and the active tab lifted out of it. */
 .seer-topbar nav {
   display: inline-flex;
   gap: 2px;
   padding: 3px;
   background: var(--card);
-  border: 1px solid var(--border);
-  border-radius: 10px;
+  border-radius: 999px;
 }
 
 .seer-topbar nav button {
@@ -303,17 +313,23 @@ body {
   background: transparent;
   color: var(--muted);
   font: inherit;
-  font-weight: 700;
+  font-weight: 500;
   font-size: 14px;
-  padding: 6px 14px;
-  border-radius: 8px;
+  padding: 6px 16px;
+  border-radius: 999px;
   cursor: pointer;
+  transition: background 120ms ease, color 120ms ease;
+}
+
+.seer-topbar nav button:hover {
+  color: var(--fg-strong);
 }
 
 .seer-topbar nav button[aria-selected="true"] {
   background: var(--bg);
   color: var(--fg-strong);
-  box-shadow: 0 1px 2px rgba(0, 0, 0, 0.08);
+  font-weight: 600;
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.06);
 }
 
 .seer-coverage {
