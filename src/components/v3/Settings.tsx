@@ -55,10 +55,18 @@ export function Settings() {
           ...(action === "remove" ? { confirmed: true } : {}),
         }),
       });
-      const json = (await response.json()) as { error?: string };
+      const json = (await response.json()) as {
+        error?: string;
+        requiresSignOut?: boolean;
+      };
       if (!response.ok) throw new Error(json.error ?? `${action} failed`);
+      if (action === "remove" && json.requiresSignOut) {
+        await logout();
+        return;
+      }
       await load();
     } catch (cause) {
+      if (cause && typeof cause === "object" && "digest" in cause) throw cause;
       setError(cause instanceof Error ? cause.message : `${action} failed`);
     } finally {
       setBusy(null);

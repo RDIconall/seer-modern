@@ -9,12 +9,12 @@
  *   npx tsx scripts/migrate-v3-accounts.mts --dry-run
  *   npx tsx scripts/migrate-v3-accounts.mts --apply
  */
-import { kvGet } from "../src/lib/store/kv.ts";
 import {
   normalizeEpochMs,
   upsertAccountWithCredentials,
   upsertUser,
 } from "../src/lib/v2/db/accounts.ts";
+import { listAccountsWithTokens } from "../src/lib/store/accounts.ts";
 import type { StoredAccount } from "../src/lib/store/accounts.ts";
 
 const apply = process.argv.includes("--apply");
@@ -25,8 +25,20 @@ function providerOf(provider: StoredAccount["provider"]): "google" | "microsoft"
 }
 
 async function main() {
-  const store = await kvGet<{ accounts?: StoredAccount[] }>("accounts");
-  const accounts = store?.accounts ?? [];
+  const previousFallback = process.env.SEER_V3_LEGACY_ACCOUNT_FALLBACK;
+  // Migration is an explicit, server-only read of the sealed legacy store.
+  // The normal request fallback remains disabled unless operators opt in.
+  process.env.SEER_V3_LEGACY_ACCOUNT_FALLBACK = "1";
+  let accounts: StoredAccount[];
+  try {
+    accounts = await listAccountsWithTokens();
+  } finally {
+    if (previousFallback === undefined) {
+      delete process.env.SEER_V3_LEGACY_ACCOUNT_FALLBACK;
+    } else {
+      process.env.SEER_V3_LEGACY_ACCOUNT_FALLBACK = previousFallback;
+    }
+  }
   if (accounts.length === 0) {
     console.log("No legacy accounts found.");
     return;

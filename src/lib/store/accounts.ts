@@ -47,10 +47,6 @@ function requireLegacyAccountStore(): void {
   }
 }
 
-function accountId(provider: MailProvider, email: string) {
-  return `${provider}:${email.toLowerCase()}`;
-}
-
 async function readStore(): Promise<StoreShape> {
   const parsed = await kvGet<PersistedShape>(ACCOUNTS_KEY);
   const accounts = (parsed?.accounts ?? []).map((account) => ({
@@ -96,6 +92,24 @@ export async function listAccounts(): Promise<
   }));
 }
 
+export async function listAccountsForOwner(
+  ownerEmail: string,
+): Promise<Omit<StoredAccount, "accessToken" | "refreshToken">[]> {
+  requireLegacyAccountStore();
+  const email = ownerEmail.toLowerCase().trim();
+  const store = await readStore();
+  return store.accounts
+    .filter((account) => account.email.toLowerCase() === email)
+    .map((account) => ({
+      id: account.id,
+      provider: account.provider,
+      email: account.email,
+      name: account.name,
+      expiresAt: account.expiresAt,
+      updatedAt: account.updatedAt,
+    }));
+}
+
 export async function getAccount(
   id: string,
 ): Promise<StoredAccount | undefined> {
@@ -111,6 +125,37 @@ export async function listAccountsWithTokens(): Promise<StoredAccount[]> {
   return store.accounts;
 }
 
+/**
+ * Pure owner boundary used by both the request resolver and migration tests.
+ * A valid active id may select a different mailbox for the same signed-in
+ * owner; an invalid/foreign id falls back to that owner's session mailbox.
+ */
+export function selectOwnedAccount(
+  accounts: StoredAccount[],
+  ownerEmail: string,
+  activeId: string | null,
+  provider?: MailProvider,
+): StoredAccount | null {
+  const owner = ownerEmail.toLowerCase().trim();
+  if (activeId) {
+    const active = accounts.find(
+      (account) =>
+        account.id === activeId &&
+        account.email.toLowerCase() === owner &&
+        Boolean(account.accessToken),
+    );
+    if (active) return active;
+  }
+  return (
+    accounts.find(
+      (account) =>
+        account.email.toLowerCase() === owner &&
+        (!provider || account.provider === provider) &&
+        Boolean(account.accessToken),
+    ) ?? null
+  );
+}
+
 export async function upsertAccount(input: {
   provider: MailProvider;
   email: string;
@@ -119,51 +164,19 @@ export async function upsertAccount(input: {
   refreshToken?: string;
   expiresAt?: number;
 }): Promise<StoredAccount> {
-  requireLegacyAccountStore();
-  const email = input.email.toLowerCase();
-  const id = accountId(input.provider, email);
-  const store = await readStore();
-  const existing = store.accounts.find((a) => a.id === id);
-  const next: StoredAccount = {
-    id,
-    provider: input.provider,
-    email,
-    name: input.name ?? existing?.name ?? email,
-    accessToken: input.accessToken ?? existing?.accessToken,
-    refreshToken: input.refreshToken ?? existing?.refreshToken,
-    expiresAt: input.expiresAt ?? existing?.expiresAt,
-    updatedAt: new Date().toISOString(),
-  };
-  store.accounts = [
-    next,
-    ...store.accounts.filter((a) => a.id !== id),
-  ].sort((a, b) => a.email.localeCompare(b.email));
-  await writeStore(store);
-  return next;
+  void input;
+  throw new Error("legacy account store is read-only after v3 cutover");
 }
 
 /** Drop dead tokens (after revocation) while keeping the account entry. */
 export async function clearAccountTokens(id: string) {
-  requireLegacyAccountStore();
-  const store = await readStore();
-  const account = store.accounts.find((a) => a.id === id);
-  if (!account) return;
-  account.accessToken = undefined;
-  account.refreshToken = undefined;
-  account.expiresAt = undefined;
-  account.updatedAt = new Date().toISOString();
-  await writeStore(store);
+  void id;
+  throw new Error("legacy account store is read-only after v3 cutover");
 }
 
 export async function removeAccount(id: string) {
-  requireLegacyAccountStore();
-  const store = await readStore();
-  store.accounts = store.accounts.filter((a) => a.id !== id);
-  await writeStore(store);
-  const jar = await cookies();
-  if (jar.get(ACTIVE_ACCOUNT_COOKIE)?.value === id) {
-    jar.delete(ACTIVE_ACCOUNT_COOKIE);
-  }
+  void id;
+  throw new Error("legacy account store is read-only after v3 cutover");
 }
 
 export async function setActiveAccountId(id: string | null) {
@@ -186,43 +199,17 @@ export async function getActiveAccountId(): Promise<string | null> {
 }
 
 export async function resolveActiveAccount(
-  fallback?: {
-    provider?: string;
-    email?: string | null;
-    accessToken?: string;
-    refreshToken?: string;
-    expiresAt?: number;
-    name?: string | null;
-  },
+  ownerEmail: string,
+  provider?: MailProvider,
 ): Promise<StoredAccount | null> {
   if (!legacyAccountFallbackEnabled()) return null;
-  const activeId = await getActiveAccountId();
-  if (activeId) {
-    const fromStore = await getAccount(activeId);
-    if (fromStore?.accessToken) return fromStore;
-  }
-
-  if (fallback?.provider && fallback.email && fallback.accessToken) {
-    const provider = fallback.provider as MailProvider;
-    if (provider !== "google" && provider !== "microsoft-entra-id") {
-      return null;
-    }
-    // Read-only compatibility path: an old NextAuth session may still carry
-    // a usable token, but fallback resolution must never write a second copy.
-    return {
-      id: accountId(provider, fallback.email),
-      provider,
-      email: fallback.email.toLowerCase(),
-      name: fallback.name ?? fallback.email,
-      accessToken: fallback.accessToken,
-      refreshToken: fallback.refreshToken,
-      expiresAt: fallback.expiresAt,
-      updatedAt: new Date().toISOString(),
-    };
-  }
-
   const listed = await readStore();
-  return listed.accounts.find((a) => a.accessToken) ?? null;
+  return selectOwnedAccount(
+    listed.accounts,
+    ownerEmail,
+    await getActiveAccountId(),
+    provider,
+  );
 }
 
 export function providerLabel(provider: MailProvider) {

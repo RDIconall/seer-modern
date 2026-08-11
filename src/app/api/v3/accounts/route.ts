@@ -12,6 +12,7 @@ import {
   getActiveAccountId,
   setActiveAccountId,
 } from "@/lib/store/accounts";
+import { originAllowed } from "@/lib/security/origin";
 import { NextResponse } from "next/server";
 
 export const dynamic = "force-dynamic";
@@ -60,6 +61,15 @@ function providersAvailable() {
   };
 }
 
+function requestOriginAllowed(request: Request): boolean {
+  return originAllowed({
+    origin: request.headers.get("origin"),
+    requestOrigin: new URL(request.url).origin,
+    allowedOrigin: process.env.SEER_ALLOWED_ORIGIN,
+    production: process.env.NODE_ENV === "production",
+  });
+}
+
 export async function GET() {
   const current = await currentUser();
   if (!current) {
@@ -77,6 +87,9 @@ export async function GET() {
 }
 
 export async function POST(request: Request) {
+  if (!requestOriginAllowed(request)) {
+    return NextResponse.json({ error: "invalid request origin" }, { status: 403 });
+  }
   const current = await currentUser();
   if (!current) {
     return NextResponse.json({ error: "Not signed in" }, { status: 401 });
@@ -107,6 +120,7 @@ export async function POST(request: Request) {
       { status: 400 },
     );
   }
+  const requiresSignOut = (await getActiveAccountId()) === owned.id;
   const credentials = await getCredentials(owned.id);
   if (credentials) {
     await revokeProviderGrant({
@@ -126,8 +140,8 @@ export async function POST(request: Request) {
   if (!removed) {
     return NextResponse.json({ error: "Account not found" }, { status: 404 });
   }
-  if ((await getActiveAccountId()) === owned.id) {
+  if (requiresSignOut) {
     await setActiveAccountId(null);
   }
-  return NextResponse.json({ ok: true });
+  return NextResponse.json({ ok: true, requiresSignOut });
 }

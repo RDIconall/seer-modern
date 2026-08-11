@@ -11,6 +11,7 @@ import { asAccountId } from "../src/lib/v2/db/types.ts";
 import { seal } from "../src/lib/store/secret-at-rest.ts";
 
 const accounts = await import("../src/lib/v2/db/accounts.ts");
+const v2Session = await import("../src/lib/v2/session.ts");
 const dataDir = await fs.mkdtemp(path.join(process.cwd(), ".tmp-v3-accounts-"));
 process.env.SEER_DATA_DIR = dataDir;
 process.env.SEER_V3_LEGACY_ACCOUNT_FALLBACK = "1";
@@ -43,10 +44,30 @@ try {
     refreshToken: "refresh-b",
     expiresAt: Date.now() + 3_600_000,
   });
+  const accountA2 = await accounts.upsertAccountWithCredentials({
+    userId: userA,
+    provider: "microsoft",
+    email: "task8-a@example.com",
+    displayName: "Mailbox A2",
+    accessToken: "access-a2",
+    refreshToken: "refresh-a2",
+    expiresAt: Date.now() + 3_600_000,
+  });
 
   const ownedA = await accounts.listOwnedAccounts(userA);
-  assert.deepEqual(ownedA.map((account) => account.id), [accountA.id]);
+  assert.deepEqual(ownedA.map((account) => account.id), [accountA.id, accountA2.id]);
   assert.equal(ownedA[0]?.email, "mail-a@example.com");
+  assert.equal(v2Session.selectV2Account(ownedA, accountA2.id, "mail-a@example.com")?.id, accountA2.id);
+  assert.equal(v2Session.selectV2Account(ownedA, accountB.id, "mail-a@example.com")?.id, accountA.id);
+  assert.equal(
+    v2Session.selectV2Account(
+      await accounts.listOwnedAccounts(userB),
+      accountA2.id,
+      "mail-b@example.com",
+    ),
+    null,
+    "a foreign active cookie must fall back within the signed-in owner",
+  );
 
   assert.equal(
     await accounts.deleteOwnedAccount(userA, accountB.id),
@@ -153,7 +174,8 @@ try {
     "utf8",
   );
   assert.match(authSource, /upsertAccountWithCredentials/);
-  assert.match(authSource, /legacyAccountFallbackEnabled\(\)/);
+  assert.match(authSource, /session\.accessToken = undefined/);
+  assert.doesNotMatch(authSource, /session\.accessToken\s*=\s*token\.accessToken/);
 
   const storeSource = await fs.readFile(
     path.join(process.cwd(), "src/lib/store/accounts.ts"),
