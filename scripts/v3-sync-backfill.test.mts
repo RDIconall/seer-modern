@@ -196,15 +196,15 @@ try {
   });
   assert.equal(snapshotFirst.complete, false);
   const scanStart = await db.pool.query<{
-    scan_generation: string;
+    snapshot_generation: string;
     scan_started_at: Date | null;
   }>(
-    `select scan_generation, scan_started_at from seer.folder_sync_state
+    `select snapshot_generation, scan_started_at from seer.folder_sync_state
       where account_id = $1 and folder = 'inbox'`,
     [accountId4],
   );
   assert.ok(scanStart.rows[0].scan_started_at, "snapshot start must be durable");
-  const snapshotGeneration = scanStart.rows[0].scan_generation;
+  const snapshotGeneration = scanStart.rows[0].snapshot_generation;
 
   const snapshotSecond = await syncFolder(accountId4, snapshotProvider, "inbox", "full", {
     maxPages: 1,
@@ -212,7 +212,7 @@ try {
   assert.equal(snapshotSecond.complete, true);
   const scanSeen = await db.pool.query<{ n: number }>(
     `select count(*)::int as n from seer.folder_sync_seen
-      where account_id = $1 and folder = 'inbox' and scan_generation = $2`,
+      where account_id = $1 and folder = 'inbox' and snapshot_generation = $2`,
     [accountId4, snapshotGeneration],
   );
   assert.equal(scanSeen.rows[0].n, 4, "each bounded page must mark its provider rows seen");
