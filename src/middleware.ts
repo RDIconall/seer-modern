@@ -23,7 +23,12 @@ const canonicalHost = process.env.AUTH_URL
  * file and fails if a scheduled path is not exempt here, so adding a cron
  * without updating this list cannot ship.
  */
-const CRON_PATH_PREFIXES = ["/api/cron/", "/api/v2/sync", "/api/v2/read"];
+const CRON_PATH_PREFIXES = [
+  "/api/cron/",
+  "/api/v2/sync",
+  "/api/v2/read",
+  "/api/v3/outbox/",
+];
 
 export function isCronPath(pathname: string): boolean {
   return CRON_PATH_PREFIXES.some((p) => pathname.startsWith(p));

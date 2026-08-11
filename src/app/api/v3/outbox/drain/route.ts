@@ -1,18 +1,14 @@
 import { NextResponse } from "next/server";
 import { listAllAccounts } from "@/lib/v2/db/list-accounts";
 import { providerFor } from "@/lib/v2/providers/provider";
-import { syncAccountFolders } from "@/lib/v2/sync/report";
 import { drainOutbox } from "@/lib/v3/outbox/drain";
-import type { SyncFolder } from "@/lib/v2/providers/types";
+import type { AccountId } from "@/lib/v2/db/types";
 
 export const maxDuration = 300;
 
-const SYNC_FOLDERS: SyncFolder[] = ["inbox", "sent", "trash"];
-
 /**
- * Authenticated v2 sync ingress. Reconciliation cron and manual triggers land
- * here. Auth is mandatory: in production a missing CRON_SECRET is a hard error,
- * never an open endpoint.
+ * Drain pending outbox mutations against the provider. Authenticated with
+ * CRON_SECRET in production — same contract as the v2 sync cron.
  */
 export async function GET(request: Request) {
   const secret = process.env.CRON_SECRET;
@@ -30,27 +26,24 @@ export async function GET(request: Request) {
     }
   }
 
-  const mode =
-    new URL(request.url).searchParams.get("mode") === "full"
-      ? "full"
-      : "incremental";
-
+  const limit = Number(new URL(request.url).searchParams.get("limit") ?? "10");
   const accounts = await listAllAccounts();
   const report: Record<string, unknown>[] = [];
+
   for (const account of accounts) {
-    let provider;
     try {
-      provider = await providerFor(account);
+      const provider = await providerFor(account);
+      const drain = await drainOutbox(account.id as AccountId, provider, {
+        limit: Number.isFinite(limit) && limit > 0 ? limit : 10,
+      });
+      report.push({ email: account.email, ...drain });
     } catch (e) {
       report.push({
         email: account.email,
-        error: e instanceof Error ? e.message.slice(0, 160) : "sync failed",
+        error: e instanceof Error ? e.message.slice(0, 160) : "drain failed",
       });
-      continue;
     }
-    const outbox = await drainOutbox(account.id, provider);
-    report.push({ email: account.email, outbox });
-    report.push(...(await syncAccountFolders(account, provider, mode, SYNC_FOLDERS)));
   }
-  return NextResponse.json({ ok: true, mode, report });
+
+  return NextResponse.json({ ok: true, report });
 }
