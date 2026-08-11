@@ -1,7 +1,7 @@
 import { NextResponse } from "next/server";
 import { listAllAccounts } from "@/lib/v2/db/list-accounts";
 import { providerFor } from "@/lib/v2/providers/provider";
-import { syncAccountFolders } from "@/lib/v2/sync/report";
+import { defaultSyncBudget, syncAccountFolders } from "@/lib/v2/sync/report";
 import { drainOutbox } from "@/lib/v3/outbox/drain";
 import type { SyncFolder } from "@/lib/v2/providers/types";
 
@@ -37,6 +37,8 @@ export async function GET(request: Request) {
 
   const accounts = await listAllAccounts();
   const report: Record<string, unknown>[] = [];
+  const tickStarted = Date.now();
+  const syncBudget = defaultSyncBudget(tickStarted);
   for (const account of accounts) {
     let provider;
     try {
@@ -50,7 +52,9 @@ export async function GET(request: Request) {
     }
     const outbox = await drainOutbox(account.id, provider);
     report.push({ email: account.email, outbox });
-    report.push(...(await syncAccountFolders(account, provider, mode, SYNC_FOLDERS)));
+    report.push(
+      ...(await syncAccountFolders(account, provider, mode, SYNC_FOLDERS, syncBudget)),
+    );
   }
   return NextResponse.json({ ok: true, mode, report });
 }

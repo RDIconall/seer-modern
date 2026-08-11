@@ -21,22 +21,41 @@ import {
 
 export type SyncMode = "incremental" | "full";
 
+export type SyncFolderOptions = {
+  /** Stop after this many pages (omit for unbounded drain). */
+  maxPages?: number;
+  /** Absolute wall-clock deadline; stops before starting a page that would exceed it. */
+  deadlineMs?: number;
+};
+
+/** Safety margin for provider latency and per-page persistence before deadline. */
+export const SYNC_PAGE_SAFETY_HEADROOM_MS = 15_000;
+
 export type SyncRun = {
   traceId: string;
   mode: SyncMode;
   folder: SyncFolder;
   coverage: Coverage;
   pages: number;
+  complete: boolean;
+  nextCursor: string | null;
 };
+
+function shouldStopBeforePage(deadlineMs: number | undefined): boolean {
+  if (deadlineMs === undefined) return false;
+  return Date.now() + SYNC_PAGE_SAFETY_HEADROOM_MS >= deadlineMs;
+}
 
 export async function syncFolder(
   accountId: AccountId,
   provider: MailProvider,
   folder: SyncFolder,
   mode: SyncMode,
+  options: SyncFolderOptions = {},
 ): Promise<SyncRun> {
   const traceId = randomUUID();
   const started = new Date();
+  const { maxPages, deadlineMs } = options;
 
   let cursor = mode === "full" ? null : await loadFolderCursor(accountId, folder);
   let failed = 0;
@@ -44,6 +63,9 @@ export async function syncFolder(
   let providerTotal = 0;
 
   for (;;) {
+    if (maxPages !== undefined && pages >= maxPages) break;
+    if (shouldStopBeforePage(deadlineMs)) break;
+
     const page = await provider.syncFolder(folder, cursor);
     providerTotal = page.providerTotal;
     const result = await writeConversationPage(
@@ -62,17 +84,29 @@ export async function syncFolder(
     if (!cursor) break;
   }
 
+  const complete = cursor === null;
   const cov = await folderCoverage(accountId, folder);
   cov.failed = failed;
 
   await db().query(
     `insert into seer.sync_runs
-       (account_id, trace_id, mode, provider_total, stored, pending, failed, started_at, finished_at)
-       values ($1, $2, $3, $4, $5, $6, $7, $8, now())`,
-    [accountId, traceId, mode, cov.providerTotal, cov.stored, cov.pending, failed, started],
+       (account_id, trace_id, mode, folder, provider_total, stored, pending, failed, complete, started_at, finished_at)
+       values ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, now())`,
+    [
+      accountId,
+      traceId,
+      mode,
+      folder,
+      cov.providerTotal,
+      cov.stored,
+      cov.pending,
+      failed,
+      complete,
+      started,
+    ],
   );
 
-  return { traceId, mode, folder, coverage: cov, pages };
+  return { traceId, mode, folder, coverage: cov, pages, complete, nextCursor: cursor };
 }
 
 /** Legacy inbox-only entry point; retained for existing callers and tests. */
@@ -80,6 +114,7 @@ export async function syncAccount(
   accountId: AccountId,
   provider: MailProvider,
   mode: SyncMode,
+  options?: SyncFolderOptions,
 ): Promise<SyncRun> {
-  return syncFolder(accountId, provider, "inbox", mode);
+  return syncFolder(accountId, provider, "inbox", mode, options);
 }
