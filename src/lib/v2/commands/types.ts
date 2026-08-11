@@ -15,7 +15,8 @@ export type Command =
   | { type: "correctConversation"; conversationId: string; home: Home; note?: string }
   | { type: "teachSender"; email: string; instruction: "vip" | "always_delete" | "never_delete" }
   | { type: "send"; to: string[]; subject: string; bodyHtml: string }
-  | { type: "reply"; conversationId: string; all: boolean; bodyHtml: string };
+  | { type: "reply"; conversationId: string; all: boolean; bodyHtml: string }
+  | { type: "forward"; conversationId: string; to: string[]; bodyHtml: string };
 
 export type CommandResult = {
   ok: boolean;

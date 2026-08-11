@@ -8,6 +8,7 @@ import {
 import { nativeUrlFor } from "./native-url";
 import type {
   Address,
+  AttachmentContent,
   Conversation,
   ForwardCommand,
   MailProvider,
@@ -280,6 +281,36 @@ export class OutlookProvider implements MailProvider {
     return {
       providerMessageId: "sent",
       providerConversationId: command.conversationId,
+    };
+  }
+
+  async getAttachment(messageId: string, attachmentId: string): Promise<AttachmentContent> {
+    const message = await this.get<GraphMessage>(
+      `${API}/messages/${messageId}?$select=id&$expand=attachments($select=id,name,contentType,size)`,
+    );
+    const attachments = message.attachments ?? [];
+    const prefix = `${messageId}-`;
+    let resolved = attachments.find((a) => a.id === attachmentId);
+    if (!resolved && attachmentId.startsWith(prefix)) {
+      resolved = attachments[Number(attachmentId.slice(prefix.length))];
+    }
+    if (!resolved) {
+      resolved = attachments.find((a) => a.name === attachmentId);
+    }
+    if (!resolved?.id) throw new Error(`attachment ${attachmentId} not found`);
+
+    const doFetch = this.deps.fetchImpl ?? fetch;
+    const res = await doFetch(
+      `${API}/messages/${messageId}/attachments/${resolved.id}/$value`,
+      { headers: this.auth(), cache: "no-store" },
+    );
+    if (!res.ok) {
+      throw new Error(`outlook attachment: ${res.status}`);
+    }
+    return {
+      body: Buffer.from(await res.arrayBuffer()),
+      mimeType: resolved.contentType ?? "application/octet-stream",
+      filename: resolved.name ?? "attachment",
     };
   }
 

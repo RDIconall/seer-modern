@@ -92,6 +92,12 @@ export type SearchResult = {
   nextCursor: string | null;
 };
 
+export type AttachmentContent = {
+  body: Buffer;
+  mimeType: string;
+  filename: string;
+};
+
 /**
  * The one contract Gmail and Outlook both satisfy. Every method is
  * conversation-complete and honest about partial failure. Folder mutations are
@@ -108,6 +114,7 @@ export interface MailProvider {
   send(command: SendCommand, idempotencyKey: string): Promise<SendReceipt>;
   reply(command: ReplyCommand, idempotencyKey: string): Promise<SendReceipt>;
   forward(command: ForwardCommand, idempotencyKey: string): Promise<SendReceipt>;
+  getAttachment(messageId: string, attachmentId: string): Promise<AttachmentContent>;
   mutateConversation(
     id: string,
     action: MutationAction,

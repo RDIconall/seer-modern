@@ -173,6 +173,24 @@ async function run(
       return { ok: true, replayed: false, detail: { ...receipt } };
     }
 
+    case "forward": {
+      const receipt = await ctx.provider.forward(
+        {
+          conversationId: command.conversationId,
+          to: command.to.map((email) => ({ email })),
+          bodyHtml: command.bodyHtml,
+        },
+        idempotencyKey,
+      );
+      await recordEvent(
+        ctx.accountId,
+        "mail_forward",
+        { conversationId: command.conversationId, providerMessageId: receipt.providerMessageId },
+        idempotencyKey,
+      );
+      return { ok: true, replayed: false, detail: { ...receipt } };
+    }
+
     default: {
       const _exhaustive: never = command;
       return fail(`unknown command ${JSON.stringify(_exhaustive)}`);

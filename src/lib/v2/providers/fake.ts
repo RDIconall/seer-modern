@@ -1,4 +1,5 @@
 import type {
+  AttachmentContent,
   Conversation,
   ForwardCommand,
   MailProvider,
@@ -179,6 +180,30 @@ export class FakeProvider implements MailProvider {
     };
     this.idempotency.set(key, receipt);
     return receipt;
+  }
+
+  async getAttachment(messageId: string, attachmentId: string): Promise<AttachmentContent> {
+    for (const c of this.convos) {
+      for (const m of c.messages) {
+        if (m.providerMessageId !== messageId) continue;
+        const prefix = `${messageId}-`;
+        let index = m.attachments.findIndex((a) => a.id === attachmentId);
+        if (index < 0 && attachmentId.startsWith(prefix)) {
+          index = Number(attachmentId.slice(prefix.length));
+        }
+        if (index < 0) {
+          index = m.attachments.findIndex((a) => a.filename === attachmentId);
+        }
+        const att = m.attachments[index];
+        if (!att) throw new Error(`attachment ${attachmentId} not found`);
+        return {
+          body: Buffer.from(`fake:${att.filename}`, "utf8"),
+          mimeType: att.mimeType || "application/octet-stream",
+          filename: att.filename,
+        };
+      }
+    }
+    throw new Error(`message ${messageId} not found`);
   }
 
   async mutateConversation(

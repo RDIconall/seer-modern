@@ -7,6 +7,7 @@ import {
 import { nativeUrlFor } from "./native-url";
 import type {
   Address,
+  AttachmentContent,
   Conversation,
   ForwardCommand,
   MailProvider,
@@ -282,6 +283,37 @@ export class GmailProvider implements MailProvider {
       raw,
     });
     return { providerMessageId: r.id, providerConversationId: r.threadId };
+  }
+
+  private attachmentList(message: GmailMessage): Message["attachments"] {
+    const out: { html?: string; text?: string; attachments: Message["attachments"] } = {
+      attachments: [],
+    };
+    walkBodies(message.payload, out);
+    return out.attachments;
+  }
+
+  async getAttachment(messageId: string, attachmentId: string): Promise<AttachmentContent> {
+    const message = await this.get<GmailMessage>(`/messages/${messageId}?format=full`);
+    const attachments = this.attachmentList(message);
+    const prefix = `${messageId}-`;
+    let resolved = attachments.find((a) => a.id === attachmentId);
+    if (!resolved && attachmentId.startsWith(prefix)) {
+      resolved = attachments[Number(attachmentId.slice(prefix.length))];
+    }
+    if (!resolved) {
+      resolved = attachments.find((a) => a.filename === attachmentId);
+    }
+    if (!resolved?.id) throw new Error(`attachment ${attachmentId} not found`);
+    const res = await this.get<{ data?: string }>(
+      `/messages/${messageId}/attachments/${resolved.id}`,
+    );
+    const padded = (res.data ?? "").replace(/-/g, "+").replace(/_/g, "/");
+    return {
+      body: Buffer.from(padded, "base64"),
+      mimeType: resolved.mimeType || "application/octet-stream",
+      filename: resolved.filename,
+    };
   }
 
   async mutateConversation(
