@@ -46,9 +46,9 @@ function shortTime(iso?: string): string {
   return new Date(t).toLocaleDateString([], { month: "short", day: "numeric" });
 }
 
+/** The user's own heading, verbatim — see the note in Atlas. */
 function sectionLabel(name: string): string {
-  if (name === "unfiled") return "Unfiled";
-  return name.charAt(0).toUpperCase() + name.slice(1);
+  return name;
 }
 
 /** Draggable column widths (px). Actions is fixed; the rest are resizable. */

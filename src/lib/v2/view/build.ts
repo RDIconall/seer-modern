@@ -4,6 +4,7 @@ import { nativeUrlFor } from "../providers/native-url";
 import type { ProviderKind } from "../providers/types";
 import { counterpartyOf } from "../intelligence/matter-key";
 import { UNFILED } from "../intelligence/functions";
+import { personName } from "./person-name";
 import { signDecisionToken } from "./token";
 import type {
   AtlasSection,
@@ -27,6 +28,7 @@ type DecisionRow = {
   provider_conversation_id: string;
   subject: string;
   from_email: string | null;
+  from_display: string | null;
   last_message_at: string | null;
   home: string;
   summary: string;
@@ -73,7 +75,20 @@ export async function buildInboxView(
             d.matter_id,
             (select m.from_email from seer.messages m
               where m.conversation_id = c.id
-              order by m.sent_at desc nulls last limit 1) as from_email
+              order by m.sent_at desc nulls last limit 1) as from_email,
+            -- Show a person, not an address. The user's own contacts win, then
+            -- the name the provider carried on the message, and only then the
+            -- raw address — "billing@definitivehc.com" tells you nothing about
+            -- who is asking.
+            (select coalesce(
+                      nullif(p.display_name, ''),
+                      nullif(m.from_name, ''),
+                      m.from_email)
+               from seer.messages m
+               left join seer.people p
+                 on p.account_id = c.account_id and p.email = m.from_email
+              where m.conversation_id = c.id
+              order by m.sent_at desc nulls last limit 1) as from_display
        from seer.conversations c
        join seer.conversation_decisions d
          on d.conversation_id = c.id and d.is_current
@@ -123,7 +138,7 @@ export async function buildInboxView(
     conversationId: r.conversation_id,
     providerConversationId: r.provider_conversation_id,
     subject: r.subject ?? "",
-    from: r.from_email ?? "",
+    from: personName(r.from_display) || r.from_email || "",
     at: r.last_message_at ?? "",
     summary: r.summary ?? "",
     owner: r.owner as ConversationRow["owner"],

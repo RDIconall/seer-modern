@@ -23,13 +23,19 @@ import { useCollapsed } from "./useCollapsed";
 
 type Mode = "list" | "board";
 
+/**
+ * Section names are shown exactly as the registry holds them. They are the
+ * user's own headings — "sales — leads", "hr", "systems (it)" — and title-casing
+ * turns "hr" into "Hr", which is not what anyone wrote on a whiteboard.
+ */
 function sectionLabel(name: string): string {
-  if (name === "unfiled") return "Unfiled";
-  return name.charAt(0).toUpperCase() + name.slice(1);
+  return name === "unfiled" ? "unfiled" : name;
 }
 
 export function Atlas({ view }: { view: InboxView }) {
-  const [mode, setMode] = useState<Mode>("list");
+  // The whiteboard is the default: it is the view that shows the whole business
+  // at once. The outline is there for working down one section at a time.
+  const [mode, setMode] = useState<Mode>("board");
   const sections = view.sections;
 
   const allIds = useMemo(
@@ -249,6 +255,15 @@ function MatterOutline({
 
 /* --------------------------------------------------------------- Board --- */
 
+/**
+ * The whiteboard proper: every matter is one bare name under its section
+ * heading, sections flowing down two or three tracks.
+ *
+ * The density is the point. A board of cards shows a dozen matters per screen;
+ * a hundred matters as plain lines shows the whole business at once, which is
+ * what a whiteboard is for. Detail lives one click away rather than on the
+ * board itself.
+ */
 function AtlasBoard({
   sections,
   collapsed,
@@ -258,69 +273,125 @@ function AtlasBoard({
   collapsed: Set<string>;
   toggle: (id: string) => void;
 }) {
-  return (
-    // items-start: a column is as tall as its own work. Stretching them all to
-    // the tallest leaves dead space under the short ones and reads as unfinished.
-    <div className="flex snap-x items-start gap-3 overflow-x-auto px-4 py-3">
-      {sections.map((section) => {
-        const sectionId = `s:${section.name}`;
-        const open = !collapsed.has(sectionId);
-        return (
-          <div
-            key={section.name}
-            className="flex w-[280px] shrink-0 snap-start flex-col rounded-xl border border-[var(--border)] bg-[var(--card)]"
-          >
-            <button
-              type="button"
-              onClick={() => toggle(sectionId)}
-              aria-expanded={open}
-              className="flex items-center gap-1.5 border-b border-[var(--border)] px-3 py-2 text-left"
-            >
-              <Chevron open={open} />
-              <span className="min-w-0 flex-1 truncate text-[13px] font-bold text-[var(--fg-strong)]">
-                {sectionLabel(section.name)}
-              </span>
-              <span className="text-[12px] text-[var(--fg)]">
-                {section.matters.length}
-              </span>
-            </button>
+  const [tracks, setTracks] = useState(3);
+  useEffect(() => {
+    const compute = () =>
+      setTracks(
+        window.innerWidth >= 1280 ? 3 : window.innerWidth >= 768 ? 2 : 1,
+      );
+    compute();
+    window.addEventListener("resize", compute);
+    return () => window.removeEventListener("resize", compute);
+  }, []);
 
-            {open && (
-              <div className="flex flex-col gap-2 p-2">
+  // Greedy balance: each section joins the shortest track, so the columns end
+  // level instead of one running far past the others. A heading costs a row, so
+  // a section of one matter is not free.
+  const buckets = useMemo(() => {
+    const columns: AtlasSection[][] = Array.from({ length: tracks }, () => []);
+    const heights = new Array<number>(tracks).fill(0);
+    for (const section of sections) {
+      let shortest = 0;
+      for (let i = 1; i < tracks; i++) {
+        if (heights[i] < heights[shortest]) shortest = i;
+      }
+      columns[shortest].push(section);
+      heights[shortest] += section.matters.length + 1;
+    }
+    return columns;
+  }, [sections, tracks]);
+
+  return (
+    <div
+      className="grid items-start gap-x-10 gap-y-1 px-4 py-3"
+      style={{ gridTemplateColumns: `repeat(${tracks}, minmax(0, 1fr))` }}
+    >
+      {buckets.map((column, i) => (
+        <div key={i} className="min-w-0">
+          {column.map((section) => (
+            <section key={section.name} className="mb-5">
+              <h2 className="text-[15px] font-bold text-[var(--fg-strong)]">
+                {sectionLabel(section.name)}
+                <span className="font-normal text-[var(--muted)]">
+                  {" "}
+                  · {section.matters.length}
+                </span>
+              </h2>
+              <ul className="mt-1">
                 {section.matters.map((matter) => (
-                  <article
+                  <BoardMatter
                     key={matter.matterId}
-                    className="rounded-lg border border-[var(--border)] bg-[var(--bg)] p-2.5"
-                  >
-                    <h3 className="text-[13.5px] font-bold leading-snug text-[var(--fg-strong)]">
-                      {matter.title}
-                    </h3>
-                    <div className="mt-1.5 flex items-center gap-2 text-[11px] text-[var(--fg)]">
-                      {matter.orgUnit && (
-                        <span className="rounded-full bg-[var(--brand-soft)] px-2 py-0.5 font-bold uppercase tracking-wide text-[var(--brand-strong)]">
-                          {matter.orgUnit}
-                        </span>
-                      )}
-                      <span>{matter.conversations.length} threads</span>
-                    </div>
-                    {matter.yields[0] && (
-                      <p className="mt-1.5 border-l-2 border-[var(--brand)] pl-2 text-[12px] text-[var(--fg)]">
-                        {matter.yields[0].headline}
-                      </p>
-                    )}
-                  </article>
+                    matter={matter}
+                    open={!collapsed.has(`m:${matter.matterId}`)}
+                    onToggle={() => toggle(`m:${matter.matterId}`)}
+                  />
                 ))}
-                {section.matters.length === 0 && (
-                  <p className="px-1 py-2 text-[12px] text-[var(--fg)]">
-                    Nothing here.
-                  </p>
-                )}
-              </div>
-            )}
-          </div>
-        );
-      })}
+              </ul>
+            </section>
+          ))}
+        </div>
+      ))}
     </div>
+  );
+}
+
+/** One line on the whiteboard. Click the name to see what is under it. */
+function BoardMatter({
+  matter,
+  open,
+  onToggle,
+}: {
+  matter: MatterCard;
+  open: boolean;
+  onToggle: () => void;
+}) {
+  return (
+    <li className="group">
+      <button
+        type="button"
+        onClick={onToggle}
+        aria-expanded={open}
+        className="flex w-full items-baseline gap-1.5 rounded py-[3px] text-left hover:bg-[var(--row-hover)]"
+      >
+        <span
+          aria-hidden
+          className="mt-[7px] h-1 w-1 shrink-0 self-start rounded-full bg-[var(--brand)]"
+        />
+        <span className="min-w-0 flex-1 text-[14px] leading-5 text-[var(--fg-strong)]">
+          {matter.title}
+        </span>
+        {matter.conversations.length > 1 && (
+          <span className="shrink-0 text-[11px] text-[var(--muted)] opacity-0 group-hover:opacity-100">
+            {matter.conversations.length}
+          </span>
+        )}
+      </button>
+      {open && (
+        <ul className="mb-1 ml-3 border-l border-[var(--border)] pl-2.5">
+          {matter.conversations.map((c) => (
+            <li key={c.conversationId}>
+              <a
+                href={c.nativeUrl}
+                target="_blank"
+                rel="noopener noreferrer"
+                className="block truncate py-[2px] text-[12.5px] text-[var(--fg)] hover:underline"
+              >
+                {c.subject || "(no subject)"}
+                <span className="text-[var(--muted)]"> — {c.from}</span>
+              </a>
+            </li>
+          ))}
+          {matter.yields.map((y, i) => (
+            <li
+              key={`y${i}`}
+              className="py-[2px] text-[12.5px] text-[var(--brand-strong)]"
+            >
+              {y.headline}
+            </li>
+          ))}
+        </ul>
+      )}
+    </li>
   );
 }
 

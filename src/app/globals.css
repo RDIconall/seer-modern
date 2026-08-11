@@ -375,7 +375,13 @@ body {
 
 /* --- Buttons and links (scoped to the app shell) -------------- */
 
-.seer-app button,
+/*
+ * Scoped to the components that actually want a chrome button. A blanket
+ * `.seer-app button` rule put a border and bold 13px on every button in the
+ * app, including the plain rows of the whiteboard — a hundred matter names
+ * came out boxed and shouting instead of reading as a list.
+ */
+.seer-actions button,
 .seer-compose button {
   appearance: none;
   font: inherit;
@@ -389,16 +395,18 @@ body {
   cursor: pointer;
 }
 
-.seer-app button:hover {
+.seer-actions button:hover,
+.seer-compose button:hover {
   background: var(--row-hover);
 }
 
-.seer-app button:disabled {
+.seer-actions button:disabled,
+.seer-compose button:disabled {
   opacity: 0.5;
   cursor: default;
 }
 
-.seer-app main a {
+.seer-actions a {
   color: var(--primary);
   text-decoration: none;
   font-size: 13px;

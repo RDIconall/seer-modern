@@ -12,6 +12,7 @@ import type {
  */
 
 const functions = [
+  "board",
   "sales — leads",
   "sales — new requests",
   "sales — contracting",
@@ -20,8 +21,19 @@ const functions = [
   "quality",
   "systems (it)",
   "recruiting",
+  "hr",
   "finance (ar/ap)",
+  "Newsletters & vendor mail",
+  "IT & software notices",
 ];
+
+/** Filler so the board is seen at something like real density. */
+const filler = (section: string, titles: string[]): MatterCard[] =>
+  titles.map((title) =>
+    matter(title, section, section.includes("—") ? "roche" : "internal", [
+      row(title, "Amy Staedtler", "One thread.", section, "Internal", 12),
+    ]),
+  );
 
 let n = 0;
 const row = (
@@ -250,6 +262,67 @@ const atlas: MatterCard[] = [
     ],
   ),
 ];
+
+atlas.push(
+  ...filler("operations — studies", [
+    "Tosoh AIA-CL300 white paper review",
+    "Study RCD_2850 IRB submissions and ICF review",
+    "Advarra CIRBI study approvals and notices",
+    "Roche study RD006873 consolidated budget",
+    "TGRP32 study operations and DMP review",
+    "Roche TIB sample collection protocol",
+    "Bond Trials lead ingestion setup",
+    "Everolimus study site leadership",
+  ]),
+  ...filler("sales — new requests", [
+    "Abbott Diagnostics specimen and sample requests",
+    "Sekisui Strep A sample request",
+    "Siemens Healthineers specimen quotes",
+    "Golden West specimen quote requests",
+    "Roche biospecimen meeting schedule",
+    "Neurology clinical study opportunity outreach",
+    "Werfen clinical study feasibility",
+    "Abbott AMH study synopsis review",
+    "ITM Isotope Technologies meeting dial-in",
+    "Veritus Research sales inquiry",
+    "NanoMosaic POD assay proposal",
+  ]),
+  ...filler("sales — contracting", [
+    "Roche RCD_2818 Transplant Mass Spec proposal",
+    "Roche Diagnostics PO P002003098 acknowledgement",
+    "Thermo Fisher ELIA GAD65 sample pricing",
+    "Liftric NDA execution and software partnership",
+    "CUHK supplier registration portal submission",
+    "Customer agreement legal review",
+    "Lumos change order legal review",
+    "Cepheid Information Security Terms",
+  ]),
+  ...filler("systems (it)", [
+    "Salesforce domain ownership verification",
+    "Bill.com and Workable system access",
+    "HIPAA compliance platform evaluation",
+    "Salesforce contract #04357301 renewal decision",
+    "Laserfiche software subscription renewal",
+    "Synology backup hardware procurement",
+    "Definitive Healthcare H2 integration rollout",
+  ]),
+  ...filler("recruiting", [
+    "Clinical Data Manager candidate Sravya Buddha",
+    "Senior controller candidate evaluation",
+    "Project Controller candidate Habib Masso referral",
+    "Sadanand Palekar recruiting referral",
+  ]),
+  ...filler("quality", [
+    "Quality Management System SOPs, CAPAs, and CAP inspection updates",
+    "Abbott post-audit reaudit scheduling",
+  ]),
+  ...filler("board", ["Goodwin Law RDI incentive equity structuring"]),
+  ...filler("hr", ["CSUN biology student partnership and recruiting outreach"]),
+  ...filler("finance (ar/ap)", [
+    "RDI unpaid bills approval and financial updates",
+    "GJ King 2025 K-1 distribution",
+  ]),
+);
 
 const safeToDelete: DeleteRow[] = [
   deletable(
