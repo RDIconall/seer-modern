@@ -1,9 +1,15 @@
 import type { PoolClient } from "pg";
 import { inTransaction } from "@/lib/v2/db/transaction";
 import { db } from "@/lib/v2/db/pool";
+import { recordEvent } from "@/lib/v2/commands/repository";
 import type { AccountId } from "@/lib/v2/db/types";
-import { applyOptimistic, revertOptimistic } from "./optimistic";
-import type { OutboxCommand, OutboxItem } from "./types";
+import {
+  applyExpected,
+  computeExpected,
+  lockConversation,
+  revertIfOwned,
+} from "./optimistic";
+import type { EnqueueInput, OutboxCommand, OutboxItem } from "./types";
 
 type OutboxRow = {
   id: string;
@@ -51,52 +57,51 @@ export async function findByIdempotencyKey(
 }
 
 /**
- * Capture the current corpus state for a conversation before applying a patch.
- */
-export async function snapshotConversation(
-  client: PoolClient,
-  accountId: AccountId,
-  conversationId: string,
-): Promise<OutboxCommand["previous"] | null> {
-  const r = await client.query<{ folders: string[]; is_unread: boolean }>(
-    `select folders, is_unread
-       from seer.conversations
-      where id = $1 and account_id = $2`,
-    [conversationId, accountId],
-  );
-  const row = r.rows[0];
-  if (!row) return null;
-  return { folders: [...row.folders], isUnread: row.is_unread };
-}
-
-/**
  * Apply an optimistic corpus patch and enqueue the provider command in one
- * transaction. Replays with the same idempotency key return the existing row.
+ * transaction. Concurrent callers with the same idempotency key get the
+ * existing row; the optimistic patch is applied exactly once.
  */
 export async function enqueueOptimistic(
   accountId: AccountId,
-  command: OutboxCommand,
+  input: EnqueueInput,
   idempotencyKey: string,
 ): Promise<OutboxItem> {
   return inTransaction(async (client) => {
-    const existing = await findByIdempotencyKey(accountId, idempotencyKey, client);
-    if (existing) return existing;
+    const locked = await lockConversation(client, accountId, input.conversationId);
+    if (!locked) throw new Error("conversation not found");
 
-    await applyOptimistic(client, accountId, command);
-    const r = await client.query<OutboxRow>(
+    const previous = { folders: [...locked.folders], isUnread: locked.isUnread };
+    const expected = computeExpected(input.type, previous);
+    const command: OutboxCommand = {
+      type: input.type,
+      conversationId: input.conversationId,
+      previous,
+      expected,
+    };
+
+    const inserted = await client.query<OutboxRow>(
       `insert into seer.outbox (account_id, command, idempotency_key)
        values ($1, $2::jsonb, $3)
+       on conflict (account_id, idempotency_key) do nothing
        returning id, account_id, command, idempotency_key, status, attempts,
                  last_error, next_attempt_at, created_at, updated_at`,
       [accountId, JSON.stringify(command), idempotencyKey],
     );
-    return mapRow(r.rows[0]);
+
+    if ((inserted.rowCount ?? 0) === 0) {
+      const existing = await findByIdempotencyKey(accountId, idempotencyKey, client);
+      if (!existing) throw new Error("outbox idempotency conflict without row");
+      return existing;
+    }
+
+    await applyExpected(client, accountId, command);
+    return mapRow(inserted.rows[0]);
   });
 }
 
 /**
- * Cancel a pending outbox row and revert its optimistic patch. No provider call
- * is made — the mutation never left the queue.
+ * Cancel a pending outbox row and revert its optimistic patch when the corpus
+ * still matches the command's expected state.
  */
 export async function cancelPending(
   accountId: AccountId,
@@ -115,7 +120,21 @@ export async function cancelPending(
     );
     const row = r.rows[0];
     if (!row) return false;
-    await revertOptimistic(client, accountId, row.command);
+
+    const outcome = await revertIfOwned(client, accountId, row.command);
+    if (outcome === "conflict") {
+      await recordEvent(
+        accountId,
+        "outbox_reconcile_needed",
+        {
+          outboxId: row.id,
+          reason: "cancel_revert_conflict",
+          command: row.command,
+        },
+        row.idempotency_key,
+        client,
+      );
+    }
     return true;
   });
 }

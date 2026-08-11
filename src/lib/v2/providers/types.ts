@@ -94,8 +94,10 @@ export type SearchResult = {
 
 /**
  * The one contract Gmail and Outlook both satisfy. Every method is
- * conversation-complete (acts on all messages in a thread), idempotent where a
- * key is supplied, and honest about partial failure.
+ * conversation-complete and honest about partial failure. Folder mutations are
+ * state-setting: adapters ignore client idempotency keys but treat repeated
+ * archive/trash/restore/markUnread as a no-op when the target state is already
+ * reached or the message is gone after a prior move (404).
  */
 export interface MailProvider {
   readonly kind: ProviderKind;

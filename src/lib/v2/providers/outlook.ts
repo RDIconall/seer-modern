@@ -1,4 +1,8 @@
-import { providerFetch, type ProviderHttpOptions } from "./http";
+import { providerFetch, ProviderHttpError, type ProviderHttpOptions } from "./http";
+import {
+  mutationErrorIsNoOp,
+  outlookMutationAlreadyApplied,
+} from "./mutation-idempotent";
 import { nativeUrlFor } from "./native-url";
 import type {
   Address,
@@ -283,10 +287,22 @@ export class OutlookProvider implements MailProvider {
     _key: string,
   ): Promise<MutationReceipt> {
     void _key;
-    const msgs = await this.conversationMessages(id);
+    let msgs: GraphMessage[];
+    try {
+      msgs = await this.conversationMessages(id);
+    } catch (err) {
+      if (mutationErrorIsNoOp(err)) {
+        return { conversationId: id, action, processed: [], failed: [] };
+      }
+      throw err;
+    }
     const processed: string[] = [];
     const failed: string[] = [];
     for (const m of msgs) {
+      if (outlookMutationAlreadyApplied(action, m.parentFolderId)) {
+        processed.push(m.id);
+        continue;
+      }
       try {
         if (action === "archive") {
           await this.post(`/messages/${m.id}/move`, { destinationId: "archive" });
@@ -298,8 +314,12 @@ export class OutlookProvider implements MailProvider {
           await this.patch(`/messages/${m.id}`, { isRead: false });
         }
         processed.push(m.id);
-      } catch {
-        failed.push(m.id);
+      } catch (err) {
+        if (mutationErrorIsNoOp(err)) {
+          processed.push(m.id);
+        } else {
+          failed.push(m.id);
+        }
       }
     }
     return { conversationId: id, action, processed, failed };

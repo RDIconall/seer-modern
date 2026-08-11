@@ -1,4 +1,8 @@
-import { providerFetch, type ProviderHttpOptions } from "./http";
+import { providerFetch, ProviderHttpError, type ProviderHttpOptions } from "./http";
+import {
+  gmailMutationAlreadyApplied,
+  mutationErrorIsNoOp,
+} from "./mutation-idempotent";
 import { nativeUrlFor } from "./native-url";
 import type {
   Address,
@@ -285,7 +289,15 @@ export class GmailProvider implements MailProvider {
     _key: string,
   ): Promise<MutationReceipt> {
     void _key;
-    const convo = await this.thread(id);
+    let raw: GmailThread;
+    try {
+      raw = await this.get<GmailThread>(`/threads/${id}?format=full`);
+    } catch (err) {
+      if (mutationErrorIsNoOp(err)) {
+        return { conversationId: id, action, processed: [], failed: [] };
+      }
+      throw err;
+    }
     const processed: string[] = [];
     const failed: string[] = [];
     const body =
@@ -296,16 +308,25 @@ export class GmailProvider implements MailProvider {
           : action === "markUnread"
             ? { addLabelIds: ["UNREAD"] }
             : null;
-    for (const m of convo.messages) {
+    for (const m of raw.messages ?? []) {
+      const labels = m.labelIds ?? [];
+      if (gmailMutationAlreadyApplied(action, labels)) {
+        processed.push(m.id);
+        continue;
+      }
       try {
         if (action === "trash") {
-          await this.post(`/messages/${m.providerMessageId}/trash`, {});
+          await this.post(`/messages/${m.id}/trash`, {});
         } else {
-          await this.post(`/messages/${m.providerMessageId}/modify`, body);
+          await this.post(`/messages/${m.id}/modify`, body);
         }
-        processed.push(m.providerMessageId);
-      } catch {
-        failed.push(m.providerMessageId);
+        processed.push(m.id);
+      } catch (err) {
+        if (mutationErrorIsNoOp(err)) {
+          processed.push(m.id);
+        } else {
+          failed.push(m.id);
+        }
       }
     }
     return { conversationId: id, action, processed, failed };

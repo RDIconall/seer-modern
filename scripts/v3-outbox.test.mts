@@ -1,6 +1,6 @@
 /**
  * Task 4 gate: optimistic corpus patch and outbox enqueue are one transaction;
- * folder transitions, idempotent replay, and undo without provider calls.
+ * folder transitions, concurrent idempotent replay, conditional revert, undo.
  */
 import assert from "node:assert/strict";
 import { startTestDb } from "./v2-testdb.mts";
@@ -10,11 +10,13 @@ import {
   cancelPending,
 } from "../src/lib/v3/outbox/repository.ts";
 import {
-  applyOptimistic,
-  revertOptimistic,
+  applyExpected,
+  computeExpected,
+  revertIfOwned,
+  lockConversation,
 } from "../src/lib/v3/outbox/optimistic.ts";
 import { inTransaction } from "../src/lib/v2/db/transaction.ts";
-import { asAccountId, asConversationId, type AccountId } from "../src/lib/v2/db/types.ts";
+import { asAccountId, type AccountId } from "../src/lib/v2/db/types.ts";
 import type { OutboxCommand } from "../src/lib/v3/outbox/types.ts";
 
 let seedCounter = 0;
@@ -55,72 +57,51 @@ try {
   );
 
   // -------------------------------------------------------------------------
-  // Optimistic folder transitions
+  // Optimistic folder transitions (internal snapshots)
   // -------------------------------------------------------------------------
   const inboxId = await seedConversation(db.pool, accountId, ["inbox"], false);
   const archiveId = await seedConversation(db.pool, accountId, ["inbox", "archive"], false);
   const trashId = await seedConversation(db.pool, accountId, ["trash"], false);
   const unreadId = await seedConversation(db.pool, accountId, ["inbox"], false);
 
-  await inTransaction(async (client) => {
-    await applyOptimistic(client, accountId, {
-      type: "archive",
-      conversationId: inboxId,
-      previous: { folders: ["inbox"], isUnread: false },
+  async function applyType(
+    conversationId: string,
+    type: OutboxCommand["type"],
+    beforeFolders: string[],
+    beforeUnread: boolean,
+  ) {
+    const previous = { folders: beforeFolders, isUnread: beforeUnread };
+    const command: OutboxCommand = {
+      type,
+      conversationId,
+      previous,
+      expected: computeExpected(type, previous),
+    };
+    await inTransaction(async (client) => {
+      await applyExpected(client, accountId, command);
     });
-  });
-  assert.deepEqual(
-    (await readConversation(db.pool, inboxId)).folders.sort(),
-    ["archive"],
-    "archive removes inbox and adds archive",
-  );
+  }
+
+  await applyType(inboxId, "archive", ["inbox"], false);
+  assert.deepEqual((await readConversation(db.pool, inboxId)).folders.sort(), ["archive"]);
+
+  await applyType(archiveId, "trash", ["inbox", "archive"], false);
+  assert.deepEqual((await readConversation(db.pool, archiveId)).folders.sort(), ["trash"]);
+
+  await applyType(trashId, "restore", ["trash"], false);
+  assert.deepEqual((await readConversation(db.pool, trashId)).folders.sort(), ["inbox"]);
+
+  await applyType(unreadId, "markUnread", ["inbox"], false);
+  assert.equal((await readConversation(db.pool, unreadId)).is_unread, true);
 
   await inTransaction(async (client) => {
-    await applyOptimistic(client, accountId, {
-      type: "trash",
-      conversationId: archiveId,
-      previous: { folders: ["inbox", "archive"], isUnread: false },
-    });
-  });
-  assert.deepEqual(
-    (await readConversation(db.pool, archiveId)).folders.sort(),
-    ["trash"],
-    "trash removes inbox|archive and adds trash",
-  );
-
-  await inTransaction(async (client) => {
-    await applyOptimistic(client, accountId, {
-      type: "restore",
-      conversationId: trashId,
-      previous: { folders: ["trash"], isUnread: false },
-    });
-  });
-  assert.deepEqual(
-    (await readConversation(db.pool, trashId)).folders.sort(),
-    ["inbox"],
-    "restore removes trash and adds inbox",
-  );
-
-  await inTransaction(async (client) => {
-    await applyOptimistic(client, accountId, {
+    const outcome = await revertIfOwned(client, accountId, {
       type: "markUnread",
       conversationId: unreadId,
       previous: { folders: ["inbox"], isUnread: false },
+      expected: { folders: ["inbox"], isUnread: true },
     });
-  });
-  assert.equal(
-    (await readConversation(db.pool, unreadId)).is_unread,
-    true,
-    "markUnread sets is_unread=true",
-  );
-
-  // Revert restores exact prior state.
-  await inTransaction(async (client) => {
-    await revertOptimistic(client, accountId, {
-      type: "markUnread",
-      conversationId: unreadId,
-      previous: { folders: ["inbox"], isUnread: false },
-    });
+    assert.equal(outcome, "reverted");
   });
   assert.equal((await readConversation(db.pool, unreadId)).is_unread, false);
 
@@ -128,24 +109,26 @@ try {
   // Atomicity: patch + enqueue commit or roll back together
   // -------------------------------------------------------------------------
   const atomicId = await seedConversation(db.pool, accountId, ["inbox"], false);
-  const atomicCmd: OutboxCommand = {
-    type: "archive",
-    conversationId: atomicId,
-    previous: { folders: ["inbox"], isUnread: false },
-  };
 
   await assert.rejects(
     () =>
       inTransaction(async (client) => {
-        await applyOptimistic(client, accountId, atomicCmd);
+        const locked = await lockConversation(client, accountId, atomicId);
+        const previous = { folders: locked!.folders, isUnread: locked!.isUnread };
+        const command: OutboxCommand = {
+          type: "archive",
+          conversationId: atomicId,
+          previous,
+          expected: computeExpected("archive", previous),
+        };
+        await applyExpected(client, accountId, command);
         await client.query(
           `insert into seer.outbox (account_id, command, idempotency_key, status)
            values ($1, $2::jsonb, $3, 'not-a-status')`,
-          [accountId, JSON.stringify(atomicCmd), "atomic-key"],
+          [accountId, JSON.stringify(command), "atomic-key"],
         );
       }),
     /check constraint|violates check constraint/i,
-    "invalid outbox status must roll back the optimistic patch",
   );
   assert.deepEqual(
     (await readConversation(db.pool, atomicId)).folders.sort(),
@@ -153,60 +136,90 @@ try {
     "rolled-back transaction must not persist corpus patch",
   );
 
-  const item = await enqueueOptimistic(accountId, atomicCmd, "atomic-key");
+  const item = await enqueueOptimistic(
+    accountId,
+    { type: "archive", conversationId: atomicId },
+    "atomic-key",
+  );
   assert.equal(item.status, "pending");
-  assert.equal(item.idempotencyKey, "atomic-key");
+  assert.deepEqual(item.command.previous.folders.sort(), ["inbox"]);
+  assert.deepEqual(item.command.expected.folders.sort(), ["archive"]);
+  assert.deepEqual((await readConversation(db.pool, atomicId)).folders.sort(), ["archive"]);
+
+  // -------------------------------------------------------------------------
+  // Idempotent replay + concurrent enqueue
+  // -------------------------------------------------------------------------
+  const replay = await enqueueOptimistic(
+    accountId,
+    { type: "archive", conversationId: atomicId },
+    "atomic-key",
+  );
+  assert.equal(replay.id, item.id);
+
+  const concurrentId = await seedConversation(db.pool, accountId, ["inbox"], false);
+  const results = await Promise.all(
+    Array.from({ length: 8 }, () =>
+      enqueueOptimistic(
+        accountId,
+        { type: "trash", conversationId: concurrentId },
+        "concurrent-key",
+      ),
+    ),
+  );
+  const uniqueIds = new Set(results.map((r) => r.id));
+  assert.equal(uniqueIds.size, 1, "concurrent duplicate keys must return one row");
   assert.deepEqual(
-    (await readConversation(db.pool, atomicId)).folders.sort(),
-    ["archive"],
-    "committed enqueue must persist optimistic patch",
+    (await readConversation(db.pool, concurrentId)).folders.sort(),
+    ["trash"],
+    "optimistic patch applied exactly once",
   );
-
-  const outboxCount = await db.pool.query<{ n: number }>(
-    "select count(*)::int as n from seer.outbox where account_id = $1 and idempotency_key = $2",
-    [accountId, "atomic-key"],
+  const concurrentRows = await db.pool.query<{ n: number }>(
+    "select count(*)::int as n from seer.outbox where idempotency_key = $1",
+    ["concurrent-key"],
   );
-  assert.equal(outboxCount.rows[0].n, 1);
+  assert.equal(concurrentRows.rows[0].n, 1);
 
   // -------------------------------------------------------------------------
-  // Idempotent replay by key
-  // -------------------------------------------------------------------------
-  const replay = await enqueueOptimistic(accountId, atomicCmd, "atomic-key");
-  assert.equal(replay.id, item.id, "same idempotency key must return existing row");
-  assert.equal(replay.status, "pending");
-
-  // -------------------------------------------------------------------------
-  // Undo: cancel pending + revert; no provider involvement
+  // Undo: cancel pending + conditional revert
   // -------------------------------------------------------------------------
   const undoId = await seedConversation(db.pool, accountId, ["inbox"], true);
-  const undoCmd: OutboxCommand = {
-    type: "trash",
-    conversationId: undoId,
-    previous: { folders: ["inbox"], isUnread: true },
-  };
-  const pending = await enqueueOptimistic(accountId, undoCmd, "undo-key");
-  assert.deepEqual(
-    (await readConversation(db.pool, undoId)).folders.sort(),
-    ["trash"],
-    "enqueue applies optimistic trash",
+  const pending = await enqueueOptimistic(
+    accountId,
+    { type: "trash", conversationId: undoId },
+    "undo-key",
   );
-
   const cancelled = await cancelPending(accountId, pending.id);
   assert.equal(cancelled, true);
-  const row = await db.pool.query<{ status: string }>(
-    "select status from seer.outbox where id = $1",
-    [pending.id],
-  );
-  assert.equal(row.rows[0].status, "cancelled");
-  assert.deepEqual(
-    (await readConversation(db.pool, undoId)).folders.sort(),
-    ["inbox"],
-    "cancel must revert corpus to exact previous state",
-  );
-  assert.equal((await readConversation(db.pool, undoId)).is_unread, true);
+  assert.deepEqual((await readConversation(db.pool, undoId)).folders.sort(), ["inbox"]);
 
-  const notPending = await cancelPending(accountId, pending.id);
-  assert.equal(notPending, false, "cannot cancel a non-pending row");
+  // Rollback clobber: later command must not be overwritten by cancel of earlier.
+  const clobberId = await seedConversation(db.pool, accountId, ["inbox"], false);
+  const first = await enqueueOptimistic(
+    accountId,
+    { type: "archive", conversationId: clobberId },
+    "clobber-1",
+  );
+  const second = await enqueueOptimistic(
+    accountId,
+    { type: "trash", conversationId: clobberId },
+    "clobber-2",
+  );
+  assert.deepEqual((await readConversation(db.pool, clobberId)).folders.sort(), ["trash"]);
+  await cancelPending(accountId, first.id);
+  assert.deepEqual(
+    (await readConversation(db.pool, clobberId)).folders.sort(),
+    ["trash"],
+    "cancel of superseded command must not clobber later optimistic state",
+  );
+  const reconcile = await db.pool.query<{ kind: string }>(
+    "select kind from seer.events where account_id = $1 and idempotency_key = $2",
+    [accountId, first.idempotencyKey],
+  );
+  assert.ok(
+    reconcile.rows.some((e) => e.kind === "outbox_reconcile_needed"),
+    "conflict revert must raise reconcile event",
+  );
+  assert.equal(second.status, "pending");
 
   console.log("v3-outbox: OK");
 } finally {

@@ -34,6 +34,12 @@ const CONVOS: Record<string, ReturnType<typeof graphMsg>[]> = {
     graphMsg("c1-m2", "c1", "2026-08-01T11:00:00Z", "sender@example.com", "Thread one"),
   ],
   c2: [graphMsg("c2-m1", "c2", "2026-08-01T10:00:00Z", "vendor@roche.com", "Roche pricing")],
+  c3: [
+    {
+      ...graphMsg("c3-m1", "c3", "2026-08-01T10:00:00Z", "sender@example.com", "Archived"),
+      parentFolderId: "archive",
+    },
+  ],
   s0: [
     graphMsg("s0-m2", "s0", "2026-08-03T10:00:00Z", "me@example.com", "Sent thread"),
     graphMsg("s0-m1", "s0", "2026-08-02T10:00:00Z", "me@example.com", "Sent thread"),
@@ -110,6 +116,7 @@ const mockFetch = (async (url: string, init?: RequestInit) => {
   const move = u.match(/\/messages\/([^/]+)\/move$/);
   if (method === "POST" && move) {
     if (move[1] === "c1-m2") return new Response("nope", { status: 400 });
+    if (move[1] === "gone-m1") return new Response("gone", { status: 404 });
     return json({ id: move[1] });
   }
   if (method === "POST" && u.endsWith("/sendMail")) {
@@ -173,5 +180,16 @@ assert.ok(split, "split-page thread must appear on first folder page");
 assert.equal(split!.messages.length, 2);
 assert.equal(split!.messages[0].sentAt, "2026-08-01T10:00:00Z");
 assert.equal(split!.messages[0].bodyHtml, "<p>body</p>");
+
+// State-setting idempotency: already-archived and 404-after-move are no-ops.
+const archived = await provider.mutateConversation("c3", "archive", "idem-1");
+assert.equal(archived.failed.length, 0);
+assert.equal(archived.processed.length, 1);
+CONVOS.gone = [
+  graphMsg("gone-m1", "gone", "2026-08-01T10:00:00Z", "sender@example.com", "Gone"),
+];
+const gone = await provider.mutateConversation("gone", "archive", "idem-2");
+assert.equal(gone.failed.length, 0);
+assert.equal(gone.processed.length, 1);
 
 console.log("v2-provider-outlook: OK");

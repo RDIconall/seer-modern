@@ -2,6 +2,7 @@ import type { PoolClient } from "pg";
 import { db } from "../db/pool";
 import { inTransaction } from "../db/transaction";
 import type { AccountId } from "../db/types";
+import { blockedSyncFolders } from "../../v3/outbox/sync-mask";
 import type { Conversation, SyncFolder } from "../providers/types";
 
 /**
@@ -59,15 +60,6 @@ async function writeConversation(
              last_message_at = excluded.last_message_at,
              message_count = excluded.message_count,
              is_deleted = false,
-             folders = (
-               select coalesce(array_agg(distinct f), '{}')
-                 from unnest(seer.conversations.folders || array[$6]::text[]) as f
-             ),
-             is_unread = (
-               select coalesce(bool_or(m.is_unread), false)
-                 from seer.messages m
-                where m.conversation_id = seer.conversations.id
-             ),
              last_synced_at = now(),
              updated_at = now()
        returning id`,
@@ -82,6 +74,19 @@ async function writeConversation(
     ],
   );
   const conversationId = conv.rows[0].id;
+  const blocked = await blockedSyncFolders(client, accountId, conversationId);
+  if (!blocked.has(folder)) {
+    await client.query(
+      `update seer.conversations
+          set folders = (
+                select coalesce(array_agg(distinct f), '{}')
+                  from unnest(folders || array[$2]::text[]) as f
+              ),
+              updated_at = now()
+        where id = $1`,
+      [conversationId, folder],
+    );
+  }
   for (const m of convo.messages) {
     await client.query(
       `insert into seer.messages

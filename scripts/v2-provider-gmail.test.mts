@@ -52,6 +52,15 @@ const THREADS: Record<string, { id: string; messages: ReturnType<typeof gmailMes
     id: "c2",
     messages: [gmailMessage("c2-m1", 1_600_000_100_000, "vendor@roche.com", "Roche pricing")],
   },
+  c3: {
+    id: "c3",
+    messages: [
+      {
+        ...gmailMessage("c3-m1", 1_600_000_100_000, "sender@example.com", "Already archived"),
+        labelIds: ["ARCHIVE"],
+      },
+    ],
+  },
   s0: {
     id: "s0",
     messages: [
@@ -123,6 +132,7 @@ const mockFetch = (async (url: string, init?: RequestInit) => {
   const modify = u.match(/\/messages\/([^/]+)\/modify$/);
   if (method === "POST" && modify) {
     if (modify[1] === "c1-m2") return new Response("nope", { status: 400 });
+    if (modify[1] === "gone-m1") return new Response("gone", { status: 404 });
     return json({ id: modify[1] });
   }
 
@@ -176,5 +186,20 @@ await provider.reply({ conversationId: "c0", all: true, bodyHtml: "<p>ok</p>" },
 assert.match(lastSendRaw, /To: .*sender@example\.com/);
 assert.match(lastSendRaw, /cc@example\.com/);
 assert.ok(!/To:.*\bme@example\.com\b/.test(lastSendRaw), "must not reply to self");
+
+// State-setting idempotency: already-archived threads and 404-after-move are no-ops.
+const archived = await provider.mutateConversation("c3", "archive", "idem-1");
+assert.equal(archived.failed.length, 0);
+assert.equal(archived.processed.length, 1);
+const archivedAgain = await provider.mutateConversation("c3", "archive", "idem-2");
+assert.equal(archivedAgain.failed.length, 0);
+
+THREADS.gone = {
+  id: "gone",
+  messages: [gmailMessage("gone-m1", 1_600_000_100_000, "sender@example.com", "Gone")],
+};
+const gone = await provider.mutateConversation("gone", "archive", "idem-3");
+assert.equal(gone.failed.length, 0);
+assert.equal(gone.processed.length, 1);
 
 console.log("v2-provider-gmail: OK");

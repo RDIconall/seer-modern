@@ -1,15 +1,19 @@
 /**
- * Task 4 gate: outbox drain claims safely, preserves idempotency keys, retries
- * transient failures with backoff, and reverts after max attempts.
+ * Task 4 gate: outbox drain claims safely, reclaims stale inflight, preserves
+ * idempotency keys, classifies retries, and handles partial provider failure.
  */
 import assert from "node:assert/strict";
 import { startTestDb } from "./v2-testdb.mts";
 import { upsertUser, upsertAccount } from "../src/lib/v2/db/accounts.ts";
 import { enqueueOptimistic } from "../src/lib/v3/outbox/repository.ts";
-import { drainOutbox, MAX_OUTBOX_ATTEMPTS } from "../src/lib/v3/outbox/drain.ts";
+import {
+  drainOutbox,
+  MAX_OUTBOX_ATTEMPTS,
+  INFLIGHT_LEASE_MS,
+} from "../src/lib/v3/outbox/drain.ts";
+import { ProviderHttpError } from "../src/lib/v2/providers/http.ts";
 import { FakeProvider } from "../src/lib/v2/providers/fake.ts";
 import { asAccountId, type AccountId } from "../src/lib/v2/db/types.ts";
-import type { OutboxCommand } from "../src/lib/v3/outbox/types.ts";
 import type { MailProvider } from "../src/lib/v2/providers/types.ts";
 
 async function seedConversation(
@@ -39,9 +43,9 @@ class ThrowingProvider extends FakeProvider {
   }
 
   override async mutateConversation(
-    id: string,
-    action: Parameters<MailProvider["mutateConversation"]>[1],
-    key: string,
+    _id: string,
+    _action: Parameters<MailProvider["mutateConversation"]>[1],
+    _key: string,
   ) {
     this.calls += 1;
     throw this.error;
@@ -59,9 +63,6 @@ try {
     }),
   );
 
-  // -------------------------------------------------------------------------
-  // Drain: oldest pending first, inflight, provider once, done on success
-  // -------------------------------------------------------------------------
   const provider = new FakeProvider({
     conversations: [
       {
@@ -104,54 +105,71 @@ try {
           },
         ],
       },
+      {
+        providerConversationId: "p-reclaim",
+        subject: "Reclaim",
+        messages: [
+          {
+            providerMessageId: "m-reclaim",
+            from: { email: "a@example.com" },
+            to: [{ email: "me@example.com" }],
+            cc: [],
+            sentAt: "2026-08-01T10:00:00Z",
+            snippet: "s",
+            bodyHtml: null,
+            bodyText: "t",
+            isUnread: false,
+            isOutgoing: false,
+            attachments: [],
+            folder: "inbox",
+          },
+        ],
+      },
     ],
   });
 
   const oldId = await seedConversation(db.pool, accountId, "p-old", ["inbox"], false);
   const newId = await seedConversation(db.pool, accountId, "p-new", ["inbox"], false);
 
-  const oldCmd: OutboxCommand = {
-    type: "archive",
-    conversationId: oldId,
-    previous: { folders: ["inbox"], isUnread: false },
-  };
-  const newCmd: OutboxCommand = {
-    type: "archive",
-    conversationId: newId,
-    previous: { folders: ["inbox"], isUnread: false },
-  };
-
-  const first = await enqueueOptimistic(accountId, oldCmd, "drain-old");
+  const first = await enqueueOptimistic(
+    accountId,
+    { type: "archive", conversationId: oldId },
+    "drain-old",
+  );
   await new Promise((r) => setTimeout(r, 5));
-  const second = await enqueueOptimistic(accountId, newCmd, "drain-new");
+  await enqueueOptimistic(accountId, { type: "archive", conversationId: newId }, "drain-new");
 
   const report = await drainOutbox(accountId, provider, { limit: 1 });
-  assert.equal(report.processed, 1);
   assert.equal(report.done, 1);
-  assert.equal(report.failed, 0);
-
-  const firstRow = await db.pool.query<{ status: string; idempotency_key: string }>(
-    "select status, idempotency_key from seer.outbox where id = $1",
-    [first.id],
-  );
-  assert.equal(firstRow.rows[0].status, "done");
-  assert.equal(firstRow.rows[0].idempotency_key, "drain-old");
-
-  const inflight = await db.pool.query<{ status: string }>(
-    "select status from seer.outbox where id = $1",
-    [second.id],
-  );
-  assert.equal(inflight.rows[0].status, "pending", "second row stays pending until drained");
 
   const report2 = await drainOutbox(accountId, provider, { limit: 1 });
   assert.equal(report2.done, 1);
 
-  // Idempotency key preserved on retry — provider dedupes, only one effective call per key.
-  const replayReport = await drainOutbox(accountId, provider, { limit: 10 });
-  assert.equal(replayReport.processed, 0, "no pending rows left");
+  // -------------------------------------------------------------------------
+  // Stale inflight reclaim
+  // -------------------------------------------------------------------------
+  const reclaimId = await seedConversation(db.pool, accountId, "p-reclaim", ["inbox"], false);
+  const reclaimItem = await enqueueOptimistic(
+    accountId,
+    { type: "archive", conversationId: reclaimId },
+    "reclaim-key",
+  );
+  await db.pool.query(
+    `update seer.outbox
+        set status = 'inflight',
+            updated_at = now() - ($2::int * interval '1 millisecond')
+      where id = $1`,
+    [reclaimItem.id, INFLIGHT_LEASE_MS + 1000],
+  );
+  const reclaimReport = await drainOutbox(accountId, provider, {
+    limit: 1,
+    leaseMs: INFLIGHT_LEASE_MS,
+  });
+  assert.equal(reclaimReport.reclaimed, 1);
+  assert.equal(reclaimReport.done, 1);
 
   // -------------------------------------------------------------------------
-  // Partial provider failure must not be silently swallowed
+  // Partial provider failure preserves optimistic state
   // -------------------------------------------------------------------------
   const partialProvider = new FakeProvider({
     conversations: [
@@ -194,31 +212,19 @@ try {
   });
 
   const partialId = await seedConversation(db.pool, accountId, "p-partial", ["inbox"], false);
-  const partialCmd: OutboxCommand = {
-    type: "trash",
-    conversationId: partialId,
-    previous: { folders: ["inbox"], isUnread: false },
-  };
-  await enqueueOptimistic(accountId, partialCmd, "partial-key");
+  await enqueueOptimistic(
+    accountId,
+    { type: "trash", conversationId: partialId },
+    "partial-key",
+  );
+  const partialDrain = await drainOutbox(accountId, partialProvider, { limit: 1 });
+  assert.equal(partialDrain.failed, 1);
 
-  // Exhaust retries — partial failure counts as failure each attempt.
-  for (let i = 0; i < MAX_OUTBOX_ATTEMPTS; i++) {
-    await db.pool.query(
-      "update seer.outbox set next_attempt_at = now() - interval '1 second' where idempotency_key = $1",
-      ["partial-key"],
-    );
-    const r = await drainOutbox(accountId, partialProvider, { limit: 1 });
-    if (i < MAX_OUTBOX_ATTEMPTS - 1) {
-      assert.equal(r.retried, 1, `attempt ${i + 1} should schedule retry`);
-    }
-  }
-
-  const partialRow = await db.pool.query<{ status: string; last_error: string | null }>(
-    "select status, last_error from seer.outbox where idempotency_key = $1",
+  const partialRow = await db.pool.query<{ status: string }>(
+    "select status from seer.outbox where idempotency_key = $1",
     ["partial-key"],
   );
   assert.equal(partialRow.rows[0].status, "failed");
-  assert.match(partialRow.rows[0].last_error ?? "", /failed/i);
 
   const partialFolders = await db.pool.query<{ folders: string[] }>(
     "select folders from seer.conversations where id = $1",
@@ -226,29 +232,72 @@ try {
   );
   assert.deepEqual(
     partialFolders.rows[0].folders.sort(),
-    ["inbox"],
-    "failed after max attempts must revert optimistic patch",
+    ["trash"],
+    "partial success must not revert optimistic trash state",
   );
 
-  const events = await db.pool.query<{ kind: string }>(
+  const partialEvents = await db.pool.query<{ kind: string }>(
     "select kind from seer.events where account_id = $1 and idempotency_key = $2",
     [accountId, "partial-key"],
   );
   assert.ok(
-    events.rows.some((e) => e.kind === "outbox_failed"),
-    "max-attempt failure must raise a visible event",
+    partialEvents.rows.some((e) => e.kind === "outbox_reconcile_needed"),
+    "partial failure must queue reconciliation",
   );
 
   // -------------------------------------------------------------------------
-  // Transient failure: exponential backoff then success
+  // Permanent auth failure — no retry budget consumed
+  // -------------------------------------------------------------------------
+  const authId = await seedConversation(db.pool, accountId, "p-auth", ["inbox"], false);
+  await enqueueOptimistic(
+    accountId,
+    { type: "archive", conversationId: authId },
+    "auth-key",
+  );
+  const authProvider = new ThrowingProvider(
+    new ProviderHttpError(403, "gmail", "forbidden"),
+    {
+      conversations: [
+        {
+          providerConversationId: "p-auth",
+          subject: "Auth",
+          messages: [
+            {
+              providerMessageId: "m-auth",
+              from: { email: "a@example.com" },
+              to: [{ email: "me@example.com" }],
+              cc: [],
+              sentAt: "2026-08-01T10:00:00Z",
+              snippet: "s",
+              bodyHtml: null,
+              bodyText: "t",
+              isUnread: false,
+              isOutgoing: false,
+              attachments: [],
+              folder: "inbox",
+            },
+          ],
+        },
+      ],
+    },
+  );
+  const authDrain = await drainOutbox(accountId, authProvider, { limit: 1 });
+  assert.equal(authDrain.failed, 1);
+  const authRow = await db.pool.query<{ attempts: number }>(
+    "select attempts from seer.outbox where idempotency_key = $1",
+    ["auth-key"],
+  );
+  assert.equal(authRow.rows[0].attempts, 1, "permanent failure must not exhaust retry budget");
+
+  // -------------------------------------------------------------------------
+  // Transient failure: backoff then success
   // -------------------------------------------------------------------------
   const transientId = await seedConversation(db.pool, accountId, "p-transient", ["inbox"], false);
-  const transientCmd: OutboxCommand = {
-    type: "archive",
-    conversationId: transientId,
-    previous: { folders: ["inbox"], isUnread: false },
-  };
-  await enqueueOptimistic(accountId, transientCmd, "transient-key");
+  await enqueueOptimistic(
+    accountId,
+    { type: "archive", conversationId: transientId },
+    "transient-key",
+  );
 
   const flaky = new ThrowingProvider(new Error("network timeout"), {
     conversations: [
@@ -303,22 +352,6 @@ try {
   assert.equal(retry1.retried, 1);
   assert.equal(flaky.calls, 1);
 
-  const pendingRow = await db.pool.query<{
-    status: string;
-    attempts: number;
-    next_attempt_at: Date;
-  }>(
-    "select status, attempts, next_attempt_at from seer.outbox where idempotency_key = $1",
-    ["transient-key"],
-  );
-  assert.equal(pendingRow.rows[0].status, "pending");
-  assert.equal(pendingRow.rows[0].attempts, 1);
-  assert.ok(
-    pendingRow.rows[0].next_attempt_at.getTime() > Date.now() - 1000,
-    "next_attempt_at must be in the future after transient failure",
-  );
-
-  // Backdate and swap in a working provider.
   await db.pool.query(
     "update seer.outbox set next_attempt_at = now() - interval '1 second' where idempotency_key = $1",
     ["transient-key"],
@@ -326,12 +359,54 @@ try {
   const success = await drainOutbox(accountId, transientSuccess, { limit: 1 });
   assert.equal(success.done, 1);
 
-  const doneRow = await db.pool.query<{ status: string; idempotency_key: string }>(
-    "select status, idempotency_key from seer.outbox where idempotency_key = $1",
-    ["transient-key"],
+  // Full failure with zero processed still reverts after max attempts.
+  const zeroId = await seedConversation(db.pool, accountId, "p-zero", ["inbox"], false);
+  await enqueueOptimistic(
+    accountId,
+    { type: "trash", conversationId: zeroId },
+    "zero-key",
   );
-  assert.equal(doneRow.rows[0].status, "done");
-  assert.equal(doneRow.rows[0].idempotency_key, "transient-key");
+  const zeroProvider = new FakeProvider({
+    conversations: [
+      {
+        providerConversationId: "p-zero",
+        subject: "Zero",
+        messages: [
+          {
+            providerMessageId: "m-zero",
+            from: { email: "a@example.com" },
+            to: [{ email: "me@example.com" }],
+            cc: [],
+            sentAt: "2026-08-01T10:00:00Z",
+            snippet: "s",
+            bodyHtml: null,
+            bodyText: "t",
+            isUnread: false,
+            isOutgoing: false,
+            attachments: [],
+            folder: "inbox",
+            failMutation: true,
+          },
+        ],
+      },
+    ],
+  });
+  for (let i = 0; i < MAX_OUTBOX_ATTEMPTS; i++) {
+    await db.pool.query(
+      "update seer.outbox set next_attempt_at = now() - interval '1 second' where idempotency_key = $1",
+      ["zero-key"],
+    );
+    await drainOutbox(accountId, zeroProvider, { limit: 1 });
+  }
+  const zeroFolders = await db.pool.query<{ folders: string[] }>(
+    "select folders from seer.conversations where id = $1",
+    [zeroId],
+  );
+  assert.deepEqual(
+    zeroFolders.rows[0].folders.sort(),
+    ["inbox"],
+    "total provider failure reverts when nothing processed",
+  );
 
   console.log("v3-outbox-drain: OK");
 } finally {

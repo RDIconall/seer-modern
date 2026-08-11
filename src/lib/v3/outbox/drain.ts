@@ -3,11 +3,13 @@ import { inTransaction } from "@/lib/v2/db/transaction";
 import { recordEvent } from "@/lib/v2/commands/repository";
 import { providerConversationId } from "@/lib/v2/commands/repository";
 import type { AccountId } from "@/lib/v2/db/types";
-import type { MailProvider, MutationAction } from "@/lib/v2/providers/types";
-import { revertOptimistic } from "./optimistic";
+import type { MailProvider, MutationReceipt } from "@/lib/v2/providers/types";
+import { revertIfOwned } from "./optimistic";
+import { classifyDrainError } from "./retry";
 import type { DrainReport, OutboxCommand, OutboxItem } from "./types";
 
 export const MAX_OUTBOX_ATTEMPTS = 5;
+export const INFLIGHT_LEASE_MS = 5 * 60 * 1000;
 
 type OutboxRow = {
   id: string;
@@ -20,6 +22,12 @@ type OutboxRow = {
   next_attempt_at: Date;
   created_at: Date;
   updated_at: Date;
+};
+
+export type DrainOptions = {
+  limit?: number;
+  leaseMs?: number;
+  now?: () => Date;
 };
 
 function mapRow(row: OutboxRow): OutboxItem {
@@ -41,21 +49,31 @@ export function backoffMs(attempt: number): number {
   return Math.min(60_000, 1000 * 2 ** attempt);
 }
 
-function providerAction(type: OutboxCommand["type"]): MutationAction {
-  switch (type) {
-    case "archive":
-      return "archive";
-    case "trash":
-      return "trash";
-    case "restore":
-      return "restore";
-    case "markUnread":
-      return "markUnread";
-    default: {
-      const _exhaustive: never = type;
-      throw new Error(`unknown mutation ${JSON.stringify(_exhaustive)}`);
-    }
-  }
+function providerAction(
+  type: OutboxCommand["type"],
+): Parameters<MailProvider["mutateConversation"]>[1] {
+  return type;
+}
+
+async function reclaimStaleInflight(
+  client: PoolClient,
+  accountId: AccountId,
+  leaseMs: number,
+): Promise<number> {
+  const r = await client.query<{ id: string }>(
+    `update seer.outbox
+        set status = 'pending',
+            attempts = attempts + 1,
+            last_error = coalesce(last_error, '') || ' [reclaimed stale inflight]',
+            next_attempt_at = now(),
+            updated_at = now()
+      where account_id = $1
+        and status = 'inflight'
+        and updated_at < now() - ($2::int * interval '1 millisecond')
+      returning id`,
+    [accountId, leaseMs],
+  );
+  return r.rowCount ?? 0;
 }
 
 async function claimPending(
@@ -113,29 +131,47 @@ async function scheduleRetry(
   );
 }
 
-async function markFailed(
+async function markPermanentFailed(
   client: PoolClient,
   accountId: AccountId,
   item: OutboxItem,
   error: string,
+  receipt?: MutationReceipt,
+  revert: boolean = true,
 ): Promise<void> {
   await client.query(
     `update seer.outbox
         set status = 'failed',
-            attempts = $2,
-            last_error = $3,
+            attempts = attempts + 1,
+            last_error = $2,
             updated_at = now()
       where id = $1`,
-    [item.id, item.attempts + 1, error.slice(0, 500)],
+    [item.id, error.slice(0, 500)],
   );
-  await revertOptimistic(client, accountId, item.command);
+
+  let revertOutcome: "reverted" | "conflict" | "skipped" = "skipped";
+  if (revert && (!receipt || receipt.processed.length === 0)) {
+    revertOutcome = await revertIfOwned(client, accountId, item.command);
+  }
+
+  const kind =
+    receipt && receipt.processed.length > 0
+      ? "outbox_reconcile_needed"
+      : revertOutcome === "conflict"
+        ? "outbox_reconcile_needed"
+        : "outbox_failed";
+
   await recordEvent(
     accountId,
-    "outbox_failed",
+    kind,
     {
       outboxId: item.id,
       command: item.command,
       error: error.slice(0, 500),
+      receipt: receipt
+        ? { processed: receipt.processed, failed: receipt.failed }
+        : undefined,
+      revertOutcome,
     },
     item.idempotencyKey,
     client,
@@ -152,17 +188,11 @@ async function processOne(
     item.command.conversationId,
   );
   if (!providerId) {
-    const attempts = item.attempts + 1;
-    if (attempts >= MAX_OUTBOX_ATTEMPTS) {
-      await inTransaction(async (client) => {
-        await markFailed(client, accountId, { ...item, attempts: item.attempts }, "conversation not found");
-      });
-      return "failed";
-    }
+    const error = "conversation not found";
     await inTransaction(async (client) => {
-      await scheduleRetry(client, item.id, attempts, "conversation not found");
+      await markPermanentFailed(client, accountId, item, error, undefined, true);
     });
-    return "retried";
+    return "failed";
   }
 
   try {
@@ -171,12 +201,19 @@ async function processOne(
       providerAction(item.command.type),
       item.idempotencyKey,
     );
+
     if (receipt.failed.length > 0) {
-      const error = `provider partial failure: ${receipt.failed.length} message(s) failed`;
+      const error = `provider partial failure: ${receipt.processed.length} processed, ${receipt.failed.length} failed`;
+      if (receipt.processed.length > 0) {
+        await inTransaction(async (client) => {
+          await markPermanentFailed(client, accountId, item, error, receipt, false);
+        });
+        return "failed";
+      }
       const attempts = item.attempts + 1;
       if (attempts >= MAX_OUTBOX_ATTEMPTS) {
         await inTransaction(async (client) => {
-          await markFailed(client, accountId, item, error);
+          await markPermanentFailed(client, accountId, item, error, receipt, true);
         });
         return "failed";
       }
@@ -185,16 +222,33 @@ async function processOne(
       });
       return "retried";
     }
+
     await inTransaction(async (client) => {
       await markDone(client, item.id);
     });
     return "done";
   } catch (err) {
     const error = err instanceof Error ? err.message : "provider mutation failed";
+    const disposition = classifyDrainError(err);
+
+    if (disposition === "permanent") {
+      await inTransaction(async (client) => {
+        await markPermanentFailed(client, accountId, item, error, undefined, true);
+      });
+      return "failed";
+    }
+
+    if (disposition === "reconcile") {
+      await inTransaction(async (client) => {
+        await markPermanentFailed(client, accountId, item, error, undefined, false);
+      });
+      return "failed";
+    }
+
     const attempts = item.attempts + 1;
     if (attempts >= MAX_OUTBOX_ATTEMPTS) {
       await inTransaction(async (client) => {
-        await markFailed(client, accountId, item, error);
+        await markPermanentFailed(client, accountId, item, error, undefined, true);
       });
       return "failed";
     }
@@ -206,21 +260,31 @@ async function processOne(
 }
 
 /**
- * Drain pending outbox rows for one account oldest-first. Claims rows with
- * `for update skip locked`, calls the provider once per row with the stored
- * idempotency key, and retries transient failures with bounded backoff.
+ * Drain pending outbox rows for one account oldest-first. Reclaims stale
+ * inflight leases, claims with `for update skip locked`, and retries transient
+ * failures with bounded exponential backoff.
  */
 export async function drainOutbox(
   accountId: AccountId,
   provider: MailProvider,
-  opts: { limit?: number } = {},
+  opts: DrainOptions = {},
 ): Promise<DrainReport> {
   const limit = opts.limit ?? 10;
-  const report: DrainReport = { processed: 0, done: 0, failed: 0, retried: 0 };
+  const leaseMs = opts.leaseMs ?? INFLIGHT_LEASE_MS;
+  const report: DrainReport = {
+    processed: 0,
+    done: 0,
+    failed: 0,
+    retried: 0,
+    reclaimed: 0,
+  };
 
-  const claimed = await inTransaction(async (client) =>
-    claimPending(client, accountId, limit),
-  );
+  const { reclaimed, claimed } = await inTransaction(async (client) => {
+    const reclaimedCount = await reclaimStaleInflight(client, accountId, leaseMs);
+    const rows = await claimPending(client, accountId, limit);
+    return { reclaimed: reclaimedCount, claimed: rows };
+  });
+  report.reclaimed = reclaimed;
 
   for (const item of claimed) {
     report.processed += 1;
