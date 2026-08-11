@@ -415,7 +415,42 @@ try {
         [role],
       );
       assert.equal(denied.rows[0].allowed, false, `${role} must not read public.seer_kv`);
+      for (const table of CORE_TABLES) {
+        const tableDenied = await db.pool.query<{ allowed: boolean }>(
+          "select has_table_privilege($1, $2, 'select') as allowed",
+          [role, `seer.${table}`],
+        );
+        assert.equal(
+          tableDenied.rows[0].allowed,
+          false,
+          `${role} must not read seer.${table}`,
+        );
+      }
     }
+  }
+
+  // Exercise the actual application role, not only information_schema grants.
+  await db.pool.query("set role seer_app");
+  try {
+    const appUser = await db.pool.query<{ id: string }>(
+      "insert into seer.users (email) values ('seer-app@test.local') returning id",
+    );
+    await db.pool.query(
+      `insert into seer.mail_accounts (user_id, provider, email)
+       values ($1, 'google', 'seer-app@test.local')`,
+      [appUser.rows[0].id],
+    );
+    await db.pool.query(
+      `insert into public.seer_kv (key, value)
+       values ('seer-app-test', '{"ok":true}'::jsonb)
+       on conflict (key) do update set value = excluded.value`,
+    );
+    const appRead = await db.pool.query<{ ok: boolean }>(
+      "select (value->>'ok')::boolean as ok from public.seer_kv where key = 'seer-app-test'",
+    );
+    assert.equal(appRead.rows[0].ok, true, "seer_app must read/write corpus and KV");
+  } finally {
+    await db.pool.query("reset role");
   }
 
   console.log("v3-schema: OK");
