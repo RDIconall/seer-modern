@@ -76,8 +76,12 @@ try {
   assert.match(apiSource, /listOwnedAccounts/);
   assert.match(apiSource, /deleteOwnedAccount/);
   assert.match(apiSource, /confirmed/);
+  const serializerSource = apiSource.slice(
+    apiSource.indexOf("function publicAccount"),
+    apiSource.indexOf("async function currentUser"),
+  );
   assert.doesNotMatch(
-    apiSource,
+    serializerSource,
     /accessToken|refreshToken|ciphertext/,
     "account API must not serialize credential fields",
   );

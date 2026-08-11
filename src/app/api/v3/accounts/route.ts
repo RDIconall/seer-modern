@@ -1,6 +1,8 @@
 import { auth } from "@/auth";
+import { revokeProviderGrant } from "@/lib/mail/revoke";
 import {
   deleteOwnedAccount,
+  getCredentials,
   getOwnedAccount,
   listOwnedAccounts,
   upsertUser,
@@ -104,6 +106,21 @@ export async function POST(request: Request) {
       { error: "Confirmation required to remove this account" },
       { status: 400 },
     );
+  }
+  const credentials = await getCredentials(owned.id);
+  if (credentials) {
+    await revokeProviderGrant({
+      id: owned.id,
+      provider: owned.provider === "google" ? "google" : "microsoft-entra-id",
+      email: owned.email,
+      name: owned.displayName ?? owned.email,
+      accessToken: credentials.accessToken,
+      refreshToken: credentials.refreshToken,
+      expiresAt: credentials.expiresAt
+        ? Math.floor(credentials.expiresAt / 1000)
+        : undefined,
+      updatedAt: new Date().toISOString(),
+    });
   }
   const removed = await deleteOwnedAccount(current.userId, owned.id);
   if (!removed) {
