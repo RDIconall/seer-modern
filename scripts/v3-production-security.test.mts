@@ -3,7 +3,10 @@ import {
   resolveDatabaseUrl,
   validateProductionDatabaseUrl,
 } from "../src/lib/v2/db/pool.ts";
-import { shouldProvisionKvSchema } from "../src/lib/store/pg.ts";
+import {
+  kvSchemaProvisioningStatements,
+  shouldProvisionKvSchema,
+} from "../src/lib/store/pg.ts";
 
 const production = {
   NODE_ENV: "production",
@@ -78,6 +81,14 @@ assert.equal(
   shouldProvisionKvSchema({ NODE_ENV: "test" }),
   true,
   "test databases may provision their local schema",
+);
+assert.deepEqual(
+  kvSchemaProvisioningStatements({ NODE_ENV: "production" }),
+  [],
+  "a production restricted role path must never receive CREATE or ALTER statements",
+);
+assert.ok(
+  kvSchemaProvisioningStatements({ NODE_ENV: "test" })[0].startsWith("create table"),
 );
 
 console.log("v3-production-security: OK");

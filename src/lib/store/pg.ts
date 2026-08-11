@@ -63,6 +63,21 @@ export function shouldProvisionKvSchema(
   return env.NODE_ENV !== "production" || env.SEER_KV_SETUP === "1";
 }
 
+export function kvSchemaProvisioningStatements(
+  env: Partial<Pick<NodeJS.ProcessEnv, "NODE_ENV" | "SEER_KV_SETUP">> = process.env,
+): string[] {
+  if (!shouldProvisionKvSchema(env)) return [];
+  return [
+    `create table if not exists seer_kv (
+       key text primary key,
+       value jsonb not null,
+       expires_at timestamptz,
+       updated_at timestamptz not null default now()
+     )`,
+    "alter table seer_kv enable row level security",
+  ];
+}
+
 /**
  * Storage must never hang a user request. A cold pool plus first-use DDL
  * once pushed a reply past the function limit, which returned an empty
@@ -109,16 +124,14 @@ function ensureSchema(): Promise<boolean> {
 
     // Statements run one at a time: some poolers reject multi-statement
     // simple queries, and a REVOKE on a role that doesn't exist must not
-    // sink the CREATE TABLE.
-    const stmts = [
-      `create table if not exists seer_kv (
-         key text primary key,
-         value jsonb not null,
-         expires_at timestamptz,
-         updated_at timestamptz not null default now()
-       )`,
-      `alter table seer_kv enable row level security`,
-    ];
+    // sink the CREATE TABLE. Production returns no statements here unless an
+    // operator explicitly enables the setup escape hatch.
+    const stmts = kvSchemaProvisioningStatements();
+    if (stmts.length === 0) {
+      lastSchemaError =
+        "public.seer_kv is missing or inaccessible; apply migrations before production startup";
+      return false;
+    }
     try {
       for (const stmt of stmts) await withTimeout(p.query(stmt), "ddl");
     } catch (e) {
