@@ -20,6 +20,7 @@ export function ReaderPane({
   onBack,
   onCompose,
   onNotice,
+  onCommandComplete,
   onProviderConversationId,
   preview,
 }: {
@@ -27,6 +28,7 @@ export function ReaderPane({
   onBack: () => void;
   onCompose: (intent: ReaderComposeIntent) => void;
   onNotice: (message: string, error?: boolean) => void;
+  onCommandComplete?: () => void;
   onProviderConversationId?: (id: string) => void;
   preview?: ReaderResponse;
 }) {
@@ -71,7 +73,10 @@ export function ReaderPane({
   const commands = useReaderCommands({
     corpusConversationId: conversationId,
     onCompose,
-    onCommandComplete: () => onNotice("Action queued. The provider will catch up in the background."),
+    onCommandComplete: () => {
+      onNotice("Action queued. The provider will catch up in the background.");
+      onCommandComplete?.();
+    },
   });
 
   const runArchive = async () => {

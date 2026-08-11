@@ -13,6 +13,7 @@ import {
   getActiveAccountId,
   setActiveAccountId,
 } from "@/lib/store/accounts";
+import { isV2Enabled } from "@/lib/v2/session";
 import { originAllowed } from "@/lib/security/origin";
 import { NextResponse } from "next/server";
 
@@ -49,7 +50,8 @@ async function currentUser() {
   const session = await auth();
   const email = session?.user?.email?.trim().toLowerCase();
   if (!email) return null;
-  return { session, email, userId: await upsertUser(email) };
+  if (!isV2Enabled(email)) return { session, email, userId: null, enabled: false };
+  return { session, email, userId: await upsertUser(email), enabled: true };
 }
 
 function providersAvailable() {
@@ -76,6 +78,9 @@ export async function GET() {
   if (!current) {
     return NextResponse.json({ error: "Not signed in" }, { status: 401 });
   }
+  if (!current.enabled || !current.userId) {
+    return NextResponse.json({ error: "V3 account management is unavailable" }, { status: 404 });
+  }
   const accounts = await listOwnedAccounts(current.userId);
   const activeId = await getActiveAccountId();
   const active =
@@ -98,6 +103,9 @@ export async function POST(request: Request) {
   const current = await currentUser();
   if (!current) {
     return NextResponse.json({ error: "Not signed in" }, { status: 401 });
+  }
+  if (!current.enabled || !current.userId) {
+    return NextResponse.json({ error: "V3 account management is unavailable" }, { status: 404 });
   }
   const body = (await request.json().catch(() => null)) as {
     action?: "switch" | "remove";

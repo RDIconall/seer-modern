@@ -106,7 +106,7 @@ try {
     evidence: [{ ref: "matter:roche", provenance: "inference" }],
   });
 
-  const current = await currentDecision(conversationId);
+  const current = await currentDecision(accountId, conversationId);
   assert.equal(current?.id, second.id);
   assert.equal(current?.home, "undecided");
   assert.deepEqual(current?.vetoReasons, ["live_matter"]);

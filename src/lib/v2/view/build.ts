@@ -91,7 +91,9 @@ export async function buildInboxView(
               order by m.sent_at desc nulls last limit 1) as from_display
        from seer.conversations c
        join seer.conversation_decisions d
-         on d.conversation_id = c.id and d.is_current
+         on d.conversation_id = c.id
+        and d.account_id = c.account_id
+        and d.is_current
       where c.account_id = $1 and c.is_deleted = false
       -- Loudest first; within a bucket, whatever is due soonest.
       order by d.priority desc, d.due_date asc nulls last, c.last_message_at desc nulls last`,
@@ -107,7 +109,7 @@ export async function buildInboxView(
   }>(
     `select y.conversation_id, y.kind, y.headline, y.detail, m.title as matter_title
        from seer.yields y
-       left join seer.matters m on m.id = y.matter_id
+       left join seer.matters m on m.id = y.matter_id and m.account_id = y.account_id
       where y.account_id = $1`,
     [accountId],
   );

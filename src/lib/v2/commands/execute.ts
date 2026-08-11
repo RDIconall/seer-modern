@@ -8,6 +8,7 @@ import { enqueueOptimistic } from "@/lib/v3/outbox/repository";
 import type { OutboxMutationKind } from "@/lib/v3/outbox/types";
 import {
   completeOutboundReceipt,
+  conversationBelongsToAccount,
   currentDeleteDecision,
   existingReceipt,
   isCorpusConversationId,
@@ -28,7 +29,8 @@ import type { Command, CommandResult } from "./types";
 
 export type CommandContext = {
   accountId: AccountId;
-  provider: MailProvider;
+  /** Queueable mutations do not need an access token or provider instance. */
+  provider?: MailProvider;
 };
 
 function isOutbound(command: Command): boolean {
@@ -57,6 +59,7 @@ async function executeOutbound(
   command: Command,
   idempotencyKey: string,
 ): Promise<CommandResult> {
+  if (!ctx.provider) return fail("provider unavailable");
   const reserved = await reserveOutboundReceipt(ctx.accountId, idempotencyKey, command.type);
   if (reserved === "exists") {
     const replay = await existingReceipt(ctx.accountId, idempotencyKey);
@@ -143,6 +146,9 @@ async function run(
     case "correctConversation": {
       // A user correction is law: it supersedes the model's decision and is not
       // second-guessed by safety. Recorded as a user-sourced decision + event.
+      if (!(await conversationBelongsToAccount(ctx.accountId, command.conversationId))) {
+        return fail("conversation not found");
+      }
       await inTransaction(async (client) => {
         await recordEvent(
           ctx.accountId,
@@ -191,6 +197,7 @@ async function run(
     }
 
     case "send": {
+      if (!ctx.provider) return fail("provider unavailable");
       const receipt = await ctx.provider.send(
         {
           to: command.to.map((email) => ({ email })),
@@ -209,6 +216,7 @@ async function run(
     }
 
     case "reply": {
+      if (!ctx.provider) return fail("provider unavailable");
       const rejected = await rejectCorpusId(ctx, command.providerConversationId);
       if (rejected) return rejected;
       const receipt = await ctx.provider.reply(
@@ -232,6 +240,7 @@ async function run(
     }
 
     case "forward": {
+      if (!ctx.provider) return fail("provider unavailable");
       const rejected = await rejectCorpusId(ctx, command.providerConversationId);
       if (rejected) return rejected;
       const receipt = await ctx.provider.forward(

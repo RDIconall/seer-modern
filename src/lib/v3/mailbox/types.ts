@@ -16,6 +16,8 @@ export type MailboxRow = {
 };
 
 export type MailboxView = {
+  /** Identity scope for browser caches; never reuse a view across accounts. */
+  accountId: string;
   folder: MailboxFolder;
   rows: MailboxRow[];
   total: number;

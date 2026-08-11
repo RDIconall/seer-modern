@@ -16,7 +16,9 @@ export async function conversationsNeedingRead(
     `select c.id
        from seer.conversations c
        left join seer.conversation_decisions d
-         on d.conversation_id = c.id and d.is_current
+         on d.conversation_id = c.id
+        and d.account_id = c.account_id
+        and d.is_current
       where c.account_id = $1
         and c.is_deleted = false
         and c.folders @> array['inbox']::text[]

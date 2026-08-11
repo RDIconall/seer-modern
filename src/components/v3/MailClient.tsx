@@ -23,7 +23,7 @@ import { ReaderPane } from "./ReaderPane";
 import { Settings } from "./Settings";
 import { fetchSearch, SearchBox, type SearchResult } from "./SearchBox";
 import type { ReaderComposeIntent } from "@/components/v2/Reader";
-import { useMailbox } from "./useMailbox";
+import { ACCOUNT_CHANGED_EVENT, useMailbox } from "./useMailbox";
 import { useInboxView } from "@/components/v2/useInboxView";
 import {
   clearSearchState,
@@ -231,6 +231,20 @@ export function MailClient({
     if (hashReady) writeHash(section, conversationId, query);
   }, [conversationId, hashReady, query, section]);
 
+  useEffect(() => {
+    if (typeof window === "undefined") return;
+    const onAccountChanged = () => {
+      setConversationId(null);
+      setProviderConversationId(null);
+      setSearchRows(null);
+      setQuery("");
+      restoredSearchRef.current = null;
+      setNotice(null);
+    };
+    window.addEventListener(ACCOUNT_CHANGED_EVENT, onAccountChanged);
+    return () => window.removeEventListener(ACCOUNT_CHANGED_EVENT, onAccountChanged);
+  }, []);
+
   const activeMailbox = mailbox.view;
   const readerPreview = useMemo(
     () => (preview && conversationId ? preview.reader : undefined),
@@ -343,6 +357,11 @@ export function MailClient({
       }}
       onCompose={(intent) => setCompose(intent)}
       onNotice={(message, error = false) => setNotice({ message, error })}
+      onCommandComplete={() => {
+        void mailbox.reload();
+        setConversationId(null);
+        setProviderConversationId(null);
+      }}
       onProviderConversationId={rememberProviderConversationId}
       preview={readerPreview}
     />

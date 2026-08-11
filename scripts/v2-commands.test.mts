@@ -118,7 +118,7 @@ try {
     ctx, { type: "correctConversation", conversationId: cKeep, home: "matter", note: "this is live" }, "key-correct",
   );
   assert.equal(corrected.ok, true);
-  const now = await currentDecision(cKeep);
+  const now = await currentDecision(accountId, cKeep);
   assert.equal(now?.home, "matter");
   assert.equal(now?.modelVersion, "user-correction");
 

@@ -159,7 +159,9 @@ export async function conversationsNeedingFiling(
               order by m.sent_at desc nulls last limit 1) as from_email
        from seer.conversations c
        join seer.conversation_decisions d
-         on d.conversation_id = c.id and d.is_current
+         on d.conversation_id = c.id
+        and d.account_id = c.account_id
+        and d.is_current
       where c.account_id = $1
         and c.is_deleted = false
         and c.function_name is null

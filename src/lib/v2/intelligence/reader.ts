@@ -175,7 +175,7 @@ export async function readConversation(
       matterNameFrom(read.matterRef, input.conversation.subject, counterparty, tieText, own),
       { text: tieText, counterparty, own },
     );
-    await linkConversationToMatter(matterId, input.conversationId);
+    await linkConversationToMatter(input.accountId, matterId, input.conversationId);
   }
 
   // Attach extracted meaning to the matter it names, so a development lands on

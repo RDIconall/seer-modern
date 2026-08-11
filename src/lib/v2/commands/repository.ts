@@ -138,6 +138,17 @@ export async function providerConversationId(
   return r.rows[0]?.provider_conversation_id ?? null;
 }
 
+export async function conversationBelongsToAccount(
+  accountId: AccountId,
+  conversationId: string,
+): Promise<boolean> {
+  const r = await db().query(
+    "select 1 from seer.conversations where id = $1 and account_id = $2",
+    [conversationId, accountId],
+  );
+  return (r.rowCount ?? 0) > 0;
+}
+
 /**
  * The current decision for a conversation, used to authorize a delete: the
  * signed token must map to THIS decision and its home must still be delete.

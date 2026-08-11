@@ -202,6 +202,7 @@ export class GmailProvider implements MailProvider {
     }>(
       `/threads?q=${encodeURIComponent(this.folderQuery(folder))}&maxResults=${this.pageSize}` +
         (cursor ? `&pageToken=${encodeURIComponent(cursor)}` : ""),
+      context,
     );
     const conversations: Conversation[] = [];
     for (const t of list.threads ?? []) {

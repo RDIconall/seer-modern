@@ -1,5 +1,6 @@
 import type { PoolClient } from "pg";
 import { inTransaction } from "@/lib/v2/db/transaction";
+import { db } from "@/lib/v2/db/pool";
 import { recordEvent } from "@/lib/v2/commands/repository";
 import { providerConversationId } from "@/lib/v2/commands/repository";
 import type { AccountId } from "@/lib/v2/db/types";
@@ -9,6 +10,9 @@ import { classifyDrainError } from "./retry";
 import type { DrainReport, OutboxCommand, OutboxItem } from "./types";
 
 export const MAX_OUTBOX_ATTEMPTS = 5;
+// Provider mutations enumerate every message in a conversation and issue
+// bounded HTTP calls per message. Keep the lease well above the adapter's
+// worst valid operation window so a second worker cannot reclaim a live call.
 export const INFLIGHT_LEASE_MS = 5 * 60 * 1000;
 
 type OutboxRow = {
@@ -90,6 +94,15 @@ async function claimPending(
         where account_id = $1
           and status = 'pending'
           and next_attempt_at <= now()
+          and not exists (
+            select 1
+              from seer.outbox older
+             where older.account_id = seer.outbox.account_id
+               and older.command->>'conversationId' =
+                   seer.outbox.command->>'conversationId'
+               and older.created_at < seer.outbox.created_at
+               and older.status in ('pending', 'inflight')
+          )
         order by created_at asc
         limit $2
         for update skip locked
@@ -191,6 +204,7 @@ async function processOne(
   accountId: AccountId,
   provider: MailProvider,
   item: OutboxItem,
+  leaseMs: number,
 ): Promise<"done" | "retried" | "failed"> {
   const providerId = await providerConversationId(
     accountId,
@@ -205,6 +219,20 @@ async function processOne(
     });
     return "failed";
   }
+
+  const heartbeat = setInterval(() => {
+    void db()
+      .query(
+        `update seer.outbox
+            set updated_at = now()
+          where id = $1 and account_id = $2 and status = 'inflight'`,
+        [item.id, accountId],
+      )
+      .catch(() => {
+        // The lease is only a safety net; a transient heartbeat failure must
+        // not interrupt the provider operation itself.
+      });
+  }, Math.max(1_000, Math.floor(leaseMs / 3)));
 
   try {
     const receipt = await provider.mutateConversation(
@@ -284,6 +312,8 @@ async function processOne(
       await scheduleRetry(client, item.id, attempts, error);
     });
     return "retried";
+  } finally {
+    clearInterval(heartbeat);
   }
 }
 
@@ -316,7 +346,7 @@ export async function drainOutbox(
 
   for (const item of claimed) {
     report.processed += 1;
-    const outcome = await processOne(accountId, provider, item);
+    const outcome = await processOne(accountId, provider, item, leaseMs);
     if (outcome === "done") report.done += 1;
     else if (outcome === "failed") report.failed += 1;
     else report.retried += 1;

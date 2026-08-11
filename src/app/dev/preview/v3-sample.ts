@@ -83,6 +83,7 @@ const previewRows: Record<MailboxFolder, MailboxRow[]> = {
 };
 
 const view = (folder: MailboxFolder): MailboxView => ({
+  accountId: "preview",
   folder,
   rows: previewRows[folder],
   total: previewRows[folder].length,

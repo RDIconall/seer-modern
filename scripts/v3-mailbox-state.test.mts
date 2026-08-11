@@ -6,6 +6,7 @@ import {
 } from "../src/components/v3/mailbox-state.ts";
 
 const view = (folder: MailboxView["folder"], ids: string[]): MailboxView => ({
+  accountId: "test-account",
   folder,
   rows: ids.map((conversationId) => ({
     conversationId,

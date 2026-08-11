@@ -110,8 +110,8 @@ export async function getMailboxView(
             rp.display_name as recipient_display
        from seer.conversations c
        left join seer.conversation_decisions d
-         on d.conversation_id = c.id and d.is_current
-       left join seer.matters mt on mt.id = d.matter_id
+        on d.conversation_id = c.id and d.account_id = c.account_id and d.is_current
+      left join seer.matters mt on mt.id = d.matter_id and mt.account_id = c.account_id
        left join lateral (
          select m.from_email,
                 m.from_name,
@@ -145,6 +145,7 @@ export async function getMailboxView(
   const last = page[page.length - 1];
 
   return {
+    accountId,
     folder,
     rows: page.map(mapRow),
     total: totalRow.rows[0]?.n ?? 0,

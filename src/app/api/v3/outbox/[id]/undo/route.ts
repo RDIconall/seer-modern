@@ -4,6 +4,7 @@ import { buildInboxView } from "@/lib/v2/view/build";
 import { parseMailboxLimit } from "@/lib/v3/mailbox/limit";
 import { cancelPending } from "@/lib/v3/outbox/repository";
 import { getMailboxView } from "@/lib/v3/mailbox/repository";
+import { originAllowed } from "@/lib/security/origin";
 
 export const dynamic = "force-dynamic";
 
@@ -15,6 +16,16 @@ type RouteContext = { params: Promise<{ id: string }> };
  * call has been made yet.
  */
 export async function POST(_request: Request, context: RouteContext) {
+  if (
+    !originAllowed({
+      origin: _request.headers.get("origin"),
+      requestOrigin: new URL(_request.url).origin,
+      allowedOrigin: process.env.SEER_ALLOWED_ORIGIN,
+      production: process.env.NODE_ENV === "production",
+    })
+  ) {
+    return NextResponse.json({ error: "invalid request origin" }, { status: 403 });
+  }
   const account = await getActiveV2Account();
   if (!account) {
     return NextResponse.json({ error: "no active v2 account" }, { status: 404 });

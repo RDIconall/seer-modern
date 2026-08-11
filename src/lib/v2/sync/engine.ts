@@ -151,7 +151,7 @@ export async function syncFolder(
       accountId,
       folder,
       page.conversations,
-      page.deletedConversationIds,
+      headPoll ? [] : page.deletedConversationIds,
       headPoll ? undefined : workingState.scanGeneration,
     );
     failed += result.failed;

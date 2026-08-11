@@ -9,6 +9,10 @@ import {
   logout,
   reconnectAccount,
 } from "@/app/actions";
+import {
+  ACCOUNT_CHANGED_EVENT,
+  clearMailboxCaches,
+} from "./useMailbox";
 
 type Account = {
   id: string;
@@ -65,6 +69,10 @@ export function Settings({ mobile = false }: { mobile?: boolean }) {
       if (action === "remove" && json.requiresSignOut) {
         await logout();
         return;
+      }
+      if (action === "switch" || action === "remove") {
+        clearMailboxCaches();
+        window.dispatchEvent(new Event(ACCOUNT_CHANGED_EVENT));
       }
       await load();
     } catch (cause) {
