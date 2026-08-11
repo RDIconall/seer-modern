@@ -114,3 +114,57 @@ mail-mobile-compose: 1
 ```
 
 No browser/screenshot tooling was available, so breakpoint screenshots and interactive touch/keyboard recordings were not captured.
+
+## Mobile modal overlay follow-up
+
+Fixed in `9bc6d97` (`fix(v3): isolate mobile modals from navigation`):
+
+- Navigation omits the mobile bottom-nav subtree and Compose FAB whenever reader or compose modal state is open.
+- On mobile, the background toolbar/folder pane is marked `inert` and `aria-hidden`; when compose is above a reader, the reader pane is also inert.
+- Reader loading, error, and loaded states are full-viewport safe-area dialogs with a back control.
+- Compose is a full-viewport safe-area dialog on mobile with its own close button and `aria-modal`.
+- Reader stacks at `z-index: 50`; compose stacks at `z-index: 60`.
+- Added SSR/component assertions that normal state includes nav/FAB while modal state excludes both, plus CSS stacking assertions.
+
+Exact follow-up verification:
+
+```text
+npx tsx scripts/v3-ui-contract.test.mts
+v3-ui-contract: OK
+
+npx tsx scripts/v3-styles.test.mts
+v3-styles: OK (58 classes all styled)
+
+npx tsc --noEmit
+exit 0
+
+targeted eslint
+exit 0
+
+npm run test:v3
+v3-schema: OK
+v3-sync-folders: OK
+v3-mailbox-view: OK
+v2-sync-report: OK
+v3-outbox: OK
+v3-outbox-drain: OK
+v3-outbox-retry: OK
+v3-outbox-sync-mask: OK
+v3-command-outbox: OK
+v3-reader-api: OK
+v3-search: OK
+v3-attachment-security: OK
+v3-outbound-idempotency: OK
+v3-mailbox-state: OK
+v3-mail-client-state: OK
+v3-ui-contract: OK
+v3-styles: OK (58 classes all styled)
+
+npm test
+exit 0
+
+npm run build
+Compiled successfully
+Generating static pages (52/52)
+exit 0
+```
