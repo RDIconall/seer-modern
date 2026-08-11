@@ -8,6 +8,10 @@ Commits:
 
 - `ef3f00d` — `feat(v3): restore full responsive mail client shell`
 - `930f3e4` — `fix(v3): preserve provider ids for reader compose`
+- `31a65b8` — `fix(v3): harden mobile hydration and lint output`
+- `542eaaf` — `fix(v3): satisfy hydration hook lint`
+- `be19da0` — `docs(v3): record browser verification evidence`
+- `237d975` — `test(v3): align hydration contract assertion`
 
 The branch was not pushed.
 
@@ -141,6 +145,23 @@ Browser console contained only React DevTools/Fast Refresh notices; page excepti
 ### Full lint after build
 
 The existing flat ESLint config now ignores `.vercel/output/**`. `npm run build` was run first to generate the output, then full `npm run lint` completed with exit 0. Lint reports eight pre-existing warnings in unrelated `scripts/v2-*` and `scripts/v3-*` tests, but no errors and no generated `.vercel/output` diagnostics.
+
+### Final verification run
+
+```text
+npm run test:v3
+exit 0
+
+npm test
+exit 0
+
+npx tsc --noEmit
+exit 0
+
+npm run build && npm run lint
+build exit 0
+lint exit 0 (8 unrelated warnings, 0 errors)
+```
 
 Breakpoint screenshots and representative click interactions are documented in the final reviewer follow-up above.
 
