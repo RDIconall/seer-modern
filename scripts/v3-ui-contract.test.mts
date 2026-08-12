@@ -96,10 +96,28 @@ assert.match(reader, /mail-reader-full/);
 assert.match(reader, /onBack/);
 assert.match(compose, /aria-modal/);
 assert.match(compose, /onClose/);
+const listSelection = await read("list-selection.ts");
+assert.match(
+  listSelection,
+  /return state/,
+  "selection cleanup must preserve the object identity when rows are unchanged",
+);
+assert.match(
+  listSelection,
+  /anchor: state\.anchor/,
+  "a shift range must leave the anchor in place so ranges can be re-drawn",
+);
 assert.match(
   folderList,
-  /return current/,
-  "selection cleanup must preserve the Set reference when rows are unchanged",
+  /shift\.current/,
+  "the shift modifier must be read from the click, not the change event",
+);
+assert.match(folderList, /Escape/, "Escape must clear the selection");
+assert.match(folderList, /useLongPress|onPointerDown/, "a long press must start a selection");
+assert.match(
+  folderList,
+  /selecting\s*\)?\s*\{?\s*\n?\s*onToggle|if \(selecting\)/,
+  "tapping a row while selecting must toggle it rather than navigate",
 );
 assert.match(folderList, /Most likely to delete/);
 assert.match(folderList, /["']date["']/);

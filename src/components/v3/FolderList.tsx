@@ -1,23 +1,26 @@
 "use client";
 
 import * as React from "react";
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useReducer, useRef, useState } from "react";
 import { Archive, MailOpen, RotateCcw, Trash2, X } from "lucide-react";
 import type { Command, CommandResult } from "@/lib/v2/commands/types";
 import type { Disposition } from "@/lib/v3/mailbox/triage-rank";
 import { triageGroupHint, triageGroupLabel } from "@/lib/v3/mailbox/triage-rank";
 import type { MailboxRow, MailboxSort, MailboxView } from "@/lib/v3/mailbox/types";
 import { commandFor } from "@/components/v2/triage-command";
+import { commandsForSelection, deletableCount, groupState } from "@/components/v2/triage-select";
 import {
-  commandsForSelection,
-  deletableCount,
-  groupState,
-  pruneSelection,
-  rangeSelect,
-  setGroup,
-  toggleOne,
-} from "@/components/v2/triage-select";
+  EMPTY_SELECTION,
+  reduceSelection,
+  type Selection,
+  type SelectionAction,
+} from "./list-selection";
 import { rowLabel } from "./useMailbox";
+
+/** How long a touch must rest on a row before it starts a selection. */
+const LONG_PRESS_MS = 450;
+/** Movement past this many pixels is a scroll, not a press. */
+const LONG_PRESS_SLOP = 10;
 
 function shortTime(value: string): string {
   const date = new Date(value);
@@ -25,7 +28,14 @@ function shortTime(value: string): string {
   return new Intl.DateTimeFormat([], { month: "short", day: "numeric" }).format(date);
 }
 
-/** A checkbox that can show the third, "some of this group" state. */
+/**
+ * A checkbox that can show the third, "some of this group" state.
+ *
+ * The shift key is read from the CLICK, not from the change event's native
+ * event. React derives a checkbox's change from the click, but the modifier
+ * does not reliably survive that hand-off, and a shift that arrives as `false`
+ * silently degrades a range select into two ordinary ticks.
+ */
 function Check({
   state,
   onChange,
@@ -35,6 +45,7 @@ function Check({
   onChange: (checked: boolean, shift: boolean) => void;
   label: string;
 }) {
+  const shift = useRef(false);
   return (
     <input
       type="checkbox"
@@ -47,13 +58,59 @@ function Check({
         // checked state a screen reader already reads.
         if (el) el.indeterminate = state === "some";
       }}
-      onClick={(e) => e.stopPropagation()}
-      onChange={(e) =>
-        onChange(e.target.checked, (e.nativeEvent as MouseEvent).shiftKey)
-      }
+      onClick={(e) => {
+        shift.current = e.shiftKey;
+        e.stopPropagation();
+      }}
+      onChange={(e) => onChange(e.target.checked, shift.current)}
       className="mail-list-checkbox mail-focus-ring"
     />
   );
+}
+
+/**
+ * Press and hold to start selecting, as the Gmail app does. Touch only: on a
+ * desktop a slow click is still a click, and turning one into a selection
+ * would punish anyone who does not release a mouse button quickly.
+ */
+function useLongPress(onLongPress: () => void) {
+  const timer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const origin = useRef<{ x: number; y: number } | null>(null);
+  const fired = useRef(false);
+
+  const cancel = useCallback(() => {
+    if (timer.current !== null) clearTimeout(timer.current);
+    timer.current = null;
+    origin.current = null;
+  }, []);
+
+  useEffect(() => cancel, [cancel]);
+
+  const handlers = {
+    onPointerDown: (e: React.PointerEvent) => {
+      if (e.pointerType === "mouse") return;
+      fired.current = false;
+      origin.current = { x: e.clientX, y: e.clientY };
+      timer.current = setTimeout(() => {
+        fired.current = true;
+        onLongPress();
+      }, LONG_PRESS_MS);
+    },
+    onPointerMove: (e: React.PointerEvent) => {
+      const start = origin.current;
+      if (!start) return;
+      if (Math.hypot(e.clientX - start.x, e.clientY - start.y) > LONG_PRESS_SLOP) {
+        cancel();
+      }
+    },
+    onPointerUp: cancel,
+    onPointerCancel: cancel,
+    onContextMenu: (e: React.MouseEvent) => {
+      if (fired.current) e.preventDefault();
+    },
+  };
+
+  return { handlers, fired };
 }
 
 type ListEntry =
@@ -109,6 +166,65 @@ function listEntries(rows: MailboxRow[], triage: boolean): ListEntry[] {
   return entries;
 }
 
+/**
+ * A row's main hit area. It opens the conversation normally, but once a
+ * selection is under way it ticks instead — in a selection you are aiming at
+ * rows, not at the small box on the left of them, and a stray tap that throws
+ * away the selection by navigating is the thing that makes bulk clearing feel
+ * hostile on a phone.
+ */
+function RowButton({
+  row,
+  index,
+  checked,
+  selecting,
+  onToggle,
+  onOpen,
+  onPrefetch,
+  children,
+}: {
+  row: MailboxRow;
+  index: number;
+  checked: boolean;
+  selecting: boolean;
+  onToggle: (index: number, shift: boolean) => void;
+  onOpen: (row: MailboxRow) => void;
+  onPrefetch: (conversationId: string) => void;
+  children: React.ReactNode;
+}) {
+  const { handlers, fired } = useLongPress(() => onToggle(index, false));
+  return (
+    <button
+      type="button"
+      className="mail-list-open mail-focus-ring"
+      aria-label={
+        selecting
+          ? `${checked ? "Deselect" : "Select"} ${rowLabel(row)}`
+          : `Open ${rowLabel(row)}`
+      }
+      aria-pressed={selecting ? checked : undefined}
+      onClick={(event) => {
+        // The press that started the selection must not also count as a tap.
+        if (fired.current) {
+          fired.current = false;
+          return;
+        }
+        if (selecting) {
+          onToggle(index, event.shiftKey);
+          return;
+        }
+        onPrefetch(row.conversationId);
+        onOpen(row);
+      }}
+      onFocus={() => onPrefetch(row.conversationId)}
+      onMouseEnter={() => onPrefetch(row.conversationId)}
+      {...handlers}
+    >
+      {children}
+    </button>
+  );
+}
+
 export function FolderList({
   view,
   refreshing,
@@ -135,11 +251,7 @@ export function FolderList({
   const triage = view.folder === "inbox" && view.sort === "triage";
   const primaryLabel = view.folder === "trash" ? "Restore" : "Archive";
   const PrimaryIcon = view.folder === "trash" ? RotateCcw : Archive;
-  const [selected, setSelected] = useState<Set<string>>(
-    () => new Set(initialSelectedIds ?? []),
-  );
   const [busy, setBusy] = useState(false);
-  const anchorRef = useRef<number | null>(null);
 
   const allIds = useMemo(
     () => view.rows.map((row) => row.conversationId),
@@ -150,35 +262,51 @@ export function FolderList({
     [view.rows, triage],
   );
 
+  const allIdsRef = useRef(allIds);
+  allIdsRef.current = allIds;
+  const [selection, dispatchSelection] = useReducer(
+    (state: Selection, action: SelectionAction) =>
+      reduceSelection(state, action, allIdsRef.current),
+    initialSelectedIds,
+    (seed): Selection =>
+      seed && seed.length > 0
+        ? { ids: new Set(seed), anchor: null }
+        : EMPTY_SELECTION,
+  );
+
+  // A tick on a row that has since been cleared must not survive to act on
+  // something else later.
   useEffect(() => {
-    setSelected((current) => {
-      const next = pruneSelection(current, allIds);
-      if (next.size === current.size && [...next].every((id) => current.has(id))) {
-        return current;
-      }
-      return next;
-    });
+    dispatchSelection({ kind: "prune" });
   }, [allIds]);
 
-  const liveSelection = useMemo(
-    () => pruneSelection(selected, allIds),
-    [selected, allIds],
-  );
+  const liveSelection = selection.ids as Set<string>;
   const selectedCount = liveSelection.size;
+  const selecting = selectedCount > 0;
   const canDelete = deletableCount(view.rows, liveSelection);
   const selectAllState = groupState(liveSelection, allIds);
 
-  const onRowCheck = (index: number) => (checked: boolean, shift: boolean) => {
-    const id = allIds[index];
-    if (!id) return;
-    setSelected((prev) => {
-      const anchor = anchorRef.current;
-      if (shift && anchor !== null) return rangeSelect(prev, allIds, anchor, index);
-      return toggleOne(prev, id);
-    });
-    anchorRef.current = index;
+  // Escape drops the selection, the way it does in every mail client — being
+  // stuck in selection mode with no way out but un-ticking rows one by one is
+  // the sort of thing that makes bulk actions feel dangerous.
+  useEffect(() => {
+    if (!selecting) return;
+    const onKeyDown = (event: KeyboardEvent) => {
+      if (event.key === "Escape") dispatchSelection({ kind: "clear" });
+    };
+    window.addEventListener("keydown", onKeyDown);
+    return () => window.removeEventListener("keydown", onKeyDown);
+  }, [selecting]);
+
+  const toggleRow = (index: number, shift: boolean) => {
+    const id = allIdsRef.current[index];
+    if (id === undefined) return;
+    dispatchSelection({ kind: "row", index, shift });
     onPrefetch(id);
   };
+
+  const onRowCheck = (index: number) => (_checked: boolean, shift: boolean) =>
+    toggleRow(index, shift);
 
   const run = async (items: { command: Command; conversationId: string }[]) => {
     if (items.length === 0 || busy) return;
@@ -189,8 +317,7 @@ export function FolderList({
       // The toast owns the failure message; the list is re-read either way.
     } finally {
       setBusy(false);
-      setSelected(new Set());
-      anchorRef.current = null;
+      dispatchSelection({ kind: "clear" });
     }
   };
 
@@ -276,16 +403,26 @@ export function FolderList({
         )}
       </header>
 
-      {selectedCount > 0 && (
+      {/* The master checkbox lives in a bar above the list and stays there, as
+          it does in Gmail and Outlook, rather than posing as the first row of
+          the list. The actions join it in the same bar once something is
+          ticked, so the controls never move under the cursor. */}
+      {view.rows.length > 0 && (
         <div
           className="mail-bulk-toolbar"
+          data-selecting={selecting ? "true" : "false"}
           role="toolbar"
-          aria-label="Selected message actions"
+          aria-label={selecting ? "Selected message actions" : "Message selection"}
         >
+          <Check
+            state={selectAllState}
+            onChange={(checked) => dispatchSelection({ kind: "all", checked })}
+            label="Select all conversations"
+          />
           <span className="mail-bulk-count" aria-live="polite">
-            {selectedCount} selected
+            {selecting ? `${selectedCount} selected` : "Select all"}
           </span>
-          {view.folder !== "sent" && (
+          {selecting && view.folder !== "sent" && (
             <button
               type="button"
               className="mail-action mail-focus-ring"
@@ -296,47 +433,48 @@ export function FolderList({
               {primaryLabel}
             </button>
           )}
-          <button
-            type="button"
-            className="mail-action mail-focus-ring"
-            disabled={busy || canDelete === 0}
-            title={
-              canDelete === selectedCount
-                ? "Delete the selected conversations"
-                : "Only conversations Seer cleared for deletion will be deleted"
-            }
-            onClick={actDelete}
-          >
-            <Trash2 aria-hidden className="mail-bulk-icon" />
-            Delete{canDelete !== selectedCount ? ` (${canDelete})` : ""}
-          </button>
-          <button
-            type="button"
-            className="mail-action mail-focus-ring"
-            disabled={busy}
-            onClick={actMarkUnread}
-          >
-            <MailOpen aria-hidden className="mail-bulk-icon" />
-            Mark unread
-          </button>
-          {canDelete !== selectedCount && (
-            <span className="mail-bulk-hint">
-              {canDelete === 0
-                ? "None of these are cleared for deletion"
-                : `${selectedCount - canDelete} of these aren’t cleared for deletion`}
-            </span>
+          {selecting && (
+            <>
+              <button
+                type="button"
+                className="mail-action mail-focus-ring"
+                disabled={busy || canDelete === 0}
+                title={
+                  canDelete === selectedCount
+                    ? "Delete the selected conversations"
+                    : "Only conversations Seer cleared for deletion will be deleted"
+                }
+                onClick={actDelete}
+              >
+                <Trash2 aria-hidden className="mail-bulk-icon" />
+                Delete{canDelete !== selectedCount ? ` (${canDelete})` : ""}
+              </button>
+              <button
+                type="button"
+                className="mail-action mail-focus-ring"
+                disabled={busy}
+                onClick={actMarkUnread}
+              >
+                <MailOpen aria-hidden className="mail-bulk-icon" />
+                Mark unread
+              </button>
+              {canDelete !== selectedCount && (
+                <span className="mail-bulk-hint">
+                  {canDelete === 0
+                    ? "None of these are cleared for deletion"
+                    : `${selectedCount - canDelete} of these aren’t cleared for deletion`}
+                </span>
+              )}
+              <button
+                type="button"
+                className="mail-bulk-clear mail-focus-ring"
+                onClick={() => dispatchSelection({ kind: "clear" })}
+              >
+                <X aria-hidden className="mail-bulk-icon" />
+                Clear selection
+              </button>
+            </>
           )}
-          <button
-            type="button"
-            className="mail-bulk-clear mail-focus-ring"
-            onClick={() => {
-              setSelected(new Set());
-              anchorRef.current = null;
-            }}
-          >
-            <X aria-hidden className="mail-bulk-icon" />
-            Clear selection
-          </button>
         </div>
       )}
 
@@ -344,16 +482,6 @@ export function FolderList({
         <p className="mail-empty">Nothing here yet.</p>
       ) : (
         <ul className="mail-list">
-          <li className="mail-list-select-all">
-            <Check
-              state={selectAllState}
-              onChange={(checked) =>
-                setSelected((prev) => setGroup(prev, allIds, checked))
-              }
-              label="Select all conversations"
-            />
-            <span>Select all</span>
-          </li>
           {entries.map((entry) => {
             if (entry.kind === "heading") {
               return (
@@ -361,7 +489,11 @@ export function FolderList({
                   <Check
                     state={groupState(liveSelection, entry.ids)}
                     onChange={(checked) =>
-                      setSelected((prev) => setGroup(prev, entry.ids, checked))
+                      dispatchSelection({
+                        kind: "group",
+                        ids: entry.ids,
+                        checked,
+                      })
                     }
                     label={`Select all in ${entry.label}`}
                   />
@@ -393,17 +525,14 @@ export function FolderList({
                   onChange={onRowCheck(index)}
                   label={`Select ${rowLabel(row)}`}
                 />
-                <button
-                  type="button"
-                  className="mail-list-open mail-focus-ring"
-                  aria-label={`Open ${rowLabel(row)}`}
-                  onClick={() => {
-                    onPrefetch(row.conversationId);
-                    onOpen(row);
-                  }}
-                  onFocus={() => onPrefetch(row.conversationId)}
-                  onMouseEnter={() => onPrefetch(row.conversationId)}
-                  onTouchStart={() => onPrefetch(row.conversationId)}
+                <RowButton
+                  row={row}
+                  index={index}
+                  checked={checked}
+                  selecting={selecting}
+                  onToggle={toggleRow}
+                  onOpen={onOpen}
+                  onPrefetch={onPrefetch}
                 >
                   <span className="mail-list-main">
                     <span className="mail-list-sender">
@@ -438,7 +567,7 @@ export function FolderList({
                       </span>
                     )}
                   </span>
-                </button>
+                </RowButton>
                 {view.folder !== "sent" && (
                   <span className="mail-list-actions">
                     <button
