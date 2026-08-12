@@ -106,6 +106,18 @@ assert.doesNotMatch(
   /dangerouslySetInnerHTML/,
   "ComposePane must never call dangerouslySetInnerHTML itself",
 );
+const recipientInput = await read("RecipientInput.tsx");
+assert.match(
+  recipientInput,
+  /setActiveIndex\(-1\);?\s*\n?\s*\}\)/,
+  "a suggestion must never be pre-selected: Enter on a typed address must not send to whoever tops the list",
+);
+assert.match(
+  recipientInput,
+  /SearchRequestGuard/,
+  "a slow earlier lookup must not overwrite a newer one",
+);
+
 const listSelection = await read("list-selection.ts");
 assert.match(
   listSelection,

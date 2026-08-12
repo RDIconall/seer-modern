@@ -1225,7 +1225,8 @@ body {
   right: 28px;
   bottom: 24px;
   z-index: 60;
-  width: min(480px, calc(100vw - 56px));
+  /* Wide enough to read a quoted thread in, which is the point of a forward. */
+  width: min(640px, calc(100vw - 56px));
   max-height: calc(100dvh - 48px);
   overflow: auto;
   padding: 18px 20px 20px;

@@ -72,7 +72,11 @@ export function RecipientInput({
           if (!guard.current.isCurrent(token)) return;
           setSuggestions(rows);
           setOpen(rows.length > 0);
-          setActiveIndex(rows.length > 0 ? 0 : -1);
+          // Nothing is highlighted until the user arrows to it or clicks it.
+          // Pre-selecting the first row would mean that typing a full address
+          // and pressing Enter sends to whoever happened to be top of the
+          // list instead — the one mistake a recipient field must not make.
+          setActiveIndex(-1);
         })
         .catch(() => {
           if (!guard.current.isCurrent(token)) return;
@@ -209,6 +213,7 @@ export function RecipientInput({
           aria-controls={open ? listId : undefined}
           aria-activedescendant={activeId}
           aria-labelledby={labelledBy}
+          placeholder={recipients.length === 0 ? "Type a name or email" : undefined}
           autoComplete="off"
           value={query}
           onChange={(event) => {
