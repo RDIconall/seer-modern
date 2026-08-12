@@ -534,6 +534,9 @@ export function MailClient({
         <ComposePane
           intent={compose.mode === "send" ? undefined : compose}
           providerConversationId={providerConversationId ?? undefined}
+          conversationId={conversationId ?? undefined}
+          accountId={mailbox.view?.accountId}
+          preview={readerPreview?.conversation}
           onClose={() => setCompose(null)}
           onSent={noticeResult}
         />

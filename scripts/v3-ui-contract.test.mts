@@ -96,6 +96,16 @@ assert.match(reader, /mail-reader-full/);
 assert.match(reader, /onBack/);
 assert.match(compose, /aria-modal/);
 assert.match(compose, /onClose/);
+assert.match(
+  compose,
+  /MessageHtml/,
+  "ComposePane must render quoted content through MessageHtml",
+);
+assert.doesNotMatch(
+  compose,
+  /dangerouslySetInnerHTML/,
+  "ComposePane must never call dangerouslySetInnerHTML itself",
+);
 const listSelection = await read("list-selection.ts");
 assert.match(
   listSelection,

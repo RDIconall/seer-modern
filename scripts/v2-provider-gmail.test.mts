@@ -193,13 +193,14 @@ assert.match(lastSendRaw, /To: .*sender@example\.com/);
 assert.match(lastSendRaw, /cc@example\.com/);
 assert.ok(!/To:.*\bme@example\.com\b/.test(lastSendRaw), "must not reply to self");
 
-// Forward includes quoted thread content in the outbound MIME body.
+// Forward includes Outlook-style quoted thread content in the outbound MIME body.
 await provider.forward(
   { conversationId: "c0", to: [{ email: "fwd@example.com" }], bodyHtml: "<p>see below</p>" },
   "fwd-k",
 );
 assert.match(lastSendRaw, /Fwd: Thread zero/);
-assert.match(lastSendRaw, /Forwarded message/);
+assert.match(lastSendRaw, /seer-quote/);
+assert.match(lastSendRaw, /<strong>From:<\/strong>/);
 assert.match(lastSendRaw, /see below/);
 assert.match(lastSendRaw, /<p>body<\/p>/);
 

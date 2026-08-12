@@ -178,9 +178,16 @@ try {
   assert.match(attachRoute, /X-Content-Type-Options/);
   assert.ok(!/accessToken|refreshToken|ciphertext/i.test(attachRoute));
 
-  const composeSrc = readFileSync(path.join(HERE, "../src/components/v2/Compose.tsx"), "utf8");
-  assert.match(composeSrc, /providerConversationId/);
+  const composeSrc = readFileSync(
+    path.join(HERE, "../src/components/v3/compose-command.ts"),
+    "utf8",
+  );
   assert.match(composeSrc, /\/api\/v2\/commands/);
+  const composePaneSrc = readFileSync(
+    path.join(HERE, "../src/components/v3/ComposePane.tsx"),
+    "utf8",
+  );
+  assert.match(composePaneSrc, /providerConversationId/);
 
   const readerSrc = readFileSync(path.join(HERE, "../src/components/v2/Reader.tsx"), "utf8");
   assert.match(readerSrc, /\/api\/v3\/messages\//);
