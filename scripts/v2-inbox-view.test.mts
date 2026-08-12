@@ -232,6 +232,85 @@ try {
     "trash-only worth_reading yield must stay out of the inbox brain",
   );
 
+  // Atlas must never project an empty matter, even when a historical matter
+  // row is still present in the account corpus.
+  const orphanMatter = await db.pool.query<{ id: string }>(
+    "insert into seer.matters (account_id, title, org_unit) values ($1, 'Orphan matter', 'sales') returning id",
+    [accountId],
+  );
+  const sentMatter = await db.pool.query<{ id: string }>(
+    "insert into seer.matters (account_id, title, org_unit) values ($1, 'Sent-only matter', 'sales') returning id",
+    [accountId],
+  );
+  const cSentMatter = await addConversation(
+    db.pool,
+    accountId,
+    "p-sent-matter",
+    "Sent matter",
+    "sent-matter@example.com",
+  );
+  await db.pool.query(
+    "update seer.conversations set folders = array['sent']::text[] where id = $1",
+    [cSentMatter],
+  );
+  await saveDecision({
+    accountId,
+    conversationId: cSentMatter,
+    home: "matter",
+    proposedHome: "matter",
+    summary: "Sent-only work",
+    rationale: "historical",
+    owner: "you",
+    matterId: sentMatter.rows[0].id,
+    vetoReasons: [],
+    yields: [],
+    evidence: [],
+  });
+  const withEmptyMatters = await buildInboxView(accountId, "google");
+  assert.equal(
+    withEmptyMatters.atlas.some((matter) => matter.matterId === orphanMatter.rows[0].id),
+    false,
+    "orphan matter must not appear on Atlas",
+  );
+  assert.equal(
+    withEmptyMatters.atlas.some((matter) => matter.matterId === sentMatter.rows[0].id),
+    false,
+    "sent-only matter must not appear on Atlas",
+  );
+
+  // A current decision replaces the old yield. Historical yields must not
+  // reappear in the matter detail projection.
+  await saveDecision({
+    accountId,
+    conversationId: cMatter,
+    home: "matter",
+    proposedHome: "matter",
+    summary: "Current pricing ask",
+    rationale: "current",
+    owner: "team",
+    ask: "Confirm the revised pricing by Friday",
+    dueDate: "2026-08-14",
+    matterId,
+    vetoReasons: [],
+    yields: [],
+    evidence: [],
+  });
+  const detailView = await buildInboxView(accountId, "google");
+  const detailMatter = detailView.atlas.find((matter) => matter.matterId === matterId) as
+    | (typeof detailView.atlas)[number] & {
+        shortTitle?: string | null;
+        summary?: string;
+        nextAction?: string;
+        owner?: string;
+        dueDate?: string | null;
+      };
+  assert.equal(detailMatter.yields.some((yieldRow) => yieldRow.headline === "Pricing moved"), false);
+  assert.equal(detailMatter.shortTitle, "Roche ADLM pricing");
+  assert.equal(detailMatter.summary, "Current pricing ask");
+  assert.equal(detailMatter.nextAction, "Confirm the revised pricing by Friday");
+  assert.equal(detailMatter.owner, "team");
+  assert.equal(detailMatter.dueDate, "2026-08-14");
+
   console.log("v2-inbox-view: OK");
 } finally {
   await db.stop();
