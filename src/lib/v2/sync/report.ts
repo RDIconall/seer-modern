@@ -37,6 +37,14 @@ export type SyncBudgetOptions = {
 
 const DEFAULT_PAGES_PER_FOLDER = 2;
 const DEFAULT_ROUNDS = 2;
+const ALL_SYNC_FOLDERS: SyncFolder[] = ["inbox", "sent", "trash"];
+
+/** Inbox is the production priority; history is opt-in until the backlog clears. */
+export function activeSyncFolders(): SyncFolder[] {
+  return process.env.SEER_V3_SYNC_ALL_FOLDERS === "1"
+    ? [...ALL_SYNC_FOLDERS]
+    : ["inbox"];
+}
 
 function sliceKey(accountId: string, folder: SyncFolder): string {
   return `${accountId}:${folder}`;

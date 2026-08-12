@@ -73,9 +73,20 @@ const matter = (
 ): MatterCard => ({
   matterId: `m${n++}`,
   title,
+  shortTitle: title
+    .replace(/\b(and|the|for|with)\b/gi, "")
+    .replace(/\s+/g, " ")
+    .trim()
+    .split(" ")
+    .slice(0, 5)
+    .join(" "),
   status: "open",
   orgUnit,
   section,
+  summary: conversations[0]?.summary ?? "",
+  nextAction: conversations[0]?.summary ?? "",
+  owner: conversations[0]?.owner ?? "nobody",
+  dueDate: conversations[0]?.dueDate ?? null,
   conversations,
   yields: yieldLine
     ? [

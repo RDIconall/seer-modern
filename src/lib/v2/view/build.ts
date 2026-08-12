@@ -33,6 +33,7 @@ type DecisionRow = {
   home: string;
   summary: string;
   owner: string;
+  ask: string | null;
   priority: number;
   due_date: string | null;
   veto_reasons: string[];
@@ -69,6 +70,7 @@ export async function buildInboxView(
             d.home,
             d.summary,
             d.owner,
+            d.ask,
             d.priority,
             d.due_date,
             d.veto_reasons,
@@ -111,6 +113,10 @@ export async function buildInboxView(
   }>(
     `select y.conversation_id, y.kind, y.headline, y.detail, m.title as matter_title
        from seer.yields y
+       join seer.conversation_decisions yd
+         on yd.id = y.decision_id
+        and yd.account_id = y.account_id
+        and yd.is_current
        join seer.conversations c
          on c.id = y.conversation_id
         and c.account_id = y.account_id
@@ -125,11 +131,12 @@ export async function buildInboxView(
   const matters = await db().query<{
     id: string;
     title: string;
+    short_title: string | null;
     status: string;
     org_unit: string | null;
     function_name: string | null;
   }>(
-    "select id, title, status, org_unit, function_name from seer.matters where account_id = $1",
+    "select id, title, short_title, status, org_unit, function_name from seer.matters where account_id = $1",
     [accountId],
   );
 
@@ -151,6 +158,7 @@ export async function buildInboxView(
     from: personName(r.from_display) || r.from_email || "",
     at: r.last_message_at ?? "",
     summary: r.summary ?? "",
+      ask: r.ask,
     owner: r.owner as ConversationRow["owner"],
     priority: r.priority ?? 0,
     dueDate: r.due_date ? new Date(r.due_date).toISOString().slice(0, 10) : null,
@@ -197,21 +205,34 @@ export async function buildInboxView(
     }
   }
 
-  const atlas: MatterCard[] = matters.rows.map((m) => {
+  const atlas: MatterCard[] = matters.rows
+    .map((m) => {
     const convs = matterConversations.get(m.id) ?? [];
+    if (convs.length === 0) return null;
     const cardYields = convs.flatMap(
       (c) => yieldsByConversation.get(c.conversationId) ?? [],
+    );
+    const best = rows.rows.find(
+      (row) => row.matter_id === m.id && row.home === "matter",
     );
     return {
       matterId: m.id,
       title: m.title,
+      shortTitle: m.short_title ?? m.title,
       status: m.status,
       orgUnit: m.org_unit,
       section: m.function_name ?? UNFILED,
+      summary: best?.summary ?? convs[0]?.summary ?? "",
+      nextAction: best?.ask ?? "",
+      owner: (best?.owner ?? convs[0]?.owner ?? "nobody") as MatterCard["owner"],
+      dueDate: best?.due_date
+        ? new Date(best.due_date).toISOString().slice(0, 10)
+        : convs[0]?.dueDate ?? null,
       conversations: convs,
       yields: cardYields,
     };
-  });
+    })
+    .filter((matter): matter is MatterCard => matter !== null);
 
   const functions = registry.rows.map((r) => r.name);
   const sections = groupIntoSections(atlas, functions);

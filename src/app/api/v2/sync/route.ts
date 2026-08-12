@@ -2,16 +2,14 @@ import { NextResponse } from "next/server";
 import { listAllAccounts } from "@/lib/v2/db/list-accounts";
 import { providerFor } from "@/lib/v2/providers/provider";
 import {
+  activeSyncFolders,
   defaultSyncBudget,
   syncTickRoundRobin,
   type SyncAccountEntry,
 } from "@/lib/v2/sync/report";
 import { drainOutbox } from "@/lib/v3/outbox/drain";
-import type { SyncFolder } from "@/lib/v2/providers/types";
 
 export const maxDuration = 300;
-
-const SYNC_FOLDERS: SyncFolder[] = ["inbox", "sent", "trash"];
 
 /**
  * Authenticated v2 sync ingress. Reconciliation cron and manual triggers land
@@ -43,6 +41,7 @@ export async function GET(request: Request) {
   const report: Record<string, unknown>[] = [];
   const tickStarted = Date.now();
   const syncBudget = defaultSyncBudget(tickStarted);
+  const activeFolders = activeSyncFolders();
   const entries: SyncAccountEntry[] = [];
 
   for (const account of accounts) {
@@ -63,7 +62,7 @@ export async function GET(request: Request) {
 
   if (entries.length > 0 && syncBudget.deadlineMs !== undefined) {
     report.push(
-      ...(await syncTickRoundRobin(entries, mode, SYNC_FOLDERS, {
+      ...(await syncTickRoundRobin(entries, mode, activeFolders, {
         deadlineMs: syncBudget.deadlineMs,
         tickSlot: syncBudget.tickSlot,
         rounds: syncBudget.rounds,

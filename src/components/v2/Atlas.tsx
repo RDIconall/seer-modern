@@ -1,8 +1,13 @@
 "use client";
 
 import { useEffect, useMemo, useRef, useState } from "react";
-import { ChevronDown, ChevronRight, ExternalLink } from "lucide-react";
-import type { AtlasSection, InboxView, MatterCard } from "@/lib/v2/view/types";
+import { ChevronDown, ChevronRight, X } from "lucide-react";
+import type {
+  AtlasSection,
+  ConversationRow,
+  InboxView,
+  MatterCard,
+} from "@/lib/v2/view/types";
 import { useCollapsed } from "./useCollapsed";
 
 /**
@@ -32,10 +37,17 @@ function sectionLabel(name: string): string {
   return name === "unfiled" ? "unfiled" : name;
 }
 
-export function Atlas({ view }: { view: InboxView }) {
+export function Atlas({
+  view,
+  onOpenConversation,
+}: {
+  view: InboxView;
+  onOpenConversation?: (conversation: ConversationRow) => void;
+}) {
   // The whiteboard is the default: it is the view that shows the whole business
   // at once. The outline is there for working down one section at a time.
   const [mode, setMode] = useState<Mode>("board");
+  const [selectedMatterId, setSelectedMatterId] = useState<string | null>(null);
   const sections = view.sections;
 
   const allIds = useMemo(
@@ -121,10 +133,33 @@ export function Atlas({ view }: { view: InboxView }) {
       </header>
 
       {mode === "list" ? (
-        <AtlasList sections={sections} collapsed={collapsed} toggle={toggle} />
+        <AtlasList
+          sections={sections}
+          collapsed={collapsed}
+          toggle={toggle}
+          onOpenMatter={(matter) => setSelectedMatterId(matter.matterId)}
+          onOpenConversation={onOpenConversation}
+        />
       ) : (
-        <AtlasBoard sections={sections} collapsed={collapsed} toggle={toggle} />
+        <AtlasBoard
+          sections={sections}
+          collapsed={collapsed}
+          toggle={toggle}
+          onOpenMatter={(matter) => setSelectedMatterId(matter.matterId)}
+          onOpenConversation={onOpenConversation}
+        />
       )}
+      {selectedMatterId &&
+        (() => {
+          const matter = view.atlas.find((item) => item.matterId === selectedMatterId);
+          return matter ? (
+            <MatterDetail
+              matter={matter}
+              onClose={() => setSelectedMatterId(null)}
+              onOpenConversation={onOpenConversation}
+            />
+          ) : null;
+        })()}
     </section>
   );
 }
@@ -135,10 +170,14 @@ function AtlasList({
   sections,
   collapsed,
   toggle,
+  onOpenMatter,
+  onOpenConversation,
 }: {
   sections: AtlasSection[];
   collapsed: Set<string>;
   toggle: (id: string) => void;
+  onOpenMatter: (matter: MatterCard) => void;
+  onOpenConversation?: (conversation: ConversationRow) => void;
 }) {
   return (
     <div className="px-2 py-2">
@@ -169,6 +208,8 @@ function AtlasList({
                   matter={matter}
                   collapsed={collapsed}
                   toggle={toggle}
+                  onOpenMatter={onOpenMatter}
+                  onOpenConversation={onOpenConversation}
                 />
               ))}
           </div>
@@ -182,10 +223,14 @@ function MatterOutline({
   matter,
   collapsed,
   toggle,
+  onOpenMatter,
+  onOpenConversation,
 }: {
   matter: MatterCard;
   collapsed: Set<string>;
   toggle: (id: string) => void;
+  onOpenMatter: (matter: MatterCard) => void;
+  onOpenConversation?: (conversation: ConversationRow) => void;
 }) {
   const matterId = `m:${matter.matterId}`;
   const open = !collapsed.has(matterId);
@@ -207,9 +252,14 @@ function MatterOutline({
         ) : (
           <span className="inline-block h-4 w-4 shrink-0" />
         )}
-        <span className="min-w-0 flex-1 truncate text-[14.5px] text-[var(--fg-strong)]">
-          {matter.title}
-        </span>
+        <button
+          type="button"
+          onClick={() => onOpenMatter(matter)}
+          aria-label={`Open matter ${matter.shortTitle}`}
+          className="min-w-0 flex-1 truncate text-left text-[14.5px] text-[var(--fg-strong)]"
+        >
+          {matter.shortTitle}
+        </button>
         {matter.orgUnit && (
           <span className="shrink-0 rounded-full bg-[var(--card)] px-2 py-0.5 text-[11.5px] text-[var(--muted)]">
             {matter.orgUnit}
@@ -223,11 +273,10 @@ function MatterOutline({
       {open && hasChildren && (
         <div className="ml-6 space-y-px pl-1">
           {matter.conversations.map((c) => (
-            <a
+            <button
               key={c.conversationId}
-              href={c.nativeUrl}
-              target="_blank"
-              rel="noopener noreferrer"
+              type="button"
+              onClick={() => onOpenConversation?.(c)}
               className="group flex items-baseline gap-2 rounded-lg px-2 py-1 transition-colors hover:bg-[var(--row-hover)]"
             >
               <span className="min-w-0 flex-1 truncate text-[13.5px] text-[var(--fg)]">
@@ -236,8 +285,7 @@ function MatterOutline({
               <span className="shrink-0 truncate text-[12.5px] text-[var(--muted)]">
                 {c.from}
               </span>
-              <ExternalLink className="h-3 w-3 shrink-0 text-[var(--muted)] opacity-0 group-hover:opacity-100" />
-            </a>
+            </button>
           ))}
           {matter.yields.map((y, i) => (
             <p
@@ -268,10 +316,14 @@ function AtlasBoard({
   sections,
   collapsed,
   toggle,
+  onOpenMatter,
+  onOpenConversation,
 }: {
   sections: AtlasSection[];
   collapsed: Set<string>;
   toggle: (id: string) => void;
+  onOpenMatter: (matter: MatterCard) => void;
+  onOpenConversation?: (conversation: ConversationRow) => void;
 }) {
   const [tracks, setTracks] = useState(3);
   useEffect(() => {
@@ -321,6 +373,8 @@ function AtlasBoard({
                     matter={matter}
                     open={!collapsed.has(`m:${matter.matterId}`)}
                     onToggle={() => toggle(`m:${matter.matterId}`)}
+                  onOpenMatter={() => onOpenMatter(matter)}
+                  onOpenConversation={onOpenConversation}
                   />
                 ))}
               </ul>
@@ -337,41 +391,53 @@ function BoardMatter({
   matter,
   open,
   onToggle,
+  onOpenMatter,
+  onOpenConversation,
 }: {
   matter: MatterCard;
   open: boolean;
   onToggle: () => void;
+  onOpenMatter: () => void;
+  onOpenConversation?: (conversation: ConversationRow) => void;
 }) {
   return (
     <li className="group">
-      <button
-        type="button"
-        onClick={onToggle}
-        aria-expanded={open}
-        className="flex w-full items-baseline gap-2 rounded-lg px-1.5 py-[5px] text-left transition-colors hover:bg-[var(--row-hover)]"
-      >
-        <span className="min-w-0 flex-1 text-[14.5px] leading-[1.45] text-[var(--fg-strong)]">
-          {matter.title}
-        </span>
+      <div className="flex w-full items-baseline gap-1 rounded-lg px-1.5 py-[3px] text-left transition-colors hover:bg-[var(--row-hover)]">
+        <button
+          type="button"
+          onClick={onToggle}
+          aria-expanded={open}
+          aria-label={open ? `Collapse ${matter.shortTitle}` : `Expand ${matter.shortTitle}`}
+          className="shrink-0 p-1"
+        >
+          <Chevron open={open} />
+        </button>
+        <button
+          type="button"
+          onClick={onOpenMatter}
+          aria-label={`Open matter ${matter.shortTitle}`}
+          className="min-w-0 flex-1 text-left text-[14.5px] leading-[1.45] text-[var(--fg-strong)]"
+        >
+          {matter.shortTitle}
+        </button>
         {matter.conversations.length > 1 && (
           <span className="shrink-0 text-[12px] tabular-nums text-[var(--muted)]">
             {matter.conversations.length}
           </span>
         )}
-      </button>
+      </div>
       {open && (
         <ul className="mb-2 ml-1.5 space-y-px pl-3">
           {matter.conversations.map((c) => (
             <li key={c.conversationId}>
-              <a
-                href={c.nativeUrl}
-                target="_blank"
-                rel="noopener noreferrer"
-                className="block truncate rounded-lg px-1.5 py-[3px] text-[13px] text-[var(--muted)] transition-colors hover:bg-[var(--row-hover)] hover:text-[var(--fg)]"
+              <button
+                type="button"
+                onClick={() => onOpenConversation?.(c)}
+                className="block w-full truncate rounded-lg px-1.5 py-[3px] text-left text-[13px] text-[var(--muted)] transition-colors hover:bg-[var(--row-hover)] hover:text-[var(--fg)]"
               >
                 {c.subject || "(no subject)"}
                 <span className="opacity-70"> — {c.from}</span>
-              </a>
+              </button>
             </li>
           ))}
           {matter.yields.map((y, i) => (
@@ -385,6 +451,109 @@ function BoardMatter({
         </ul>
       )}
     </li>
+  );
+}
+
+function MatterDetail({
+  matter,
+  onClose,
+  onOpenConversation,
+}: {
+  matter: MatterCard;
+  onClose: () => void;
+  onOpenConversation?: (conversation: ConversationRow) => void;
+}) {
+  const closeRef = useRef<HTMLButtonElement>(null);
+  const previousFocus = useRef<HTMLElement | null>(null);
+
+  useEffect(() => {
+    previousFocus.current =
+      document.activeElement instanceof HTMLElement ? document.activeElement : null;
+    closeRef.current?.focus();
+    const onKeyDown = (event: KeyboardEvent) => {
+      if (event.key === "Escape") onClose();
+    };
+    document.addEventListener("keydown", onKeyDown);
+    return () => {
+      document.removeEventListener("keydown", onKeyDown);
+      previousFocus.current?.focus();
+    };
+  }, [onClose]);
+
+  return (
+    <div className="atlas-detail-backdrop" role="presentation">
+      <aside
+        className="atlas-detail"
+        role="dialog"
+        aria-modal="true"
+        aria-labelledby="atlas-detail-title"
+        tabIndex={-1}
+      >
+        <header className="atlas-detail-header">
+          <div>
+            <p className="atlas-detail-kicker">{matter.section}</p>
+            <h2 id="atlas-detail-title">{matter.shortTitle}</h2>
+          </div>
+          <button
+            ref={closeRef}
+            type="button"
+            className="mail-close mail-focus-ring"
+            onClick={onClose}
+            aria-label="Close matter detail"
+          >
+            <X aria-hidden />
+          </button>
+        </header>
+
+        <p className="atlas-detail-summary">{matter.summary || "Current matter activity."}</p>
+        <dl className="atlas-detail-action">
+          <div>
+            <dt>Next action</dt>
+            <dd>{matter.nextAction || "Review the latest conversation."}</dd>
+          </div>
+          <div>
+            <dt>Owner</dt>
+            <dd>{matter.owner}</dd>
+          </div>
+          {matter.dueDate ? (
+            <div>
+              <dt>Due</dt>
+              <dd>{matter.dueDate}</dd>
+            </div>
+          ) : null}
+        </dl>
+
+        <section aria-labelledby="atlas-conversations-title">
+          <h3 id="atlas-conversations-title">Conversations</h3>
+          <ul className="atlas-detail-conversations">
+            {matter.conversations.map((conversation) => (
+              <li key={conversation.conversationId}>
+                <button
+                  type="button"
+                  onClick={() => onOpenConversation?.(conversation)}
+                  className="atlas-detail-conversation mail-focus-ring"
+                >
+                  <span className="atlas-detail-conversation-topline">
+                    <strong>{conversation.subject || "(no subject)"}</strong>
+                    <time dateTime={conversation.at}>
+                      {conversation.at
+                        ? new Date(conversation.at).toLocaleDateString()
+                        : ""}
+                    </time>
+                  </span>
+                  <span className="atlas-detail-conversation-sender">
+                    {conversation.from}
+                  </span>
+                  <span className="atlas-detail-conversation-summary">
+                    {conversation.summary || "No summary available."}
+                  </span>
+                </button>
+              </li>
+            ))}
+          </ul>
+        </section>
+      </aside>
+    </div>
   );
 }
 

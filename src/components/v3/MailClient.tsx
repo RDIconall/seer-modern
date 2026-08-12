@@ -12,7 +12,7 @@ import {
 import { Atlas } from "@/components/v2/Atlas";
 import { Triage } from "@/components/v2/Triage";
 import { WorthReading } from "@/components/v2/WorthReading";
-import type { InboxView } from "@/lib/v2/view/types";
+import type { ConversationRow, InboxView } from "@/lib/v2/view/types";
 import type { CommandResult } from "@/lib/v2/commands/types";
 import type { Conversation, ProviderKind } from "@/lib/v2/providers/types";
 import type { MailboxFolder, MailboxRow, MailboxView } from "@/lib/v3/mailbox/types";
@@ -274,6 +274,12 @@ export function MailClient({
     setCompose(null);
   };
 
+  const openAtlasConversation = useCallback((row: ConversationRow) => {
+    setConversationId(row.conversationId);
+    setProviderConversationId(row.providerConversationId);
+    setCompose(null);
+  }, []);
+
   const rememberProviderConversationId = useCallback(
     (id: string) => setProviderConversationId(id),
     [],
@@ -418,7 +424,10 @@ export function MailClient({
   ) : section === "atlas" ? (
     inbox.view ? (
       <>
-        <Atlas view={inbox.view} />
+        <Atlas
+          view={inbox.view}
+          onOpenConversation={openAtlasConversation}
+        />
         <WorthReading view={inbox.view} />
       </>
     ) : (

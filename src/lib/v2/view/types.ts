@@ -46,6 +46,7 @@ export type YieldRow = {
 export type MatterCard = {
   matterId: string;
   title: string;
+  shortTitle: string;
   status: string;
   /** The counterparty this work is with ("roche", "internal"). */
   orgUnit: string | null;
@@ -54,6 +55,10 @@ export type MatterCard = {
    * the counterparty. Two Roche matters can be "software" and "sales — leads".
    */
   section: string;
+  summary: string;
+  nextAction: string;
+  owner: Owner;
+  dueDate: string | null;
   conversations: ConversationRow[];
   yields: YieldRow[];
 };

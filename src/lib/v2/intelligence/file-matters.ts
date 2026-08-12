@@ -1,7 +1,15 @@
 import { generateText, Output } from "ai";
 import { z } from "zod";
+import { db } from "../db/pool";
 import type { AccountId } from "../db/types";
 import { recordModelUsage } from "./model-usage";
+import {
+  SHORT_TITLE_VERSION,
+  createMatterNamingCaller,
+  nameMatterBatch,
+  type MatterNamingCaller,
+  type MatterNamingInput,
+} from "./matter-namer";
 import {
   UNFILED,
   conversationsNeedingFiling,
@@ -69,6 +77,7 @@ const BATCH = 40;
 export type FilingResult = {
   matters: { attempted: number; filed: number; unfiled: number };
   conversations: { attempted: number; filed: number; unfiled: number };
+  naming?: { attempted: number; named: number };
 };
 
 type Item = { id: string; [key: string]: unknown };
@@ -152,7 +161,11 @@ async function fileBatch(
  */
 export async function fileMatters(
   accountId: AccountId,
-  options: { limit?: number; model?: string } = {},
+  options: {
+    limit?: number;
+    model?: string;
+    namingCaller?: MatterNamingCaller;
+  } = {},
 ): Promise<FilingResult> {
   const empty = { attempted: 0, filed: 0, unfiled: 0 };
   const functions = await listRegistry(accountId, "function");
@@ -210,5 +223,91 @@ export async function fileMatters(
     conversations.unfiled += outcome.unfiled;
   }
 
-  return { matters, conversations };
+  const naming = await nameMatters(accountId, {
+    limit,
+    caller: options.namingCaller ?? createMatterNamingCaller(model),
+  });
+  return { matters, conversations, naming };
+}
+
+async function nameMatters(
+  accountId: AccountId,
+  options: { limit: number; caller: MatterNamingCaller },
+): Promise<{ attempted: number; named: number }> {
+  const result = await db().query<{
+    id: string;
+    title: string;
+    short_title: string | null;
+    short_title_source: "inferred" | "user" | null;
+    short_title_version: number | null;
+    counterparty: string | null;
+    section: string | null;
+    conversations: { subject: string; summary: string }[] | null;
+  }>(
+    `select m.id, m.title, m.short_title, m.short_title_source,
+            m.short_title_version, m.org_unit as counterparty,
+            m.function_name as section,
+            coalesce(
+              json_agg(
+                json_build_object(
+                  'subject', c.subject,
+                  'summary', d.summary
+                )
+                order by d.priority desc, c.last_message_at desc nulls last
+              ) filter (where c.id is not null),
+              '[]'::json
+            ) as conversations
+       from seer.matters m
+       left join seer.conversation_decisions d
+         on d.matter_id = m.id
+        and d.account_id = m.account_id
+        and d.is_current
+        and d.home = 'matter'
+       left join seer.conversations c
+         on c.id = d.conversation_id
+        and c.account_id = m.account_id
+        and c.is_deleted = false
+        and c.folders @> array['inbox']::text[]
+      where m.account_id = $1
+      group by m.id
+      order by max(c.last_message_at) desc nulls last, m.updated_at desc
+      limit $2`,
+    [accountId, options.limit],
+  );
+  const inputs: MatterNamingInput[] = result.rows.map((row) => ({
+    id: row.id,
+    title: row.title,
+    shortTitle: row.short_title,
+    shortTitleSource: row.short_title_source,
+    shortTitleVersion: row.short_title_version,
+    counterparty: row.counterparty,
+    section: row.section,
+    conversations: row.conversations ?? [],
+  }));
+  const needsNaming = inputs.filter(
+    (input) =>
+      input.shortTitleSource !== "user" &&
+      (!input.shortTitle || input.shortTitleVersion !== SHORT_TITLE_VERSION),
+  );
+  if (needsNaming.length === 0) {
+    return { attempted: 0, named: 0 };
+  }
+  const named = await nameMatterBatch(inputs, options.caller);
+  let changed = 0;
+  for (const item of named) {
+    const input = inputs.find((candidate) => candidate.id === item.id);
+    if (!input || input.shortTitleSource === "user") continue;
+    await db().query(
+      `update seer.matters
+          set short_title = $2,
+              short_title_source = 'inferred',
+              short_title_version = $3,
+              updated_at = now()
+        where id = $1 and account_id = $4
+          and coalesce(short_title_source, 'inferred') <> 'user'`,
+      [item.id, item.shortTitle, item.shortTitleVersion, accountId],
+    );
+    changed++;
+  }
+  return { attempted: needsNaming.length, named: changed };
 }
