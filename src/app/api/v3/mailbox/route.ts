@@ -2,9 +2,10 @@ import { NextResponse } from "next/server";
 import { getActiveV2Account } from "@/lib/v2/session";
 import { parseMailboxLimit } from "@/lib/v3/mailbox/limit";
 import { getMailboxView } from "@/lib/v3/mailbox/repository";
-import type { MailboxFolder } from "@/lib/v3/mailbox/types";
+import type { MailboxFolder, MailboxSort } from "@/lib/v3/mailbox/types";
 
 const FOLDERS = new Set<MailboxFolder>(["inbox", "sent", "trash"]);
+const SORTS = new Set<MailboxSort>(["date", "triage"]);
 
 export const dynamic = "force-dynamic";
 
@@ -21,9 +22,11 @@ export async function GET(request: Request) {
   const { searchParams } = new URL(request.url);
   const folderParam = (searchParams.get("folder") ?? "inbox") as MailboxFolder;
   const folder = FOLDERS.has(folderParam) ? folderParam : "inbox";
+  const sortParam = (searchParams.get("sort") ?? "date") as MailboxSort;
+  const sort = SORTS.has(sortParam) ? sortParam : "date";
   const limit = parseMailboxLimit(searchParams.get("limit"));
   const before = searchParams.get("before") ?? undefined;
 
-  const view = await getMailboxView(account.id, folder, limit, before);
+  const view = await getMailboxView(account.id, folder, limit, before, sort);
   return NextResponse.json({ view });
 }

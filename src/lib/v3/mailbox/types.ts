@@ -1,4 +1,13 @@
+import type { Disposition } from "./triage-rank";
+
 export type MailboxFolder = "inbox" | "sent" | "trash";
+
+/**
+ * How the list is ordered. `date` is a mail client's newest-first. `triage` is
+ * the smart filter: most likely to delete first, ordered by the durable
+ * decision behind each row rather than by when it arrived.
+ */
+export type MailboxSort = "date" | "triage";
 
 export type MailboxRow = {
   conversationId: string;
@@ -13,12 +22,25 @@ export type MailboxRow = {
   priority: number | null;
   dueDate: string | null;
   matterTitle: string | null;
+  /** What Seer's current decision says this is. Server-set; never re-derived. */
+  disposition: Disposition;
+  /** 0 = most likely to delete. The number the triage sort orders by. */
+  deleteRank: number;
+  /**
+   * Signed proof the current decision authorises deleting this conversation.
+   * Present only where the decision is `delete`, so a bulk action in the inbox
+   * can never destroy mail the safety layer refused.
+   */
+  deleteToken: string | null;
+  /** The part of the business this was filed under, shown as a row label. */
+  category: string | null;
 };
 
 export type MailboxView = {
   /** Identity scope for browser caches; never reuse a view across accounts. */
   accountId: string;
   folder: MailboxFolder;
+  sort: MailboxSort;
   rows: MailboxRow[];
   total: number;
   nextCursor: string | null;
