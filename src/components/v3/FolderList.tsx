@@ -32,7 +32,11 @@ export function FolderList({
   useEffect(() => {
     setSelected((current) => {
       const live = new Set(view.rows.map((row) => row.conversationId));
-      return new Set([...current].filter((id) => live.has(id)));
+      const next = new Set([...current].filter((id) => live.has(id)));
+      if (next.size === current.size && [...next].every((id) => current.has(id))) {
+        return current;
+      }
+      return next;
     });
   }, [view.rows]);
 

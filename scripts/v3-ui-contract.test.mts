@@ -34,6 +34,7 @@ const mailbox = await read("useMailbox.ts");
 const navigation = await read("Navigation.tsx");
 const reader = await read("ReaderPane.tsx");
 const compose = await read("ComposePane.tsx");
+const folderList = await read("FolderList.tsx");
 
 assert.match(client, /MailClient/);
 assert.match(client, /useMailbox/);
@@ -78,6 +79,11 @@ assert.match(reader, /mail-reader-full/);
 assert.match(reader, /onBack/);
 assert.match(compose, /aria-modal/);
 assert.match(compose, /onClose/);
+assert.match(
+  folderList,
+  /return current/,
+  "selection cleanup must preserve the Set reference when rows are unchanged",
+);
 
 for (const page of ["src/app/page.tsx", "src/app/m/page.tsx"]) {
   const source = await fs.readFile(path.join(root, page), "utf8");
