@@ -73,13 +73,15 @@ const matter = (
 ): MatterCard => ({
   matterId: `m${n++}`,
   title,
-  shortTitle: title
+  shortTitle: (title
+    .replace(/\bRDI\b/gi, "")
     .replace(/\b(and|the|for|with)\b/gi, "")
     .replace(/\s+/g, " ")
     .trim()
     .split(" ")
     .slice(0, 5)
-    .join(" "),
+    .join(" "))
+    .trim(),
   status: "open",
   orgUnit,
   section,
