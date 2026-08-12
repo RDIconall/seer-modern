@@ -1,6 +1,7 @@
 import assert from "node:assert/strict";
 import { promises as fs } from "node:fs";
 import path from "node:path";
+import { activeSyncFolders } from "../src/lib/v2/sync/report.ts";
 
 const root = process.cwd();
 const route = await fs.readFile(
@@ -12,9 +13,7 @@ const report = await fs.readFile(
   "utf8",
 );
 
-assert.match(route, /SEER_V3_SYNC_ALL_FOLDERS/);
 assert.match(route, /activeSyncFolders|syncFoldersForTick/);
-assert.match(route, /["']inbox["']/);
 assert.match(
   route,
   /syncTickRoundRobin\([\s\S]*activeFolders/,
@@ -26,5 +25,13 @@ assert.match(
   "round-robin slices must keep the inbox page budget available",
 );
 assert.match(report, /pagesPerFolder|DEFAULT_PAGES_PER_FOLDER/);
+
+const previousFlag = process.env.SEER_V3_SYNC_ALL_FOLDERS;
+delete process.env.SEER_V3_SYNC_ALL_FOLDERS;
+assert.deepEqual(activeSyncFolders(), ["inbox"]);
+process.env.SEER_V3_SYNC_ALL_FOLDERS = "1";
+assert.deepEqual(activeSyncFolders(), ["inbox", "sent", "trash"]);
+if (previousFlag === undefined) delete process.env.SEER_V3_SYNC_ALL_FOLDERS;
+else process.env.SEER_V3_SYNC_ALL_FOLDERS = previousFlag;
 
 console.log("v3-active-folder: OK");

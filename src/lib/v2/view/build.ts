@@ -158,7 +158,6 @@ export async function buildInboxView(
     from: personName(r.from_display) || r.from_email || "",
     at: r.last_message_at ?? "",
     summary: r.summary ?? "",
-      ask: r.ask,
     owner: r.owner as ConversationRow["owner"],
     priority: r.priority ?? 0,
     dueDate: r.due_date ? new Date(r.due_date).toISOString().slice(0, 10) : null,

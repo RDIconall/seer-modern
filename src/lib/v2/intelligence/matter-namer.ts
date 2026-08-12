@@ -95,8 +95,13 @@ export function isValidShortTitle(value: string): boolean {
   return true;
 }
 
-function fallbackParts(input: Pick<MatterNamingInput, "title" | "counterparty" | "conversations">): string[] {
-  const subject = input.conversations[0]?.subject ?? "";
+type CompactMatterInput = Pick<MatterNamingInput, "title" | "counterparty"> & {
+  subject?: string;
+  conversations?: MatterNamingInput["conversations"];
+};
+
+function fallbackParts(input: CompactMatterInput): string[] {
+  const subject = input.subject ?? input.conversations?.[0]?.subject ?? "";
   const source = [input.counterparty ?? "", subject, input.title].join(" ");
   const result: string[] = [];
   for (const word of displayWords(source)) {
@@ -111,7 +116,7 @@ function fallbackParts(input: Pick<MatterNamingInput, "title" | "counterparty" |
 }
 
 export function compactMatterTitle(
-  input: Pick<MatterNamingInput, "title" | "counterparty" | "conversations">,
+  input: CompactMatterInput,
 ): string {
   const parts = fallbackParts(input);
   if (parts.length < 2) {
@@ -133,7 +138,9 @@ function uniqueTitle(
   used: Set<string>,
 ): string {
   const choices = [candidate, compactMatterTitle(input)];
-  const subjectWords = displayWords(input.conversations[0]?.subject ?? "");
+  const subjectWords = displayWords(
+    input.conversations[0]?.subject ?? "",
+  );
   for (const word of subjectWords) {
     choices.push(`${candidate} ${word}`);
   }

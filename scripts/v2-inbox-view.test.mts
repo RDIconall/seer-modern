@@ -48,6 +48,10 @@ try {
     [accountId],
   );
   const matterId = matterRow.rows[0].id;
+  await db.pool.query(
+    "update seer.matters set short_title = 'Roche ADLM pricing', short_title_source = 'inferred', short_title_version = 1 where id = $1",
+    [matterId],
+  );
 
   const cMatter = await addConversation(db.pool, accountId, "p-matter", "Pricing", "buyer@roche.com");
   const cRecord = await addConversation(db.pool, accountId, "p-record", "Invoice", "billing@x.com");
