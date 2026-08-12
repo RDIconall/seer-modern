@@ -537,6 +537,7 @@ export function MailClient({
           conversationId={conversationId ?? undefined}
           accountId={mailbox.view?.accountId}
           preview={readerPreview?.conversation}
+          previewProvider={readerPreview?.provider}
           onClose={() => setCompose(null)}
           onSent={noticeResult}
         />

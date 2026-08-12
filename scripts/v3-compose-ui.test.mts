@@ -65,9 +65,34 @@ assert.match(
   /countersignature is the last item/,
   "quoted thread must include the real message body text",
 );
+// Gmail forwards are rebuilt from the provider contract, which carries no
+// attachment bytes, so the loss has to be stated before the user sends.
 assert.match(
   forwardHtml,
   /Attachments from the original thread are not included in this forward/,
+);
+
+// Graph forwards the original message intact, so warning there would be a lie.
+const microsoftForwardHtml = renderToString(
+  createElement(ComposePane, {
+    intent: { mode: "forward" },
+    providerConversationId: withAttachments.providerConversationId,
+    conversationId: "preview-c-1",
+    preview: withAttachments,
+    previewProvider: "microsoft",
+    onClose: noop,
+    onSent: noop,
+  }),
+);
+assert.doesNotMatch(
+  microsoftForwardHtml,
+  /Attachments from the original thread are not included in this forward/,
+  "Graph carries attachments through a forward; do not warn about losing them",
+);
+assert.match(
+  microsoftForwardHtml,
+  /countersignature is the last item/,
+  "the quoted thread must still render for Microsoft accounts",
 );
 
 const noAttachHtml = renderToString(

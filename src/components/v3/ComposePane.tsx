@@ -6,7 +6,7 @@ import { ChevronDown, ChevronRight, X } from "lucide-react";
 import { MessageHtml } from "@/components/v2/MessageHtml";
 import type { ReaderComposeIntent } from "@/components/v2/Reader";
 import type { CommandResult } from "@/lib/v2/commands/types";
-import type { Conversation } from "@/lib/v2/providers/types";
+import type { Conversation, ProviderKind } from "@/lib/v2/providers/types";
 import {
   hasAttachments,
   quoteHeaderLines,
@@ -32,8 +32,21 @@ function modeTitle(mode: ComposeMode): string {
 
 type ConversationResponse = {
   conversation: Conversation;
+  provider?: ProviderKind;
   error?: string;
 };
+
+/**
+ * Whether the thread's attachments travel with a forward.
+ *
+ * Graph forwards the original message, attachments and all. Gmail forwards are
+ * assembled as a new message from the provider contract, which carries no
+ * attachment bytes, so they are silently left behind — and someone forwarding a
+ * signed contract needs telling before they send it, not after.
+ */
+function attachmentsSurviveForward(provider: ProviderKind | null): boolean {
+  return provider === "microsoft";
+}
 
 /**
  * Outlook-style compose: recipient pills with contact autocomplete, an optional
@@ -47,6 +60,7 @@ export function ComposePane({
   conversationId,
   accountId,
   preview,
+  previewProvider,
   onClose,
   onSent,
 }: {
@@ -57,6 +71,7 @@ export function ComposePane({
   accountId?: string;
   /** Fixture / already-loaded conversation; skips the network when present. */
   preview?: Conversation;
+  previewProvider?: ProviderKind;
   onClose: () => void;
   onSent: (result: CommandResult) => void;
 }) {
@@ -73,6 +88,7 @@ export function ComposePane({
   const [sending, setSending] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [conversation, setConversation] = useState<Conversation | null>(preview ?? null);
+  const [provider, setProvider] = useState<ProviderKind | null>(previewProvider ?? null);
   const [quoteFailed, setQuoteFailed] = useState(false);
   const [quoteLoading, setQuoteLoading] = useState(Boolean(showQuote && !preview && conversationId));
   // Forward must open expanded so the user can see what they are sending.
@@ -87,6 +103,7 @@ export function ComposePane({
   useEffect(() => {
     if (preview) {
       setConversation(preview);
+      setProvider(previewProvider ?? null);
       setQuoteLoading(false);
       setQuoteFailed(false);
       return;
@@ -105,11 +122,12 @@ export function ComposePane({
       .then(async (response) => {
         const json = (await response.json()) as ConversationResponse;
         if (!response.ok) throw new Error(json.error ?? `conversation ${response.status}`);
-        return json.conversation;
+        return json;
       })
       .then((next) => {
         if (!cancelled) {
-          setConversation(next);
+          setConversation(next.conversation);
+          setProvider(next.provider ?? null);
           setQuoteFailed(false);
         }
       })
@@ -126,7 +144,7 @@ export function ComposePane({
     return () => {
       cancelled = true;
     };
-  }, [accountId, conversationId, preview, showQuote]);
+  }, [accountId, conversationId, preview, previewProvider, showQuote]);
 
   const derivedForwardSubject = conversation
     ? `FW: ${conversation.subject}`
@@ -262,11 +280,14 @@ export function ComposePane({
         {showQuote && (
           <section className="mail-compose-quote" aria-label="Quoted conversation">
             <div className="mail-compose-quote-divider" />
-            {mode === "forward" && threadHasAttachments && (
-              <p className="mail-compose-attach-warn" role="status">
-                Attachments from the original thread are not included in this forward.
-              </p>
-            )}
+            {mode === "forward" &&
+              threadHasAttachments &&
+              !attachmentsSurviveForward(provider) && (
+                <p className="mail-compose-attach-warn" role="status">
+                  Attachments from the original thread are not included in this
+                  forward.
+                </p>
+              )}
             <button
               type="button"
               className="mail-compose-quote-toggle mail-focus-ring"
