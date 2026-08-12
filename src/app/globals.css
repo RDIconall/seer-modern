@@ -1083,11 +1083,17 @@ body {
   background: var(--selection);
 }
 
+/*
+ * Two action slots are always reserved even when a row has only one. Rows
+ * without a delete affordance would otherwise pull their archive button
+ * rightwards, leaving the column ragged down a list you are meant to scan.
+ */
 .mail-list-actions {
   display: flex;
   align-items: center;
   gap: 2px;
   flex-shrink: 0;
+  width: 74px;
 }
 
 .mail-action {
@@ -1422,6 +1428,10 @@ body {
 
   .mail-list-action {
     width: 34px;
+  }
+
+  .mail-list-actions {
+    width: 70px;
   }
 
   .mail-reader-full {

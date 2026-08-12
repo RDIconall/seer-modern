@@ -192,15 +192,16 @@ const reader: Conversation = {
 
 const provider: ProviderKind = "microsoft";
 
+/** Inbox ordered as the triage sort returns it — most likely to delete first. */
+export const v3TriageInboxView: MailboxView = view("inbox", "triage");
+
 export const v3Preview: MailClientPreview = {
   mailbox: {
     inbox: view("inbox"),
     sent: view("sent"),
     trash: view("trash"),
   },
+  triageInbox: v3TriageInboxView,
   inboxView: sampleView,
   reader: { conversation: reader, provider },
 };
-
-/** Inbox ordered as the triage sort returns it — most likely to delete first. */
-export const v3TriageInboxView: MailboxView = view("inbox", "triage");

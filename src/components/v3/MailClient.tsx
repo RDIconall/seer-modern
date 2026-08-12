@@ -43,6 +43,8 @@ type PreviewReader = {
 
 export type MailClientPreview = {
   mailbox: Record<MailboxFolder, MailboxView>;
+  /** The same inbox in triage order, so the sort control works without a server. */
+  triageInbox?: MailboxView;
   inboxView: InboxView;
   reader: PreviewReader;
   initialSection?: MailSection;
@@ -251,8 +253,10 @@ export function MailClient({
 
   const folder = isFolder(section) ? section : "inbox";
   const mailboxSort: MailboxSort = folder === "inbox" ? inboxSort : "date";
+  const previewView =
+    mailboxSort === "triage" ? preview?.triageInbox : preview?.mailbox[folder];
   const mailbox = useMailbox(folder, {
-    initialView: preview?.mailbox[folder],
+    initialView: previewView,
     disabled: Boolean(preview),
     sort: mailboxSort,
   });
