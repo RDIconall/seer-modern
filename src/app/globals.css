@@ -27,13 +27,21 @@
   --brand: #0d8f7f;
   --brand-strong: #0a7264;
   --brand-soft: #edf6f4;
+  /*
+   * Teal is the identity, and it is spent only on chrome, the primary action,
+   * and the selected state. The CTA uses the DEEP teal rather than the mid one:
+   * white on #0d8f7f measures 4.0:1 and misses AA at button sizes, while the
+   * deep teal clears it at 5.8:1. Brand should not cost legibility.
+   */
+  --brand-cta: #0a7264;
+  --on-brand: #ffffff;
   /* Actions are ink, not blue. */
   --primary: #0d0d0d;
   --primary-soft: #ececec;
   --accent: #c93400;
   --row-hover: #f0f0f0;
   --unread: #0d0d0d;
-  --selection: #eceef1;
+  --selection: #e6f3f1;
   --safe-top: env(safe-area-inset-top, 0px);
   --safe-bottom: env(safe-area-inset-bottom, 0px);
 }
@@ -50,12 +58,15 @@
     --brand: #2ab8a6;
     --brand-strong: #46cbba;
     --brand-soft: #14332f;
+    /* On ink, the teal is the light surface, so the label on it must be ink. */
+    --brand-cta: #2ab8a6;
+    --on-brand: #0d0d0d;
     --primary: #ececec;
     --primary-soft: #3a3a3a;
     --accent: #ff8a65;
     --row-hover: #2f2f2f;
     --unread: #ffffff;
-    --selection: #37373a;
+    --selection: #16332f;
   }
 }
 
@@ -594,9 +605,20 @@ body {
   font-weight: 700;
 }
 
-.mail-brand-icon {
-  width: 18px;
-  height: 18px;
+.mail-brand-mark {
+  width: 24px;
+  height: 24px;
+  flex-shrink: 0;
+}
+
+/* Only the phone needs this; the desktop rail already shows the mark. */
+.mail-toolbar-mark {
+  display: none;
+  flex-shrink: 0;
+}
+
+.mail-brand-word {
+  letter-spacing: -0.01em;
 }
 
 .mail-compose-button,
@@ -618,15 +640,18 @@ body {
   justify-content: center;
   gap: 7px;
   min-height: 40px;
-  border: 1px solid var(--border);
+  border: 0;
   border-radius: 10px;
-  color: var(--fg-strong);
-  background: var(--card);
+  color: var(--on-brand);
+  background: var(--brand-cta);
   font-size: 14px;
   font-weight: 700;
 }
 
-.mail-compose-button:hover,
+.mail-compose-button:hover {
+  background: color-mix(in srgb, var(--brand-cta) 88%, var(--fg-strong));
+}
+
 .mail-action:hover,
 .mail-search-submit:hover,
 .mail-search-clear:hover {
@@ -656,14 +681,24 @@ body {
   cursor: pointer;
 }
 
-.mail-nav-item:hover,
-.mail-nav-item[data-active="true"] {
+.mail-nav-item:hover {
   color: var(--fg-strong);
   background: var(--card);
 }
 
+/*
+ * The active folder is the one place the rail carries the identity: a brand
+ * tint behind it and a teal icon. The LABEL stays ink, because a teal label on
+ * a teal tint is exactly how brand colour starts costing legibility.
+ */
 .mail-nav-item[data-active="true"] {
+  color: var(--fg-strong);
+  background: var(--brand-soft);
   font-weight: 700;
+}
+
+.mail-nav-item[data-active="true"] .mail-nav-icon {
+  color: var(--brand-strong);
 }
 
 .mail-nav-icon {
@@ -1804,6 +1839,29 @@ body {
     max-width: 58px;
     font-size: 10px;
     line-height: 1.2;
+  }
+
+  /*
+   * A 10px label has no room for a tinted pill behind it, so on the phone the
+   * active tab is carried by the teal itself rather than by a background.
+   */
+  .mail-bottom-nav .mail-nav-item[data-active="true"] {
+    color: var(--brand-strong);
+    background: transparent;
+  }
+
+  .mail-bottom-nav .mail-nav-item[data-active="true"] .mail-nav-icon {
+    color: var(--brand-strong);
+  }
+
+  .mail-mobile-compose {
+    border: 0;
+    color: var(--on-brand);
+    background: var(--brand-cta);
+  }
+
+  .mail-toolbar-mark {
+    display: block;
   }
 }
 

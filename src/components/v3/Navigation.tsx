@@ -1,16 +1,10 @@
 "use client";
 
 import * as React from "react";
-import {
-  Inbox,
-  LayoutGrid,
-  Mail,
-  Send,
-  Settings,
-  Trash2,
-} from "lucide-react";
+import { Inbox, LayoutGrid, Send, Settings, Trash2 } from "lucide-react";
 import type { LucideIcon } from "lucide-react";
 import type { MailboxFolder } from "@/lib/v3/mailbox/types";
+import { SeerMark } from "./SeerMark";
 
 export type MailSection = MailboxFolder | "atlas" | "settings";
 
@@ -72,9 +66,9 @@ export function Navigation({
   return (
     <>
       <aside className="mail-navigation" aria-label="Mailbox navigation">
-        <div className="mail-brand" aria-label="Seer mail">
-          <Mail className="mail-brand-icon" aria-hidden />
-          <span>Seer</span>
+        <div className="mail-brand">
+          <SeerMark className="mail-brand-mark" />
+          <span className="mail-brand-word">Seer</span>
         </div>
         <button
           type="button"

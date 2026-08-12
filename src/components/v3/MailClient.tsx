@@ -24,6 +24,7 @@ import { ComposePane } from "./ComposePane";
 import { FolderList } from "./FolderList";
 import { Navigation, type MailSection } from "./Navigation";
 import { ReaderPane } from "./ReaderPane";
+import { SeerMark } from "./SeerMark";
 import { Settings } from "./Settings";
 import { fetchSearch, SearchBox, type SearchResult } from "./SearchBox";
 import { SearchRequestGuard } from "./search-request";
@@ -518,6 +519,9 @@ export function MailClient({
           aria-hidden={mobileModalOpen ? true : undefined}
           inert={mobileModalOpen ? true : undefined}
         >
+          {/* The rail carries the mark on desktop; on a phone the rail is gone,
+              so the toolbar is the only place the app can say whose it is. */}
+          <SeerMark size={24} className="mail-toolbar-mark" />
           <SearchBox
             initialQuery={query}
             onSearch={search}

@@ -75,6 +75,22 @@ for (const [label, index] of [
     onSelection >= AA,
     `${label}: text on a selected row is ${onSelection.toFixed(2)}:1`,
   );
+
+  // The brand is spent on the primary action, so its label sits on teal. The
+  // mid teal misses AA against white, which is why the CTA uses the deep one;
+  // this is the check that keeps someone from "brightening" it later.
+  const onBrand = contrast(t["--on-brand"], t["--brand-cta"]);
+  assert.ok(
+    onBrand >= AA,
+    `${label}: --on-brand (${t["--on-brand"]}) on --brand-cta (${t["--brand-cta"]}) is ${onBrand.toFixed(2)}:1, below ${AA}:1`,
+  );
+
+  // The active folder sits on a brand tint; its label stays ink.
+  const onBrandSoft = contrast(t["--fg-strong"], t["--brand-soft"]);
+  assert.ok(
+    onBrandSoft >= AA,
+    `${label}: text on the active nav tint is ${onBrandSoft.toFixed(2)}:1`,
+  );
 }
 
 console.log("v2-contrast: ok (light and dark pass AA)");
