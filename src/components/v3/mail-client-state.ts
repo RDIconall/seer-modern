@@ -1,9 +1,10 @@
+import type { MailboxSort } from "@/lib/v3/mailbox/types";
+
 export type MailSection =
   | "inbox"
   | "sent"
   | "trash"
   | "atlas"
-  | "triage"
   | "settings";
 
 const sections = new Set<MailSection>([
@@ -11,7 +12,6 @@ const sections = new Set<MailSection>([
   "sent",
   "trash",
   "atlas",
-  "triage",
   "settings",
 ]);
 
@@ -19,15 +19,18 @@ export type MailHash = {
   section?: MailSection;
   conversation?: string;
   query?: string;
+  sort?: MailboxSort;
 };
 
 export function parseMailHash(hash: string): MailHash {
   const params = new URLSearchParams(hash.replace(/^#/, ""));
   const section = params.get("section") as MailSection | null;
+  const sort = params.get("sort");
   return {
     section: section && sections.has(section) ? section : undefined,
     conversation: params.get("conversation") ?? undefined,
     query: params.get("q") ?? undefined,
+    sort: sort === "date" || sort === "triage" ? sort : undefined,
   };
 }
 

@@ -8,6 +8,7 @@ import {
 const view = (folder: MailboxView["folder"], ids: string[]): MailboxView => ({
   accountId: "test-account",
   folder,
+  sort: "date",
   rows: ids.map((conversationId) => ({
     conversationId,
     providerConversationId: `provider-${conversationId}`,
@@ -21,6 +22,10 @@ const view = (folder: MailboxView["folder"], ids: string[]): MailboxView => ({
     priority: null,
     dueDate: null,
     matterTitle: null,
+    disposition: "pending",
+    deleteRank: 4,
+    deleteToken: null,
+    category: null,
   })),
   total: ids.length,
   nextCursor: null,

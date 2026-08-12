@@ -10,12 +10,16 @@ import {
   useSyncExternalStore,
 } from "react";
 import { Atlas } from "@/components/v2/Atlas";
-import { Triage } from "@/components/v2/Triage";
 import { WorthReading } from "@/components/v2/WorthReading";
 import type { ConversationRow, InboxView } from "@/lib/v2/view/types";
-import type { CommandResult } from "@/lib/v2/commands/types";
+import type { Command, CommandResult } from "@/lib/v2/commands/types";
 import type { Conversation, ProviderKind } from "@/lib/v2/providers/types";
-import type { MailboxFolder, MailboxRow, MailboxView } from "@/lib/v3/mailbox/types";
+import type {
+  MailboxFolder,
+  MailboxRow,
+  MailboxSort,
+  MailboxView,
+} from "@/lib/v3/mailbox/types";
 import { ComposePane } from "./ComposePane";
 import { FolderList } from "./FolderList";
 import { Navigation, type MailSection } from "./Navigation";
@@ -66,12 +70,18 @@ function getServerHashSnapshot(): string {
   return "";
 }
 
-function writeHash(section: MailSection, conversation: string | null, query: string): void {
+function writeHash(
+  section: MailSection,
+  conversation: string | null,
+  query: string,
+  sort: MailboxSort,
+): void {
   if (typeof window === "undefined") return;
   const params = new URLSearchParams();
   params.set("section", section);
   if (conversation) params.set("conversation", conversation);
   if (query) params.set("q", query);
+  if (sort !== "date") params.set("sort", sort);
   window.history.replaceState(null, "", `#${params.toString()}`);
   window.dispatchEvent(new Event("hashchange"));
 }
@@ -151,11 +161,59 @@ function SearchResults({
   );
 }
 
+function pastTense(command: Command): string {
+  switch (command.type) {
+    case "archive":
+      return "Archived";
+    case "restore":
+      return "Restored";
+    case "delete":
+      return "Deleted";
+    case "markUnread":
+      return "Marked unread";
+    default:
+      return "Updated";
+  }
+}
+
+/**
+ * Undo is offered for a single command only: the outbox undoes one queued
+ * mutation by id, so promising it over a batch would silently restore one row
+ * of fifty.
+ */
+function noticeForCommands(
+  commands: Command[],
+  results: CommandResult[],
+): { message: string; error: boolean; outboxId?: string } {
+  const label = pastTense(commands[0]);
+  if (commands.length === 1) {
+    const outboxId = results[0]?.outboxId;
+    return outboxId
+      ? {
+          message: `${label} instantly. Undo before the provider catches up.`,
+          error: false,
+          outboxId,
+        }
+      : { message: `${label}.`, error: false };
+  }
+  const failed = commands.length - results.length;
+  if (failed > 0) {
+    return {
+      message: `${label} ${results.length} of ${commands.length}. ${failed} failed.`,
+      error: true,
+    };
+  }
+  return { message: `${label} ${results.length} conversations.`, error: false };
+}
+
 export function MailClient({
   preview,
   mobile = false,
 }: { preview?: MailClientPreview; mobile?: boolean } = {}) {
   const [section, setSection] = useState<MailSection>(preview?.initialSection ?? "inbox");
+  const [inboxSort, setInboxSort] = useState<MailboxSort>(
+    preview?.mailbox.inbox.sort ?? "date",
+  );
   const [conversationId, setConversationId] = useState<string | null>(
     preview?.initialConversationId ?? null,
   );
@@ -180,6 +238,7 @@ export function MailClient({
     section: hashSection,
     conversation: hashConversation,
     query: hashQuery,
+    sort: hashSort,
   } = parseMailHash(hashSnapshot);
   const pendingHashConversation =
     hashConversation && !hashAppliedRef.current ? hashConversation : null;
@@ -191,9 +250,11 @@ export function MailClient({
   const mobileModalOpen = isMobile && modalOpen;
 
   const folder = isFolder(section) ? section : "inbox";
+  const mailboxSort: MailboxSort = folder === "inbox" ? inboxSort : "date";
   const mailbox = useMailbox(folder, {
     initialView: preview?.mailbox[folder],
     disabled: Boolean(preview),
+    sort: mailboxSort,
   });
   const inbox = useInboxView(
     preview?.inboxView,
@@ -215,6 +276,7 @@ export function MailClient({
 
   useEffect(() => {
     if (hashSection) setSection(hashSection);
+    if (hashSort) setInboxSort(hashSort);
     if (hashConversation) {
       hashAppliedRef.current = true;
       setConversationId(hashConversation);
@@ -227,13 +289,14 @@ export function MailClient({
     hashConversation,
     hashQuery,
     hashSection,
+    hashSort,
     hashSnapshot,
     restoreSearch,
   ]);
 
   useEffect(() => {
-    if (hashReady) writeHash(section, conversationId, query);
-  }, [conversationId, hashReady, query, section]);
+    if (hashReady) writeHash(section, conversationId, query, inboxSort);
+  }, [conversationId, hashReady, inboxSort, query, section]);
 
   useEffect(() => {
     if (typeof window === "undefined") return;
@@ -285,23 +348,17 @@ export function MailClient({
     [],
   );
 
-  const action = async (row: MailboxRow, kind: "archive" | "restore") => {
+  const runCommands = async (commands: Command[]): Promise<CommandResult[]> => {
     try {
-      const result = await mailbox.dispatch({ type: kind, conversationId: row.conversationId });
-      if (result.outboxId) {
-        setNotice({
-          message: `${kind === "archive" ? "Archived" : "Restored"} instantly. Undo before the provider catches up.`,
-          error: false,
-          outboxId: result.outboxId,
-        });
-      } else {
-        setNotice({ message: `${kind === "archive" ? "Archived" : "Restored"}.`, error: false });
-      }
+      const results = await mailbox.dispatchMany(commands);
+      setNotice(noticeForCommands(commands, results));
+      return results;
     } catch (cause) {
       setNotice({
         message: cause instanceof Error ? `Provider action failed: ${cause.message}` : "Provider action failed",
         error: true,
       });
+      throw cause;
     }
   };
 
@@ -387,9 +444,11 @@ export function MailClient({
     <FolderList
       view={activeMailbox}
       refreshing={mailbox.refreshing}
+      sort={mailboxSort}
+      onSortChange={folder === "inbox" ? setInboxSort : undefined}
       onOpen={openRow}
       onPrefetch={mailbox.prefetchBody}
-      onAction={(row, kind) => void action(row, kind)}
+      onCommands={runCommands}
     />
   ) : (
     <section className="mail-folder-layout mail-reader-loading" aria-label="Loading mailbox">
@@ -432,12 +491,6 @@ export function MailClient({
       </>
     ) : (
       <p className="mail-empty">{inbox.error ?? "Reading Atlas…"}</p>
-    )
-  ) : section === "triage" ? (
-    inbox.view ? (
-      <Triage view={inbox.view} dispatch={inbox.dispatch} />
-    ) : (
-      <p className="mail-empty">{inbox.error ?? "Reading Triage…"}</p>
     )
   ) : (
     <Settings mobile={mobile} />

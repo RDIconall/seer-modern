@@ -3,7 +3,7 @@ import type { Command } from "@/lib/v2/commands/types";
 /** A triage row; only rows the server authorized for deletion carry a token. */
 export type TriageActionRow = {
   conversationId: string;
-  deleteToken?: string;
+  deleteToken?: string | null;
 };
 
 /**

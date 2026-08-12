@@ -6,6 +6,42 @@ import { sampleView } from "./sample";
 const previewRows: Record<MailboxFolder, MailboxRow[]> = {
   inbox: [
     {
+      conversationId: "preview-c-delete",
+      providerConversationId: "preview-p-delete",
+      senderDisplayName: "Scribe Team",
+      subject: "Your Monthly Scribe Activity",
+      timestamp: "2026-08-08T08:00:00.000Z",
+      isUnread: false,
+      snippet: "Automated product usage digest.",
+      attachments: [],
+      decisionSummary: "Routine vendor digest",
+      priority: null,
+      dueDate: null,
+      matterTitle: null,
+      disposition: "delete",
+      deleteRank: 0,
+      deleteToken: "preview-delete-token",
+      category: "IT & software notices",
+    },
+    {
+      conversationId: "preview-c-record",
+      providerConversationId: "preview-p-record",
+      senderDisplayName: "Billing Desk",
+      subject: "Invoice received — keep for records",
+      timestamp: "2026-08-09T12:00:00.000Z",
+      isUnread: false,
+      snippet: "Paid invoice confirmation for the archive.",
+      attachments: ["invoice.pdf"],
+      decisionSummary: "Keep for the record",
+      priority: null,
+      dueDate: null,
+      matterTitle: null,
+      disposition: "record",
+      deleteRank: 1,
+      deleteToken: null,
+      category: "finance (ar/ap)",
+    },
+    {
       conversationId: "preview-c-1",
       providerConversationId: "preview-p-1",
       senderDisplayName: "Sandra Yasavul",
@@ -18,6 +54,10 @@ const previewRows: Record<MailboxFolder, MailboxRow[]> = {
       priority: 2,
       dueDate: "2026-08-14",
       matterTitle: "Roche RD007704 stability extension",
+      disposition: "matter",
+      deleteRank: 3,
+      deleteToken: null,
+      category: "sales — contracting",
     },
     {
       conversationId: "preview-c-2",
@@ -32,6 +72,10 @@ const previewRows: Record<MailboxFolder, MailboxRow[]> = {
       priority: 1,
       dueDate: null,
       matterTitle: "Dashboard redesign",
+      disposition: "matter",
+      deleteRank: 3,
+      deleteToken: null,
+      category: "systems (it)",
     },
     {
       conversationId: "preview-c-3",
@@ -46,6 +90,10 @@ const previewRows: Record<MailboxFolder, MailboxRow[]> = {
       priority: 3,
       dueDate: "2026-08-19",
       matterTitle: "Advarra ICF review",
+      disposition: "pending",
+      deleteRank: 4,
+      deleteToken: null,
+      category: "quality",
     },
   ],
   sent: [
@@ -62,6 +110,10 @@ const previewRows: Record<MailboxFolder, MailboxRow[]> = {
       priority: null,
       dueDate: null,
       matterTitle: null,
+      disposition: "pending",
+      deleteRank: 4,
+      deleteToken: null,
+      category: null,
     },
   ],
   trash: [
@@ -78,13 +130,18 @@ const previewRows: Record<MailboxFolder, MailboxRow[]> = {
       priority: null,
       dueDate: null,
       matterTitle: null,
+      disposition: "delete",
+      deleteRank: 0,
+      deleteToken: null,
+      category: null,
     },
   ],
 };
 
-const view = (folder: MailboxFolder): MailboxView => ({
+const view = (folder: MailboxFolder, sort: MailboxView["sort"] = "date"): MailboxView => ({
   accountId: "preview",
   folder,
+  sort,
   rows: previewRows[folder],
   total: previewRows[folder].length,
   nextCursor: null,
@@ -144,3 +201,6 @@ export const v3Preview: MailClientPreview = {
   inboxView: sampleView,
   reader: { conversation: reader, provider },
 };
+
+/** Inbox ordered as the triage sort returns it — most likely to delete first. */
+export const v3TriageInboxView: MailboxView = view("inbox", "triage");

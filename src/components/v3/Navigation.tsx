@@ -4,7 +4,6 @@ import * as React from "react";
 import {
   Inbox,
   LayoutGrid,
-  ListTodo,
   Mail,
   Send,
   Settings,
@@ -13,7 +12,7 @@ import {
 import type { LucideIcon } from "lucide-react";
 import type { MailboxFolder } from "@/lib/v3/mailbox/types";
 
-export type MailSection = MailboxFolder | "atlas" | "triage" | "settings";
+export type MailSection = MailboxFolder | "atlas" | "settings";
 
 type NavigationItem = {
   id: MailSection;
@@ -26,7 +25,6 @@ const items: NavigationItem[] = [
   { id: "sent", label: "Sent", icon: Send },
   { id: "trash", label: "Trash", icon: Trash2 },
   { id: "atlas", label: "Atlas", icon: LayoutGrid },
-  { id: "triage", label: "Triage", icon: ListTodo },
   { id: "settings", label: "Settings", icon: Settings },
 ];
 
@@ -100,7 +98,7 @@ export function Navigation({
 
       {!modalOpen && (
         <nav className="mail-bottom-nav" aria-label="Mobile mailbox navigation">
-          {items.slice(0, 5).map((item) => (
+          {items.map((item) => (
             <NavButton
               key={item.id}
               item={item}
@@ -108,11 +106,6 @@ export function Navigation({
               onNavigate={onNavigate}
             />
           ))}
-          <NavButton
-            item={items[5]}
-            active={active}
-            onNavigate={onNavigate}
-          />
         </nav>
       )}
       {!modalOpen && (

@@ -52,10 +52,13 @@ assert.match(client, /inert/);
 assert.match(client, /useSyncExternalStore/);
 assert.match(client, /getServerMobileSnapshot/);
 assert.match(client, /getServerHashSnapshot/);
+assert.doesNotMatch(client, /from\s+["']@\/components\/v2\/Triage["']/);
+assert.doesNotMatch(client, /section === ["']triage["']/);
 
-for (const label of ["Inbox", "Sent", "Trash", "Atlas", "Triage", "Settings"]) {
+for (const label of ["Inbox", "Sent", "Trash", "Atlas", "Settings"]) {
   assert.match(navigation, new RegExp(label), `navigation is missing ${label}`);
 }
+assert.doesNotMatch(navigation, /["']triage["']|Triage/);
 assert.match(navigation, /bottom|mobile/i);
 assert.match(navigation, /aria-label/);
 assert.match(navigation, /mail-mobile-compose/);
@@ -70,6 +73,20 @@ assert.match(mailbox, /adjacent|rows/i);
 assert.match(mailbox, /viewForFolder|folder !==/);
 assert.match(mailbox, /setView\(null\)/, "failed folder loads must clear prior rows");
 assert.match(mailbox, /\/api\/v3\/mailbox/);
+assert.match(mailbox, /sort=/);
+assert.match(mailbox, /json\.view\.sort !== sort/);
+assert.match(mailbox, /dispatchMany/, "bulk actions must go out as one batch");
+const mailboxState = await read("mailbox-state.ts");
+assert.match(
+  mailboxState,
+  /command\.type === ["']delete["']/,
+  "an optimistic delete must remove the row before the provider confirms",
+);
+assert.match(
+  mailboxState,
+  /view\.sort === sort/,
+  "a view built for another sort must never reach the active list",
+);
 
 assert.match(reader, /Reader/);
 assert.match(reader, /native|provider/i);
@@ -83,6 +100,16 @@ assert.match(
   folderList,
   /return current/,
   "selection cleanup must preserve the Set reference when rows are unchanged",
+);
+assert.match(folderList, /Most likely to delete/);
+assert.match(folderList, /["']date["']/);
+assert.match(folderList, /["']triage["']/);
+assert.match(folderList, /deleteToken/);
+assert.match(folderList, /deletableCount|commandsForSelection/);
+assert.doesNotMatch(
+  folderList,
+  /deleteRank\s*\(|dispositionFromHome|TRIAGE_ORDER/,
+  "FolderList must never map a disposition/home into a rank",
 );
 
 for (const page of ["src/app/page.tsx", "src/app/m/page.tsx"]) {
@@ -133,13 +160,21 @@ const normalSsr = renderToString(
 );
 assert.match(normalSsr, /mail-bottom-nav/, "normal SSR keeps mobile navigation");
 assert.match(normalSsr, /mail-mobile-compose/, "normal SSR keeps compose FAB");
+assert.doesNotMatch(normalSsr, />Triage</);
 
 const emptySentPreview = {
   ...v3Preview,
   initialSection: "sent",
   mailbox: {
     ...v3Preview.mailbox,
-    sent: { folder: "sent", rows: [], total: 0, nextCursor: null },
+    sent: {
+      accountId: "preview",
+      folder: "sent",
+      sort: "date",
+      rows: [],
+      total: 0,
+      nextCursor: null,
+    },
   },
 } as never;
 const emptySentSsr = renderToString(createElement(MailClient, { preview: emptySentPreview }));

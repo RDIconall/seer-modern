@@ -9,11 +9,25 @@ assert.deepEqual(parseMailHash("#section=sent&q=amendment&conversation=c1"), {
   section: "sent",
   query: "amendment",
   conversation: "c1",
+  sort: undefined,
 });
 assert.deepEqual(parseMailHash("#q=amendment"), {
   section: undefined,
   query: "amendment",
   conversation: undefined,
+  sort: undefined,
+});
+assert.deepEqual(parseMailHash("#section=inbox&sort=triage"), {
+  section: "inbox",
+  query: undefined,
+  conversation: undefined,
+  sort: "triage",
+});
+assert.deepEqual(parseMailHash("#section=triage"), {
+  section: undefined,
+  query: undefined,
+  conversation: undefined,
+  sort: undefined,
 });
 assert.deepEqual(clearSearchState("sent"), {
   section: "sent",
