@@ -8,6 +8,7 @@ import type {
   MailboxSort,
   MailboxView,
 } from "@/lib/v3/mailbox/types";
+import { fetchDefault, fetchFresh } from "@/lib/v3/net/fetch";
 import {
   applyMailboxCommands,
   prefetchAdjacentIds,
@@ -164,7 +165,7 @@ export function useMailbox(
     setRefreshing(true);
     setLoading(true);
     try {
-      const accountResponse = await fetch("/api/v3/accounts", { cache: "no-store" });
+      const accountResponse = await fetchFresh("/api/v3/accounts");
       const accountJson = (await accountResponse.json()) as {
         active?: { id?: string } | null;
       };
@@ -173,9 +174,8 @@ export function useMailbox(
       }
       const activeAccountId = accountJson.active.id;
       setAccountId(activeAccountId);
-      const response = await fetch(
+      const response = await fetchFresh(
         `/api/v3/mailbox?folder=${encodeURIComponent(folder)}&sort=${encodeURIComponent(sort)}&limit=50`,
-        { cache: "no-store" },
       );
       if (!response.ok) throw new Error(`mailbox ${response.status}`);
       const json = (await response.json()) as { view: MailboxView };
@@ -231,9 +231,8 @@ export function useMailbox(
       if (bodyCache.has(bodyKey)) continue;
       bodyCache.set(bodyKey, true);
       const run = () => {
-        void fetch(
+        void fetchDefault(
           `/api/v3/conversations/${encodeURIComponent(id)}?account=${encodeURIComponent(accountKey)}`,
-          { cache: "force-cache" },
         )
           .then(async (response) => {
             if (!response.ok) throw new Error("body prefetch failed");

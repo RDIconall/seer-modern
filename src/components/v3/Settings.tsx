@@ -9,6 +9,7 @@ import {
   logout,
   reconnectAccount,
 } from "@/app/actions";
+import { fetchFresh } from "@/lib/v3/net/fetch";
 import {
   ACCOUNT_CHANGED_EVENT,
   clearMailboxCaches,
@@ -37,7 +38,7 @@ export function Settings({ mobile = false }: { mobile?: boolean }) {
   const [error, setError] = useState<string | null>(null);
 
   const load = useCallback(async () => {
-    const response = await fetch("/api/v3/accounts", { cache: "no-store" });
+    const response = await fetchFresh("/api/v3/accounts");
     const json = (await response.json()) as AccountData & { error?: string };
     if (!response.ok) throw new Error(json.error ?? "Unable to load accounts");
     setData(json);

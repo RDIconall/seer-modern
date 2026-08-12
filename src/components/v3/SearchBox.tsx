@@ -3,6 +3,7 @@
 import * as React from "react";
 import { Search, X } from "lucide-react";
 import { useEffect, useRef, useState } from "react";
+import { fetchFresh } from "@/lib/v3/net/fetch";
 import { ACCOUNT_CHANGED_EVENT } from "./useMailbox";
 import { SearchRequestGuard } from "./search-request";
 
@@ -24,8 +25,7 @@ export async function fetchSearch(
   query: string,
   signal?: AbortSignal,
 ): Promise<SearchResult[]> {
-  const response = await fetch(`/api/v3/search?q=${encodeURIComponent(query)}`, {
-    cache: "no-store",
+  const response = await fetchFresh(`/api/v3/search?q=${encodeURIComponent(query)}`, {
     signal,
   });
   const json = (await response.json()) as {

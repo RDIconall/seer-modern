@@ -3,6 +3,7 @@
 import * as React from "react";
 import { useEffect, useId, useRef, useState } from "react";
 import type { ContactSuggestion } from "@/lib/v3/contacts/types";
+import { fetchFresh } from "@/lib/v3/net/fetch";
 import { SearchRequestGuard } from "./search-request";
 import {
   addRecipient,
@@ -54,9 +55,8 @@ export function RecipientInput({
 
     const handle = window.setTimeout(() => {
       const token = guard.current.start();
-      void fetch(`/api/v3/contacts?q=${encodeURIComponent(trimmed)}`, {
+      void fetchFresh(`/api/v3/contacts?q=${encodeURIComponent(trimmed)}`, {
         signal: token.signal,
-        cache: "no-store",
       })
         .then(async (response) => {
           const json = (await response.json()) as ContactsResponse;

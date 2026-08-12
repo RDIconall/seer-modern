@@ -106,6 +106,24 @@ assert.doesNotMatch(
   /dangerouslySetInnerHTML/,
   "ComposePane must never call dangerouslySetInnerHTML itself",
 );
+// iOS Safari throws "The string did not match the expected pattern." the moment
+// fetch() is given an explicit `cache` option, which broke every mailbox refresh
+// and command reconciliation on affected phones. No client fetch may set it.
+const clientFetchFiles = (await fs.readdir(componentDir))
+  .filter((f) => f.endsWith(".ts") || f.endsWith(".tsx"))
+  .map((f) => path.join(componentDir, f));
+clientFetchFiles.push(
+  path.join(root, "src", "components", "v2", "useInboxView.ts"),
+);
+for (const file of clientFetchFiles) {
+  const source = await fs.readFile(file, "utf8");
+  assert.doesNotMatch(
+    source,
+    /cache:\s*["'](?:no-store|no-cache|reload|force-cache)["']/,
+    `${path.basename(file)} must not pass a cache option to fetch — it crashes iOS Safari; use fetchFresh/fetchDefault`,
+  );
+}
+
 const recipientInput = await read("RecipientInput.tsx");
 assert.match(
   recipientInput,

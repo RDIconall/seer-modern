@@ -12,6 +12,7 @@ import {
   quoteHeaderLines,
   quotedMessages,
 } from "@/lib/v3/compose/quoted-thread";
+import { fetchDefault } from "@/lib/v3/net/fetch";
 import {
   canSendCompose,
   dispatchCommand,
@@ -116,9 +117,7 @@ export function ComposePane({
     setQuoteLoading(true);
     setQuoteFailed(false);
     const scope = accountId ? `?account=${encodeURIComponent(accountId)}` : "";
-    void fetch(`/api/v3/conversations/${encodeURIComponent(conversationId)}${scope}`, {
-      cache: "force-cache",
-    })
+    void fetchDefault(`/api/v3/conversations/${encodeURIComponent(conversationId)}${scope}`)
       .then(async (response) => {
         const json = (await response.json()) as ConversationResponse;
         if (!response.ok) throw new Error(json.error ?? `conversation ${response.status}`);

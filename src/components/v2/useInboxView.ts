@@ -3,6 +3,7 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import type { InboxView } from "@/lib/v2/view/types";
 import type { Command, CommandResult } from "@/lib/v2/commands/types";
+import { fetchFresh } from "@/lib/v3/net/fetch";
 import { ACCOUNT_CHANGED_EVENT } from "@/components/v3/useMailbox";
 
 /**
@@ -23,7 +24,7 @@ export function useInboxView(
   const load = useCallback(async () => {
     const requestGeneration = accountGeneration.current;
     try {
-      const res = await fetch("/api/v2/inbox", { cache: "no-store" });
+      const res = await fetchFresh("/api/v2/inbox");
       if (!res.ok) throw new Error(`inbox ${res.status}`);
       const json = (await res.json()) as { view: InboxView };
       if (requestGeneration !== accountGeneration.current) return;

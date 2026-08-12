@@ -4,6 +4,7 @@ import * as React from "react";
 import { ArrowLeft, LoaderCircle } from "lucide-react";
 import { useEffect, useState } from "react";
 import type { Conversation, ProviderKind } from "@/lib/v2/providers/types";
+import { fetchDefault } from "@/lib/v3/net/fetch";
 import {
   Reader,
   useReaderCommands,
@@ -44,9 +45,7 @@ export function ReaderPane({
     setLoading(true);
     setError(null);
     const scope = accountId ? `?account=${encodeURIComponent(accountId)}` : "";
-    void fetch(`/api/v3/conversations/${encodeURIComponent(conversationId)}${scope}`, {
-      cache: "force-cache",
-    })
+    void fetchDefault(`/api/v3/conversations/${encodeURIComponent(conversationId)}${scope}`)
       .then(async (response) => {
         const json = (await response.json()) as ReaderResponse & { error?: string };
         if (!response.ok) throw new Error(json.error ?? `conversation ${response.status}`);
