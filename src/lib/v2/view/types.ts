@@ -26,6 +26,11 @@ export type ConversationRow = {
   category: string;
   /** Who the work is with, shown alongside the section but never grouping it. */
   counterparty: string;
+  /**
+   * We wrote last and nobody answered. Outreach awaiting a reply is not work
+   * that has stalled — nothing is required of anyone on this side.
+   */
+  weSpokeLast: boolean;
   nativeUrl: string;
 };
 

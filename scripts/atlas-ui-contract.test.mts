@@ -74,9 +74,23 @@ assert.doesNotMatch(
   "the board reports an archive on the row, not in a toast",
 );
 
-// Work that is with someone else and has stopped moving rolls into one line.
-assert.match(atlasSource, /isParked/);
-assert.match(atlasSource, />Parked</);
+/**
+ * Outreach nobody answered rolls into one line, and is kept out of the stalled
+ * count. Counting mail nobody owes us a reply on as stalled work described most
+ * of the board, which is the same as describing none of it.
+ */
+assert.match(atlasSource, /isAwaitingReply/);
+assert.match(atlasSource, />Outreach, no reply</);
+assert.match(atlasSource, /const STALE_DAYS = 14/, "stalled means a fortnight, not a week");
+assert.match(
+  atlasSource,
+  /isStalled[\s\S]{0,200}!isAwaitingReply/,
+  "awaiting a reply is excluded from stalled",
+);
+
+// A matter is one line: title, owner, age. No prose rides on a board row.
+assert.match(atlasSource, /wb-age/);
+assert.doesNotMatch(atlasSource, /<Chevron/, "a chevron per row is what made the board scroll");
 
 /**
  * The skin has to be worn, not just shipped. seer-skin.css defined the display

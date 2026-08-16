@@ -37,6 +37,7 @@ type DecisionRow = {
   priority: number;
   due_date: string | null;
   veto_reasons: string[];
+  we_spoke_last: boolean;
   decision_id: string;
   matter_id: string | null;
   function_name: string | null;
@@ -81,6 +82,12 @@ export async function buildInboxView(
             (select m.from_email from seer.messages m
               where m.conversation_id = c.id
               order by m.sent_at desc nulls last limit 1) as from_email,
+            -- We wrote the most recent message and nobody has come back. That
+            -- is outreach awaiting a reply, not work that has stalled: nothing
+            -- is required of anyone here but the person who has not answered.
+            coalesce((select m.is_outgoing from seer.messages m
+              where m.conversation_id = c.id
+              order by m.sent_at desc nulls last limit 1), false) as we_spoke_last,
             -- Show a person, not an address. The user's own contacts win, then
             -- the name the provider carried on the message, and only then the
             -- raw address — "billing@definitivehc.com" tells you nothing about
@@ -181,6 +188,7 @@ export async function buildInboxView(
     // Grouped by the part of the business, not by who it is with.
     category: r.function_name ?? UNFILED,
     counterparty: counterpartyLabel(r.from_email, ownDomain),
+    weSpokeLast: r.we_spoke_last ?? false,
     nativeUrl: nativeUrlFor(provider, r.provider_conversation_id),
   });
 

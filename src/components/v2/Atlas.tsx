@@ -2,7 +2,8 @@
 
 import * as React from "react";
 import { useEffect, useMemo, useRef, useState } from "react";
-import { ChevronDown, ChevronRight, X } from "lucide-react";
+import { X } from "lucide-react";
+import { SeerMark } from "@/components/v3/SeerMark";
 import type {
   ConversationRow,
   InboxView,
@@ -49,11 +50,11 @@ function daysSinceMoved(matter: MatterCard, now: number): number {
 }
 
 /**
- * A week is the line between "in flight" and "stalled". Under it, silence is
- * just the normal gap between replies; over it, nobody is coming back to this
- * on their own.
+ * Stalled means someone is actually blocked and it has been a fortnight. A week
+ * is the normal gap between replies, and calling that stalled made the word
+ * describe most of the board, which is the same as describing none of it.
  */
-const STALE_DAYS = 7;
+const STALE_DAYS = 14;
 
 const isYours = (matter: MatterCard) => matter.owner === "you";
 
@@ -81,12 +82,20 @@ function ownerLabel(matter: MatterCard): string {
 }
 
 /**
- * Work that is with someone else and has stopped moving is parked: there is no
- * decision waiting on you, so it rolls into a single line and stays out of the
- * way until asked for. Everything yours stays on the board however old it is.
+ * Outreach nobody has answered. We wrote last on every thread of it, so the ball
+ * is not on this side: it is a pipeline row, not a matter and not stalled.
+ *
+ * Rolling these up is what takes a section from screens-worth to a few lines,
+ * and it is also what makes "stalled" mean something again — counting mail
+ * nobody owes us a reply on as stalled work described most of the board.
  */
-const isParked = (matter: MatterCard, now: number) =>
-  !isYours(matter) && daysSinceMoved(matter, now) > STALE_DAYS;
+const isAwaitingReply = (matter: MatterCard) =>
+  matter.conversations.length > 0 &&
+  matter.conversations.every((conversation) => conversation.weSpokeLast);
+
+/** Blocked work: someone owes a move and a fortnight has passed. */
+const isStalled = (matter: MatterCard, now: number) =>
+  !isAwaitingReply(matter) && daysSinceMoved(matter, now) >= STALE_DAYS;
 
 export function Atlas({
   view,
@@ -132,13 +141,12 @@ export function Atlas({
         const kept = visible.filter((matter) => !mineOnly || isYours(matter));
         return {
           name: section.name,
-          matters: kept.filter((matter) => !isParked(matter, now)),
-          parked: mineOnly ? [] : kept.filter((matter) => isParked(matter, now)),
+          matters: kept.filter((matter) => !isAwaitingReply(matter)),
+          parked: mineOnly ? [] : kept.filter(isAwaitingReply),
         };
       }),
     // `now` is deliberately excluded: it changes every render and ages move by
     // the day, not the frame.
-    // eslint-disable-next-line react-hooks/exhaustive-deps
     [sections, mineOnly, archived, undoable],
   );
 
@@ -150,7 +158,13 @@ export function Atlas({
     [sections, archived],
   );
   const yours = live.filter(isYours).length;
-  const stalled = live.filter((matter) => daysSinceMoved(matter, now) > STALE_DAYS).length;
+  // Outreach nobody has answered is excluded here on purpose: it is the whole
+  // reason the number is worth reading.
+  const stalled = live.filter((matter) => isStalled(matter, now)).length;
+  const rowCount = shaped.reduce(
+    (n, section) => n + section.matters.length + (section.parked.length > 0 ? 1 : 0),
+    0,
+  );
 
   const archive = (matter: MatterCard) => {
     setOpenMatterId(null);
@@ -203,9 +217,12 @@ export function Atlas({
 
   return (
     <section aria-label="Atlas — the whiteboard" className="wb">
-      <header className="wb-head">
-        <h1 className="wb-title">Whiteboard</h1>
-        <p className="wb-ledger tabular">
+      {/* Two rows of chrome, not three: the title and the account of the board
+          share a line, and the filter carries the row count on its right. */}
+      <header className="wb-top">
+        <SeerMark className="wb-mark" />
+        <span className="wb-title">Whiteboard</span>
+        <span className="wb-ledger tabular">
           {yours} yours · {live.length - yours} out
           {stalled > 0 ? (
             <>
@@ -213,24 +230,25 @@ export function Atlas({
               <span className="wb-stale">{stalled} stalled</span>
             </>
           ) : null}
-        </p>
-        <div className="wb-seg" role="group" aria-label="Filter the board">
-          <button type="button" aria-pressed={!mineOnly} onClick={() => setMineOnly(false)}>
-            All
-          </button>
-          <button type="button" aria-pressed={mineOnly} onClick={() => setMineOnly(true)}>
-            Mine
-          </button>
-        </div>
+        </span>
       </header>
+      <div className="wb-seg" role="group" aria-label="Filter the board">
+        <button type="button" aria-pressed={!mineOnly} onClick={() => setMineOnly(false)}>
+          All
+        </button>
+        <button type="button" aria-pressed={mineOnly} onClick={() => setMineOnly(true)}>
+          Mine
+        </button>
+        <span className="wb-dense tabular">{rowCount} rows</span>
+      </div>
 
       {shown === 0 ? (
         <p className="wb-empty">Nothing is yours right now.</p>
       ) : (
         shaped.map((section) => {
           if (section.matters.length === 0 && section.parked.length === 0) return null;
-          const sectionStale = section.matters.filter(
-            (matter) => daysSinceMoved(matter, now) > STALE_DAYS,
+          const sectionStale = section.matters.filter((matter) =>
+            isStalled(matter, now),
           ).length;
           const rollOpen = openRolls.has(section.name);
           return (
@@ -283,9 +301,9 @@ export function Atlas({
                         })
                       }
                     >
-                      <Chevron open={rollOpen} />
-                      <span className="wb-mt">Parked</span>
-                      <span className="wb-own tabular">{section.parked.length}</span>
+                      <span className="wb-mt">Outreach, no reply</span>
+                      <span className="wb-own tabular">—</span>
+                      <span className="wb-age tabular">{section.parked.length}</span>
                     </button>
                     {rollOpen && (
                       <div className="wb-rlist">
@@ -311,8 +329,8 @@ export function Atlas({
       )}
 
       <p className="wb-foot tabular">
-        {`Accounted ${view.coverage.read} of ${view.coverage.providerTotal}`}
-        {view.coverage.pending > 0 ? `\n${view.coverage.pending} still reading` : ""}
+        {`${rowCount} rows · ${view.coverage.stored - view.coverage.read} unread by Seer`}
+        {`\nAccounted ${view.coverage.read} of ${view.coverage.providerTotal}`}
       </p>
 
       {selectedMatterId &&
@@ -361,14 +379,19 @@ function BoardMatter({
   onOpenMatter: () => void;
 }) {
   const age = daysSinceMoved(matter, now);
-  const stale = age > STALE_DAYS;
+  const stalled = isStalled(matter, now);
   const owner = ownerLabel(matter);
   const yours = isYours(matter);
 
   return (
     <div
-      className={`wb-m${open ? " wb-m-open" : ""}${archived ? " wb-m-gone" : ""}`}
+      className={`wb-m${open ? " wb-m-open" : ""}${archived ? " wb-m-gone" : ""}${
+        yours ? " wb-m-yours" : ""
+      }`}
     >
+      {/* One line, three columns: what it is, who has it, how long it has sat.
+          A chevron and a second line of prose per row is what turned a board of
+          a hundred matters into eleven screens of scrolling. */}
       <button
         type="button"
         className="wb-mhead"
@@ -376,12 +399,9 @@ function BoardMatter({
         onClick={archived ? undefined : onToggle}
         disabled={archived}
       >
-        {!archived && <Chevron open={open} />}
         <span className="wb-mt">{matter.shortTitle}</span>
-        <span className={`wb-own tabular${yours ? " wb-own-you" : ""}`}>
-          {owner}
-          {stale ? <span className="wb-stale">{` ${age}d`}</span> : null}
-        </span>
+        <span className={`wb-own tabular${yours ? " wb-own-you" : ""}`}>{owner}</span>
+        <span className={`wb-age tabular${stalled ? " wb-stale" : ""}`}>{age}d</span>
       </button>
 
       {archived ? (
@@ -400,7 +420,7 @@ function BoardMatter({
             <p className="wb-meta tabular">
               {yours ? "yours" : `with ${owner}`}
               {" · "}
-              {stale ? (
+              {stalled ? (
                 <span className="wb-stale">{age}d since it moved</span>
               ) : (
                 `${age}d since it moved`
@@ -540,7 +560,3 @@ function MatterDetail({
   );
 }
 
-function Chevron({ open }: { open: boolean }) {
-  const Icon = open ? ChevronDown : ChevronRight;
-  return <Icon className="h-4 w-4 shrink-0 text-[var(--fg)]" aria-hidden />;
-}
