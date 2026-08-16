@@ -14,6 +14,16 @@ export async function GET() {
   if (!account) {
     return NextResponse.json({ error: "no active v2 account" }, { status: 404 });
   }
-  const view = await buildInboxView(account.id, account.provider);
-  return NextResponse.json({ view });
+  try {
+    const view = await buildInboxView(account.id, account.provider);
+    return NextResponse.json({ view });
+  } catch (cause) {
+    // A bare 500 here reaches the user as "inbox 500", which says nothing about
+    // whether the database is unreachable, a migration is missing, or a query is
+    // wrong. The reason is worth more than the status code.
+    return NextResponse.json(
+      { error: cause instanceof Error ? cause.message : "inbox projection failed" },
+      { status: 500 },
+    );
+  }
 }

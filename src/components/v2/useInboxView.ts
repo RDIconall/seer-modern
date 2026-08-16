@@ -18,8 +18,14 @@ export function useInboxView() {
   const load = useCallback(async () => {
     try {
       const res = await fetch("/api/v2/inbox", { cache: "no-store" });
-      if (!res.ok) throw new Error(`inbox ${res.status}`);
-      const json = (await res.json()) as { view: InboxView };
+      // A failed response may not be JSON at all; falling back to the status is
+      // better than replacing the real problem with a parse error.
+      const json = (await res.json().catch(() => null)) as
+        | { view: InboxView; error?: string }
+        | null;
+      if (!res.ok || !json?.view) {
+        throw new Error(json?.error ?? `inbox ${res.status}`);
+      }
       setView(json.view);
       setError(null);
     } catch (e) {
