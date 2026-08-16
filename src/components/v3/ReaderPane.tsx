@@ -14,6 +14,8 @@ import {
 type ReaderResponse = {
   conversation: Conversation;
   provider: ProviderKind;
+  /** The account's own address, which tells the two lanes of a thread apart. */
+  ownEmail?: string | null;
 };
 
 export function ReaderPane({
@@ -139,6 +141,7 @@ export function ReaderPane({
       <Reader
         provider={data.provider}
         conversation={data.conversation}
+        ownEmail={data.ownEmail}
         onReply={() => onCompose({ mode: "reply" })}
         onReplyAll={() => onCompose({ mode: "replyAll" })}
         onForward={() => onCompose({ mode: "forward" })}

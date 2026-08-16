@@ -27,5 +27,8 @@ export async function GET(
     conversation: view.conversation,
     nativeUrl: view.nativeUrl,
     provider: account.provider,
+    // The reader separates the external trunk from the internal branches, which
+    // it cannot do without knowing which side of the thread is home.
+    ownEmail: account.email,
   });
 }

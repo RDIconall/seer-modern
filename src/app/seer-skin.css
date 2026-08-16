@@ -469,3 +469,260 @@ body {
     transition-duration: 0.01ms !important;
   }
 }
+
+/* --------------------------------------------------------------------
+   The reader — two lanes, and new text only
+
+   The trunk is what the counterparty can see; a branch is the forward to
+   a colleague and everything it produced. They are set apart so you can
+   follow what the customer knows without reading your own team's working
+   out. Turns sit closed with one line showing, because the new sentence
+   is the only part of a long thread anyone needs.
+   -------------------------------------------------------------------- */
+
+.reader-head {
+  padding: 2px 20px 0;
+}
+.reader-matter {
+  margin: 0;
+  font-size: var(--t-display);
+  font-weight: 500;
+  letter-spacing: -0.015em;
+  line-height: 1.22;
+  color: var(--fg-strong);
+}
+.reader-sub {
+  margin-top: 5px;
+  font-size: var(--t-small);
+  color: var(--muted);
+}
+
+/* Who is holding it. One tinted panel, and only when someone is waiting. */
+.reader-ball {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin-top: 14px;
+  padding: 11px 14px;
+  background: var(--brand-soft);
+  border-left: 2px solid var(--brand);
+}
+.reader-ball span {
+  flex: 1;
+  font-size: var(--t-body);
+  line-height: var(--lh-body);
+  color: var(--fg-strong);
+}
+.reader-ball-action {
+  flex: none;
+  appearance: none;
+  border: 0;
+  border-radius: 5px;
+  background: var(--brand-cta, var(--brand-strong));
+  color: var(--on-brand, #fff);
+  font: inherit;
+  font-size: var(--t-small);
+  font-weight: 500;
+  padding: 8px 13px;
+  cursor: pointer;
+  min-height: 34px;
+}
+
+/* Everything attached, once, instead of hunting turn by turn. */
+.reader-files {
+  display: flex;
+  gap: 8px;
+  overflow-x: auto;
+  padding: 14px 20px 2px;
+  scrollbar-width: none;
+}
+.reader-files::-webkit-scrollbar {
+  display: none;
+}
+.reader-file {
+  display: flex;
+  align-items: center;
+  gap: 9px;
+  padding: 8px 11px;
+  background: var(--card);
+  border: 1px solid var(--border);
+  border-radius: var(--r);
+  white-space: nowrap;
+  text-decoration: none;
+}
+.reader-file-kind {
+  color: var(--danger);
+  border: 1px solid var(--border);
+  border-radius: 3px;
+  padding: 5px 4px;
+  background: var(--row-hover);
+}
+.reader-file b {
+  font-size: var(--t-small);
+  font-weight: 400;
+  color: var(--fg-strong);
+}
+.reader-file em {
+  display: block;
+  font-style: normal;
+  color: var(--nav-muted);
+}
+
+.reader-lane {
+  margin-top: 16px;
+}
+
+.reader-turn {
+  background: var(--card);
+  border-block: 1px solid var(--border);
+  margin-bottom: -1px;
+}
+.reader-turn-head {
+  display: flex;
+  align-items: baseline;
+  gap: 9px;
+  width: 100%;
+  appearance: none;
+  background: none;
+  border: 0;
+  padding: 13px 18px 13px 20px;
+  text-align: left;
+  font: inherit;
+  cursor: pointer;
+}
+.reader-turn-who {
+  font-size: var(--t-body);
+  font-weight: 500;
+  letter-spacing: -0.01em;
+  color: var(--fg-strong);
+}
+.reader-turn-you {
+  color: var(--brand-strong);
+}
+.reader-turn-peek {
+  flex: 1;
+  min-width: 0;
+  font-size: var(--t-body);
+  color: var(--muted);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.reader-turn-when {
+  flex: none;
+  margin-left: auto;
+  color: var(--nav-muted);
+}
+.reader-turn-body {
+  padding: 0 20px 16px;
+}
+.reader-stripped {
+  margin-top: 11px;
+  color: var(--nav-muted);
+}
+
+/* A branch is set apart by a spine, not a box: it is an aside on the trunk. */
+.reader-branch {
+  background: var(--row-hover);
+  border-block: 1px solid var(--border);
+  margin-bottom: -1px;
+  box-shadow: inset 3px 0 0 var(--brand-line);
+}
+.reader-branch-head {
+  display: flex;
+  align-items: baseline;
+  gap: 9px;
+  width: 100%;
+  appearance: none;
+  background: none;
+  border: 0;
+  padding: 12px 18px 12px 20px;
+  text-align: left;
+  font: inherit;
+  cursor: pointer;
+}
+.reader-branch-tag {
+  flex: none;
+  color: var(--brand-strong);
+}
+.reader-branch-title {
+  flex: 1;
+  min-width: 0;
+  font-size: var(--t-body);
+  color: var(--fg);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.reader-branch-count {
+  flex: none;
+  color: var(--nav-muted);
+}
+.reader-branch-turn {
+  padding: 9px 20px 11px;
+  border-top: 1px solid var(--border);
+}
+.reader-branch-from {
+  display: flex;
+  align-items: baseline;
+  gap: 9px;
+}
+.reader-branch-from b {
+  font-size: var(--t-body);
+  font-weight: 500;
+  color: var(--fg-strong);
+}
+.reader-branch-from em {
+  margin-left: auto;
+  font-style: normal;
+  color: var(--nav-muted);
+}
+.reader-branch-text {
+  margin-top: 4px;
+  font-size: var(--t-body);
+  line-height: var(--lh-body);
+  color: var(--fg);
+}
+
+/* Participants, and the people who quietly stopped being on it. */
+.reader-people {
+  padding: 20px 20px 0;
+}
+.reader-chips {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 7px;
+  margin-top: 9px;
+}
+.reader-chip {
+  display: flex;
+  align-items: baseline;
+  gap: 6px;
+  padding: 6px 10px;
+  background: var(--card);
+  border: 1px solid var(--border);
+  border-radius: 999px;
+  font-size: var(--t-small);
+  color: var(--fg-strong);
+}
+.reader-chip em {
+  font-style: normal;
+  color: var(--nav-muted);
+}
+.reader-chip-out {
+  opacity: 0.55;
+  text-decoration: line-through;
+  text-decoration-thickness: 1px;
+}
+.reader-people-note {
+  margin-top: 10px;
+  font-size: var(--t-small);
+  color: var(--muted);
+  line-height: var(--lh-body);
+}
+
+.reader-foot {
+  padding: 18px 20px 6px;
+  color: var(--nav-muted);
+  line-height: 1.7;
+}
