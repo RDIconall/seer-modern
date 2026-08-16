@@ -261,9 +261,13 @@ export function MailClient({
     disabled: Boolean(preview),
     sort: mailboxSort,
   });
+  // Only Atlas reads this projection, and it is the heaviest response the app
+  // has — every inbox conversation, every matter, every yield. Fetching it
+  // while the user is in a mail folder cost a few hundred kB on load and again
+  // on every window focus, which on a phone is constant.
   const inbox = useInboxView(
     preview?.inboxView,
-    Boolean(preview),
+    Boolean(preview) || section !== "atlas",
   );
 
   const restoreSearch = useCallback(async (value: string) => {

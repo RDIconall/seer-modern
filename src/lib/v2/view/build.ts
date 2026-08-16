@@ -54,13 +54,16 @@ export async function buildInboxView(
   accountId: AccountId,
   provider: ProviderKind,
 ): Promise<InboxView> {
-  const account = await db().query<{ email: string }>(
+  // Every read below depends only on the account id, so they are issued
+  // together. Awaited one at a time this was eight sequential round trips to
+  // Supabase, and the latency — not the queries, which are indexed and fast —
+  // was most of the time the user waited for Atlas.
+  const accountQuery = db().query<{ email: string }>(
     "select email from seer.mail_accounts where id = $1",
     [accountId],
   );
-  const ownDomain = (account.rows[0]?.email.split("@")[1] ?? "").toLowerCase();
 
-  const rows = await db().query<DecisionRow>(
+  const rowsQuery = db().query<DecisionRow>(
     `select c.id as conversation_id,
             c.provider_conversation_id,
             c.subject,
@@ -107,7 +110,7 @@ export async function buildInboxView(
     [accountId],
   );
 
-  const yieldRows = await db().query<{
+  const yieldRowsQuery = db().query<{
     conversation_id: string;
     kind: string;
     headline: string;
@@ -131,7 +134,7 @@ export async function buildInboxView(
     [accountId],
   );
 
-  const matters = await db().query<{
+  const mattersQuery = db().query<{
     id: string;
     title: string;
     short_title: string | null;
@@ -147,12 +150,23 @@ export async function buildInboxView(
   // whiteboard reads the same way every time it is opened. Functions (parts of
   // the business) come before topics (what a piece of mail is), so both the
   // board and triage lead with the work and end with the noise.
-  const registry = await db().query<{ name: string }>(
+  const registryQuery = db().query<{ name: string }>(
     `select name from seer.functions
       where account_id = $1
       order by case kind when 'function' then 0 else 1 end, position, name`,
     [accountId],
   );
+
+  const [account, rows, yieldRows, matters, registry, coverage] = await Promise.all([
+    accountQuery,
+    rowsQuery,
+    yieldRowsQuery,
+    mattersQuery,
+    registryQuery,
+    buildCoverage(accountId),
+  ]);
+
+  const ownDomain = (account.rows[0]?.email.split("@")[1] ?? "").toLowerCase();
 
   const toRow = (r: DecisionRow): ConversationRow => ({
     conversationId: r.conversation_id,
@@ -249,8 +263,6 @@ export async function buildInboxView(
       matterTitle: y.matter_title,
     }));
 
-  const coverage = await buildCoverage(accountId);
-
   return {
     asOf: new Date().toISOString(),
     coverage,
@@ -299,19 +311,21 @@ export function groupIntoSections(
 }
 
 async function buildCoverage(accountId: AccountId): Promise<Coverage> {
-  const state = await db().query<{ provider_total: number }>(
-    "select provider_total from seer.sync_state where account_id = $1",
-    [accountId],
-  );
-  const stored = await db().query<{ n: number }>(
-    "select count(*)::int as n from seer.conversations where account_id = $1 and is_deleted = false",
-    [accountId],
-  );
-  const read = await db().query<{ n: number }>(
-    `select count(*)::int as n from seer.conversation_decisions
-      where account_id = $1 and is_current and home <> 'undecided'`,
-    [accountId],
-  );
+  const [state, stored, read] = await Promise.all([
+    db().query<{ provider_total: number }>(
+      "select provider_total from seer.sync_state where account_id = $1",
+      [accountId],
+    ),
+    db().query<{ n: number }>(
+      "select count(*)::int as n from seer.conversations where account_id = $1 and is_deleted = false",
+      [accountId],
+    ),
+    db().query<{ n: number }>(
+      `select count(*)::int as n from seer.conversation_decisions
+        where account_id = $1 and is_current and home <> 'undecided'`,
+      [accountId],
+    ),
+  ]);
   const providerTotal = state.rows[0]?.provider_total ?? 0;
   const storedCount = stored.rows[0]?.n ?? 0;
   return {
