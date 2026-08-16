@@ -91,11 +91,10 @@ export function Atlas({
     <section aria-label="Atlas — the whiteboard" className="-mx-4">
       <header className="flex flex-wrap items-center justify-between gap-4 px-4 pb-5 pt-2">
         <div>
-          <h1 className="text-[24px] font-semibold tracking-[-0.01em] text-[var(--fg-strong)]">
-            Whiteboard
-          </h1>
-          <p className="mt-0.5 text-[14px] text-[var(--muted)]">
-            {matterCount} matters · {sections.length} sections
+          <h1 className="seer-display text-[var(--fg-strong)]">Whiteboard</h1>
+          <p className="mt-0.5 text-[length:var(--t-small)] text-[var(--muted)]">
+            <span className="tabular">{matterCount}</span> matters ·{" "}
+            <span className="tabular">{sections.length}</span> sections
           </p>
         </div>
         <div className="flex items-center gap-1.5 text-[13px]">
@@ -194,10 +193,10 @@ function AtlasList({
               className="flex w-full items-center gap-2 rounded-lg px-2 py-2 text-left transition-colors hover:bg-[var(--row-hover)]"
             >
               <Chevron open={open} />
-              <span className="text-[14px] font-medium text-[var(--fg-strong)]">
+              <span className="text-[length:var(--t-body)] font-medium text-[var(--fg-strong)]">
                 {sectionLabel(section.name)}
               </span>
-              <span className="text-[13px] tabular-nums text-[var(--muted)]">
+              <span className="tabular text-[var(--muted)]">
                 {section.matters.length}
               </span>
             </button>
@@ -266,7 +265,7 @@ function MatterOutline({
             {matter.orgUnit}
           </span>
         )}
-        <span className="shrink-0 text-[13px] tabular-nums text-[var(--muted)]">
+        <span className="tabular shrink-0 text-[var(--muted)]">
           {matter.conversations.length}
         </span>
       </div>
@@ -363,9 +362,9 @@ function AtlasBoard({
         <div key={i} className="min-w-0">
           {column.map((section) => (
             <section key={section.name} className="mb-7">
-              <h2 className="px-1.5 text-[13px] font-semibold uppercase tracking-[0.06em] text-[var(--muted)]">
+              <h2 className="atlas-heading px-1.5">
                 {sectionLabel(section.name)}
-                <span className="font-normal"> · {section.matters.length}</span>
+                <span className="tabular"> · {section.matters.length}</span>
               </h2>
               <ul className="mt-1.5">
                 {section.matters.map((matter) => (
@@ -403,7 +402,7 @@ function BoardMatter({
 }) {
   return (
     <li className="group">
-      <div className="flex w-full items-baseline gap-1 rounded-lg px-1.5 py-[3px] text-left transition-colors hover:bg-[var(--row-hover)]">
+      <div className="atlas-row flex w-full items-baseline gap-1 px-1.5 text-left transition-colors">
         <button
           type="button"
           onClick={onToggle}
@@ -417,12 +416,12 @@ function BoardMatter({
           type="button"
           onClick={onOpenMatter}
           aria-label={`Open matter ${matter.shortTitle}`}
-          className="min-w-0 flex-1 text-left text-[14.5px] leading-[1.45] text-[var(--fg-strong)]"
+          className="min-w-0 flex-1 text-left text-[length:var(--t-body)] leading-[var(--lh-tight)] text-[var(--fg-strong)]"
         >
           {matter.shortTitle}
         </button>
         {matter.conversations.length > 1 && (
-          <span className="shrink-0 text-[12px] tabular-nums text-[var(--muted)]">
+          <span className="tabular shrink-0 text-[var(--muted)]">
             {matter.conversations.length}
           </span>
         )}
@@ -434,7 +433,7 @@ function BoardMatter({
               <button
                 type="button"
                 onClick={() => onOpenConversation?.(c)}
-                className="block w-full truncate rounded-lg px-1.5 py-[3px] text-left text-[13px] text-[var(--muted)] transition-colors hover:bg-[var(--row-hover)] hover:text-[var(--fg)]"
+                className="atlas-row block w-full truncate px-1.5 text-left text-[length:var(--t-small)] text-[var(--muted)] transition-colors hover:text-[var(--fg)]"
               >
                 {c.subject || "(no subject)"}
                 <span className="opacity-70"> — {c.from}</span>
@@ -444,7 +443,7 @@ function BoardMatter({
           {matter.yields.map((y, i) => (
             <li
               key={`y${i}`}
-              className="px-1.5 py-[3px] text-[13px] text-[var(--brand-strong)]"
+              className="atlas-row px-1.5 text-[length:var(--t-small)] text-[var(--brand-strong)]"
             >
               {y.headline}
             </li>

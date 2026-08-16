@@ -44,4 +44,32 @@ const html = renderToString(
 assert.match(html, /Whiteboard/);
 assert.match(html, /matter-detail|matter/i);
 
+/**
+ * The skin has to be worn, not just shipped. seer-skin.css defined the display
+ * face, the tabular numerals and the Atlas density rules, and for a while
+ * nothing referenced any of them: the board rendered in raw pixel sizes while
+ * the design system sat unused in a stylesheet. A rule no element claims is
+ * indistinguishable from a rule that was never written.
+ */
+const skin = await fs.readFile(path.join(root, "src/app/seer-skin.css"), "utf8");
+for (const cls of ["atlas-heading", "atlas-row", "tabular", "seer-display"]) {
+  assert.match(
+    skin,
+    new RegExp(`\\.${cls}(?![\\w-])`),
+    `seer-skin.css must define .${cls}`,
+  );
+  assert.match(
+    atlasSource,
+    new RegExp(`\\b${cls}\\b`),
+    `Atlas must use .${cls} rather than restating it in raw pixels`,
+  );
+}
+
+// Sizes belong to the six-step scale, so the board stays in proportion.
+assert.doesNotMatch(
+  atlasSource,
+  /tabular-nums/,
+  "counts use the .tabular mono face, not the Tailwind numeric variant",
+);
+
 console.log("atlas-ui-contract: OK");
