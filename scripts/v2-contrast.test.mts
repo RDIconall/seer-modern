@@ -6,15 +6,21 @@
  * than contrast is easy to ship and hard to notice: the first pass used #8f8f8f
  * for section headings and senders, which measures 3.5:1 and fails at 13px.
  *
- * Ratios are read from globals.css, so nudging a token re-runs the check.
+ * Ratios are read from the stylesheets in the order layout.tsx imports them, so
+ * what is measured is what actually renders. seer-skin.css restates the palette
+ * after globals.css and therefore wins; checking globals.css alone would grade a
+ * set of colours no one ever sees.
  */
 import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 
-const css = readFileSync("src/app/globals.css", "utf8");
+/** Imported in this order by src/app/layout.tsx; later files override earlier. */
+const SHEETS = ["src/app/globals.css", "src/app/seer-skin.css"].map((path) =>
+  readFileSync(path, "utf8"),
+);
 
 /** Tokens from a `:root { ... }` block; the second one is the dark theme. */
-function tokens(index: number): Record<string, string> {
+function tokensIn(css: string, index: number): Record<string, string> {
   const blocks = [...css.matchAll(/:root\s*\{([\s\S]*?)\}/g)];
   const block = blocks[index]?.[1] ?? "";
   const map: Record<string, string> = {};
@@ -22,6 +28,14 @@ function tokens(index: number): Record<string, string> {
     map[match[1]] = match[2];
   }
   return map;
+}
+
+/** The cascade: a later sheet's token replaces an earlier one's. */
+function tokens(index: number): Record<string, string> {
+  return SHEETS.reduce<Record<string, string>>(
+    (acc, css) => ({ ...acc, ...tokensIn(css, index) }),
+    {},
+  );
 }
 
 const channel = (c: number) => {

@@ -28,7 +28,9 @@
   --border: #e2e5e2;      /* was #d4dae0 — a hairline, not a rule */
   --border-strong: #cbd0cc;
   --muted: #5f6a72;
-  --nav-muted: #79838b;
+  /* Same hue, darkened to clear AA: at #79838b this measured 3.53:1 against
+     the warmer page this file introduces, which is a fail at nav sizes. */
+  --nav-muted: #687178;
   --row-hover: #f7f8f6;
   --row-active: #eef1ee;
 
