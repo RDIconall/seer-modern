@@ -2,6 +2,7 @@ import type { Metadata, Viewport } from "next";
 import localFont from "next/font/local";
 import { PwaRegister } from "@/components/PwaRegister";
 import "./globals.css";
+import "./seer-skin.css";
 
 /* Klim National 2 — UI + reading */
 const seerSans = localFont({
@@ -11,6 +12,26 @@ const seerSans = localFont({
     { path: "../fonts/klim/National2-Bold.otf", weight: "700", style: "normal" },
   ],
   variable: "--font-seer",
+  display: "swap",
+});
+
+/* Tiempos Headline — the one display face, for a single headline per screen */
+const seerDisplay = localFont({
+  src: [
+    { path: "../fonts/klim/TiemposHeadline-Regular.otf", weight: "400", style: "normal" },
+    { path: "../fonts/klim/TiemposHeadline-Medium.otf", weight: "500", style: "normal" },
+  ],
+  variable: "--font-seer-display",
+  display: "swap",
+});
+
+/* Söhne Mono — tabular numerals for counts, ages, amounts, study codes */
+const seerMono = localFont({
+  src: [
+    { path: "../fonts/klim/SohneMono-Buch.otf", weight: "400", style: "normal" },
+    { path: "../fonts/klim/SohneMono-Kraftig.otf", weight: "600", style: "normal" },
+  ],
+  variable: "--font-seer-mono",
   display: "swap",
 });
 
@@ -45,7 +66,7 @@ export default function RootLayout({
   return (
     <html lang="en">
       <body
-        className={`${seerSans.variable} antialiased`}
+        className={`${seerSans.variable} ${seerDisplay.variable} ${seerMono.variable} antialiased`}
       >
         {children}
         <PwaRegister />

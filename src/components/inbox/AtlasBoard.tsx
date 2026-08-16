@@ -403,7 +403,9 @@ function Column({
     <section className="mb-4">
       <h2 className="text-[17px] font-bold text-[var(--fg-strong)]">
         {section.label}{" "}
-        <span className="text-[var(--nav-muted)]">· {section.rows.length}</span>
+        <span className="seer-num text-[var(--nav-muted)]">
+          · {section.rows.length}
+        </span>
       </h2>
       <SortableContext items={itemIds} strategy={verticalListSortingStrategy}>
         <ul

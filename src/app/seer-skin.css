@@ -1,0 +1,227 @@
+/*
+ * SEER SKIN — a refinement layer, not a redesign.
+ *
+ * Import once, after globals.css, in src/app/layout.tsx:
+ *     import "./globals.css";
+ *     import "./seer-skin.css";
+ *
+ * Three things it fixes, and nothing else:
+ *
+ * 1. Light mode was inverted. --card (#f1f3f5) is darker than --bg
+ *    (#ffffff), so every card reads as a recess and the page has no
+ *    ground. Paper is now the card and the page sits behind it, which is
+ *    also what the dark palette already does.
+ * 2. There was no type scale. Sizes were set per component in pixels
+ *    (14/17/12), so nothing lines up across Atlas, the panel, and the
+ *    reader. Six steps, named, used everywhere.
+ * 3. Numbers were proportional. Counts, ages, and amounts in Atlas jitter
+ *    column to column. Söhne Mono is already in the repo — it just was
+ *    never registered.
+ */
+
+:root {
+  /* --- ground and paper (light) --- */
+  --bg: #f4f5f3;          /* the page: paper-warm, not white */
+  --card: #ffffff;        /* cards sit on top, not in a well */
+  --fg: #333b42;
+  --fg-strong: #0b0d10;
+  --border: #e2e5e2;      /* was #d4dae0 — a hairline, not a rule */
+  --border-strong: #cbd0cc;
+  --muted: #5f6a72;
+  --nav-muted: #79838b;
+  --row-hover: #f7f8f6;
+  --row-active: #eef1ee;
+
+  /* --- brand, unchanged in hue, calmer in application --- */
+  --brand: #0b7f74;
+  --brand-strong: #08655c;
+  --brand-soft: #e4f1ef;
+  --brand-line: #9fcfc8;
+
+  /* --- one signal colour, used only for time debt --- */
+  --danger: #b44a24;
+  --danger-soft: #fbeee8;
+
+  /* --- type scale: six steps, nothing between --- */
+  --t-micro: 11px;   /* mono only: counts, ages, codes */
+  --t-small: 12px;   /* secondary metadata */
+  --t-body: 14px;    /* rows, list content */
+  --t-read: 16px;    /* message bodies, long text */
+  --t-title: 17px;   /* matter title, section heading */
+  --t-display: 22px; /* panel headline, one per screen */
+
+  --lh-tight: 1.28;
+  --lh-body: 1.45;
+  --lh-read: 1.6;
+
+  /* --- depth: one shadow, one radius, no variants --- */
+  --lift: 0 1px 2px rgba(11, 13, 16, 0.05), 0 6px 16px rgba(11, 13, 16, 0.05);
+  --r: 6px;
+}
+
+@media (prefers-color-scheme: dark) {
+  :root {
+    --bg: #0a0c0f;
+    --card: #14181c;
+    --fg: #c9d0d6;
+    --fg-strong: #f4f6f7;
+    --border: #232a30;
+    --border-strong: #323a41;
+    --muted: #8d979f;
+    --nav-muted: #7b858d;
+    --row-hover: #171c21;
+    --row-active: #1c2228;
+    --brand: #17a595;
+    --brand-strong: #2dbcaa;
+    --brand-soft: #0d2a27;
+    --brand-line: #1c5750;
+    --danger: #d9764f;
+    --danger-soft: #2a1a13;
+    --lift: 0 1px 2px rgba(0, 0, 0, 0.5), 0 8px 22px rgba(0, 0, 0, 0.36);
+  }
+}
+
+/* --------------------------------------------------------------------
+   Typography
+   -------------------------------------------------------------------- */
+
+body {
+  font-size: var(--t-body);
+  line-height: var(--lh-body);
+  letter-spacing: -0.005em;
+}
+
+/* Numbers stop jittering: every count, age, amount, and study code. */
+.seer-num,
+.tabular {
+  font-family: var(--font-seer-mono), "Söhne Mono", ui-monospace, monospace;
+  font-variant-numeric: tabular-nums;
+  font-size: var(--t-micro);
+  letter-spacing: 0.02em;
+}
+
+/* The one display face, for the matter title in the panel. One per screen. */
+.seer-display {
+  font-family: var(--font-seer-display), "Tiempos Headline", Georgia, serif;
+  font-size: var(--t-display);
+  font-weight: 400;
+  line-height: var(--lh-tight);
+  letter-spacing: -0.012em;
+}
+
+/* Reading a message is the one place that gets generous measure. */
+.seer-read {
+  font-size: var(--t-read);
+  line-height: var(--lh-read);
+  max-width: 68ch;
+}
+
+/* --------------------------------------------------------------------
+   Atlas — density without noise
+   -------------------------------------------------------------------- */
+
+/* A function heading is a label, not a headline: it should recede. */
+.atlas-heading {
+  font-size: var(--t-small);
+  font-weight: 500;
+  letter-spacing: 0.04em;
+  text-transform: none;
+  color: var(--muted);
+}
+
+/* Rows earn their separation from rhythm, not from lines. */
+.atlas-row {
+  padding-block: 5px;
+  line-height: var(--lh-tight);
+  border-radius: var(--r);
+}
+.atlas-row:hover {
+  background: var(--row-hover);
+}
+
+/* Desktop gets more per screen; touch keeps its 44px targets. */
+@media (pointer: fine) and (min-width: 1024px) {
+  .atlas-row {
+    padding-block: 3px;
+  }
+}
+
+/* --------------------------------------------------------------------
+   Time debt — the only place colour is spent
+   -------------------------------------------------------------------- */
+
+.age-stale {
+  color: var(--danger);
+}
+
+/* --------------------------------------------------------------------
+   Focus — visible on keyboard, invisible on mouse
+   -------------------------------------------------------------------- */
+
+:focus {
+  outline: none;
+}
+:focus-visible {
+  outline: 2px solid var(--brand);
+  outline-offset: 2px;
+  border-radius: 3px;
+}
+
+/* --------------------------------------------------------------------
+   Message bodies — sender HTML, tamed
+   -------------------------------------------------------------------- */
+
+.prose {
+  font-size: var(--t-read);
+  line-height: var(--lh-read);
+  color: var(--fg);
+  overflow-wrap: anywhere;
+}
+.prose a {
+  color: var(--brand);
+  text-underline-offset: 2px;
+}
+.prose blockquote {
+  margin: 10px 0;
+  padding-left: 12px;
+  border-left: 2px solid var(--border-strong);
+  color: var(--muted);
+}
+.prose pre,
+.prose code {
+  font-family: var(--font-seer-mono), ui-monospace, monospace;
+  font-size: 13px;
+}
+.prose pre {
+  padding: 10px 12px;
+  background: var(--row-active);
+  border-radius: var(--r);
+  overflow-x: auto;
+}
+.prose table {
+  display: block;
+  max-width: 100%;
+  overflow-x: auto;
+  border-collapse: collapse;
+}
+.prose td,
+.prose th {
+  border: 1px solid var(--border);
+  padding: 5px 8px;
+}
+/* Sender-set colours are the main cause of unreadable mail in dark mode. */
+@media (prefers-color-scheme: dark) {
+  .prose [style*="color"] {
+    color: var(--fg) !important;
+  }
+  .prose [style*="background"] {
+    background: transparent !important;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  * {
+    animation-duration: 0.01ms !important;
+    transition-duration: 0.01ms !important;
+  }
+}
