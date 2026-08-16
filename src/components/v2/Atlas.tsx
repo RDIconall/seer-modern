@@ -3,7 +3,6 @@
 import * as React from "react";
 import { useEffect, useMemo, useRef, useState } from "react";
 import { X } from "lucide-react";
-import { SeerMark } from "@/components/v3/SeerMark";
 import type {
   ConversationRow,
   InboxView,
@@ -218,9 +217,11 @@ export function Atlas({
   return (
     <section aria-label="Atlas — the whiteboard" className="wb">
       {/* Two rows of chrome, not three: the title and the account of the board
-          share a line, and the filter carries the row count on its right. */}
+          share a line, and the filter carries the row count on its right.
+          The mark and the search field live in the app toolbar directly above,
+          so the board does not repeat either — the mockup draws them here only
+          because it has no toolbar of its own. */}
       <header className="wb-top">
-        <SeerMark className="wb-mark" />
         <span className="wb-title">Whiteboard</span>
         <span className="wb-ledger tabular">
           {yours} yours · {live.length - yours} out

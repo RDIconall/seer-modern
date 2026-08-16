@@ -161,11 +161,6 @@ body {
   top: 0;
   z-index: 30;
 }
-.wb-mark {
-  flex: none;
-  width: 22px;
-  height: 22px;
-}
 .wb-title {
   font-size: 19px;
   font-weight: 700;
