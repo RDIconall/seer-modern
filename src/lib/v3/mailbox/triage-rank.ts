@@ -59,11 +59,11 @@ export function dispositionFromHome(home: string | null | undefined): Dispositio
 export function triageGroupLabel(disposition: Disposition): string {
   switch (disposition) {
     case "delete":
-      return "Safe to delete";
+      return "Ready to clear";
     case "record":
       return "Filed for the record";
     case "undecided":
-      return "Needs a look";
+      return "Needs you";
     case "matter":
       return "Live matters";
     case "pending":

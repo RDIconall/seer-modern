@@ -19,6 +19,7 @@ const SAFE: SafetyFacts = {
   senderIsInternal: false,
   yieldPersisted: true,
   hadCompleteContext: true,
+  isHumanCorrespondence: false,
 };
 
 // --- Veto-only safety (pure) -------------------------------------------------
@@ -56,6 +57,15 @@ assert.equal(
   validateDelete({ home: "delete" }, { ...SAFE, hadCompleteContext: false }).home,
   "undecided",
 );
+
+// A person wrote to you by name → veto. This is the referral case: the sender
+// was not yet a contact and the note raised no obligation, so every other veto
+// stayed silent and a letter from a family friend reached "Safe to delete".
+{
+  const r = validateDelete({ home: "delete" }, { ...SAFE, isHumanCorrespondence: true });
+  assert.equal(r.home, "undecided");
+  assert.ok(r.vetoReasons.includes("personal_greeting"));
+}
 
 // Safety CANNOT change a matter/record/undecided, ever — not even with unsafe
 // facts. It is veto-only, never a classifier.

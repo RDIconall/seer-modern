@@ -27,7 +27,7 @@ const dateHtml = renderToString(
 
 assert.match(dateHtml, /Date/);
 assert.match(dateHtml, /Most likely to delete/);
-assert.doesNotMatch(dateHtml, /Safe to delete/);
+assert.doesNotMatch(dateHtml, /Ready to clear/);
 assert.doesNotMatch(dateHtml, /Filed for the record/);
 assert.doesNotMatch(dateHtml, /Not read yet/);
 assert.match(dateHtml, /No preview available|Automated product usage digest|countersignature/i);
@@ -44,10 +44,25 @@ const triageHtml = renderToString(
   }),
 );
 
-assert.match(triageHtml, /Safe to delete/);
+assert.match(triageHtml, /Ready to clear/);
 assert.match(triageHtml, /Filed for the record/);
+assert.match(triageHtml, /Needs you/);
 assert.match(triageHtml, /Live matters/);
 assert.match(triageHtml, /Not read yet/);
+
+/**
+ * The clear pile says what it will not take. A user about to sweep several
+ * dozen things needs to see that a letter written to them by name was held
+ * back, and by whom — the reassurance is worthless if it is generic.
+ */
+assert.match(triageHtml, /mail-list-held/, "the clear pile carries the held-back note");
+assert.match(triageHtml, /Sadanand Palekar/, "the held-back note names the sender");
+assert.match(triageHtml, /never swept/);
+// It belongs to the pile it was pulled out of, not to the pile it landed in.
+const heldAt = triageHtml.indexOf("mail-list-held");
+const needsYouAt = triageHtml.indexOf("Needs you");
+assert.ok(heldAt > -1 && needsYouAt > -1 && heldAt < needsYouAt,
+  "the note sits under the clear pile, above Needs you");
 assert.match(triageHtml, /Seer cleared these for deletion/);
 assert.match(triageHtml, /IT &amp; software notices|IT & software notices/);
 assert.match(triageHtml, /Routine vendor digest/);

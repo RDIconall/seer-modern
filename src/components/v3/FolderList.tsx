@@ -122,7 +122,26 @@ type ListEntry =
       label: string;
       hint: string;
     }
-  | { kind: "row"; key: string; row: MailboxRow; index: number };
+  | { kind: "row"; key: string; row: MailboxRow; index: number }
+  | { kind: "held"; key: string; senders: string[]; count: number };
+
+/**
+ * Mail a person wrote to the user by name, which the reader proposed to bin and
+ * the safety layer refused. It is shown against the pile it was pulled out of,
+ * because the reassurance the user needs is not that the mail survived — it is
+ * that the sweep they are about to press will not take letters with it.
+ */
+const HELD_REASON = "personal_greeting";
+
+function heldBack(rows: MailboxRow[]): string[] {
+  const senders: string[] = [];
+  for (const row of rows) {
+    if (!row.vetoReasons.includes(HELD_REASON)) continue;
+    const name = row.senderDisplayName.trim();
+    if (name && !senders.includes(name)) senders.push(name);
+  }
+  return senders;
+}
 
 /**
  * Walk a pre-sorted triage list and emit a heading whenever the server's
@@ -162,8 +181,32 @@ function listEntries(rows: MailboxRow[], triage: boolean): ListEntry[] {
         index: j,
       });
     }
+    if (disposition === "delete") {
+      const senders = heldBack(rows);
+      if (senders.length > 0) {
+        entries.push({
+          kind: "held",
+          key: "held-back",
+          senders: senders.slice(0, 2),
+          count: senders.length,
+        });
+      }
+    }
   }
   return entries;
+}
+
+/** "Sadanand Palekar", "Sadanand Palekar and Vincent Ramirez", "… and 3 others". */
+function heldSentence(senders: string[], count: number): string {
+  const rest = count - senders.length;
+  const names =
+    senders.length === 1
+      ? senders[0]
+      : `${senders.slice(0, -1).join(", ")} and ${senders[senders.length - 1]}`;
+  const others = rest > 0 ? ` and ${rest} other${rest === 1 ? "" : "s"}` : "";
+  const subject = `${names}${others}`;
+  const verb = count === 1 ? "was" : "were";
+  return `Mail from ${subject} ${verb} pulled out of this pile. A letter someone wrote to you by name is never swept.`;
 }
 
 /**
@@ -260,6 +303,10 @@ export function FolderList({
   const entries = useMemo(
     () => listEntries(view.rows, triage),
     [view.rows, triage],
+  );
+  const needsYou = useMemo(
+    () => view.rows.filter((row) => row.disposition === "undecided").length,
+    [view.rows],
   );
 
   const allIdsRef = useRef(allIds);
@@ -368,10 +415,19 @@ export function FolderList({
       <header className="mail-list-header">
         <div>
           <h1>{view.folder[0].toUpperCase() + view.folder.slice(1)}</h1>
-          <p>
-            {view.total} {view.total === 1 ? "conversation" : "conversations"}
-            {refreshing ? " · Updating…" : ""}
-          </p>
+          {triage ? (
+            // Sorted by what to do with it, the count that matters is not how
+            // much mail there is but how much of it is still the user's problem.
+            <p className="mail-list-ledger tabular">
+              {needsYou} need you · {view.total - needsYou} sorted
+              {refreshing ? " · Updating…" : ""}
+            </p>
+          ) : (
+            <p>
+              {view.total} {view.total === 1 ? "conversation" : "conversations"}
+              {refreshing ? " · Updating…" : ""}
+            </p>
+          )}
         </div>
         {view.folder === "inbox" && onSortChange && (
           <div
@@ -507,6 +563,14 @@ export function FolderList({
                     </span>
                     <span className="mail-list-group-hint">{entry.hint}</span>
                   </div>
+                </li>
+              );
+            }
+
+            if (entry.kind === "held") {
+              return (
+                <li key={entry.key} className="mail-list-held">
+                  {heldSentence(entry.senders, entry.count)}
                 </li>
               );
             }

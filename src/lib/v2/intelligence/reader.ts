@@ -14,6 +14,7 @@ import {
   saveDecision,
 } from "./repository";
 import { validateDelete, type SafetyFacts } from "./safety";
+import { isHumanCorrespondence } from "./human-correspondence";
 import {
   CONTEXT_VERSION,
   MODEL_VERSION,
@@ -64,6 +65,7 @@ function factsFrom(
   read: ReadResult,
   compiled: { senderIsKnown: boolean; senderIsInternal: boolean; candidateMatterId: string | null },
   hadCompleteContext: boolean,
+  isHuman: boolean,
 ): SafetyFacts {
   const openAsk = Boolean(read.ask && !/^\s*nothing/i.test(read.ask));
   return {
@@ -77,6 +79,7 @@ function factsFrom(
     // moment of saving they are guaranteed present.
     yieldPersisted: true,
     hadCompleteContext,
+    isHumanCorrespondence: isHuman,
   };
 }
 
@@ -135,7 +138,12 @@ export async function readConversation(
     });
   }
 
-  const facts = factsFrom(read, compiled, true);
+  const facts = factsFrom(
+    read,
+    compiled,
+    true,
+    isHumanCorrespondence(input.conversation, input.context.ownEmail),
+  );
   const safety = validateDelete(read, facts);
 
   // Grounded salience: how loudly this should raise its hand, from facts —

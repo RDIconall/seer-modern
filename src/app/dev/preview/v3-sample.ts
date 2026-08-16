@@ -22,6 +22,7 @@ const previewRows: Record<MailboxFolder, MailboxRow[]> = {
       deleteRank: 0,
       deleteToken: "preview-delete-token",
       category: "IT & software notices",
+      vetoReasons: [],
     },
     {
       conversationId: "preview-c-record",
@@ -40,6 +41,28 @@ const previewRows: Record<MailboxFolder, MailboxRow[]> = {
       deleteRank: 1,
       deleteToken: null,
       category: "finance (ar/ap)",
+      vetoReasons: [],
+    },
+    {
+      // The referral the reader proposed to bin and safety refused. It sits in
+      // "Needs you" and puts the held-back note under the clear pile.
+      conversationId: "preview-c-held",
+      providerConversationId: "preview-p-held",
+      senderDisplayName: "Sadanand Palekar",
+      subject: "Resume of a friend's niece",
+      timestamp: "2026-08-07T10:57:00.000Z",
+      isUnread: true,
+      snippet: "Hi Conall, this is Rachel's Dad.",
+      attachments: ["Zaina Sen Resume.pdf"],
+      decisionSummary: "Referring a biostatistician. Asks if you can help.",
+      priority: 2,
+      dueDate: null,
+      matterTitle: null,
+      disposition: "undecided",
+      deleteRank: 2,
+      deleteToken: null,
+      category: "recruiting",
+      vetoReasons: ["personal_greeting"],
     },
     {
       conversationId: "preview-c-1",
@@ -58,6 +81,7 @@ const previewRows: Record<MailboxFolder, MailboxRow[]> = {
       deleteRank: 3,
       deleteToken: null,
       category: "sales — contracting",
+      vetoReasons: [],
     },
     {
       conversationId: "preview-c-2",
@@ -76,6 +100,7 @@ const previewRows: Record<MailboxFolder, MailboxRow[]> = {
       deleteRank: 3,
       deleteToken: null,
       category: "systems (it)",
+      vetoReasons: [],
     },
     {
       conversationId: "preview-c-3",
@@ -94,6 +119,7 @@ const previewRows: Record<MailboxFolder, MailboxRow[]> = {
       deleteRank: 4,
       deleteToken: null,
       category: "quality",
+      vetoReasons: [],
     },
   ],
   sent: [
@@ -114,6 +140,7 @@ const previewRows: Record<MailboxFolder, MailboxRow[]> = {
       deleteRank: 4,
       deleteToken: null,
       category: null,
+      vetoReasons: [],
     },
   ],
   trash: [
@@ -134,6 +161,7 @@ const previewRows: Record<MailboxFolder, MailboxRow[]> = {
       deleteRank: 0,
       deleteToken: null,
       category: null,
+      vetoReasons: [],
     },
   ],
 };

@@ -34,6 +34,11 @@ export type MailboxRow = {
   deleteToken: string | null;
   /** The part of the business this was filed under, shown as a row label. */
   category: string | null;
+  /**
+   * Why a proposed delete was refused. Carried to the client so the inbox can
+   * say what it pulled out of the clear pile rather than silently moving it.
+   */
+  vetoReasons: string[];
 };
 
 export type MailboxView = {

@@ -1127,6 +1127,25 @@ body {
   white-space: nowrap;
 }
 
+.mail-list-ledger {
+  color: var(--muted);
+}
+
+/*
+ * What the sweep will not take. This sits at the foot of the clear pile, in the
+ * one warm tone in the interface, because the user is about to press a button
+ * that deletes several dozen things at once and the question in their head is
+ * whether it can take something it should not.
+ */
+.mail-list-held {
+  padding: 11px 20px 13px;
+  border-top: 1px solid var(--danger-soft, #f0e2d9);
+  background: var(--danger-soft, #fbf6f2);
+  color: var(--fg);
+  font-size: 13px;
+  line-height: 1.45;
+}
+
 .mail-list-row[data-selected="true"] {
   background: var(--selection);
 }
