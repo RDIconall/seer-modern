@@ -2,6 +2,7 @@
 
 import { ChevronLeft, Send } from "lucide-react";
 import { useEffect, useRef, useState } from "react";
+import { RichText, type RichValue } from "@/components/inbox/RichText";
 
 type Contact = { name?: string; email: string };
 
@@ -121,6 +122,20 @@ export type ComposeDraft = {
   archiveOriginal?: boolean;
 };
 
+/**
+ * A pre-filled draft (an AI reply, a nudge, a delegation note) arrives as
+ * plain text — it has to be seeded into the editor as markup, or the body
+ * the user was shown a moment ago comes up blank.
+ */
+function textToHtml(text: string): string {
+  if (!text) return "";
+  return text
+    .replace(/&/g, "&amp;")
+    .replace(/</g, "&lt;")
+    .replace(/>/g, "&gt;")
+    .replace(/\r?\n/g, "<br>");
+}
+
 export function ComposePanel({
   draft,
   onClose,
@@ -133,7 +148,10 @@ export function ComposePanel({
   const [to, setTo] = useState(draft.to);
   const [cc, setCc] = useState(draft.cc);
   const [subject, setSubject] = useState(draft.subject);
-  const [body, setBody] = useState(draft.body);
+  const [rich, setRich] = useState<RichValue>({
+    html: textToHtml(draft.body),
+    text: draft.body,
+  });
   const [sending, setSending] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
@@ -158,7 +176,8 @@ export function ComposePanel({
           to,
           cc: cc || undefined,
           subject,
-          body,
+          body: rich.text,
+          html: rich.html || undefined,
           replyToId: draft.replyToId,
           archiveOriginal: draft.archiveOriginal,
         }),
@@ -234,19 +253,21 @@ export function ComposePanel({
             placeholder="Subject"
           />
         </label>
-        <textarea
-          value={body}
-          onChange={(e) => setBody(e.target.value)}
-          className="mt-3 min-h-[45vh] flex-1 resize-none bg-transparent text-[17px] leading-relaxed outline-none"
-          placeholder={
-            draft.mode === "forward"
-              ? "Add a note (optional)"
-              : draft.mode === "reply" || draft.mode === "replyAll"
-                ? "Your reply"
-                : "Compose email"
-          }
-          autoFocus
-        />
+        <div className="mt-3 flex min-h-0 flex-1 flex-col">
+          <RichText
+            value={rich}
+            onChange={setRich}
+            autoFocus
+            minHeight={320}
+            placeholder={
+              draft.mode === "forward"
+                ? "Add a note (optional)"
+                : draft.mode === "reply" || draft.mode === "replyAll"
+                  ? "Your reply"
+                  : "Compose email"
+            }
+          />
+        </div>
         {draft.mode !== "compose" ? (
           <p className="mb-2 text-[12px] text-[var(--muted)]">
             {draft.mode === "forward"

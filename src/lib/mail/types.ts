@@ -40,7 +40,10 @@ export type SendMailInput = {
   to: string;
   cc?: string;
   subject: string;
+  /** Plaintext. Always required — it is the multipart fallback. */
   body: string;
+  /** Optional rich body. When present the message goes multipart. */
+  html?: string;
   /** Reply / forward threading */
   threadId?: string;
   inReplyTo?: string;

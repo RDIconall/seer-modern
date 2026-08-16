@@ -393,18 +393,43 @@ export async function getGmailMessage(
 }
 
 function buildMime(input: SendMailInput): string {
-  const lines = [
+  const head = [
     `To: ${input.to}`,
     ...(input.cc?.trim() ? [`Cc: ${input.cc.trim()}`] : []),
     `Subject: ${input.subject}`,
     "MIME-Version: 1.0",
-    'Content-Type: text/plain; charset="UTF-8"',
     ...(input.inReplyTo ? [`In-Reply-To: ${input.inReplyTo}`] : []),
     ...(input.references ? [`References: ${input.references}`] : []),
+  ];
+
+  if (!input.html) {
+    return [
+      ...head,
+      'Content-Type: text/plain; charset="UTF-8"',
+      "",
+      input.body,
+    ].join("\r\n");
+  }
+
+  // multipart/alternative: text first, HTML second. Clients take the last
+  // part they understand, so the order is what makes the fallback work.
+  const b = `seer-${Date.now().toString(36)}`;
+  return [
+    ...head,
+    `Content-Type: multipart/alternative; boundary="${b}"`,
+    "",
+    `--${b}`,
+    'Content-Type: text/plain; charset="UTF-8"',
     "",
     input.body,
-  ];
-  return lines.join("\r\n");
+    "",
+    `--${b}`,
+    'Content-Type: text/html; charset="UTF-8"',
+    "",
+    input.html,
+    "",
+    `--${b}--`,
+  ].join("\r\n");
 }
 
 /** Raw attachment bytes for download/preview. */

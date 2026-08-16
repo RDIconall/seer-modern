@@ -288,7 +288,9 @@ export async function sendGraphMessage(
     body: JSON.stringify({
       message: {
         subject: input.subject,
-        body: { contentType: "Text", content: input.body },
+        body: input.html
+          ? { contentType: "HTML", content: input.html }
+          : { contentType: "Text", content: input.body },
         toRecipients: parseAddresses(input.to),
         ...(input.cc?.trim()
           ? { ccRecipients: parseAddresses(input.cc) }

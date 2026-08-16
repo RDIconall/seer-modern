@@ -35,6 +35,23 @@ function addressList(raw?: string): string {
     .join(", ");
 }
 
+function escapeHtml(raw: string): string {
+  return raw
+    .replace(/&/g, "&amp;")
+    .replace(/</g, "&lt;")
+    .replace(/>/g, "&gt;");
+}
+
+/**
+ * The quoted original, as HTML. Both halves of a multipart message have to
+ * carry the same content — an HTML part holding only the new note would
+ * silently drop the forwarded or quoted message for every recipient whose
+ * client prefers HTML, which is all of them.
+ */
+function quotedHtml(text: string): string {
+  return escapeHtml(text).replace(/\r?\n/g, "<br>");
+}
+
 export async function POST(request: Request) {
   try {
     const session = await requireMailSession();
@@ -48,6 +65,8 @@ export async function POST(request: Request) {
       cc?: string;
       subject?: string;
       body?: string;
+      /** Rich body from the composer. Optional — every other caller is text. */
+      html?: string;
       replyToId?: string;
       /** Delegation: the forward hands it off, the original leaves the inbox */
       archiveOriginal?: boolean;
@@ -55,6 +74,7 @@ export async function POST(request: Request) {
 
     const mode: Mode = body.mode ?? "compose";
     const text = (body.body ?? "").trim();
+    const html = body.html?.trim() || undefined;
     const toList = addressList(body.to);
     const ccList = addressList(body.cc) || undefined;
     // A forward's body IS the original message — a note on top is
@@ -73,6 +93,7 @@ export async function POST(request: Request) {
           cc: ccList,
           subject: body.subject?.trim() || "(no subject)",
           body: text,
+          html,
         });
         return NextResponse.json({ ok: true, ...sent });
       }
@@ -98,12 +119,16 @@ export async function POST(request: Request) {
         if (!toList) {
           return NextResponse.json({ error: "To required" }, { status: 400 });
         }
-        const quoted = `${text ? `${text}\n\n` : ""}---------- Forwarded message ----------\nFrom: ${original.fromName} <${original.fromEmail}>\nDate: ${new Date(original.receivedAt).toLocaleString()}\nSubject: ${original.subject}\nTo: ${original.toEmail}\n\n${originalText}`;
+        const forwardHeader = `---------- Forwarded message ----------\nFrom: ${original.fromName} <${original.fromEmail}>\nDate: ${new Date(original.receivedAt).toLocaleString()}\nSubject: ${original.subject}\nTo: ${original.toEmail}\n\n`;
+        const quoted = `${text ? `${text}\n\n` : ""}${forwardHeader}${originalText}`;
         const sent = await sendGmailMessage(session.accessToken, {
           to: toList,
           cc: ccList,
           subject: ensureFwd(body.subject?.trim() || original.subject),
           body: quoted,
+          html: html
+            ? `${html}<br><br>${quotedHtml(`${forwardHeader}${originalText}`)}`
+            : undefined,
         });
         if (body.archiveOriginal) {
           await gmailAction(
@@ -136,9 +161,10 @@ export async function POST(request: Request) {
 
       // Quote the original under the reply, the way every mail client
       // does — the recipient sees what's being answered.
-      const quotedReply = `${text}\n\nOn ${new Date(
+      const attribution = `On ${new Date(
         original.receivedAt,
-      ).toLocaleString()}, ${original.fromName} <${original.fromEmail}> wrote:\n${originalText
+      ).toLocaleString()}, ${original.fromName} <${original.fromEmail}> wrote:`;
+      const quotedReply = `${text}\n\n${attribution}\n${originalText
         .split("\n")
         .map((l) => `> ${l}`)
         .join("\n")}`;
@@ -151,6 +177,9 @@ export async function POST(request: Request) {
             : ccList,
         subject: ensureRe(body.subject?.trim() || original.subject),
         body: quotedReply,
+        html: html
+          ? `${html}<br><br>${quotedHtml(attribution)}<blockquote style="margin:0 0 0 0.8ex;border-left:2px solid #ccc;padding-left:1ex">${quotedHtml(originalText)}</blockquote>`
+          : undefined,
         threadId: original.threadId,
         inReplyTo: original.messageIdHeader || undefined,
         references: original.messageIdHeader || undefined,
@@ -203,12 +232,14 @@ export async function POST(request: Request) {
         session.accessToken,
         body.replyToId,
       );
-      const quoted = `${text ? `${text}\n\n` : ""}---------- Forwarded message ----------\nFrom: ${original.fromName} <${original.fromEmail}>\nSubject: ${original.subject}\n\n${original.textBody || original.snippet}`;
+      const forwarded = `---------- Forwarded message ----------\nFrom: ${original.fromName} <${original.fromEmail}>\nSubject: ${original.subject}\n\n${original.textBody || original.snippet}`;
+      const quoted = `${text ? `${text}\n\n` : ""}${forwarded}`;
       await sendGraphMessage(session.accessToken, {
         to: toList,
         cc: ccList,
         subject: ensureFwd(body.subject?.trim() || original.subject),
         body: quoted,
+        html: html ? `${html}<br><br>${quotedHtml(forwarded)}` : undefined,
       });
       if (body.archiveOriginal) {
         await graphAction(
@@ -228,6 +259,7 @@ export async function POST(request: Request) {
       cc: ccList,
       subject: body.subject?.trim() || "(no subject)",
       body: text,
+      html,
     });
     return NextResponse.json({ ok: true });
   } catch (e) {
