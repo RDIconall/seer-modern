@@ -11,7 +11,7 @@ import {
 } from "react";
 import { Atlas } from "@/components/v2/Atlas";
 import { WorthReading } from "@/components/v2/WorthReading";
-import type { ConversationRow, InboxView } from "@/lib/v2/view/types";
+import type { ConversationRow, InboxView, MatterCard } from "@/lib/v2/view/types";
 import type { Command, CommandResult } from "@/lib/v2/commands/types";
 import type { Conversation, ProviderKind } from "@/lib/v2/providers/types";
 import type {
@@ -352,6 +352,50 @@ export function MailClient({
     setCompose(null);
   }, []);
 
+  /**
+   * A matter is a bundle of conversations, so acting on one from the board acts
+   * on the thread that moved most recently: that is the one a reply belongs to
+   * and the one a nudge answers.
+   */
+  const latestConversation = useCallback((matter: MatterCard) => {
+    let latest: ConversationRow | null = null;
+    let latestAt = -1;
+    for (const conversation of matter.conversations) {
+      const at = conversation.at ? Date.parse(conversation.at) : NaN;
+      const rank = Number.isNaN(at) ? 0 : at;
+      if (rank >= latestAt) {
+        latestAt = rank;
+        latest = conversation;
+      }
+    }
+    return latest;
+  }, []);
+
+  const startMatterCompose = useCallback(
+    (matter: MatterCard, mode: ReaderComposeIntent["mode"]) => {
+      const conversation = latestConversation(matter);
+      if (!conversation) return;
+      setConversationId(conversation.conversationId);
+      setProviderConversationId(conversation.providerConversationId);
+      setCompose({ mode });
+    },
+    [latestConversation],
+  );
+
+  // Archiving a matter archives the mail it is made of. The board has already
+  // struck the row through and is holding an undo, so nothing is awaited here.
+  const archiveMatter = useCallback(
+    async (matter: MatterCard) => {
+      for (const conversation of matter.conversations) {
+        await inbox.dispatch({
+          type: "archive",
+          conversationId: conversation.conversationId,
+        });
+      }
+    },
+    [inbox],
+  );
+
   const rememberProviderConversationId = useCallback(
     (id: string) => setProviderConversationId(id),
     [],
@@ -494,6 +538,9 @@ export function MailClient({
       <>
         <Atlas
           view={inbox.view}
+          onArchiveMatter={archiveMatter}
+          onReplyMatter={(matter) => startMatterCompose(matter, "reply")}
+          onForwardMatter={(matter) => startMatterCompose(matter, "forward")}
           onOpenConversation={openAtlasConversation}
         />
         <WorthReading view={inbox.view} />

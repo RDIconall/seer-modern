@@ -42,7 +42,41 @@ const html = renderToString(
   } as never),
 );
 assert.match(html, /Whiteboard/);
-assert.match(html, /matter-detail|matter/i);
+
+/**
+ * The whiteboard, as specified: a ledger of the account in numbers, an All/Mine
+ * filter, and sections of matters set as lines on paper.
+ */
+assert.match(html, /class="wb-ledger/, "the board states yours/out/stalled");
+assert.match(html, /yours ·/);
+assert.match(html, /aria-pressed="true">All</, "All is the default filter");
+assert.match(html, /aria-pressed="false">Mine</);
+assert.match(html, /class="wb-sec"/, "sections are paper");
+assert.match(html, /class="wb-mt"/, "a matter is a titled line");
+assert.match(html, /class="wb-own tabular/, "a matter says who holds it");
+assert.match(html, /class="wb-foot tabular"/, "the board closes with the accounting");
+assert.match(html, /Accounted \d+ of \d+/);
+
+// One matter open at a time, and the expansion carries the next action.
+assert.match(atlasSource, /openMatterId/, "the board is an accordion, not a tree");
+assert.match(atlasSource, /wb-next/);
+
+/**
+ * Archiving strikes the row and keeps its place, holding an undo inline. A
+ * toast that slides over the next row asks the user to catch it before it goes.
+ */
+assert.match(atlasSource, /wb-m-gone/);
+assert.match(atlasSource, /wb-undo/);
+assert.match(atlasSource, />\s*Undo\s*</);
+assert.doesNotMatch(
+  atlasSource,
+  /Action queued/,
+  "the board reports an archive on the row, not in a toast",
+);
+
+// Work that is with someone else and has stopped moving rolls into one line.
+assert.match(atlasSource, /isParked/);
+assert.match(atlasSource, />Parked</);
 
 /**
  * The skin has to be worn, not just shipped. seer-skin.css defined the display
@@ -52,7 +86,7 @@ assert.match(html, /matter-detail|matter/i);
  * indistinguishable from a rule that was never written.
  */
 const skin = await fs.readFile(path.join(root, "src/app/seer-skin.css"), "utf8");
-for (const cls of ["atlas-heading", "atlas-row", "tabular", "seer-display"]) {
+for (const cls of ["atlas-heading", "tabular", "seer-display"]) {
   assert.match(
     skin,
     new RegExp(`\\.${cls}(?![\\w-])`),
@@ -64,6 +98,23 @@ for (const cls of ["atlas-heading", "atlas-row", "tabular", "seer-display"]) {
     `Atlas must use .${cls} rather than restating it in raw pixels`,
   );
 }
+
+/**
+ * And the inverse: every whiteboard class the board emits must have a rule.
+ * This is the check the v2 app never had, which is how Triage shipped as a bare
+ * table hanging off .seer-triage, a class no stylesheet ever defined.
+ */
+const boardClasses = new Set<string>();
+for (const match of atlasSource.matchAll(/className=[{"`]([^"`}]*)/g)) {
+  for (const cls of match[1].split(/[\s${}]+/)) {
+    if (cls.startsWith("wb-")) boardClasses.add(cls);
+  }
+}
+assert.ok(boardClasses.size > 0, "expected the board to declare wb-* classes");
+const unstyled = [...boardClasses].filter(
+  (cls) => !new RegExp(`\\.${cls}(?![\\w-])`).test(skin + styles),
+);
+assert.deepEqual(unstyled, [], `whiteboard classes with no rule: ${unstyled.join(", ")}`);
 
 // Sizes belong to the six-step scale, so the board stays in proportion.
 assert.doesNotMatch(

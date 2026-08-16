@@ -4,12 +4,10 @@ import * as React from "react";
 import { useEffect, useMemo, useRef, useState } from "react";
 import { ChevronDown, ChevronRight, X } from "lucide-react";
 import type {
-  AtlasSection,
   ConversationRow,
   InboxView,
   MatterCard,
 } from "@/lib/v2/view/types";
-import { useCollapsed } from "./useCollapsed";
 
 /**
  * ATLAS — the whiteboard.
@@ -19,15 +17,16 @@ import { useCollapsed } from "./useCollapsed";
  * a matter carries a section as well as an org unit — "Roche stability fixes"
  * belongs beside the other engineering work, not beside the Roche invoice.
  *
- * Two ways to read it, both from the same server projection:
- *   List  — a collapsible outline, section → matter → conversations.
- *   Board — one column per section, matters as cards.
+ * A matter is a line, not a card. The title carries it; who holds it and how
+ * long it has sat are set small beside it, so a section reads as a column of
+ * work rather than a stack of boxes. One matter stands open at a time, and its
+ * expansion says only what the title cannot: the next action, and the buttons
+ * that discharge it.
  *
- * Collapse state is remembered, so the shape you arrange is the shape you come
- * back to.
+ * Work that is with someone else and has stopped moving is parked into a single
+ * line — no decision is waiting on you — while everything of yours stays on the
+ * board however old it is.
  */
-
-type Mode = "list" | "board";
 
 /**
  * Section names are shown exactly as the registry holds them. They are the
@@ -38,117 +37,284 @@ function sectionLabel(name: string): string {
   return name === "unfiled" ? "unfiled" : name;
 }
 
+/** A matter has not moved since its most recent conversation did. */
+function daysSinceMoved(matter: MatterCard, now: number): number {
+  let latest = 0;
+  for (const conversation of matter.conversations) {
+    const at = conversation.at ? Date.parse(conversation.at) : NaN;
+    if (!Number.isNaN(at) && at > latest) latest = at;
+  }
+  if (latest === 0) return 0;
+  return Math.max(0, Math.floor((now - latest) / 86_400_000));
+}
+
+/**
+ * A week is the line between "in flight" and "stalled". Under it, silence is
+ * just the normal gap between replies; over it, nobody is coming back to this
+ * on their own.
+ */
+const STALE_DAYS = 7;
+
+const isYours = (matter: MatterCard) => matter.owner === "you";
+
+/**
+ * Who to chase. The owner field is a role, not a person, so for work that sits
+ * with someone else the most recent sender is the name worth showing — "Nudge
+ * Lara" is actionable in a way that "Nudge them" is not.
+ */
+function ownerLabel(matter: MatterCard): string {
+  if (matter.owner === "you") return "You";
+  let latest = 0;
+  let name = "";
+  for (const conversation of matter.conversations) {
+    const at = conversation.at ? Date.parse(conversation.at) : NaN;
+    if (!Number.isNaN(at) && at >= latest && conversation.from) {
+      latest = at;
+      name = conversation.from;
+    }
+  }
+  const first = name.split(/[\s,]+/)[0] ?? "";
+  if (first) return first;
+  if (matter.owner === "team") return "Team";
+  if (matter.owner === "them") return "Them";
+  return "—";
+}
+
+/**
+ * Work that is with someone else and has stopped moving is parked: there is no
+ * decision waiting on you, so it rolls into a single line and stays out of the
+ * way until asked for. Everything yours stays on the board however old it is.
+ */
+const isParked = (matter: MatterCard, now: number) =>
+  !isYours(matter) && daysSinceMoved(matter, now) > STALE_DAYS;
+
 export function Atlas({
   view,
+  onArchiveMatter,
+  onReplyMatter,
+  onForwardMatter,
   onOpenConversation,
 }: {
   view: InboxView;
+  onArchiveMatter?: (matter: MatterCard) => void | Promise<unknown>;
+  onReplyMatter?: (matter: MatterCard) => void;
+  onForwardMatter?: (matter: MatterCard) => void;
   onOpenConversation?: (conversation: ConversationRow) => void;
 }) {
-  // The whiteboard is the default: it is the view that shows the whole business
-  // at once. The outline is there for working down one section at a time.
-  const [mode, setMode] = useState<Mode>("board");
   const [selectedMatterId, setSelectedMatterId] = useState<string | null>(null);
+  // Only "mine" narrows the board, and only one matter stands open: the board
+  // answers "what is the state of the business", and two open answers is a list.
+  const [mineOnly, setMineOnly] = useState(false);
+  const [openMatterId, setOpenMatterId] = useState<string | null>(null);
+  const [openRolls, setOpenRolls] = useState<ReadonlySet<string>>(new Set());
+  const [archived, setArchived] = useState<ReadonlySet<string>>(new Set());
+  const [undoable, setUndoable] = useState<ReadonlySet<string>>(new Set());
+  const undoTimers = useRef(new Map<string, ReturnType<typeof setTimeout>>());
   const sections = view.sections;
 
-  const allIds = useMemo(
-    () => [
-      ...sections.map((s) => `s:${s.name}`),
-      ...sections.flatMap((s) => s.matters.map((m) => `m:${m.matterId}`)),
-    ],
-    [sections],
+  useEffect(() => {
+    const timers = undoTimers.current;
+    return () => {
+      for (const timer of timers.values()) clearTimeout(timer);
+      timers.clear();
+    };
+  }, []);
+
+  // The board's shape is recomputed once per render pass, not per row: with a
+  // hundred matters the age of each is asked for several times over.
+  const now = Date.now();
+  const shaped = useMemo(
+    () =>
+      sections.map((section) => {
+        const visible = section.matters.filter(
+          (matter) => !archived.has(matter.matterId) || undoable.has(matter.matterId),
+        );
+        const kept = visible.filter((matter) => !mineOnly || isYours(matter));
+        return {
+          name: section.name,
+          matters: kept.filter((matter) => !isParked(matter, now)),
+          parked: mineOnly ? [] : kept.filter((matter) => isParked(matter, now)),
+        };
+      }),
+    // `now` is deliberately excluded: it changes every render and ages move by
+    // the day, not the frame.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [sections, mineOnly, archived, undoable],
   );
 
-  const { collapsed, loaded, hasStored, toggle, collapseAll, expandAll } =
-    useCollapsed("seer.atlas.collapsed");
+  const live = useMemo(
+    () =>
+      sections
+        .flatMap((section) => section.matters)
+        .filter((matter) => !archived.has(matter.matterId)),
+    [sections, archived],
+  );
+  const yours = live.filter(isYours).length;
+  const stalled = live.filter((matter) => daysSinceMoved(matter, now) > STALE_DAYS).length;
 
-  // On a first visit, open the sections but fold the matters. A real board runs
-  // to a hundred matters and several hundred conversations; opened flat that is
-  // a wall of text with no shape. Folded, the outline of the business is
-  // legible at a glance and you open only what you are working on. After that
-  // the arrangement is the user's and is remembered.
-  const seeded = useRef(false);
-  useEffect(() => {
-    if (!loaded || hasStored || seeded.current) return;
-    seeded.current = true;
-    const matterIds = sections.flatMap((s) =>
-      s.matters.map((m) => `m:${m.matterId}`),
+  const archive = (matter: MatterCard) => {
+    setOpenMatterId(null);
+    setArchived((prev) => new Set(prev).add(matter.matterId));
+    setUndoable((prev) => new Set(prev).add(matter.matterId));
+    void onArchiveMatter?.(matter);
+    const existing = undoTimers.current.get(matter.matterId);
+    if (existing) clearTimeout(existing);
+    undoTimers.current.set(
+      matter.matterId,
+      setTimeout(() => {
+        undoTimers.current.delete(matter.matterId);
+        setUndoable((prev) => {
+          const next = new Set(prev);
+          next.delete(matter.matterId);
+          return next;
+        });
+      }, 5000),
     );
-    if (matterIds.length > 0) collapseAll(matterIds);
-  }, [loaded, hasStored, sections, collapseAll]);
+  };
 
-  const matterCount = sections.reduce((n, s) => n + s.matters.length, 0);
+  const undo = (matter: MatterCard) => {
+    const timer = undoTimers.current.get(matter.matterId);
+    if (timer) clearTimeout(timer);
+    undoTimers.current.delete(matter.matterId);
+    setArchived((prev) => {
+      const next = new Set(prev);
+      next.delete(matter.matterId);
+      return next;
+    });
+    setUndoable((prev) => {
+      const next = new Set(prev);
+      next.delete(matter.matterId);
+      return next;
+    });
+  };
 
   if (sections.length === 0) {
     return (
-      <section className="px-4 py-6 text-[14px] text-[var(--fg)]">
+      <section className="wb-empty" aria-label="Atlas — the whiteboard">
         No live matters yet.
       </section>
     );
   }
 
+  const shown = shaped.reduce(
+    (n, section) => n + section.matters.length + section.parked.length,
+    0,
+  );
+
   return (
-    <section aria-label="Atlas — the whiteboard" className="-mx-4">
-      <header className="flex flex-wrap items-center justify-between gap-4 px-4 pb-5 pt-2">
-        <div>
-          <h1 className="seer-display text-[var(--fg-strong)]">Whiteboard</h1>
-          <p className="mt-0.5 text-[length:var(--t-small)] text-[var(--muted)]">
-            <span className="tabular">{matterCount}</span> matters ·{" "}
-            <span className="tabular">{sections.length}</span> sections
-          </p>
-        </div>
-        <div className="flex items-center gap-1.5 text-[13px]">
-          <div className="inline-flex rounded-full bg-[var(--card)] p-[3px]">
-            {(["board", "list"] as Mode[]).map((m) => (
-              <button
-                key={m}
-                type="button"
-                onClick={() => setMode(m)}
-                aria-pressed={mode === m}
-                className={`rounded-full px-3.5 py-1.5 capitalize transition-colors ${
-                  mode === m
-                    ? "bg-[var(--bg)] font-medium text-[var(--fg-strong)] shadow-[0_1px_3px_rgba(0,0,0,0.06)]"
-                    : "text-[var(--muted)] hover:text-[var(--fg-strong)]"
-                }`}
-              >
-                {m}
-              </button>
-            ))}
-          </div>
-          <button
-            type="button"
-            onClick={() => collapseAll(allIds)}
-            className="rounded-full px-3 py-1.5 text-[var(--muted)] transition-colors hover:bg-[var(--row-hover)] hover:text-[var(--fg-strong)]"
-          >
-            Collapse all
+    <section aria-label="Atlas — the whiteboard" className="wb">
+      <header className="wb-head">
+        <h1 className="wb-title">Whiteboard</h1>
+        <p className="wb-ledger tabular">
+          {yours} yours · {live.length - yours} out
+          {stalled > 0 ? (
+            <>
+              {" · "}
+              <span className="wb-stale">{stalled} stalled</span>
+            </>
+          ) : null}
+        </p>
+        <div className="wb-seg" role="group" aria-label="Filter the board">
+          <button type="button" aria-pressed={!mineOnly} onClick={() => setMineOnly(false)}>
+            All
           </button>
-          <button
-            type="button"
-            onClick={expandAll}
-            className="rounded-full px-3 py-1.5 text-[var(--muted)] transition-colors hover:bg-[var(--row-hover)] hover:text-[var(--fg-strong)]"
-          >
-            Expand all
+          <button type="button" aria-pressed={mineOnly} onClick={() => setMineOnly(true)}>
+            Mine
           </button>
         </div>
       </header>
 
-      {mode === "list" ? (
-        <AtlasList
-          sections={sections}
-          collapsed={collapsed}
-          toggle={toggle}
-          onOpenMatter={(matter) => setSelectedMatterId(matter.matterId)}
-          onOpenConversation={onOpenConversation}
-        />
+      {shown === 0 ? (
+        <p className="wb-empty">Nothing is yours right now.</p>
       ) : (
-        <AtlasBoard
-          sections={sections}
-          collapsed={collapsed}
-          toggle={toggle}
-          onOpenMatter={(matter) => setSelectedMatterId(matter.matterId)}
-          onOpenConversation={onOpenConversation}
-        />
+        shaped.map((section) => {
+          if (section.matters.length === 0 && section.parked.length === 0) return null;
+          const sectionStale = section.matters.filter(
+            (matter) => daysSinceMoved(matter, now) > STALE_DAYS,
+          ).length;
+          const rollOpen = openRolls.has(section.name);
+          return (
+            <div key={section.name}>
+              <div className="wb-shead">
+                <span className="wb-sname atlas-heading">{sectionLabel(section.name)}</span>
+                <span className="wb-scount tabular">
+                  {section.matters.length}
+                  {section.parked.length > 0 ? ` + ${section.parked.length}` : ""}
+                  {sectionStale > 0 ? (
+                    <>
+                      {" · "}
+                      <span className="wb-stale">{sectionStale} stalled</span>
+                    </>
+                  ) : null}
+                </span>
+              </div>
+              <div className="wb-sec">
+                {section.matters.map((matter) => (
+                  <BoardMatter
+                    key={matter.matterId}
+                    matter={matter}
+                    now={now}
+                    open={openMatterId === matter.matterId}
+                    archived={archived.has(matter.matterId)}
+                    onToggle={() =>
+                      setOpenMatterId((current) =>
+                        current === matter.matterId ? null : matter.matterId,
+                      )
+                    }
+                    onArchive={() => archive(matter)}
+                    onUndo={() => undo(matter)}
+                    onReply={onReplyMatter ? () => onReplyMatter(matter) : undefined}
+                    onForward={onForwardMatter ? () => onForwardMatter(matter) : undefined}
+                    onOpenMatter={() => setSelectedMatterId(matter.matterId)}
+                  />
+                ))}
+                {section.parked.length > 0 && (
+                  <div className="wb-roll">
+                    <button
+                      type="button"
+                      className="wb-rollhead"
+                      aria-expanded={rollOpen}
+                      onClick={() =>
+                        setOpenRolls((prev) => {
+                          const next = new Set(prev);
+                          if (next.has(section.name)) next.delete(section.name);
+                          else next.add(section.name);
+                          return next;
+                        })
+                      }
+                    >
+                      <Chevron open={rollOpen} />
+                      <span className="wb-mt">Parked</span>
+                      <span className="wb-own tabular">{section.parked.length}</span>
+                    </button>
+                    {rollOpen && (
+                      <div className="wb-rlist">
+                        {section.parked.map((matter) => (
+                          <button
+                            key={matter.matterId}
+                            type="button"
+                            className="wb-rrow"
+                            onClick={() => setSelectedMatterId(matter.matterId)}
+                          >
+                            <span>{matter.shortTitle}</span>
+                            <span className="tabular">{daysSinceMoved(matter, now)}d</span>
+                          </button>
+                        ))}
+                      </div>
+                    )}
+                  </div>
+                )}
+              </div>
+            </div>
+          );
+        })
       )}
+
+      <p className="wb-foot tabular">
+        {`Accounted ${view.coverage.read} of ${view.coverage.providerTotal}`}
+        {view.coverage.pending > 0 ? `\n${view.coverage.pending} still reading` : ""}
+      </p>
+
       {selectedMatterId &&
         (() => {
           const matter = view.atlas.find((item) => item.matterId === selectedMatterId);
@@ -164,293 +330,108 @@ export function Atlas({
   );
 }
 
-/* ---------------------------------------------------------------- List --- */
-
-function AtlasList({
-  sections,
-  collapsed,
-  toggle,
-  onOpenMatter,
-  onOpenConversation,
-}: {
-  sections: AtlasSection[];
-  collapsed: Set<string>;
-  toggle: (id: string) => void;
-  onOpenMatter: (matter: MatterCard) => void;
-  onOpenConversation?: (conversation: ConversationRow) => void;
-}) {
-  return (
-    <div className="px-2 py-2">
-      {sections.map((section) => {
-        const sectionId = `s:${section.name}`;
-        const open = !collapsed.has(sectionId);
-        return (
-          <div key={section.name} className="mb-1">
-            <button
-              type="button"
-              onClick={() => toggle(sectionId)}
-              aria-expanded={open}
-              className="flex w-full items-center gap-2 rounded-lg px-2 py-2 text-left transition-colors hover:bg-[var(--row-hover)]"
-            >
-              <Chevron open={open} />
-              <span className="text-[length:var(--t-body)] font-medium text-[var(--fg-strong)]">
-                {sectionLabel(section.name)}
-              </span>
-              <span className="tabular text-[var(--muted)]">
-                {section.matters.length}
-              </span>
-            </button>
-
-            {open &&
-              section.matters.map((matter) => (
-                <MatterOutline
-                  key={matter.matterId}
-                  matter={matter}
-                  collapsed={collapsed}
-                  toggle={toggle}
-                  onOpenMatter={onOpenMatter}
-                  onOpenConversation={onOpenConversation}
-                />
-              ))}
-          </div>
-        );
-      })}
-    </div>
-  );
-}
-
-function MatterOutline({
-  matter,
-  collapsed,
-  toggle,
-  onOpenMatter,
-  onOpenConversation,
-}: {
-  matter: MatterCard;
-  collapsed: Set<string>;
-  toggle: (id: string) => void;
-  onOpenMatter: (matter: MatterCard) => void;
-  onOpenConversation?: (conversation: ConversationRow) => void;
-}) {
-  const matterId = `m:${matter.matterId}`;
-  const open = !collapsed.has(matterId);
-  const hasChildren = matter.conversations.length > 0 || matter.yields.length > 0;
-
-  return (
-    <div className="ml-4">
-      <div className="flex items-center gap-2 rounded-lg px-2 py-1.5 transition-colors hover:bg-[var(--row-hover)]">
-        {hasChildren ? (
-          <button
-            type="button"
-            onClick={() => toggle(matterId)}
-            aria-expanded={open}
-            aria-label={open ? "Collapse matter" : "Expand matter"}
-            className="shrink-0"
-          >
-            <Chevron open={open} />
-          </button>
-        ) : (
-          <span className="inline-block h-4 w-4 shrink-0" />
-        )}
-        <button
-          type="button"
-          onClick={() => onOpenMatter(matter)}
-          aria-label={`Open matter ${matter.shortTitle}`}
-          className="min-w-0 flex-1 truncate text-left text-[14.5px] text-[var(--fg-strong)]"
-        >
-          {matter.shortTitle}
-        </button>
-        {matter.orgUnit && (
-          <span className="shrink-0 rounded-full bg-[var(--card)] px-2 py-0.5 text-[11.5px] text-[var(--muted)]">
-            {matter.orgUnit}
-          </span>
-        )}
-        <span className="tabular shrink-0 text-[var(--muted)]">
-          {matter.conversations.length}
-        </span>
-      </div>
-
-      {open && hasChildren && (
-        <div className="ml-6 space-y-px pl-1">
-          {matter.conversations.map((c) => (
-            <button
-              key={c.conversationId}
-              type="button"
-              onClick={() => onOpenConversation?.(c)}
-              className="group flex items-baseline gap-2 rounded-lg px-2 py-1 transition-colors hover:bg-[var(--row-hover)]"
-            >
-              <span className="min-w-0 flex-1 truncate text-[13.5px] text-[var(--fg)]">
-                {c.subject || "(no subject)"}
-              </span>
-              <span className="shrink-0 truncate text-[12.5px] text-[var(--muted)]">
-                {c.from}
-              </span>
-            </button>
-          ))}
-          {matter.yields.map((y, i) => (
-            <p
-              key={i}
-              className="px-2 py-1 text-[13px] text-[var(--brand-strong)]"
-            >
-              {y.headline}
-            </p>
-          ))}
-        </div>
-      )}
-    </div>
-  );
-}
-
-/* --------------------------------------------------------------- Board --- */
+/* --------------------------------------------------------------- Matter --- */
 
 /**
- * The whiteboard proper: every matter is one bare name under its section
- * heading, sections flowing down two or three tracks.
- *
- * The density is the point. A board of cards shows a dozen matters per screen;
- * a hundred matters as plain lines shows the whole business at once, which is
- * what a whiteboard is for. Detail lives one click away rather than on the
- * board itself.
+ * One line on the whiteboard. The title carries the matter; who has it and how
+ * long it has sat are set small and to the right. Opening it shows only what
+ * the title cannot say — the next action, and the actions that discharge it.
  */
-function AtlasBoard({
-  sections,
-  collapsed,
-  toggle,
+function BoardMatter({
+  matter,
+  now,
+  open,
+  archived,
+  onToggle,
+  onArchive,
+  onUndo,
+  onReply,
+  onForward,
   onOpenMatter,
-  onOpenConversation,
 }: {
-  sections: AtlasSection[];
-  collapsed: Set<string>;
-  toggle: (id: string) => void;
-  onOpenMatter: (matter: MatterCard) => void;
-  onOpenConversation?: (conversation: ConversationRow) => void;
+  matter: MatterCard;
+  now: number;
+  open: boolean;
+  archived: boolean;
+  onToggle: () => void;
+  onArchive: () => void;
+  onUndo: () => void;
+  onReply?: () => void;
+  onForward?: () => void;
+  onOpenMatter: () => void;
 }) {
-  const [tracks, setTracks] = useState(3);
-  useEffect(() => {
-    const compute = () =>
-      setTracks(
-        window.innerWidth >= 1280 ? 3 : window.innerWidth >= 768 ? 2 : 1,
-      );
-    compute();
-    window.addEventListener("resize", compute);
-    return () => window.removeEventListener("resize", compute);
-  }, []);
-
-  // Greedy balance: each section joins the shortest track, so the columns end
-  // level instead of one running far past the others. A heading costs a row, so
-  // a section of one matter is not free.
-  const buckets = useMemo(() => {
-    const columns: AtlasSection[][] = Array.from({ length: tracks }, () => []);
-    const heights = new Array<number>(tracks).fill(0);
-    for (const section of sections) {
-      let shortest = 0;
-      for (let i = 1; i < tracks; i++) {
-        if (heights[i] < heights[shortest]) shortest = i;
-      }
-      columns[shortest].push(section);
-      heights[shortest] += section.matters.length + 1;
-    }
-    return columns;
-  }, [sections, tracks]);
+  const age = daysSinceMoved(matter, now);
+  const stale = age > STALE_DAYS;
+  const owner = ownerLabel(matter);
+  const yours = isYours(matter);
 
   return (
     <div
-      className="grid items-start gap-x-10 gap-y-1 px-4 py-3"
-      style={{ gridTemplateColumns: `repeat(${tracks}, minmax(0, 1fr))` }}
+      className={`wb-m${open ? " wb-m-open" : ""}${archived ? " wb-m-gone" : ""}`}
     >
-      {buckets.map((column, i) => (
-        <div key={i} className="min-w-0">
-          {column.map((section) => (
-            <section key={section.name} className="mb-7">
-              <h2 className="atlas-heading px-1.5">
-                {sectionLabel(section.name)}
-                <span className="tabular"> · {section.matters.length}</span>
-              </h2>
-              <ul className="mt-1.5">
-                {section.matters.map((matter) => (
-                  <BoardMatter
-                    key={matter.matterId}
-                    matter={matter}
-                    open={!collapsed.has(`m:${matter.matterId}`)}
-                    onToggle={() => toggle(`m:${matter.matterId}`)}
-                  onOpenMatter={() => onOpenMatter(matter)}
-                  onOpenConversation={onOpenConversation}
-                  />
-                ))}
-              </ul>
-            </section>
-          ))}
-        </div>
-      ))}
-    </div>
-  );
-}
+      <button
+        type="button"
+        className="wb-mhead"
+        aria-expanded={archived ? undefined : open}
+        onClick={archived ? undefined : onToggle}
+        disabled={archived}
+      >
+        {!archived && <Chevron open={open} />}
+        <span className="wb-mt">{matter.shortTitle}</span>
+        <span className={`wb-own tabular${yours ? " wb-own-you" : ""}`}>
+          {owner}
+          {stale ? <span className="wb-stale">{` ${age}d`}</span> : null}
+        </span>
+      </button>
 
-/** One line on the whiteboard. Click the name to see what is under it. */
-function BoardMatter({
-  matter,
-  open,
-  onToggle,
-  onOpenMatter,
-  onOpenConversation,
-}: {
-  matter: MatterCard;
-  open: boolean;
-  onToggle: () => void;
-  onOpenMatter: () => void;
-  onOpenConversation?: (conversation: ConversationRow) => void;
-}) {
-  return (
-    <li className="group">
-      <div className="atlas-row flex w-full items-baseline gap-1 px-1.5 text-left transition-colors">
-        <button
-          type="button"
-          onClick={onToggle}
-          aria-expanded={open}
-          aria-label={open ? `Collapse ${matter.shortTitle}` : `Expand ${matter.shortTitle}`}
-          className="shrink-0 p-1"
-        >
-          <Chevron open={open} />
-        </button>
-        <button
-          type="button"
-          onClick={onOpenMatter}
-          aria-label={`Open matter ${matter.shortTitle}`}
-          className="min-w-0 flex-1 text-left text-[length:var(--t-body)] leading-[var(--lh-tight)] text-[var(--fg-strong)]"
-        >
-          {matter.shortTitle}
-        </button>
-        {matter.conversations.length > 1 && (
-          <span className="tabular shrink-0 text-[var(--muted)]">
-            {matter.conversations.length}
-          </span>
-        )}
-      </div>
-      {open && (
-        <ul className="mb-2 ml-1.5 space-y-px pl-3">
-          {matter.conversations.map((c) => (
-            <li key={c.conversationId}>
-              <button
-                type="button"
-                onClick={() => onOpenConversation?.(c)}
-                className="atlas-row block w-full truncate px-1.5 text-left text-[length:var(--t-small)] text-[var(--muted)] transition-colors hover:text-[var(--fg)]"
-              >
-                {c.subject || "(no subject)"}
-                <span className="opacity-70"> — {c.from}</span>
+      {archived ? (
+        <div className="wb-undo tabular">
+          <span>Archived</span>
+          <button type="button" onClick={onUndo}>
+            Undo
+          </button>
+        </div>
+      ) : (
+        open && (
+          <div className="wb-body">
+            <p className="wb-next">
+              {matter.nextAction || "Review the latest conversation."}
+            </p>
+            <p className="wb-meta tabular">
+              {yours ? "yours" : `with ${owner}`}
+              {" · "}
+              {stale ? (
+                <span className="wb-stale">{age}d since it moved</span>
+              ) : (
+                `${age}d since it moved`
+              )}
+              {matter.conversations.length > 1
+                ? ` · ${matter.conversations.length} threads`
+                : ""}
+            </p>
+            {matter.summary ? <p className="wb-meta tabular">{matter.summary}</p> : null}
+            <div className="wb-acts">
+              {onReply && (
+                <button type="button" className="wb-btn wb-btn-primary" onClick={onReply}>
+                  {yours ? "Reply" : `Nudge ${owner}`}
+                </button>
+              )}
+              {onForward && (
+                <button type="button" className="wb-btn" onClick={onForward}>
+                  Forward
+                </button>
+              )}
+              <button type="button" className="wb-btn" onClick={onArchive}>
+                Archive
               </button>
-            </li>
-          ))}
-          {matter.yields.map((y, i) => (
-            <li
-              key={`y${i}`}
-              className="atlas-row px-1.5 text-[length:var(--t-small)] text-[var(--brand-strong)]"
-            >
-              {y.headline}
-            </li>
-          ))}
-        </ul>
+              <button type="button" className="wb-btn" onClick={onOpenMatter}>
+                Open
+              </button>
+            </div>
+          </div>
+        )
       )}
-    </li>
+    </div>
   );
 }
 
@@ -491,8 +472,10 @@ function MatterDetail({
       >
         <header className="atlas-detail-header">
           <div>
-            <p className="atlas-detail-kicker">{matter.section}</p>
-            <h2 id="atlas-detail-title">{matter.shortTitle}</h2>
+            <p className="atlas-detail-kicker atlas-heading">{matter.section}</p>
+            <h2 id="atlas-detail-title" className="seer-display">
+              {matter.shortTitle}
+            </h2>
           </div>
           <button
             ref={closeRef}

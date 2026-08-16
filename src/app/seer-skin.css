@@ -131,20 +131,262 @@ body {
   color: var(--muted);
 }
 
-/* Rows earn their separation from rhythm, not from lines. */
-.atlas-row {
-  padding-block: 5px;
-  line-height: var(--lh-tight);
-  border-radius: var(--r);
+
+/* --------------------------------------------------------------------
+   The whiteboard
+
+   A matter is a line, not a card: the title carries it, and everything
+   else — who has it, how long it has sat — is set small and to the right
+   so a section reads as a column of work rather than a stack of boxes.
+   Opening one closes the others, because the question a board answers is
+   "what is the state of the business", and two open answers is a list.
+   -------------------------------------------------------------------- */
+
+.wb {
+  --wb-hair: #eff0ec;
+  max-width: 560px;
+  margin-inline: auto;
+  padding-bottom: 24px;
 }
-.atlas-row:hover {
+
+.wb-head {
+  padding: 6px 20px 0;
+}
+.wb-title {
+  margin: 0;
+  font-size: 27px;
+  font-weight: 700;
+  letter-spacing: -0.025em;
+  color: var(--fg-strong);
+}
+
+/* The ledger states the account in numbers: what is yours, what is out. */
+.wb-ledger {
+  margin-top: 5px;
+  color: var(--muted);
+}
+.wb-stale {
+  color: var(--danger);
+  font-weight: 400;
+}
+
+.wb-seg {
+  display: flex;
+  margin: 15px 0 4px;
+  border-bottom: 1px solid var(--border);
+}
+.wb-seg button {
+  appearance: none;
+  background: none;
+  border: 0;
+  padding: 0 0 10px;
+  margin-right: 26px;
+  font: inherit;
+  font-size: var(--t-body);
+  color: var(--muted);
+  cursor: pointer;
+  position: relative;
+}
+.wb-seg button[aria-pressed="true"] {
+  color: var(--fg-strong);
+  font-weight: 500;
+}
+.wb-seg button[aria-pressed="true"]::after {
+  content: "";
+  position: absolute;
+  inset-inline: 0;
+  bottom: -1px;
+  height: 2px;
+  background: var(--brand);
+}
+
+.wb-shead {
+  display: flex;
+  align-items: baseline;
+  gap: 9px;
+  padding: 22px 20px 8px;
+}
+.wb-sname {
+  flex: 1;
+}
+.wb-scount {
+  /* The mockup's #9aa4ab measures 2.4:1 here; --nav-muted is the faintest
+     tone on this page that still clears AA. */
+  color: var(--nav-muted);
+}
+
+/* Paper for the section, so the ground shows between them. */
+.wb-sec {
+  background: var(--card);
+  border-block: 1px solid var(--border);
+}
+
+.wb-m + .wb-m,
+.wb-roll {
+  border-top: 1px solid var(--wb-hair);
+}
+
+.wb-mhead {
+  width: 100%;
+  appearance: none;
+  background: none;
+  border: 0;
+  display: flex;
+  align-items: baseline;
+  gap: 11px;
+  padding: 13px 18px 13px 20px;
+  text-align: left;
+  font: inherit;
+  cursor: pointer;
+}
+.wb-mt {
+  flex: 1;
+  font-size: var(--t-read);
+  line-height: var(--lh-tight);
+  letter-spacing: -0.01em;
+  color: var(--fg-strong);
+}
+.wb-m-open .wb-mt {
+  font-weight: 500;
+}
+.wb-own {
+  flex: none;
+  color: var(--muted);
+}
+.wb-own-you {
+  color: var(--brand-strong);
+}
+
+/* The expansion says only what the title cannot. */
+.wb-body {
+  padding: 0 20px 15px 39px;
+}
+.wb-next {
+  font-size: var(--t-body);
+  line-height: var(--lh-body);
+  color: var(--fg-strong);
+}
+.wb-meta {
+  margin-top: 7px;
+  color: var(--muted);
+}
+.wb-acts {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 7px;
+  margin-top: 12px;
+}
+.wb-btn {
+  appearance: none;
+  border: 1px solid var(--border);
+  background: none;
+  font: inherit;
+  font-size: var(--t-small);
+  color: var(--fg);
+  padding: 7px 12px;
+  border-radius: 5px;
+  cursor: pointer;
+  min-height: 34px;
+}
+.wb-btn:hover {
   background: var(--row-hover);
+}
+.wb-btn-primary {
+  background: var(--brand-cta, var(--brand-strong));
+  border-color: var(--brand-cta, var(--brand-strong));
+  color: var(--on-brand, #fff);
+}
+
+/* An archived row keeps its place and carries its own undo. A toast that
+   slides over the next row asks the user to catch it before it goes. */
+.wb-m-gone .wb-mhead {
+  opacity: 0.45;
+}
+.wb-m-gone .wb-mt {
+  text-decoration: line-through;
+  text-decoration-thickness: 1px;
+}
+.wb-undo {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 0 20px 12px 39px;
+  color: var(--muted);
+}
+.wb-undo button {
+  appearance: none;
+  background: none;
+  border: 0;
+  font: inherit;
+  font-size: var(--t-small);
+  color: var(--brand-strong);
+  cursor: pointer;
+  padding: 2px 0;
+  min-height: 32px;
+}
+
+/* Work nobody is waiting on rolls into one line until asked for. */
+.wb-rollhead {
+  width: 100%;
+  appearance: none;
+  background: none;
+  border: 0;
+  display: flex;
+  align-items: baseline;
+  gap: 11px;
+  padding: 13px 18px 13px 20px;
+  text-align: left;
+  font: inherit;
+  cursor: pointer;
+}
+.wb-rollhead .wb-mt {
+  color: var(--muted);
+}
+.wb-rlist {
+  background: var(--row-hover);
+  border-top: 1px solid var(--wb-hair);
+}
+.wb-rrow {
+  display: flex;
+  align-items: baseline;
+  gap: 10px;
+  width: 100%;
+  appearance: none;
+  background: none;
+  border: 0;
+  border-bottom: 1px solid var(--wb-hair);
+  padding: 9px 20px 9px 39px;
+  font: inherit;
+  font-size: var(--t-body);
+  color: var(--fg);
+  text-align: left;
+  cursor: pointer;
+}
+.wb-rrow:last-child {
+  border-bottom: 0;
+}
+.wb-rrow span {
+  flex: 1;
+}
+
+.wb-empty {
+  padding: 34px 20px;
+  color: var(--muted);
+  font-size: var(--t-body);
+  line-height: var(--lh-body);
+}
+.wb-foot {
+  padding: 18px 20px;
+  color: var(--nav-muted);
+  line-height: 1.7;
+  white-space: pre-line;
 }
 
 /* Desktop gets more per screen; touch keeps its 44px targets. */
 @media (pointer: fine) and (min-width: 1024px) {
-  .atlas-row {
-    padding-block: 3px;
+  .wb-mhead,
+  .wb-rollhead {
+    padding-block: 10px;
   }
 }
 
