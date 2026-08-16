@@ -115,6 +115,7 @@ export function MobileMailApp() {
     clearHeadlines,
     fixMatter,
     atlasAction,
+    replyToEmail,
     renameMatter,
     createMatter,
     matterOrder,
@@ -426,6 +427,8 @@ export function MobileMailApp() {
           onAtlasAction={atlasAction}
           onRename={renameMatter}
           onSettle={settleMatter}
+          onReply={replyToEmail}
+          mobile
         />
         {toast ? <Toast message={toast} /> : null}
       </div>

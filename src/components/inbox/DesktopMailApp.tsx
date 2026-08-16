@@ -115,6 +115,7 @@ export function DesktopMailApp() {
     clearHeadlines,
     fixMatter,
     atlasAction,
+    replyToEmail,
     renameMatter,
     createMatter,
     matterOrder,
@@ -628,6 +629,7 @@ export function DesktopMailApp() {
             onAtlasAction={atlasAction}
             onRename={renameMatter}
             onSettle={settleMatter}
+            onReply={replyToEmail}
           />
         ) : !readerId ? (
           <div className="flex flex-1 items-center justify-center text-[14px] text-[var(--muted)]">

@@ -1362,6 +1362,54 @@ export function useMailbox(initialTab: ViewTab = "inbox") {
     [reader, readerId],
   );
 
+  /**
+   * Reply or forward by id — a matter row acts without opening the reader.
+   * startReply can't do this: it closes over reader/readerId, so calling
+   * openReader and then startReply in the same tick reads stale state.
+   */
+  const replyToEmail = useCallback(
+    async (id: string, mode: "reply" | "replyAll" | "forward") => {
+      try {
+        let json = messageCache.current.get(id) ?? (await fetchMessage(id));
+        if (!json) {
+          // A prefetch is already in flight — wait for it to land.
+          for (let i = 0; i < 40 && !json; i++) {
+            await new Promise((r) => setTimeout(r, 150));
+            json = messageCache.current.get(id) ?? null;
+            if (!json && !inflight.current.has(id)) {
+              json = await fetchMessage(id);
+              break;
+            }
+          }
+        }
+        if (!json) throw new Error("Could not load message");
+        const msg = toReaderMessage(json);
+        if (mode === "forward") {
+          setCompose({
+            mode: "forward",
+            to: "",
+            cc: "",
+            subject: ensureFwd(msg.subject),
+            body: "",
+            replyToId: id,
+          });
+          return;
+        }
+        setCompose({
+          mode,
+          to: msg.fromEmail,
+          cc: mode === "replyAll" ? msg.ccEmail : "",
+          subject: ensureRe(msg.subject),
+          body: "",
+          replyToId: id,
+        });
+      } catch (e) {
+        setToast(e instanceof Error ? e.message : "Could not open message");
+      }
+    },
+    [fetchMessage],
+  );
+
   const selectFolder = useCallback((next: ViewTab) => {
     setTab(next);
     setQuery("");
@@ -1434,6 +1482,7 @@ export function useMailbox(initialTab: ViewTab = "inbox") {
     closeReader,
     startCompose,
     startReply,
+    replyToEmail,
     draftReply,
     drafting,
     nudge,

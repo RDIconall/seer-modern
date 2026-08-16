@@ -1,7 +1,11 @@
 "use client";
 
-import { useEffect, useRef, useState } from "react";
-import { Archive, ChevronLeft, MoreHorizontal } from "lucide-react";
+import { useCallback, useEffect, useRef, useState } from "react";
+import { ChevronLeft, MoreHorizontal } from "lucide-react";
+import {
+  ConversationRow,
+  type RowAction,
+} from "@/components/inbox/ConversationRow";
 import type { Matter } from "@/lib/inbox/matters";
 import { formatAmount } from "@/lib/crm/registry";
 
@@ -62,6 +66,8 @@ export function MatterPanel({
   onAtlasAction,
   onRename,
   onSettle,
+  onReply,
+  mobile,
 }: {
   m: Matter;
   functions: string[];
@@ -72,12 +78,17 @@ export function MatterPanel({
   onAtlasAction?: (rows: PanelRow[], action: "archive" | "trash") => void;
   onRename?: (matterId: string, title: string) => void;
   onSettle?: (matterId: string, settled: boolean) => void;
+  /** Reply / forward a single conversation without leaving the matter. */
+  onReply?: (emailId: string, mode: "reply" | "forward") => void;
+  mobile?: boolean;
 }) {
   const [menuOpen, setMenuOpen] = useState(false);
   const [fixing, setFixing] = useState(false);
   const [renaming, setRenaming] = useState(false);
   const [draft, setDraft] = useState(m.title);
   const menuRef = useRef<HTMLDivElement>(null);
+  const listRef = useRef<HTMLDivElement>(null);
+  const [cursor, setCursor] = useState(-1);
 
   useEffect(() => {
     if (!menuOpen) return;
@@ -89,6 +100,77 @@ export function MatterPanel({
   }, [menuOpen]);
 
   const emails = m.emails ?? [];
+
+  /**
+   * One dispatcher for every row action, whether it arrived by click, by
+   * swipe, or by keystroke. Archive and delete already had a home in
+   * onAtlasAction; reply and forward hand the conversation to the composer.
+   */
+  const act = useCallback(
+    (e: { id: string; threadId: string }, action: RowAction) => {
+      if (action === "reply" || action === "forward") {
+        onReply?.(e.id, action);
+        return;
+      }
+      onAtlasAction?.([{ id: e.id, threadId: e.threadId }], action);
+    },
+    [onAtlasAction, onReply],
+  );
+
+  /**
+   * Desktop keyboard. j/k move, Enter opens, r/f/e/# act on the row under
+   * the cursor. Shortcuts are the one power-user affordance that costs no
+   * pixels, so they are the answer to "better desktop without more chrome".
+   */
+  useEffect(() => {
+    if (mobile) return;
+    function onKey(ev: KeyboardEvent) {
+      const el = ev.target as HTMLElement | null;
+      if (el && /^(INPUT|TEXTAREA|SELECT)$/.test(el.tagName)) return;
+      if (ev.metaKey || ev.ctrlKey || ev.altKey) return;
+      const rows = m.emails ?? [];
+      const at = (i: number) => rows[Math.max(0, Math.min(rows.length - 1, i))];
+      switch (ev.key) {
+        case "j":
+          ev.preventDefault();
+          setCursor((c) => Math.min(rows.length - 1, c + 1));
+          return;
+        case "k":
+          ev.preventDefault();
+          setCursor((c) => Math.max(0, c - 1));
+          return;
+        case "Escape":
+          onClose();
+          return;
+      }
+      if (cursor < 0 || !rows.length) return;
+      const row = at(cursor);
+      if (!row) return;
+      if (ev.key === "Enter") {
+        ev.preventDefault();
+        onOpen(row.id);
+      } else if (ev.key === "r") {
+        ev.preventDefault();
+        act(row, "reply");
+      } else if (ev.key === "f") {
+        ev.preventDefault();
+        act(row, "forward");
+      } else if (ev.key === "e") {
+        ev.preventDefault();
+        act(row, "archive");
+        setCursor((c) => Math.max(0, Math.min(c, rows.length - 2)));
+      } else if (ev.key === "#") {
+        ev.preventDefault();
+        act(row, "trash");
+        setCursor((c) => Math.max(0, Math.min(c, rows.length - 2)));
+      }
+    }
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, [mobile, cursor, m.emails, act, onOpen, onClose]);
+
+  // A new matter starts with no cursor; the first j lands on the first row.
+  useEffect(() => setCursor(-1), [m.id]);
   const hasNext = Boolean(m.nextAction && !/^none/i.test(m.nextAction));
   const owner =
     m.owner === "you" ? "Yours" : m.owner === "them" ? "Their court" : "Team";
@@ -279,54 +361,20 @@ export function MatterPanel({
           ) : null}
         </section>
 
-        <ul>
-          {emails.map((e) => {
-            const when = shortTime(e.at);
-            const meaning = meaningOf(e.line, e.from);
-            return (
-              <li
-                key={e.id}
-                className="flex items-start gap-1 border-b border-[var(--border)]"
-              >
-                <button
-                  type="button"
-                  onClick={() => onOpen(e.id)}
-                  className="min-w-0 flex-1 px-4 py-3 text-left"
-                >
-                  <span className="flex items-baseline gap-2">
-                    <span className="min-w-0 flex-1 truncate text-[14px] font-bold text-[var(--fg-strong)]">
-                      {e.from}
-                    </span>
-                    {e.count && e.count > 1 ? (
-                      <span className="shrink-0 text-[12px] text-[var(--nav-muted)]">
-                        {e.count}
-                      </span>
-                    ) : null}
-                    {when ? (
-                      <span className="shrink-0 text-[12px] text-[var(--nav-muted)]">
-                        {when}
-                      </span>
-                    ) : null}
-                  </span>
-                  <span className="mt-0.5 line-clamp-2 block text-[14px] leading-5 text-[var(--muted)]">
-                    {e.suggestion || meaning}
-                  </span>
-                </button>
-                {onAtlasAction ? (
-                  <button
-                    type="button"
-                    onClick={() =>
-                      onAtlasAction([{ id: e.id, threadId: e.threadId }], "archive")
-                    }
-                    aria-label={`Archive conversation with ${e.from}`}
-                    className="mr-1 mt-2 flex h-11 w-11 shrink-0 items-center justify-center rounded-full text-[var(--nav-muted)] hover:bg-[var(--row-hover)] hover:text-[var(--fg)]"
-                  >
-                    <Archive className="h-4 w-4" />
-                  </button>
-                ) : null}
-              </li>
-            );
-          })}
+        <ul ref={listRef as unknown as React.RefObject<HTMLUListElement>}>
+          {emails.map((e, i) => (
+            <ConversationRow
+              key={e.id}
+              from={e.from}
+              meaning={e.suggestion || meaningOf(e.line, e.from)}
+              when={shortTime(e.at)}
+              count={e.count}
+              cursor={!mobile && cursor === i}
+              mobile={mobile}
+              onOpen={() => onOpen(e.id)}
+              onAction={(action) => act(e, action)}
+            />
+          ))}
         </ul>
       </div>
     </div>
