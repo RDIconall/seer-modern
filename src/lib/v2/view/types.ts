@@ -18,6 +18,14 @@ export type ConversationRow = {
   priority: number;
   /** A date the email stated, if any — orders within a priority bucket. */
   dueDate: string | null;
+  /**
+   * The whiteboard section this is filed under — the part of the BUSINESS
+   * ("sales — new requests", "hr", "recruiting"), never the sender's company.
+   * Triage groups by it; the client never recomputes it.
+   */
+  category: string;
+  /** Who the work is with, shown alongside the section but never grouping it. */
+  counterparty: string;
   nativeUrl: string;
 };
 
@@ -38,10 +46,27 @@ export type YieldRow = {
 export type MatterCard = {
   matterId: string;
   title: string;
+  shortTitle: string;
   status: string;
+  /** The counterparty this work is with ("roche", "internal"). */
   orgUnit: string | null;
+  /**
+   * The whiteboard section this is filed under — the part of the business, not
+   * the counterparty. Two Roche matters can be "software" and "sales — leads".
+   */
+  section: string;
+  summary: string;
+  nextAction: string;
+  owner: Owner;
+  dueDate: string | null;
   conversations: ConversationRow[];
   yields: YieldRow[];
+};
+
+/** A whiteboard section with the matters filed under it, in registry order. */
+export type AtlasSection = {
+  name: string;
+  matters: MatterCard[];
 };
 
 export type Coverage = {
@@ -55,6 +80,10 @@ export type InboxView = {
   asOf: string;
   coverage: Coverage;
   atlas: MatterCard[];
+  /** The same matters as `atlas`, grouped into whiteboard sections. */
+  sections: AtlasSection[];
+  /** The user's function registry, in their order — how sections are sorted. */
+  functions: string[];
   records: ConversationRow[];
   safeToDelete: DeleteRow[];
   undecided: ConversationRow[];

@@ -27,30 +27,48 @@ for (const file of files) {
   }
 }
 
-// The core surfaces exist.
+// The core surfaces exist. Triage is no longer a standalone screen — the inbox
+// list owns bulk delete — so MailApp/Triage must not linger as dead hosts.
 for (const required of [
-  "MailApp.tsx",
   "Atlas.tsx",
-  "Triage.tsx",
   "WorthReading.tsx",
   "useInboxView.ts",
+  "triage-select.ts",
+  "triage-command.ts",
 ]) {
   assert.ok(files.includes(required), `missing v2 component ${required}`);
 }
+assert.ok(!files.includes("Triage.tsx"), "standalone Triage screen must be removed");
+assert.ok(!files.includes("MailApp.tsx"), "dead MailApp host must be removed");
 
-// Triage renders delete rows from the server token, not a computed bucket.
-const triage = await fs.readFile(path.join(dir, "Triage.tsx"), "utf8");
-assert.ok(triage.includes("deleteToken"), "Triage must use the server delete token");
+// Inbox delete is authorised solely by the server-minted token.
+const folderList = await fs.readFile(
+  path.join(process.cwd(), "src", "components", "v3", "FolderList.tsx"),
+  "utf8",
+);
 assert.ok(
-  triage.includes("view.safeToDelete"),
-  "Triage must render the server-computed safeToDelete rows",
+  folderList.includes("deleteToken"),
+  "FolderList must use the server delete token",
+);
+assert.ok(
+  /deletableCount|commandsForSelection/.test(folderList),
+  "FolderList must gate bulk delete through the shared selection helpers",
+);
+// Categories come from the server row, not a client-side org/domain guess.
+assert.ok(
+  folderList.includes("row.category"),
+  "FolderList must show the server-provided category",
+);
+assert.ok(
+  !/counterpartyOf|split\(["']@["']\)/.test(folderList),
+  "FolderList must not re-derive the category from the sender",
 );
 
 // The flag wires the single app into both entry points.
 for (const page of ["src/app/page.tsx", "src/app/m/page.tsx"]) {
   const src = await fs.readFile(path.join(process.cwd(), page), "utf8");
   assert.ok(src.includes("isV2Enabled"), `${page} must gate on isV2Enabled`);
-  assert.ok(src.includes("MailApp"), `${page} must render the v2 MailApp`);
+  assert.ok(src.includes("MailClient"), `${page} must render the v3 MailClient`);
 }
 
 console.log("v2-ui-contract: OK");

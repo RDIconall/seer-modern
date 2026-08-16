@@ -1,13 +1,9 @@
 import { auth } from "@/auth";
-import { revokeProviderGrant } from "@/lib/mail/revoke";
 import {
-  getAccount,
-  listAccounts,
+  legacyAccountFallbackEnabled,
+  listAccountsForOwner,
   providerLabel,
-  removeAccount,
   resolveActiveAccount,
-  setActiveAccountId,
-  type MailProvider,
 } from "@/lib/store/accounts";
 import { NextResponse } from "next/server";
 
@@ -26,15 +22,21 @@ export async function GET() {
   if (!session?.user) {
     return NextResponse.json({ error: "Not signed in" }, { status: 401 });
   }
+  if (!legacyAccountFallbackEnabled()) {
+    return NextResponse.json(
+      { error: "legacy account management is retired" },
+      { status: 410 },
+    );
+  }
 
-  const active = await resolveActiveAccount({
-    provider: session.provider,
-    email: session.user.email,
-    name: session.user.name,
-    accessToken: session.accessToken,
-  });
+  const email = session.user.email?.toLowerCase();
+  if (!email) return NextResponse.json({ error: "email required" }, { status: 400 });
 
-  const accounts = await listAccounts();
+  const active = await resolveActiveAccount(
+    email,
+    session.provider === "google" ? "google" : "microsoft-entra-id",
+  );
+  const accounts = await listAccountsForOwner(email);
   const available = providersAvailable();
 
   return NextResponse.json({
@@ -46,17 +48,7 @@ export async function GET() {
           provider: active.provider,
           label: providerLabel(active.provider),
         }
-      : session.user.email
-        ? {
-            id: `session:${session.user.email}`,
-            email: session.user.email,
-            name: session.user.name ?? session.user.email,
-            provider: (session.provider as MailProvider) ?? "google",
-            label: session.provider
-              ? providerLabel(session.provider as MailProvider)
-              : "Account",
-          }
-        : null,
+      : null,
     accounts: accounts.map((a) => ({
       ...a,
       label: providerLabel(a.provider),
@@ -67,34 +59,9 @@ export async function GET() {
   });
 }
 
-export async function POST(request: Request) {
-  const session = await auth();
-  if (!session?.user) {
-    return NextResponse.json({ error: "Not signed in" }, { status: 401 });
-  }
-
-  const body = (await request.json()) as {
-    action?: "switch" | "remove";
-    id?: string;
-  };
-
-  if (!body.id) {
-    return NextResponse.json({ error: "id required" }, { status: 400 });
-  }
-
-  if (body.action === "remove") {
-    // True disconnect: revoke the OAuth grant at the provider too, so the
-    // app disappears from the user's Google "connected apps" list.
-    const account = await getAccount(body.id);
-    if (account) await revokeProviderGrant(account);
-    await removeAccount(body.id);
-    return NextResponse.json({ ok: true });
-  }
-
-  if (body.action === "switch") {
-    await setActiveAccountId(body.id);
-    return NextResponse.json({ ok: true });
-  }
-
-  return NextResponse.json({ error: "Unknown action" }, { status: 400 });
+export async function POST() {
+  return NextResponse.json(
+    { error: "legacy account switching and removal are retired" },
+    { status: 410 },
+  );
 }

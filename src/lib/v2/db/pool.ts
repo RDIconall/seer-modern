@@ -11,11 +11,48 @@ import { SUPABASE_ROOT_CA } from "./supabase-ca";
  * ephemeral one.
  */
 
-function connectionString(): string | null {
+export function validateProductionDatabaseUrl(raw: string | undefined): string {
+  if (!raw) {
+    throw new Error(
+      "Production requires SEER_V2_DATABASE_URL; operator must provision its password",
+    );
+  }
+  let url: URL;
+  try {
+    url = new URL(raw);
+  } catch {
+    throw new Error("SEER_V2_DATABASE_URL must be a valid PostgreSQL URL");
+  }
+  if (url.protocol !== "postgres:" && url.protocol !== "postgresql:") {
+    throw new Error("SEER_V2_DATABASE_URL must use the postgres:// scheme");
+  }
+  const username = decodeURIComponent(url.username);
+  if (username !== "seer_app" && !username.startsWith("seer_app.")) {
+    throw new Error(
+      "SEER_V2_DATABASE_URL must connect as seer_app (or seer_app.<project> through the Supabase pooler)",
+    );
+  }
+  return raw;
+}
+
+export function resolveDatabaseUrl(
+  env: Partial<Pick<
+    NodeJS.ProcessEnv,
+    | "NODE_ENV"
+    | "SEER_V2_DATABASE_URL"
+    | "POSTGRES_URL"
+    | "POSTGRES_PRISMA_URL"
+    | "DATABASE_URL"
+  >> = process.env,
+): string | null {
+  if (env.NODE_ENV === "production") {
+    return validateProductionDatabaseUrl(env.SEER_V2_DATABASE_URL);
+  }
   return (
-    process.env.SEER_V2_DATABASE_URL ||
-    process.env.POSTGRES_URL ||
-    process.env.DATABASE_URL ||
+    env.SEER_V2_DATABASE_URL ||
+    env.POSTGRES_URL ||
+    env.POSTGRES_PRISMA_URL ||
+    env.DATABASE_URL ||
     null
   );
 }
@@ -82,13 +119,8 @@ export function db(): Pool {
   const override = (globalThis as GlobalWithOverride)[OVERRIDE];
   if (override) return override;
   if (pool) return pool;
-  const cs = connectionString();
+  const cs = resolveDatabaseUrl();
   if (!cs) {
-    if (process.env.NODE_ENV === "production") {
-      throw new Error(
-        "Seer v2 requires POSTGRES_URL (or SEER_V2_DATABASE_URL) in production",
-      );
-    }
     throw new Error("Seer v2 database URL is not configured");
   }
   const resolved = resolveSsl(cs);

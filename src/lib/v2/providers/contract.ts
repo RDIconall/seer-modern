@@ -1,5 +1,5 @@
 import assert from "node:assert/strict";
-import type { Conversation, MailProvider } from "./types";
+import type { Conversation, MailProvider, Message, SyncFolder } from "./types";
 
 /**
  * The provider contract suite as a reusable function. It runs unchanged against
@@ -19,12 +19,30 @@ export type ContractHarness = {
   searchTerm: string;
   /** Expected total inbox conversations for coverage assertions. */
   expectedInboxTotal: number;
+  /** Expected total sent-folder conversations. */
+  expectedSentTotal: number;
+  /** Expected total trash-folder conversations. */
+  expectedTrashTotal: number;
+  /** A conversation id present in sent with more than one message. */
+  sentThreadId?: string;
+  /** A conversation id present in trash with more than one message. */
+  trashThreadId?: string;
+  /**
+   * Conversation whose folder-list messages span sync pages. The first inbox
+   * page must still emit the fully hydrated thread (Outlook regression guard).
+   */
+  splitPageThreadId?: string;
+  splitPageThreadMessageCount?: number;
 };
+
+const SYNC_FOLDERS: SyncFolder[] = ["inbox", "sent", "trash"];
 
 export async function runProviderContract(
   makeHarness: () => Promise<ContractHarness>,
 ): Promise<void> {
   await paginatesFullMailbox(makeHarness);
+  await syncFolderPaginatesEachFolder(makeHarness);
+  await syncFolderHydratesSplitPageThread(makeHarness);
   await readsCompleteOrderedThread(makeHarness);
   await searchPaginates(makeHarness);
   await replyTargetsSameConversation(makeHarness);
@@ -34,14 +52,71 @@ export async function runProviderContract(
 }
 
 async function drainSync(provider: MailProvider): Promise<Conversation[]> {
-  const all: Conversation[] = [];
+  return drainSyncFolder(provider, "inbox");
+}
+
+async function drainSyncFolder(
+  provider: MailProvider,
+  folder: SyncFolder,
+): Promise<Conversation[]> {
+  const byId = new Map<string, Conversation>();
   let cursor: string | null = null;
   do {
-    const page = await provider.sync(cursor);
-    all.push(...page.conversations);
+    const page = await provider.syncFolder(folder, cursor);
+    for (const c of page.conversations) {
+      if (!byId.has(c.providerConversationId)) {
+        byId.set(c.providerConversationId, c);
+      }
+    }
     cursor = page.nextCursor;
   } while (cursor);
-  return all;
+  return [...byId.values()];
+}
+
+function expectedTotalForFolder(
+  h: ContractHarness,
+  folder: SyncFolder,
+): number {
+  switch (folder) {
+    case "inbox":
+      return h.expectedInboxTotal;
+    case "sent":
+      return h.expectedSentTotal;
+    case "trash":
+      return h.expectedTrashTotal;
+  }
+}
+
+function threadIdForFolder(h: ContractHarness, folder: SyncFolder): string | undefined {
+  switch (folder) {
+    case "inbox":
+      return h.threadId;
+    case "sent":
+      return h.sentThreadId;
+    case "trash":
+      return h.trashThreadId;
+  }
+}
+
+function assertMessagesHaveBodyContent(messages: Message[], label: string): void {
+  for (const m of messages) {
+    const hasBody =
+      (m.bodyHtml !== null && m.bodyHtml.length > 0) ||
+      (m.bodyText !== null && m.bodyText.length > 0);
+    assert.ok(
+      hasBody,
+      `${label}: message ${m.providerMessageId} must carry non-empty body content`,
+    );
+  }
+}
+
+function assertMessagesOldestFirst(messages: Message[], label: string): void {
+  for (let i = 1; i < messages.length; i++) {
+    assert.ok(
+      messages[i - 1].sentAt <= messages[i].sentAt,
+      `${label}: messages must be ordered oldest-first`,
+    );
+  }
 }
 
 async function paginatesFullMailbox(make: () => Promise<ContractHarness>) {
@@ -60,20 +135,86 @@ async function paginatesFullMailbox(make: () => Promise<ContractHarness>) {
   );
 }
 
+async function syncFolderPaginatesEachFolder(make: () => Promise<ContractHarness>) {
+  const h = await make();
+  for (const folder of SYNC_FOLDERS) {
+    const expected = expectedTotalForFolder(h, folder);
+    const all = await drainSyncFolder(h.provider, folder);
+    assert.equal(
+      all.length,
+      expected,
+      `syncFolder(${folder}) must paginate through the entire folder`,
+    );
+    const firstPage = await h.provider.syncFolder(folder, null);
+    assert.equal(
+      firstPage.providerTotal,
+      expected,
+      `syncFolder(${folder}) providerTotal must reflect the whole folder`,
+    );
+    if (expected > 0) {
+      assert.ok(
+        firstPage.conversations.length >= 1,
+        `syncFolder(${folder}) must return conversations`,
+      );
+      for (const convo of firstPage.conversations) {
+        assertMessagesHaveBodyContent(
+          convo.messages,
+          `syncFolder(${folder}) conversation ${convo.providerConversationId}`,
+        );
+        assertMessagesOldestFirst(
+          convo.messages,
+          `syncFolder(${folder}) conversation ${convo.providerConversationId}`,
+        );
+      }
+    }
+    const threadId = threadIdForFolder(h, folder);
+    if (threadId && expected > 0) {
+      const convo = await h.provider.getConversation(threadId);
+      assert.ok(
+        convo.messages.length >= 2,
+        `syncFolder(${folder}) thread must contain all its messages`,
+      );
+      assertMessagesHaveBodyContent(convo.messages, `getConversation(${folder})`);
+      assertMessagesOldestFirst(convo.messages, `getConversation(${folder})`);
+    }
+  }
+}
+
+async function syncFolderHydratesSplitPageThread(make: () => Promise<ContractHarness>) {
+  const h = await make();
+  if (!h.splitPageThreadId || !h.splitPageThreadMessageCount) return;
+
+  const firstPage = await h.provider.syncFolder("inbox", null);
+  const matches = firstPage.conversations.filter(
+    (c) => c.providerConversationId === h.splitPageThreadId,
+  );
+  assert.equal(
+    matches.length,
+    1,
+    "split-page thread must be deduplicated to one conversation on the page",
+  );
+  const convo = matches[0];
+  assert.equal(
+    convo.messages.length,
+    h.splitPageThreadMessageCount,
+    "split-page thread must be fully hydrated on the first folder page",
+  );
+  assertMessagesHaveBodyContent(
+    convo.messages,
+    `syncFolder(inbox) split-page thread ${h.splitPageThreadId}`,
+  );
+  assertMessagesOldestFirst(
+    convo.messages,
+    `syncFolder(inbox) split-page thread ${h.splitPageThreadId}`,
+  );
+}
+
 async function readsCompleteOrderedThread(make: () => Promise<ContractHarness>) {
   const h = await make();
   const convo = await h.provider.getConversation(h.threadId);
   assert.ok(convo.messages.length >= 2, "thread must contain all its messages");
-  for (let i = 1; i < convo.messages.length; i++) {
-    assert.ok(
-      convo.messages[i - 1].sentAt <= convo.messages[i].sentAt,
-      "messages must be ordered oldest-first",
-    );
-  }
-  assert.ok(
-    convo.messages.every((m) => m.bodyHtml !== undefined),
-    "every message must carry its body",
-  );
+  assertMessagesOldestFirst(convo.messages, "getConversation");
+  assertMessagesHaveBodyContent(convo.messages, "getConversation");
 }
 
 async function searchPaginates(make: () => Promise<ContractHarness>) {

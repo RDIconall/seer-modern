@@ -1,5 +1,6 @@
 "use client";
 
+import * as React from "react";
 import type { ProviderKind } from "@/lib/v2/providers/types";
 import { supportedActions, providerLabel, NATIVE_ONLY } from "@/lib/v2/client/actions";
 

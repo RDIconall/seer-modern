@@ -6,7 +6,20 @@ import {
   accessTokenNeedsRefresh,
   refreshAccessToken,
 } from "@/lib/mail/refresh-token";
-import { setActiveAccountId, upsertAccount } from "@/lib/store/accounts";
+import {
+  getCredentials,
+  getOwnedAccount,
+  markCredentialsReconnectRequired,
+  upsertAccountWithCredentials,
+  upsertUser,
+  saveCredentials,
+} from "@/lib/v2/db/accounts";
+import { asAccountId, type UserId } from "@/lib/v2/db/types";
+import {
+  consumeAccountLinkState,
+  type AccountLinkProvider,
+} from "@/lib/auth/account-link";
+import { setActiveAccountId } from "@/lib/store/accounts";
 
 const googleConfigured =
   Boolean(process.env.AUTH_GOOGLE_ID) &&
@@ -80,22 +93,71 @@ export const { handlers, auth, signIn, signOut } = NextAuth({
         token.expiresAt = account.expires_at;
         token.provider = account.provider;
         token.error = undefined;
-        const email =
-          (profile as { email?: string } | undefined)?.email ??
-          (token.email as string | undefined);
-        if (email && account.provider) {
-          token.email = email;
-          const saved = await upsertAccount({
-            provider: account.provider as "google" | "microsoft-entra-id",
-            email,
-            name:
+        const provider = toV2Provider(account.provider);
+        if (provider) {
+          const linkState = await consumeAccountLinkState(
+            toLinkProvider(account.provider),
+          );
+          if (linkState.status === "invalid") {
+            throw new Error("Invalid or expired account link state");
+          }
+          const profileEmail = (profile as { email?: string } | undefined)?.email;
+          if (linkState.status === "valid" && !profileEmail) {
+            throw new Error("Linked provider email is missing");
+          }
+          const providerEmail =
+            profileEmail ?? (token.email as string | undefined);
+          if (!providerEmail) {
+            throw new Error("Provider email is missing");
+          }
+          const existingOwner = token.email as string | undefined;
+          if (
+            linkState.status === "valid" &&
+            existingOwner &&
+            existingOwner.toLowerCase() !==
+              linkState.payload.ownerEmail.toLowerCase()
+          ) {
+            throw new Error("Account link owner mismatch");
+          }
+          if (
+            linkState.status === "none" &&
+            existingOwner &&
+            existingOwner.toLowerCase() !== providerEmail.toLowerCase()
+          ) {
+            throw new Error("Account link state required");
+          }
+          const ownerEmail =
+            linkState.status === "valid"
+              ? linkState.payload.ownerEmail
+              : providerEmail;
+          const ownerUserId: UserId =
+            linkState.status === "valid"
+              ? (linkState.payload.ownerUserId as UserId)
+              : await upsertUser(ownerEmail);
+          if (linkState.status === "valid" && linkState.payload.accountId) {
+            const linked = await getOwnedAccount(
+              ownerUserId,
+              asAccountId(linkState.payload.accountId),
+            );
+            if (!linked || linked.provider !== provider) {
+              throw new Error("Account link target is not owned by user");
+            }
+          }
+          const saved = await upsertAccountWithCredentials({
+            userId: ownerUserId,
+            provider,
+            email: providerEmail,
+            displayName:
               (profile as { name?: string } | undefined)?.name ??
-              email,
+              providerEmail,
             accessToken: account.access_token,
             refreshToken: account.refresh_token ?? undefined,
             expiresAt: account.expires_at,
           });
+          token.email = ownerEmail;
           token.activeAccountId = saved.id;
+          token.accessToken = undefined;
+          token.refreshToken = undefined;
           try {
             await setActiveAccountId(saved.id);
           } catch {
@@ -106,28 +168,66 @@ export const { handlers, auth, signIn, signOut } = NextAuth({
       }
 
       if (accessTokenNeedsRefresh(token)) {
-        const refreshed = await refreshAccessToken(token);
-        if (
-          refreshed.accessToken &&
-          !refreshed.error &&
-          token.email &&
-          token.provider
-        ) {
-          await upsertAccount({
-            provider: token.provider as "google" | "microsoft-entra-id",
-            email: token.email as string,
+        const provider = toV2Provider(token.provider);
+        if (!provider || !token.activeAccountId) {
+          return { ...token, error: "CanonicalAccountMissing" };
+        }
+        const credentials = await getCredentials(
+          asAccountId(token.activeAccountId),
+        );
+        if (!credentials?.refreshToken) {
+          if (token.activeAccountId) {
+            await markCredentialsReconnectRequired(
+              asAccountId(token.activeAccountId),
+              "refresh token missing",
+            );
+          }
+          return { ...token, error: "RefreshTokenMissing" };
+        }
+        const refreshed = await refreshAccessToken({
+          accessToken: credentials.accessToken,
+          refreshToken: credentials.refreshToken,
+          expiresAt: credentials.expiresAt
+            ? Math.floor(credentials.expiresAt / 1000)
+            : undefined,
+          provider: accountProvider(token.provider),
+        });
+        if (!refreshed.accessToken || refreshed.error) {
+          await markCredentialsReconnectRequired(
+            asAccountId(token.activeAccountId),
+            refreshed.error ?? "refresh access token missing",
+          );
+          return {
+            ...token,
+            accessToken: undefined,
+            refreshToken: undefined,
+            error: refreshed.error ?? "RefreshAccessTokenError",
+          };
+        }
+        await saveCredentials(
+          asAccountId(token.activeAccountId),
+          provider,
+          {
             accessToken: refreshed.accessToken,
             refreshToken: refreshed.refreshToken,
             expiresAt: refreshed.expiresAt,
-          });
-        }
-        return refreshed;
+          },
+        );
+        return {
+          ...token,
+          accessToken: undefined,
+          refreshToken: undefined,
+          expiresAt: refreshed.expiresAt,
+          error: undefined,
+        };
       }
 
       return token;
     },
     async session({ session, token }) {
-      session.accessToken = token.accessToken as string | undefined;
+      // V3 resolves credentials server-side from oauth_credentials. Provider
+      // credentials never cross the Auth.js session boundary.
+      session.accessToken = undefined;
       session.provider = token.provider as string | undefined;
       session.error = token.error as string | undefined;
       if (token.email && session.user) {
@@ -137,3 +237,25 @@ export const { handlers, auth, signIn, signOut } = NextAuth({
     },
   },
 });
+
+function toV2Provider(
+  provider: string | undefined,
+): "google" | "microsoft" | undefined {
+  if (provider === "google") return "google";
+  if (provider === "microsoft-entra-id" || provider === "microsoft") {
+    return "microsoft";
+  }
+  return undefined;
+}
+
+function toLinkProvider(provider: string): AccountLinkProvider {
+  if (provider === "google") return "google";
+  if (provider === "microsoft-entra-id") return "microsoft-entra-id";
+  throw new Error("Unsupported OAuth provider");
+}
+
+function accountProvider(
+  provider: string | undefined,
+): "google" | "microsoft-entra-id" {
+  return provider === "google" ? "google" : "microsoft-entra-id";
+}

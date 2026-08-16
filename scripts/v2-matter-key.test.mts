@@ -8,6 +8,7 @@ import {
   extractCodes,
   counterpartyOf,
   matterNameFrom,
+  ownTokens,
   resolveMatterMatch,
   type MatterCandidate,
 } from "../src/lib/v2/intelligence/matter-key.ts";
@@ -80,6 +81,132 @@ const roche = (title: string, codes: string[] = []): MatterCandidate => ({
     );
     assert.equal(match, null, `"${unrelated}" must NOT merge into Parkinson's`);
   }
+}
+
+// --- A matter the user named themselves collects the work from every side ---
+// The live run split the user's own "Canadian startup CRO monitoring lead"
+// three ways because each counterparty created its own copy.
+{
+  const userMatter: MatterCandidate = {
+    matterId: "m-user",
+    title: "Canadian startup CRO monitoring lead",
+    codes: [],
+    counterparty: "sales — leads",
+    userAuthored: true,
+  };
+  for (const counterparty of ["bizdevlabs", "internal", ""]) {
+    const match = resolveMatterMatch(
+      {
+        title: "Canadian startup CRO monitoring lead",
+        text: "x",
+        counterparty,
+      },
+      [userMatter],
+    );
+    assert.equal(
+      match?.matterId,
+      "m-user",
+      `a user-named matter must collect work from ${counterparty || "unknown"}`,
+    );
+  }
+}
+
+// --- ...but a user-named matter still does not swallow different work ---
+{
+  const userMatter: MatterCandidate = {
+    matterId: "m-user",
+    title: "Canadian startup CRO monitoring lead",
+    codes: [],
+    counterparty: "sales — leads",
+    userAuthored: true,
+  };
+  const match = resolveMatterMatch(
+    { title: "Roche invoicing query", text: "x", counterparty: "roche" },
+    [userMatter],
+  );
+  assert.equal(match, null, "a different request must not join a user matter");
+}
+
+// --- THE LIVE FAILURE: a vague name must never act as a tie -------------
+// The model proposed "RDI engagement / Conall call" for four UNRELATED pieces
+// of internal work (a call reschedule, a contractor agreement, a networking
+// follow-up, a draft contract). Same counterparty + same vague words merged
+// them into one matter. The user's own name, their company, and words that
+// merely say people talked count for nothing.
+{
+  const own = ownTokens("conall@rditrials.com");
+  const existing: MatterCandidate[] = [
+    {
+      matterId: "m-vague",
+      title: "RDI engagement / Conall call",
+      codes: [],
+      counterparty: "internal",
+    },
+  ];
+  const match = resolveMatterMatch(
+    {
+      title: "RDI engagement / Conall call",
+      text: "Amy drafted a contractor agreement and WO1 for the Centific work",
+      counterparty: "internal",
+      own,
+    },
+    existing,
+  );
+  assert.equal(
+    match,
+    null,
+    "a name made of the user's own identity and talk-words must not tie work together",
+  );
+}
+
+// ...while a name that shares REAL work vocabulary still ties.
+{
+  const own = ownTokens("conall@rditrials.com");
+  const existing: MatterCandidate[] = [
+    {
+      matterId: "m-centific",
+      title: "Centific contractor agreement",
+      codes: [],
+      counterparty: "internal",
+    },
+  ];
+  const match = resolveMatterMatch(
+    {
+      title: "Centific contractor agreement WO1",
+      text: "x",
+      counterparty: "internal",
+      own,
+    },
+    existing,
+  );
+  assert.equal(match?.matterId, "m-centific", "real shared work still ties");
+}
+
+// A vacuous model proposal is rejected and the name falls back to the work.
+{
+  const own = ownTokens("conall@rditrials.com");
+  assert.equal(
+    matterNameFrom(
+      "RDI engagement / Conall call",
+      "Re: ADLM Follow-Up – Draft Contract",
+      "rubrumadvising",
+      "Rubrum Advising sent RDI a draft consulting contract post-ADLM",
+      own,
+    ),
+    "Rubrumadvising — ADLM Follow-Up – Draft Contract",
+    "a relationship-shaped name is not a name; fall back to the work",
+  );
+  // A proposal that names actual work is kept, even when it mentions the user.
+  assert.equal(
+    matterNameFrom(
+      "Rubrum Advising consulting contract",
+      "Re: ADLM Follow-Up",
+      "rubrumadvising",
+      "x",
+      own,
+    ),
+    "Rubrum Advising consulting contract",
+  );
 }
 
 // --- GUARDRAIL: same words, different counterparty never merges ---
