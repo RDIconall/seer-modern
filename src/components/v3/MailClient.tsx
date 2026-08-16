@@ -85,7 +85,9 @@ function writeHash(
   params.set("section", section);
   if (conversation) params.set("conversation", conversation);
   if (query) params.set("q", query);
-  if (sort !== "date") params.set("sort", sort);
+  // Triage is the default, so it is date that has to be written down for a
+  // reload to come back to it.
+  if (sort !== "triage") params.set("sort", sort);
   window.history.replaceState(null, "", `#${params.toString()}`);
   window.dispatchEvent(new Event("hashchange"));
 }
@@ -215,8 +217,17 @@ export function MailClient({
   mobile = false,
 }: { preview?: MailClientPreview; mobile?: boolean } = {}) {
   const [section, setSection] = useState<MailSection>(preview?.initialSection ?? "inbox");
+  /**
+   * The inbox opens sorted by what to do with the mail, not by when it arrived.
+   *
+   * Everything that makes this an inbox rather than a list — the piles, the
+   * ledger of what still needs you, the line saying what the sweep will not
+   * take — hangs off this sort, and behind a toggle nobody flips it may as well
+   * not exist. Date is still one tap away for the times you are looking for a
+   * particular message rather than working the pile.
+   */
   const [inboxSort, setInboxSort] = useState<MailboxSort>(
-    preview?.mailbox.inbox.sort ?? "date",
+    preview?.mailbox.inbox.sort ?? "triage",
   );
   // Cards are a mode of triage, not a separate screen: the same rows, dealt one
   // at a time instead of listed.

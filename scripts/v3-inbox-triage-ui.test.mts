@@ -3,6 +3,7 @@
  * indeterminate state — all rendered from server-shaped mailbox rows.
  */
 import assert from "node:assert/strict";
+import { promises as fs } from "node:fs";
 import { createElement } from "react";
 import { renderToString } from "react-dom/server";
 import { FolderList } from "../src/components/v3/FolderList.tsx";
@@ -111,3 +112,25 @@ assert.match(
 );
 
 console.log("v3-inbox-triage-ui: OK");
+
+/**
+ * The inbox opens triaged.
+ *
+ * Everything above — the piles, the ledger, the held-back note, the row that
+ * says what a message means rather than quoting its first line — hangs off this
+ * sort. Shipped behind a toggle nobody flips, it may as well not exist, and for
+ * a while it did not: the inbox looked exactly as it always had.
+ */
+const clientSource = await fs.readFile("src/components/v3/MailClient.tsx", "utf8");
+assert.match(
+  clientSource,
+  /useState<MailboxSort>\(\s*preview\?\.mailbox\.inbox\.sort \?\? "triage"/,
+  "the inbox must open sorted by what to do with the mail",
+);
+// Whichever sort is the default is the one the hash leaves out, so the other
+// one survives a reload.
+assert.match(
+  clientSource,
+  /if \(sort !== "triage"\) params\.set\("sort", sort\)/,
+  "date has to be written to the hash now that triage is the default",
+);
