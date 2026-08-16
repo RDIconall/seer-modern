@@ -17,11 +17,12 @@ async function addConversation(
   providerId: string,
   subject: string,
   fromEmail: string,
+  folders: string[] = ["inbox"],
 ) {
   const c = await pool.query<{ id: string }>(
-    `insert into seer.conversations (account_id, provider_conversation_id, subject, last_message_at)
-       values ($1, $2, $3, now()) returning id`,
-    [accountId, providerId, subject],
+    `insert into seer.conversations (account_id, provider_conversation_id, subject, last_message_at, folders)
+       values ($1, $2, $3, now(), $4) returning id`,
+    [accountId, providerId, subject, folders],
   );
   await pool.query(
     `insert into seer.messages (account_id, conversation_id, provider_message_id, from_email, sent_at)
@@ -38,7 +39,7 @@ try {
 
   // Provider total for coverage.
   await db.pool.query(
-    "insert into seer.sync_state (account_id, cursor, provider_total) values ($1, null, 4)",
+    "insert into seer.sync_state (account_id, cursor, provider_total) values ($1, null, 5)",
     [accountId],
   );
 
@@ -52,6 +53,9 @@ try {
   const cRecord = await addConversation(db.pool, accountId, "p-record", "Invoice", "billing@x.com");
   const cDelete = await addConversation(db.pool, accountId, "p-delete", "Newsletter", "news@x.com");
   const cUndecided = await addConversation(db.pool, accountId, "p-undecided", "Maybe", "who@x.com");
+  // A decided conversation that lives only in Sent must not surface in the
+  // inbox projection — the folder filter, not the decision, keeps it out.
+  const cSent = await addConversation(db.pool, accountId, "p-sent", "My reply", "me@example.com", ["sent"]);
 
   await saveDecision({
     accountId, conversationId: cMatter, home: "matter", proposedHome: "matter",
@@ -74,8 +78,18 @@ try {
     summary: "Unclear", rationale: "vetoed", owner: "nobody", vetoReasons: ["known_sender"],
     yields: [], evidence: [],
   });
+  await saveDecision({
+    accountId, conversationId: cSent, home: "record", proposedHome: "record",
+    summary: "A reply I sent", rationale: "keep", owner: "nobody", vetoReasons: [], yields: [], evidence: [],
+  });
 
   const view = await buildInboxView(accountId, "google");
+
+  // Sent mail never appears in the inbox, even with a current decision.
+  assert.ok(
+    !view.records.some((r) => r.conversationId === cSent),
+    "a Sent-only conversation must be excluded from the inbox",
+  );
 
   // One home each.
   assert.equal(view.atlas.length, 1);
@@ -104,10 +118,11 @@ try {
   // worth_reading surfaces.
   assert.equal(view.worthReading.length, 1);
 
-  // Coverage reconciles: 4 stored, 3 read (matter/record/delete), 1 pending (undecided).
-  assert.equal(view.coverage.providerTotal, 4);
-  assert.equal(view.coverage.stored, 4);
-  assert.equal(view.coverage.read, 3);
+  // Coverage counts the whole corpus, not just the inbox: 5 stored, 4 read
+  // (matter/record/delete/sent-record), 1 pending (undecided).
+  assert.equal(view.coverage.providerTotal, 5);
+  assert.equal(view.coverage.stored, 5);
+  assert.equal(view.coverage.read, 4);
   assert.equal(view.coverage.pending, 1);
 
   console.log("v2-inbox-view: OK");

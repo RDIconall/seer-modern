@@ -58,7 +58,12 @@ export async function buildInboxView(
        from seer.conversations c
        join seer.conversation_decisions d
          on d.conversation_id = c.id and d.is_current
-      where c.account_id = $1 and c.is_deleted = false
+      where c.account_id = $1
+        and c.is_deleted = false
+        -- The inbox shows the inbox. Sent, trash, archive, and messages the
+        -- provider filed to no folder at all are not inbox mail; without this
+        -- the list was roughly half junk.
+        and c.folders @> array['inbox']::text[]
       -- Loudest first; within a bucket, whatever is due soonest.
       order by d.priority desc, d.due_date asc nulls last, c.last_message_at desc nulls last`,
     [accountId],
