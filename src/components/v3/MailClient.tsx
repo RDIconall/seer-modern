@@ -26,6 +26,7 @@ import { Navigation, type MailSection } from "./Navigation";
 import { ReaderPane } from "./ReaderPane";
 import { SeerMark } from "./SeerMark";
 import { Settings } from "./Settings";
+import { TriageCards } from "./TriageCards";
 import { fetchSearch, SearchBox, type SearchResult } from "./SearchBox";
 import { SearchRequestGuard } from "./search-request";
 import type { ReaderComposeIntent } from "@/components/v2/Reader";
@@ -217,6 +218,9 @@ export function MailClient({
   const [inboxSort, setInboxSort] = useState<MailboxSort>(
     preview?.mailbox.inbox.sort ?? "date",
   );
+  // Cards are a mode of triage, not a separate screen: the same rows, dealt one
+  // at a time instead of listed.
+  const [cards, setCards] = useState(false);
   const [conversationId, setConversationId] = useState<string | null>(
     preview?.initialConversationId ?? null,
   );
@@ -493,6 +497,15 @@ export function MailClient({
 
   const folderContent = searchRows ? (
     <SearchResults rows={searchRows} onOpen={openSearchResult} />
+  ) : activeMailbox && cards && mailboxSort === "triage" ? (
+    <TriageCards
+      rows={activeMailbox.rows}
+      onCommands={async (items) => {
+        await runCommands(items.map((item) => item.command));
+      }}
+      onOpen={openRow}
+      onExit={() => setCards(false)}
+    />
   ) : activeMailbox ? (
     <FolderList
       view={activeMailbox}
@@ -502,6 +515,7 @@ export function MailClient({
       onOpen={openRow}
       onPrefetch={mailbox.prefetchBody}
       onCommands={runCommands}
+      onCards={folder === "inbox" && mailboxSort === "triage" ? () => setCards(true) : undefined}
     />
   ) : (
     <section className="mail-folder-layout mail-reader-loading" aria-label="Loading mailbox">

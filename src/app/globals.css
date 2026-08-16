@@ -2042,3 +2042,216 @@ body {
     grid-template-columns: 82px minmax(0, 1fr);
   }
 }
+
+/* --------------------------------------------------------------------
+   Triage as a deck
+
+   The list asks you to choose what to look at before you choose what to
+   do, and over four hundred rows that first choice is the expensive one.
+   A deck removes it: the next card is the next card, and a verdict costs
+   one gesture. What the gesture will do is named on the card before it
+   happens, and it can never reach further than the button beside it.
+   -------------------------------------------------------------------- */
+
+.deck {
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+  padding: 12px 16px 24px;
+  max-width: 560px;
+  margin-inline: auto;
+}
+
+.deck-head {
+  display: flex;
+  align-items: baseline;
+  gap: 12px;
+}
+.deck-count {
+  color: var(--muted);
+}
+.deck-exit {
+  margin-left: auto;
+  appearance: none;
+  background: none;
+  border: 0;
+  font: inherit;
+  font-size: 13px;
+  color: var(--brand-strong);
+  cursor: pointer;
+  min-height: 34px;
+}
+
+.deck-stage {
+  position: relative;
+  min-height: 340px;
+}
+
+.deck-card {
+  position: absolute;
+  inset-inline: 0;
+  top: 0;
+}
+.deck-card-behind {
+  pointer-events: none;
+  opacity: 0.6;
+}
+.deck-card-top {
+  z-index: 20;
+  touch-action: pan-y;
+  cursor: grab;
+}
+.deck-card-top:active {
+  cursor: grabbing;
+}
+
+.deck-open {
+  display: block;
+  width: 100%;
+  appearance: none;
+  background: none;
+  border: 0;
+  padding: 0;
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+
+.deck-face {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  min-height: 320px;
+  padding: 18px;
+  border-radius: 16px;
+  background: var(--card);
+  border: 1px solid var(--border);
+  box-shadow:
+    0 1px 2px rgba(11, 13, 16, 0.06),
+    0 18px 40px -16px rgba(11, 13, 16, 0.28);
+}
+.deck-face-top {
+  display: flex;
+  align-items: baseline;
+  gap: 10px;
+}
+.deck-sender {
+  font-size: 15px;
+  font-weight: 500;
+  color: var(--fg-strong);
+}
+.deck-cat {
+  margin-left: auto;
+  color: var(--nav-muted);
+  text-align: right;
+}
+.deck-subject {
+  margin: 0;
+  font-size: 19px;
+  font-weight: 500;
+  line-height: 1.28;
+  letter-spacing: -0.015em;
+  color: var(--fg-strong);
+}
+.deck-why {
+  font-size: 14px;
+  line-height: 1.45;
+  color: var(--fg);
+}
+.deck-snippet {
+  font-size: 14px;
+  line-height: 1.5;
+  color: var(--muted);
+  overflow: hidden;
+  display: -webkit-box;
+  -webkit-line-clamp: 6;
+  -webkit-box-orient: vertical;
+}
+.deck-face-foot {
+  display: flex;
+  gap: 10px;
+  align-items: baseline;
+  margin-top: auto;
+  color: var(--nav-muted);
+  font-size: 12px;
+}
+.deck-held {
+  margin-left: auto;
+  color: var(--danger);
+  text-align: right;
+}
+
+/* The verdict is named on the card while the gesture is still reversible. */
+.deck-verdict {
+  position: absolute;
+  top: 18px;
+  z-index: 30;
+  padding: 5px 10px;
+  border-radius: 4px;
+  font-size: 12px;
+  font-weight: 500;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  color: #fff;
+  opacity: 0;
+  transition: opacity 0.12s ease;
+  pointer-events: none;
+}
+.deck-verdict[data-on="true"] {
+  opacity: 1;
+}
+.deck-verdict-clear {
+  right: 18px;
+  background: var(--danger);
+}
+.deck-verdict-keep {
+  left: 18px;
+  background: var(--brand-strong);
+}
+
+.deck-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+.deck-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  appearance: none;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  background: var(--card);
+  font: inherit;
+  font-size: 13px;
+  color: var(--fg);
+  padding: 8px 12px;
+  min-height: 40px;
+  cursor: pointer;
+}
+.deck-btn:hover {
+  background: var(--row-hover);
+}
+.deck-btn-primary {
+  background: var(--brand-cta);
+  border-color: var(--brand-cta);
+  color: var(--on-brand);
+}
+.deck-icon {
+  width: 15px;
+  height: 15px;
+}
+
+.deck-done {
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+  align-items: flex-start;
+  padding: 32px 16px;
+  max-width: 560px;
+  margin-inline: auto;
+}
+.deck-done-line {
+  font-size: 15px;
+  color: var(--fg);
+}

@@ -276,6 +276,7 @@ export function FolderList({
   onOpen,
   onPrefetch,
   onCommands,
+  onCards,
   initialSelectedIds,
 }: {
   view: MailboxView;
@@ -285,6 +286,8 @@ export function FolderList({
   onOpen: (row: MailboxRow) => void;
   onPrefetch: (conversationId: string) => void;
   onCommands: (commands: Command[]) => Promise<CommandResult[]>;
+  /** Deal this pile as cards instead of listing it. */
+  onCards?: () => void;
   /** Seeds the selection so the bulk toolbar can be rendered without a click. */
   initialSelectedIds?: string[];
 }) {
@@ -456,6 +459,11 @@ export function FolderList({
               Most likely to delete
             </button>
           </div>
+        )}
+        {onCards && (
+          <button type="button" className="mail-sort-option mail-focus-ring" onClick={onCards}>
+            Cards
+          </button>
         )}
       </header>
 
