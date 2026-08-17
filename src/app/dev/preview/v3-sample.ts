@@ -172,6 +172,7 @@ const view = (folder: MailboxFolder, sort: MailboxView["sort"] = "date"): Mailbo
   sort,
   rows: previewRows[folder],
   total: previewRows[folder].length,
+  needsYou: previewRows[folder].filter((row) => row.disposition === "undecided").length,
   nextCursor: null,
 });
 

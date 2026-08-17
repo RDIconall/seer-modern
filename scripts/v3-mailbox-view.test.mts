@@ -73,7 +73,7 @@ try {
     "2026-08-10T12:00:00Z",
     { unread: true, snippet: "needs read", attachments: ["brief.pdf"] },
   );
-  await seedConversation(
+  const inboxOld = await seedConversation(
     db.pool,
     accountId,
     "p-old",
@@ -116,9 +116,25 @@ try {
     dueDate: "2026-08-15",
   });
 
+  // The older thread is left the user to decide, so the ledger should count it.
+  await saveDecision({
+    accountId,
+    conversationId: inboxOld,
+    home: "undecided",
+    proposedHome: "delete",
+    summary: "Unclear",
+    rationale: "vetoed",
+    owner: "nobody",
+    vetoReasons: ["personal_greeting"],
+    yields: [],
+    evidence: [],
+  });
+
   const inbox = await getMailboxView(accountId, "inbox", 10);
   assert.equal(inbox.folder, "inbox");
   assert.equal(inbox.total, 2);
+  // needsYou is the whole-folder undecided count, not a page-local tally.
+  assert.equal(inbox.needsYou, 1, "the ledger counts undecided mail across the inbox");
   assert.equal(inbox.rows.length, 2);
   assert.equal(inbox.rows[0].subject, "New inbox thread");
   assert.equal(inbox.rows[0].senderDisplayName, "Alice");

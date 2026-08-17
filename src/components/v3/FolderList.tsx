@@ -307,11 +307,6 @@ export function FolderList({
     () => listEntries(view.rows, triage),
     [view.rows, triage],
   );
-  const needsYou = useMemo(
-    () => view.rows.filter((row) => row.disposition === "undecided").length,
-    [view.rows],
-  );
-
   const allIdsRef = useRef(allIds);
   allIdsRef.current = allIds;
   const [selection, dispatchSelection] = useReducer(
@@ -422,7 +417,7 @@ export function FolderList({
             // Sorted by what to do with it, the count that matters is not how
             // much mail there is but how much of it is still the user's problem.
             <p className="mail-list-ledger tabular">
-              {needsYou} need you · {view.total - needsYou} sorted
+              {view.needsYou} need you · {view.total - view.needsYou} sorted
               {refreshing ? " · Updating…" : ""}
             </p>
           ) : (

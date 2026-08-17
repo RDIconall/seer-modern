@@ -74,6 +74,16 @@ assert.equal(
 // A "Dear Sir" buried far down a quoted footer is not someone greeting you.
 assert.equal(personalGreeting(`${"filler ".repeat(120)}Dear Conall,`, ["conall"]), null);
 
+// The Microsoft external-sender banner lands in front of the greeting on the
+// same line. The salutation must still be found underneath it.
+assert.ok(
+  personalGreeting(
+    "You don't often get email from spalekar@gmail.com. Learn why this is important Hi Conall, this is Rachel's Dad.",
+    ["conall"],
+  ),
+  "the external-sender banner must not hide the greeting",
+);
+
 // --- machine addresses -------------------------------------------------------
 
 for (const address of [
@@ -83,14 +93,39 @@ for (const address of [
   "notifications@github.com",
   "mailer-daemon@example.com",
   "bounces@sendgrid.net",
+  // Broadcast identities: a mail-merge from one of these is not a letter.
+  "updates@frontapp.com",
+  "newsletter@labmanager.com",
+  "marketing@vendor.com",
+  "digest@substack.com",
 ]) {
   assert.ok(isMachineAddress(address), `${address} is a machine address`);
 }
 
 // Real people whose address reads like a role keep their protection.
-for (const address of ["spalekar@gmail.com", "support@acme.com", "info@lab.org"]) {
+for (const address of [
+  "spalekar@gmail.com",
+  "support@acme.com",
+  "info@lab.org",
+  "hello@startup.com",
+  "team@studio.com",
+]) {
   assert.ok(!isMachineAddress(address), `${address} must not be treated as a machine`);
 }
+
+// A mail-merge that opens "Hi Conall" from a broadcast address is not a letter.
+assert.ok(
+  !isHumanCorrespondence(
+    conversation([
+      message({
+        from: { email: "updates@frontapp.com", name: "Matt at Front" },
+        bodyText: "Hi Conall, which operational archetype is your team?",
+      }),
+    ]),
+    OWN,
+  ),
+  "a mail-merge greeting from a broadcast address is not human correspondence",
+);
 
 // --- the whole rule ----------------------------------------------------------
 

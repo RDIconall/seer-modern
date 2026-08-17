@@ -48,5 +48,12 @@ export type MailboxView = {
   sort: MailboxSort;
   rows: MailboxRow[];
   total: number;
+  /**
+   * How many conversations still need a decision from the user, counted over
+   * the whole inbox rather than the loaded page. The ledger reports this, and a
+   * page-local count read "0 need you" while seventy sat unloaded below the
+   * fold — the one number the ledger exists to give, wrong.
+   */
+  needsYou: number;
   nextCursor: string | null;
 };

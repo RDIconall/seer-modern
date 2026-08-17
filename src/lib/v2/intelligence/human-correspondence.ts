@@ -22,16 +22,41 @@ import { readableBody } from "./html-text";
  */
 
 /**
- * Addresses nobody greets you from. Kept deliberately narrow: matching too
- * eagerly here would strip the protection from real people whose address
- * happens to read like a role.
+ * Addresses a person does not write from. Two kinds: machines that never take a
+ * reply (no-reply, mailer-daemon), and broadcast identities a company sends its
+ * mail-merges under (updates@, newsletter@). The second kind is the one that
+ * matters here — a marketing blast that opens "Hi Conall" is not a letter, and
+ * without this it would be held back beside a real one and cheapen the pile
+ * that is meant to hold only real ones.
+ *
+ * Still deliberately narrow: "hello@", "team@" and "info@" are left off, because
+ * a small company's real person answers those.
  */
 const MACHINE_LOCAL_PART =
-  /^(no[-_.]?reply|do[-_.]?not[-_.]?reply|mailer[-_.]?daemon|postmaster|bounce[sd]?|notification[s]?|noreply|auto[-_.]?(reply|confirm|responder)|donotreply)\b/i;
+  /^(no[-_.]?reply|do[-_.]?not[-_.]?reply|donotreply|mailer[-_.]?daemon|postmaster|bounce[sd]?|notifications?|auto[-_.]?(reply|confirm|responder)|updates?|newsletters?|news|marketing|mailing|digest|campaigns?|noreply)\b/i;
 
 export function isMachineAddress(email: string | null | undefined): boolean {
   const local = (email ?? "").split("@")[0] ?? "";
   return MACHINE_LOCAL_PART.test(local.trim());
+}
+
+/**
+ * Boilerplate a client wraps around the real body. The one that matters is the
+ * Microsoft external-sender banner, which lands in front of the greeting on the
+ * same line — "You don't often get email from x. Learn why this is important
+ * Hi Conall" — and hides the salutation from a rule that reads the opening.
+ */
+const BANNERS: RegExp[] = [
+  /You don'?t often get email from[\s\S]*?Learn why this is important\s*/i,
+  /This (message|email) (was sent from|originated) (outside|from outside)[^\n]*/i,
+  /\[?\s*EXTERNAL(?:\s+EMAIL)?\s*\]?[:\-]?\s*/i,
+  /CAUTION:[^\n]*external[^\n]*/i,
+];
+
+function stripBoilerplate(text: string): string {
+  let cleaned = text;
+  for (const banner of BANNERS) cleaned = cleaned.replace(banner, " ");
+  return cleaned.replace(/\u00a0/g, " ").replace(/[ \t]+/g, " ");
 }
 
 /**
@@ -80,7 +105,7 @@ export function ownNames(
  */
 export function personalGreeting(text: string, names: string[]): string | null {
   if (names.length === 0) return null;
-  const opening = text.slice(0, 400);
+  const opening = stripBoilerplate(text).slice(0, 400);
   SALUTATION.lastIndex = 0;
   for (const match of opening.matchAll(SALUTATION)) {
     const addressed = normalise(match[3] ?? "");
