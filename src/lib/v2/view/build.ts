@@ -2,8 +2,12 @@ import { db } from "../db/pool";
 import type { AccountId } from "../db/types";
 import { nativeUrlFor } from "../providers/native-url";
 import type { ProviderKind } from "../providers/types";
+import { counterpartyOf } from "../intelligence/matter-key";
+import { UNFILED } from "../intelligence/functions";
+import { personName } from "./person-name";
 import { signDecisionToken } from "./token";
 import type {
+  AtlasSection,
   ConversationRow,
   Coverage,
   DeleteRow,
@@ -24,47 +28,96 @@ type DecisionRow = {
   provider_conversation_id: string;
   subject: string;
   from_email: string | null;
+  from_display: string | null;
   last_message_at: string | null;
   home: string;
   summary: string;
   owner: string;
+  ask: string | null;
   priority: number;
   due_date: string | null;
   veto_reasons: string[];
+  we_spoke_last: boolean;
   decision_id: string;
   matter_id: string | null;
+  function_name: string | null;
 };
+
+/** Who the work is with. Shown on a row; never what groups it. */
+function counterpartyLabel(fromEmail: string | null, ownDomain: string): string {
+  const counterparty = counterpartyOf(fromEmail ?? "", ownDomain);
+  if (!counterparty) return "";
+  if (counterparty === "internal") return "Internal";
+  return counterparty.charAt(0).toUpperCase() + counterparty.slice(1);
+}
 
 export async function buildInboxView(
   accountId: AccountId,
   provider: ProviderKind,
 ): Promise<InboxView> {
-  const rows = await db().query<DecisionRow>(
+  // Every read below depends only on the account id, so they are issued
+  // together. Awaited one at a time this was eight sequential round trips to
+  // Supabase, and the latency — not the queries, which are indexed and fast —
+  // was most of the time the user waited for Atlas.
+  const accountQuery = db().query<{ email: string }>(
+    "select email from seer.mail_accounts where id = $1",
+    [accountId],
+  );
+
+  const rowsQuery = db().query<DecisionRow>(
     `select c.id as conversation_id,
             c.provider_conversation_id,
             c.subject,
             c.last_message_at,
+            c.function_name,
             d.id as decision_id,
             d.home,
             d.summary,
             d.owner,
+            d.ask,
             d.priority,
             d.due_date,
             d.veto_reasons,
             d.matter_id,
             (select m.from_email from seer.messages m
               where m.conversation_id = c.id
-              order by m.sent_at desc nulls last limit 1) as from_email
+              order by m.sent_at desc nulls last limit 1) as from_email,
+            -- We wrote the most recent message and nobody has come back. That
+            -- is outreach awaiting a reply, not work that has stalled: nothing
+            -- is required of anyone here but the person who has not answered.
+            coalesce((select m.is_outgoing from seer.messages m
+              where m.conversation_id = c.id
+              order by m.sent_at desc nulls last limit 1), false) as we_spoke_last,
+            -- Show a person, not an address. The user's own contacts win, then
+            -- the name the provider carried on the message, and only then the
+            -- raw address — "billing@definitivehc.com" tells you nothing about
+            -- who is asking.
+            (select coalesce(
+                      nullif(p.display_name, ''),
+                      nullif(m.from_name, ''),
+                      m.from_email)
+               from seer.messages m
+               left join seer.people p
+                 on p.account_id = c.account_id and p.email = m.from_email
+              where m.conversation_id = c.id
+              order by m.sent_at desc nulls last limit 1) as from_display
        from seer.conversations c
        join seer.conversation_decisions d
-         on d.conversation_id = c.id and d.is_current
-      where c.account_id = $1 and c.is_deleted = false
+         on d.conversation_id = c.id
+        and d.account_id = c.account_id
+        and d.is_current
+      where c.account_id = $1
+        and c.is_deleted = false
+        -- The inbox shows the inbox. Sent, trash, archive, and messages the
+        -- provider filed to no folder at all are not inbox mail; without this
+        -- the list was roughly half junk.
+        and c.folders @> array['inbox']::text[]
       -- Loudest first; within a bucket, whatever is due soonest.
       order by d.priority desc, d.due_date asc nulls last, c.last_message_at desc nulls last`,
     [accountId],
   );
 
-  const yieldRows = await db().query<{
+  const yieldRowsQuery = db().query<{
     conversation_id: string;
     kind: string;
     headline: string;
@@ -73,31 +126,69 @@ export async function buildInboxView(
   }>(
     `select y.conversation_id, y.kind, y.headline, y.detail, m.title as matter_title
        from seer.yields y
-       left join seer.matters m on m.id = y.matter_id
-      where y.account_id = $1`,
+       join seer.conversation_decisions yd
+         on yd.id = y.decision_id
+        and yd.account_id = y.account_id
+        and yd.is_current
+       join seer.conversations c
+         on c.id = y.conversation_id
+        and c.account_id = y.account_id
+       left join seer.matters m on m.id = y.matter_id and m.account_id = y.account_id
+      where y.account_id = $1
+        and c.account_id = $1
+        and c.is_deleted = false
+        and c.folders @> array['inbox']::text[]`,
     [accountId],
   );
 
-  const matters = await db().query<{
+  const mattersQuery = db().query<{
     id: string;
     title: string;
+    short_title: string | null;
     status: string;
     org_unit: string | null;
+    function_name: string | null;
   }>(
-    "select id, title, status, org_unit from seer.matters where account_id = $1",
+    "select id, title, short_title, status, org_unit, function_name from seer.matters where account_id = $1",
     [accountId],
   );
+
+  // Registry order decides the order of sections and board columns, so the
+  // whiteboard reads the same way every time it is opened. Functions (parts of
+  // the business) come before topics (what a piece of mail is), so both the
+  // board and triage lead with the work and end with the noise.
+  const registryQuery = db().query<{ name: string }>(
+    `select name from seer.functions
+      where account_id = $1
+      order by case kind when 'function' then 0 else 1 end, position, name`,
+    [accountId],
+  );
+
+  const [account, rows, yieldRows, matters, registry, coverage] = await Promise.all([
+    accountQuery,
+    rowsQuery,
+    yieldRowsQuery,
+    mattersQuery,
+    registryQuery,
+    buildCoverage(accountId),
+  ]);
+
+  const ownDomain = (account.rows[0]?.email.split("@")[1] ?? "").toLowerCase();
 
   const toRow = (r: DecisionRow): ConversationRow => ({
     conversationId: r.conversation_id,
     providerConversationId: r.provider_conversation_id,
     subject: r.subject ?? "",
-    from: r.from_email ?? "",
+    from: personName(r.from_display) || r.from_email || "",
     at: r.last_message_at ?? "",
     summary: r.summary ?? "",
     owner: r.owner as ConversationRow["owner"],
     priority: r.priority ?? 0,
     dueDate: r.due_date ? new Date(r.due_date).toISOString().slice(0, 10) : null,
+    // Grouped by the part of the business, not by who it is with.
+    category: r.function_name ?? UNFILED,
+    counterparty: counterpartyLabel(r.from_email, ownDomain),
+    weSpokeLast: r.we_spoke_last ?? false,
     nativeUrl: nativeUrlFor(provider, r.provider_conversation_id),
   });
 
@@ -138,20 +229,37 @@ export async function buildInboxView(
     }
   }
 
-  const atlas: MatterCard[] = matters.rows.map((m) => {
+  const atlas: MatterCard[] = matters.rows
+    .map((m) => {
     const convs = matterConversations.get(m.id) ?? [];
+    if (convs.length === 0) return null;
     const cardYields = convs.flatMap(
       (c) => yieldsByConversation.get(c.conversationId) ?? [],
+    );
+    const best = rows.rows.find(
+      (row) => row.matter_id === m.id && row.home === "matter",
     );
     return {
       matterId: m.id,
       title: m.title,
+      shortTitle: m.short_title ?? m.title,
       status: m.status,
       orgUnit: m.org_unit,
+      section: m.function_name ?? UNFILED,
+      summary: best?.summary ?? convs[0]?.summary ?? "",
+      nextAction: best?.ask ?? "",
+      owner: (best?.owner ?? convs[0]?.owner ?? "nobody") as MatterCard["owner"],
+      dueDate: best?.due_date
+        ? new Date(best.due_date).toISOString().slice(0, 10)
+        : convs[0]?.dueDate ?? null,
       conversations: convs,
       yields: cardYields,
     };
-  });
+    })
+    .filter((matter): matter is MatterCard => matter !== null);
+
+  const functions = registry.rows.map((r) => r.name);
+  const sections = groupIntoSections(atlas, functions);
 
   const worthReading: YieldRow[] = yieldRows.rows
     .filter((y) => y.kind === "worth_reading")
@@ -163,12 +271,12 @@ export async function buildInboxView(
       matterTitle: y.matter_title,
     }));
 
-  const coverage = await buildCoverage(accountId);
-
   return {
     asOf: new Date().toISOString(),
     coverage,
     atlas,
+    sections,
+    functions,
     records,
     safeToDelete,
     undecided,
@@ -176,20 +284,56 @@ export async function buildInboxView(
   };
 }
 
+/**
+ * Group matters into whiteboard sections.
+ *
+ * Registry order comes first so the board's columns never reshuffle. Empty
+ * sections are dropped — an executive's board should not be mostly blank
+ * shelves — and anything unfiled sorts last, where it reads as a to-do rather
+ * than as a category of work.
+ */
+export function groupIntoSections(
+  matters: MatterCard[],
+  registry: string[],
+): AtlasSection[] {
+  const bySection = new Map<string, MatterCard[]>();
+  for (const matter of matters) {
+    const list = bySection.get(matter.section) ?? [];
+    list.push(matter);
+    bySection.set(matter.section, list);
+  }
+
+  const ordered: string[] = [
+    ...registry.filter((name) => bySection.has(name)),
+    // Sections not in the registry (renamed, or legacy) keep a stable place.
+    ...[...bySection.keys()]
+      .filter((name) => !registry.includes(name) && name !== UNFILED)
+      .sort(),
+    ...(bySection.has(UNFILED) ? [UNFILED] : []),
+  ];
+
+  return ordered.map((name) => ({
+    name,
+    matters: bySection.get(name) ?? [],
+  }));
+}
+
 async function buildCoverage(accountId: AccountId): Promise<Coverage> {
-  const state = await db().query<{ provider_total: number }>(
-    "select provider_total from seer.sync_state where account_id = $1",
-    [accountId],
-  );
-  const stored = await db().query<{ n: number }>(
-    "select count(*)::int as n from seer.conversations where account_id = $1 and is_deleted = false",
-    [accountId],
-  );
-  const read = await db().query<{ n: number }>(
-    `select count(*)::int as n from seer.conversation_decisions
-      where account_id = $1 and is_current and home <> 'undecided'`,
-    [accountId],
-  );
+  const [state, stored, read] = await Promise.all([
+    db().query<{ provider_total: number }>(
+      "select provider_total from seer.sync_state where account_id = $1",
+      [accountId],
+    ),
+    db().query<{ n: number }>(
+      "select count(*)::int as n from seer.conversations where account_id = $1 and is_deleted = false",
+      [accountId],
+    ),
+    db().query<{ n: number }>(
+      `select count(*)::int as n from seer.conversation_decisions
+        where account_id = $1 and is_current and home <> 'undecided'`,
+      [accountId],
+    ),
+  ]);
   const providerTotal = state.rows[0]?.provider_total ?? 0;
   const storedCount = stored.rows[0]?.n ?? 0;
   return {

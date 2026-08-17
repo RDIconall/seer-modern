@@ -9,6 +9,16 @@
 
 create schema if not exists seer;
 
+-- Least-privilege application role. The server connects as `seer_app` in
+-- production; migrations grant DML on each table and add an explicit RLS
+-- policy so the role can work without bypassing RLS.
+do $$
+begin
+  if not exists (select 1 from pg_roles where rolname = 'seer_app') then
+    create role seer_app login noinherit;
+  end if;
+end $$;
+
 -- Lock the schema down where the Data-API roles exist; no-op elsewhere.
 do $$
 begin

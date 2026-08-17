@@ -5,6 +5,8 @@
 import assert from "node:assert/strict";
 import { runProviderContract, type ContractHarness } from "../src/lib/v2/providers/contract.ts";
 import { GmailProvider } from "../src/lib/v2/providers/gmail.ts";
+import { isProviderReconcileError } from "../src/lib/v2/providers/mutation-idempotent.ts";
+import { ProviderHttpError } from "../src/lib/v2/providers/http.ts";
 
 function b64url(s: string): string {
   return Buffer.from(s, "utf8").toString("base64").replace(/\+/g, "-").replace(/\//g, "_").replace(/=+$/, "");
@@ -52,6 +54,33 @@ const THREADS: Record<string, { id: string; messages: ReturnType<typeof gmailMes
     id: "c2",
     messages: [gmailMessage("c2-m1", 1_600_000_100_000, "vendor@roche.com", "Roche pricing")],
   },
+  c3: {
+    id: "c3",
+    messages: [
+      {
+        ...gmailMessage("c3-m1", 1_600_000_100_000, "sender@example.com", "Already archived"),
+        labelIds: ["ARCHIVE"],
+      },
+    ],
+  },
+  s0: {
+    id: "s0",
+    messages: [
+      gmailMessage("s0-m2", 1_600_000_300_000, "me@example.com", "Sent thread"),
+      gmailMessage("s0-m1", 1_600_000_250_000, "me@example.com", "Sent thread"),
+    ],
+  },
+  s1: {
+    id: "s1",
+    messages: [gmailMessage("s1-m1", 1_600_000_200_000, "me@example.com", "Sent one")],
+  },
+  t0: {
+    id: "t0",
+    messages: [
+      gmailMessage("t0-m2", 1_600_000_400_000, "sender@example.com", "Trash thread"),
+      gmailMessage("t0-m1", 1_600_000_350_000, "sender@example.com", "Trash thread"),
+    ],
+  },
 };
 
 let lastSendRaw = "";
@@ -67,6 +96,15 @@ const mockFetch = (async (url: string, init?: RequestInit) => {
     if (query.includes("Roche")) {
       return json({ threads: [{ id: "c2" }], resultSizeEstimate: 1 });
     }
+    if (query.includes("in:sent")) {
+      if (!pageToken) {
+        return json({ threads: [{ id: "s0" }], nextPageToken: "p2", resultSizeEstimate: 2 });
+      }
+      return json({ threads: [{ id: "s1" }], resultSizeEstimate: 2 });
+    }
+    if (query.includes("in:trash")) {
+      return json({ threads: [{ id: "t0" }], resultSizeEstimate: 1 });
+    }
     // in:inbox — paginate 3 threads at pageSize 2.
     if (!pageToken) {
       return json({ threads: [{ id: "c0" }, { id: "c1" }], nextPageToken: "p2", resultSizeEstimate: 3 });
@@ -76,7 +114,11 @@ const mockFetch = (async (url: string, init?: RequestInit) => {
 
   const threadGet = u.match(/\/threads\/([^?]+)\?format=full/);
   if (method === "GET" && threadGet) {
-    const t = THREADS[decodeURIComponent(threadGet[1])];
+    const threadId = decodeURIComponent(threadGet[1]);
+    if (threadId === "missing-thread") {
+      return new Response("not found", { status: 404 });
+    }
+    const t = THREADS[threadId];
     return json({ id: t.id, messages: t.messages });
   }
 
@@ -96,6 +138,7 @@ const mockFetch = (async (url: string, init?: RequestInit) => {
   const modify = u.match(/\/messages\/([^/]+)\/modify$/);
   if (method === "POST" && modify) {
     if (modify[1] === "c1-m2") return new Response("nope", { status: 400 });
+    if (modify[1] === "gone-m1") return new Response("gone", { status: 404 });
     return json({ id: modify[1] });
   }
 
@@ -121,6 +164,10 @@ async function makeHarness(): Promise<ContractHarness> {
     partialFailThreadId: "c1",
     searchTerm: "Roche",
     expectedInboxTotal: 3,
+    expectedSentTotal: 2,
+    expectedTrashTotal: 1,
+    sentThreadId: "s0",
+    trashThreadId: "t0",
   };
 }
 
@@ -145,5 +192,39 @@ await provider.reply({ conversationId: "c0", all: true, bodyHtml: "<p>ok</p>" },
 assert.match(lastSendRaw, /To: .*sender@example\.com/);
 assert.match(lastSendRaw, /cc@example\.com/);
 assert.ok(!/To:.*\bme@example\.com\b/.test(lastSendRaw), "must not reply to self");
+
+// Forward includes Outlook-style quoted thread content in the outbound MIME body.
+await provider.forward(
+  { conversationId: "c0", to: [{ email: "fwd@example.com" }], bodyHtml: "<p>see below</p>" },
+  "fwd-k",
+);
+assert.match(lastSendRaw, /Fwd: Thread zero/);
+assert.match(lastSendRaw, /seer-quote/);
+assert.match(lastSendRaw, /<strong>From:<\/strong>/);
+assert.match(lastSendRaw, /see below/);
+assert.match(lastSendRaw, /<p>body<\/p>/);
+
+// State-setting idempotency: already-archived threads and 404-after-move are no-ops.
+const archived = await provider.mutateConversation("c3", "archive", "idem-1");
+assert.equal(archived.failed.length, 0);
+assert.equal(archived.processed.length, 1);
+const archivedAgain = await provider.mutateConversation("c3", "archive", "idem-2");
+assert.equal(archivedAgain.failed.length, 0);
+
+THREADS.gone = {
+  id: "gone",
+  messages: [gmailMessage("gone-m1", 1_600_000_100_000, "sender@example.com", "Gone")],
+};
+const gone = await provider.mutateConversation("gone", "archive", "idem-3");
+assert.equal(gone.failed.length, 0);
+assert.equal(gone.processed.length, 1);
+
+// Initial thread fetch 404 is ambiguous — must throw reconcile error, not no-op receipt.
+await assert.rejects(
+  () => provider.mutateConversation("missing-thread", "archive", "idem-missing"),
+  (err: unknown) =>
+    isProviderReconcileError(err) ||
+    (err instanceof ProviderHttpError && err.status === 404),
+);
 
 console.log("v2-provider-gmail: OK");

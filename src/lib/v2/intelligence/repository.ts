@@ -50,9 +50,38 @@ export async function saveDecision(
     throw new Error("decision requires a model version");
   }
   return inTransaction(async (client) => {
+    const conversation = await client.query(
+      `select 1
+         from seer.conversations
+        where id = $1 and account_id = $2
+        for update`,
+      [input.conversationId, input.accountId],
+    );
+    if ((conversation.rowCount ?? 0) === 0) {
+      throw new Error("conversation does not belong to account");
+    }
+
+    const matterIds = [
+      input.matterId,
+      ...input.yields.map((yieldValue) => yieldValue.matterId ?? null),
+    ].filter((id): id is string => Boolean(id));
+    if (matterIds.length > 0) {
+      const matters = await client.query(
+        `select id
+           from seer.matters
+          where account_id = $1 and id = any($2::uuid[])`,
+        [input.accountId, matterIds],
+      );
+      if (matters.rowCount !== new Set(matterIds).size) {
+        throw new Error("matter does not belong to account");
+      }
+    }
+
     await client.query(
-      "update seer.conversation_decisions set is_current = false where conversation_id = $1 and is_current",
-      [input.conversationId],
+      `update seer.conversation_decisions
+          set is_current = false
+        where account_id = $1 and conversation_id = $2 and is_current`,
+      [input.accountId, input.conversationId],
     );
 
     const decided = new Date().toISOString();
@@ -139,7 +168,7 @@ export async function saveDecision(
 export async function ensureMatter(
   accountId: AccountId,
   title: string,
-  tie?: { text: string; counterparty: string },
+  tie?: { text: string; counterparty: string; own?: Set<string> },
 ): Promise<string> {
   const clean = title.trim().slice(0, 120) || "Untitled matter";
   return inTransaction(async (client) => {
@@ -152,22 +181,24 @@ export async function ensureMatter(
         title: string;
         counterparty: string | null;
         codes: string[] | null;
+        title_source: string | null;
       }>(
-        `select m.id, m.title, m.org_unit as counterparty,
+        `select m.id, m.title, m.org_unit as counterparty, m.title_source,
                 array_remove(array_agg(distinct mc.code), null) as codes
            from seer.matters m
            left join seer.matter_codes mc on mc.matter_id = m.id
           where m.account_id = $1 and m.status <> 'closed'
-          group by m.id, m.title, m.org_unit`,
+          group by m.id, m.title, m.org_unit, m.title_source`,
         [accountId],
       );
       const match = resolveMatterMatch(
-        { title: clean, text: tie.text, counterparty: tie.counterparty },
+        { title: clean, text: tie.text, counterparty: tie.counterparty, own: tie.own },
         open.rows.map((r) => ({
           matterId: r.id,
           title: r.title,
           codes: r.codes ?? [],
           counterparty: r.counterparty ?? "",
+          userAuthored: r.title_source === "user",
         })),
       );
       if (match) {
@@ -247,19 +278,28 @@ export async function findMatterByRef(
 
 /** Link a conversation to a matter (idempotent). */
 export async function linkConversationToMatter(
+  accountId: AccountId,
   matterId: string,
   conversationId: ConversationId,
   source: "inferred" | "user" = "inferred",
 ): Promise<void> {
   const { db } = await import("../db/pool");
-  await db().query(
+  const result = await db().query(
     `insert into seer.matter_conversations (matter_id, conversation_id, link_source)
-       values ($1, $2, $3) on conflict do nothing`,
-    [matterId, conversationId, source],
+       select m.id, c.id, $3
+         from seer.matters m
+         join seer.conversations c on c.id = $2 and c.account_id = $1
+        where m.id = $4 and m.account_id = $1
+       on conflict do nothing`,
+    [accountId, conversationId, source, matterId],
   );
+  if ((result.rowCount ?? 0) === 0) {
+    throw new Error("matter or conversation does not belong to account");
+  }
 }
 
 export async function currentDecision(
+  accountId: AccountId,
   conversationId: ConversationId,
 ): Promise<ConversationDecision | null> {
   const { db } = await import("../db/pool");
@@ -267,8 +307,8 @@ export async function currentDecision(
     `select id, conversation_id, home, proposed_home, summary, rationale, owner,
             ask, matter_id, veto_reasons, model_version, context_version, decided_at
        from seer.conversation_decisions
-      where conversation_id = $1 and is_current`,
-    [conversationId],
+      where account_id = $1 and conversation_id = $2 and is_current`,
+    [accountId, conversationId],
   );
   const row = r.rows[0];
   if (!row) return null;

@@ -1,7 +1,7 @@
 import type { AccountId, ConversationId } from "../db/types";
 import type { Conversation } from "../providers/types";
 import { compileContext, type ContextInput } from "./context";
-import { counterpartyOf, matterNameFrom } from "./matter-key";
+import { counterpartyOf, matterNameFrom, ownTokens } from "./matter-key";
 import {
   addressedDirectly,
   computeSalience,
@@ -14,6 +14,7 @@ import {
   saveDecision,
 } from "./repository";
 import { validateDelete, type SafetyFacts } from "./safety";
+import { isHumanCorrespondence } from "./human-correspondence";
 import {
   CONTEXT_VERSION,
   MODEL_VERSION,
@@ -64,6 +65,7 @@ function factsFrom(
   read: ReadResult,
   compiled: { senderIsKnown: boolean; senderIsInternal: boolean; candidateMatterId: string | null },
   hadCompleteContext: boolean,
+  isHuman: boolean,
 ): SafetyFacts {
   const openAsk = Boolean(read.ask && !/^\s*nothing/i.test(read.ask));
   return {
@@ -77,6 +79,7 @@ function factsFrom(
     // moment of saving they are guaranteed present.
     yieldPersisted: true,
     hadCompleteContext,
+    isHumanCorrespondence: isHuman,
   };
 }
 
@@ -135,7 +138,12 @@ export async function readConversation(
     });
   }
 
-  const facts = factsFrom(read, compiled, true);
+  const facts = factsFrom(
+    read,
+    compiled,
+    true,
+    isHumanCorrespondence(input.conversation, input.context.ownEmail),
+  );
   const safety = validateDelete(read, facts);
 
   // Grounded salience: how loudly this should raise its hand, from facts —
@@ -167,12 +175,15 @@ export async function readConversation(
       input.conversation.messages[input.conversation.messages.length - 1]?.from.email ?? "",
       input.context.ownDomain,
     );
+    // The user's own name and company identify nothing: they are in every
+    // matter on this desk, so they neither name work nor tie it together.
+    const own = ownTokens(input.context.ownEmail ?? `x@${input.context.ownDomain}`);
     matterId = await ensureMatter(
       input.accountId,
-      matterNameFrom(read.matterRef, input.conversation.subject, counterparty, tieText),
-      { text: tieText, counterparty },
+      matterNameFrom(read.matterRef, input.conversation.subject, counterparty, tieText, own),
+      { text: tieText, counterparty, own },
     );
-    await linkConversationToMatter(matterId, input.conversationId);
+    await linkConversationToMatter(input.accountId, matterId, input.conversationId);
   }
 
   // Attach extracted meaning to the matter it names, so a development lands on

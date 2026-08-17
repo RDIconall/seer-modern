@@ -1,0 +1,136 @@
+/**
+ * Inbox triage sort: group headings, token-gated delete, and select-all
+ * indeterminate state — all rendered from server-shaped mailbox rows.
+ */
+import assert from "node:assert/strict";
+import { promises as fs } from "node:fs";
+import { createElement } from "react";
+import { renderToString } from "react-dom/server";
+import { FolderList } from "../src/components/v3/FolderList.tsx";
+import {
+  v3Preview,
+  v3TriageInboxView,
+} from "../src/app/dev/preview/v3-sample.ts";
+
+const noop = async () => [{ ok: true, replayed: false }];
+
+const dateHtml = renderToString(
+  createElement(FolderList, {
+    view: v3Preview.mailbox.inbox,
+    refreshing: false,
+    sort: "date",
+    onSortChange: () => {},
+    onOpen: () => {},
+    onPrefetch: () => {},
+    onCommands: noop,
+  }),
+);
+
+assert.match(dateHtml, /Date/);
+assert.match(dateHtml, /Most likely to delete/);
+assert.doesNotMatch(dateHtml, /Ready to clear/);
+assert.doesNotMatch(dateHtml, /Filed for the record/);
+assert.doesNotMatch(dateHtml, /Not read yet/);
+assert.match(dateHtml, /No preview available|Automated product usage digest|countersignature/i);
+
+const triageHtml = renderToString(
+  createElement(FolderList, {
+    view: v3TriageInboxView,
+    refreshing: false,
+    sort: "triage",
+    onSortChange: () => {},
+    onOpen: () => {},
+    onPrefetch: () => {},
+    onCommands: noop,
+  }),
+);
+
+assert.match(triageHtml, /Ready to clear/);
+assert.match(triageHtml, /Filed for the record/);
+assert.match(triageHtml, /Needs you/);
+assert.match(triageHtml, /Live matters/);
+assert.match(triageHtml, /Not read yet/);
+
+/**
+ * The clear pile says what it will not take. A user about to sweep several
+ * dozen things needs to see that a letter written to them by name was held
+ * back, and by whom — the reassurance is worthless if it is generic.
+ */
+assert.match(triageHtml, /mail-list-held/, "the clear pile carries the held-back note");
+assert.match(triageHtml, /Sadanand Palekar/, "the held-back note names the sender");
+assert.match(triageHtml, /never swept/);
+// It belongs to the pile it was pulled out of, not to the pile it landed in.
+const heldAt = triageHtml.indexOf("mail-list-held");
+const needsYouAt = triageHtml.indexOf("Needs you");
+assert.ok(heldAt > -1 && needsYouAt > -1 && heldAt < needsYouAt,
+  "the note sits under the clear pile, above Needs you");
+assert.match(triageHtml, /Seer cleared these for deletion/);
+assert.match(triageHtml, /IT &amp; software notices|IT & software notices/);
+assert.match(triageHtml, /Routine vendor digest/);
+
+// A row without a delete token must not expose a per-row Delete control.
+assert.match(triageHtml, /aria-label="Delete Your Monthly Scribe Activity"/);
+assert.doesNotMatch(
+  triageHtml,
+  /aria-label="Delete Invoice received/,
+  "record rows must not render a delete affordance without a token",
+);
+assert.doesNotMatch(
+  triageHtml,
+  /aria-label="Delete RMS Amendment/,
+  "matter rows must not render a delete affordance without a token",
+);
+
+const mixedHtml = renderToString(
+  createElement(FolderList, {
+    view: v3TriageInboxView,
+    refreshing: false,
+    sort: "triage",
+    onSortChange: () => {},
+    onOpen: () => {},
+    onPrefetch: () => {},
+    onCommands: noop,
+    // One row Seer cleared for deletion, one it did not.
+    initialSelectedIds: ["preview-c-delete", "preview-c-record"],
+  }),
+);
+assert.match(
+  mixedHtml,
+  /data-state="some"/,
+  "select-all must reach the indeterminate state for a partial selection",
+);
+assert.match(mixedHtml, /2(?:<!-- -->)? selected/);
+assert.match(
+  mixedHtml,
+  /Delete(?:<!-- -->)* \(1\)/,
+  "Delete must count only the rows it is authorised to act on",
+);
+assert.match(
+  mixedHtml,
+  /aren’t cleared for deletion/,
+  "a mixed selection must say how much of it Delete will skip",
+);
+
+console.log("v3-inbox-triage-ui: OK");
+
+/**
+ * The inbox opens triaged.
+ *
+ * Everything above — the piles, the ledger, the held-back note, the row that
+ * says what a message means rather than quoting its first line — hangs off this
+ * sort. Shipped behind a toggle nobody flips, it may as well not exist, and for
+ * a while it did not: the inbox looked exactly as it always had.
+ */
+const clientSource = await fs.readFile("src/components/v3/MailClient.tsx", "utf8");
+assert.match(
+  clientSource,
+  /useState<MailboxSort>\(\s*preview\?\.mailbox\.inbox\.sort \?\? "triage"/,
+  "the inbox must open sorted by what to do with the mail",
+);
+// Whichever sort is the default is the one the hash leaves out, so the other
+// one survives a reload.
+assert.match(
+  clientSource,
+  /if \(sort !== "triage"\) params\.set\("sort", sort\)/,
+  "date has to be written to the hash now that triage is the default",
+);

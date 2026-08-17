@@ -1,7 +1,7 @@
 /**
- * Task 1 gate: the committed migrations produce the full v2 relational model
- * in the private `seer` schema, with RLS enabled on every account-scoped
- * table. Runs against a throwaway embedded Postgres.
+ * v2 schema gate: the committed v2 migrations produce the expected relational
+ * model in the private `seer` schema, with RLS enabled on every account-scoped
+ * v2 table. v3 additions are gated separately in v3-schema.test.mts.
  */
 import assert from "node:assert/strict";
 import { startTestDb } from "./v2-testdb.mts";
@@ -26,6 +26,7 @@ const EXPECTED_TABLES = [
   "sync_state",
   "sync_runs",
   "model_usage",
+  "functions",
 ].sort();
 
 const RLS_TABLES = [
@@ -40,6 +41,7 @@ const RLS_TABLES = [
   "yields",
   "events",
   "model_usage",
+  "functions",
 ];
 
 const db = await startTestDb();
@@ -47,11 +49,10 @@ try {
   const tables = await db.pool.query<{ table_name: string }>(
     "select table_name from information_schema.tables where table_schema = 'seer' order by table_name",
   );
-  assert.deepEqual(
-    tables.rows.map((r) => r.table_name).sort(),
-    EXPECTED_TABLES,
-    "seer schema must contain exactly the v2 core tables",
-  );
+  const actual = tables.rows.map((r) => r.table_name);
+  for (const t of EXPECTED_TABLES) {
+    assert.ok(actual.includes(t), `seer schema must include v2 table ${t}`);
+  }
 
   const rls = await db.pool.query<{ relname: string; relrowsecurity: boolean }>(
     `select c.relname, c.relrowsecurity

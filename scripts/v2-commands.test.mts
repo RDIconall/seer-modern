@@ -23,11 +23,14 @@ function fakeMsg(id: string, fail = false): Message & { folder: "inbox"; failMut
 
 async function addConversation(
   pool: import("pg").Pool, accountId: AccountId, providerId: string,
+  folders: string[] = ["inbox"],
 ) {
   const c = await pool.query<{ id: string }>(
-    `insert into seer.conversations (account_id, provider_conversation_id, subject)
-       values ($1, $2, 'S') returning id`,
-    [accountId, providerId],
+    `insert into seer.conversations
+       (account_id, provider_conversation_id, subject, folders, is_unread)
+     values ($1, $2, 'S', $3::text[], false)
+     returning id`,
+    [accountId, providerId, folders],
   );
   return asConversationId(c.rows[0].id);
 }
@@ -52,20 +55,27 @@ try {
   });
   const token = signDecisionToken(decision.id, cDel);
 
-  // Valid delete: acts on the whole thread and records a receipt.
+  // Valid delete enqueues trash optimistically — provider drain happens later.
   const del = await executeCommand(ctx, { type: "delete", conversationId: cDel, deleteToken: token }, "key-del-1");
   assert.equal(del.ok, true);
-  assert.deepEqual(del.processed, ["pc-del-m1"]);
+  assert.equal(del.optimistic, true);
+  assert.match(del.outboxId ?? "", /^[0-9a-f-]{36}$/);
+  const delFolders = await db.pool.query<{ folders: string[] }>(
+    "select folders from seer.conversations where id = $1",
+    [cDel],
+  );
+  assert.deepEqual(delFolders.rows[0].folders.sort(), ["trash"]);
 
-  // Replay returns the same result, marked replayed, without re-acting.
+  // Replay returns the same result, marked replayed, without re-enqueueing.
   const replay = await executeCommand(ctx, { type: "delete", conversationId: cDel, deleteToken: token }, "key-del-1");
   assert.equal(replay.replayed, true);
   assert.equal(replay.ok, true);
-  const events = await db.pool.query(
-    "select count(*)::int as n from seer.events where account_id = $1 and kind = 'mail_trash'",
+  assert.equal(replay.outboxId, del.outboxId);
+  const outboxRows = await db.pool.query(
+    "select count(*)::int as n from seer.outbox where account_id = $1 and idempotency_key = 'key-del-1'",
     [accountId],
   );
-  assert.equal(events.rows[0].n, 1, "replay must not record a second action");
+  assert.equal(outboxRows.rows[0].n, 1, "replay must not create a second outbox row");
 
   // Invalid token is rejected.
   const bad = await executeCommand(ctx, { type: "delete", conversationId: cDel, deleteToken: "garbage.token.here" }, "key-bad");
@@ -93,18 +103,22 @@ try {
   assert.equal(refused.ok, false);
   assert.match(refused.error ?? "", /no longer authorizes delete/);
 
-  // Partial provider failure surfaces on archive (pc-partial has a failing msg).
+  // Archive enqueues optimistically; provider partial failure is handled at drain.
   const arch = await executeCommand(ctx, { type: "archive", conversationId: cKeep }, "key-arch");
-  assert.equal(arch.ok, false);
-  assert.deepEqual(arch.failed, ["pc-partial-m2"]);
-  assert.deepEqual(arch.processed, ["pc-partial-m1"]);
+  assert.equal(arch.ok, true);
+  assert.equal(arch.optimistic, true);
+  const archFolders = await db.pool.query<{ folders: string[] }>(
+    "select folders from seer.conversations where id = $1",
+    [cKeep],
+  );
+  assert.deepEqual(archFolders.rows[0].folders.sort(), ["archive"]);
 
   // Correction supersedes the model decision and is not second-guessed.
   const corrected = await executeCommand(
     ctx, { type: "correctConversation", conversationId: cKeep, home: "matter", note: "this is live" }, "key-correct",
   );
   assert.equal(corrected.ok, true);
-  const now = await currentDecision(cKeep);
+  const now = await currentDecision(accountId, cKeep);
   assert.equal(now?.home, "matter");
   assert.equal(now?.modelVersion, "user-correction");
 

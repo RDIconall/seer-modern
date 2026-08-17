@@ -1,7 +1,13 @@
 import { NextResponse } from "next/server";
 import { listAllAccounts } from "@/lib/v2/db/list-accounts";
 import { providerFor } from "@/lib/v2/providers/provider";
-import { syncAccount } from "@/lib/v2/sync/engine";
+import {
+  activeSyncFolders,
+  defaultSyncBudget,
+  syncTickRoundRobin,
+  type SyncAccountEntry,
+} from "@/lib/v2/sync/report";
+import { drainOutbox } from "@/lib/v3/outbox/drain";
 
 export const maxDuration = 300;
 
@@ -33,17 +39,36 @@ export async function GET(request: Request) {
 
   const accounts = await listAllAccounts();
   const report: Record<string, unknown>[] = [];
+  const tickStarted = Date.now();
+  const syncBudget = defaultSyncBudget(tickStarted);
+  const activeFolders = activeSyncFolders();
+  const entries: SyncAccountEntry[] = [];
+
   for (const account of accounts) {
+    let provider;
     try {
-      const provider = await providerFor(account);
-      const run = await syncAccount(account.id, provider, mode);
-      report.push({ email: account.email, traceId: run.traceId, ...run.coverage });
+      provider = await providerFor(account);
     } catch (e) {
       report.push({
         email: account.email,
         error: e instanceof Error ? e.message.slice(0, 160) : "sync failed",
       });
+      continue;
     }
+    const outbox = await drainOutbox(account.id, provider);
+    report.push({ email: account.email, outbox });
+    entries.push({ account, provider });
   }
+
+  if (entries.length > 0 && syncBudget.deadlineMs !== undefined) {
+    report.push(
+      ...(await syncTickRoundRobin(entries, mode, activeFolders, {
+        deadlineMs: syncBudget.deadlineMs,
+        tickSlot: syncBudget.tickSlot,
+        rounds: syncBudget.rounds,
+      })),
+    );
+  }
+
   return NextResponse.json({ ok: true, mode, report });
 }

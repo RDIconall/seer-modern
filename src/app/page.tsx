@@ -5,7 +5,7 @@ import {
   SessionExpiredScreen,
 } from "@/components/auth/AuthScreens";
 import { DesktopMailApp } from "@/components/inbox/DesktopMailApp";
-import { MailApp } from "@/components/v2/MailApp";
+import { MailClient } from "@/components/v3/MailClient";
 import { isV2Enabled } from "@/lib/v2/session";
 
 export default async function DesktopHome() {
@@ -19,10 +19,10 @@ export default async function DesktopHome() {
     return <DesktopLoginScreen />;
   }
 
-  // Cutover flag: allowlisted accounts get the v2 experience; everyone else
+  // Cutover flag: allowlisted accounts get the V3 client; everyone else
   // stays on the current app until the shadow gate clears.
   if (isV2Enabled(session.user.email)) {
-    return <MailApp />;
+    return <MailClient />;
   }
 
   return (

@@ -21,6 +21,7 @@ import {
  */
 
 export type MailProviderKind = "google" | "microsoft";
+export type CredentialStatus = "active" | "reconnect_required";
 
 export type MailAccount = {
   id: AccountId;
@@ -28,6 +29,7 @@ export type MailAccount = {
   provider: MailProviderKind;
   email: string;
   displayName: string | null;
+  status: CredentialStatus;
 };
 
 export type ProviderCredential = {
@@ -38,6 +40,65 @@ export type ProviderCredential = {
 };
 
 type Runner = Pool | PoolClient;
+
+/** OAuth providers use seconds while the application uses epoch milliseconds. */
+export function normalizeEpochMs(value: number | undefined | null): number | undefined {
+  if (value == null || !Number.isFinite(value) || value <= 0) return undefined;
+  return value < 1e12 ? value * 1000 : value;
+}
+
+function credentialPayload(
+  accountId: AccountId,
+  cred: { accessToken?: string; refreshToken?: string },
+  existing: Record<string, EncryptedValue> = {},
+): Record<string, EncryptedValue> {
+  const payload = { ...existing };
+  if (cred.accessToken) {
+    payload.accessToken = encryptCredential(cred.accessToken, accountId);
+  }
+  if (cred.refreshToken) {
+    payload.refreshToken = encryptCredential(cred.refreshToken, accountId);
+  }
+  return payload;
+}
+
+async function saveCredentialsWithRunner(
+  runner: Runner,
+  accountId: AccountId,
+  provider: MailProviderKind,
+  cred: { accessToken?: string; refreshToken?: string; expiresAt?: number },
+): Promise<void> {
+  const current = await runner.query<{
+    ciphertext: Record<string, EncryptedValue>;
+    expires_at: Date | null;
+  }>(
+    `select ciphertext, expires_at
+       from seer.oauth_credentials
+      where account_id = $1
+      for update`,
+    [accountId],
+  );
+  const existing = current.rows[0];
+  const payload = credentialPayload(accountId, cred, existing?.ciphertext);
+  const expiresMs =
+    normalizeEpochMs(cred.expiresAt) ??
+    (existing?.expires_at ? existing.expires_at.getTime() : undefined);
+
+  await runner.query(
+    `insert into seer.oauth_credentials
+       (account_id, provider, ciphertext, expires_at, version, rotated_at, status, last_error)
+       values ($1, $2, $3::jsonb, to_timestamp($4), 1, now(), 'active', null)
+       on conflict (account_id) do update
+         set provider = excluded.provider,
+             ciphertext = excluded.ciphertext,
+             expires_at = excluded.expires_at,
+             version = seer.oauth_credentials.version + 1,
+             rotated_at = now(),
+             status = 'active',
+             last_error = null`,
+    [accountId, provider, JSON.stringify(payload), expiresMs ? expiresMs / 1000 : null],
+  );
+}
 
 export async function upsertUser(email: string): Promise<UserId> {
   const r = await db().query<{ id: string }>(
@@ -67,14 +128,68 @@ export async function upsertAccount(input: {
   return asAccountId(r.rows[0].id);
 }
 
+/**
+ * Persist an OAuth callback atomically. The account row and its encrypted
+ * credential row are committed together, and a provider/email conflict can
+ * never be reassigned to a different user.
+ */
+export async function upsertAccountWithCredentials(input: {
+  userId: UserId;
+  provider: MailProviderKind;
+  email: string;
+  displayName?: string | null;
+  accessToken?: string;
+  refreshToken?: string;
+  expiresAt?: number;
+}): Promise<MailAccount> {
+  return inTransaction(async (client) => {
+    const accountResult = await client.query(
+      `insert into seer.mail_accounts (user_id, provider, email, display_name)
+         values ($1, $2, $3, $4)
+         on conflict (provider, email) do update
+           set display_name = coalesce(excluded.display_name, seer.mail_accounts.display_name),
+               updated_at = now()
+         where seer.mail_accounts.user_id = $1
+         returning id, user_id, provider, email, display_name`,
+      [
+        input.userId,
+        input.provider,
+        input.email.toLowerCase(),
+        input.displayName ?? null,
+      ],
+    );
+    if (accountResult.rowCount === 0) {
+      throw new Error("mail account belongs to another user");
+    }
+    const row = accountResult.rows[0];
+    const account: MailAccount = {
+      id: asAccountId(row.id),
+      userId: asUserId(row.user_id),
+      provider: row.provider,
+      email: row.email,
+      displayName: row.display_name,
+      status: input.accessToken || input.refreshToken || input.expiresAt
+        ? "active"
+        : "reconnect_required",
+    };
+    if (input.accessToken || input.refreshToken || input.expiresAt) {
+      await saveCredentialsWithRunner(client, account.id, input.provider, input);
+    }
+    return account;
+  });
+}
+
 /** Fetch an account only when it belongs to the given user. */
 export async function getOwnedAccount(
   userId: UserId,
   accountId: AccountId,
 ): Promise<MailAccount | null> {
   const r = await db().query(
-    `select id, user_id, provider, email, display_name
-       from seer.mail_accounts where id = $1 and user_id = $2`,
+    `select a.id, a.user_id, a.provider, a.email, a.display_name,
+            coalesce(c.status, 'reconnect_required') as status
+       from seer.mail_accounts a
+       left join seer.oauth_credentials c on c.account_id = a.id
+      where a.id = $1 and a.user_id = $2`,
     [accountId, userId],
   );
   const row = r.rows[0];
@@ -85,7 +200,70 @@ export async function getOwnedAccount(
     provider: row.provider,
     email: row.email,
     displayName: row.display_name,
+    status: row.status,
   };
+}
+
+/** List only account metadata owned by this user. Never joins credentials. */
+export async function listOwnedAccounts(userId: UserId): Promise<MailAccount[]> {
+  const r = await db().query(
+    `select a.id, a.user_id, a.provider, a.email, a.display_name,
+            coalesce(c.status, 'reconnect_required') as status
+       from seer.mail_accounts a
+       left join seer.oauth_credentials c on c.account_id = a.id
+      where a.user_id = $1
+      order by lower(a.email), a.provider`,
+    [userId],
+  );
+  return r.rows.map((row) => ({
+    id: asAccountId(row.id),
+    userId: asUserId(row.user_id),
+    provider: row.provider,
+    email: row.email,
+    displayName: row.display_name,
+    status: row.status,
+  }));
+}
+
+export async function getOwnedAccountByEmail(
+  userId: UserId,
+  email: string,
+  provider?: MailProviderKind,
+): Promise<MailAccount | null> {
+  const r = await db().query(
+    `select a.id, a.user_id, a.provider, a.email, a.display_name,
+            coalesce(c.status, 'reconnect_required') as status
+       from seer.mail_accounts a
+       left join seer.oauth_credentials c on c.account_id = a.id
+      where a.user_id = $1 and a.email = $2
+        and ($3::text is null or a.provider = $3)
+      order by a.provider
+      limit 1`,
+    [userId, email.toLowerCase(), provider ?? null],
+  );
+  const row = r.rows[0];
+  return row
+    ? {
+        id: asAccountId(row.id),
+        userId: asUserId(row.user_id),
+        provider: row.provider,
+        email: row.email,
+        displayName: row.display_name,
+       status: row.status,
+      }
+    : null;
+}
+
+/** Delete only an account owned by the caller; credentials cascade with it. */
+export async function deleteOwnedAccount(
+  userId: UserId,
+  accountId: AccountId,
+): Promise<boolean> {
+  const r = await db().query(
+    "delete from seer.mail_accounts where id = $1 and user_id = $2 returning id",
+    [accountId, userId],
+  );
+  return r.rowCount === 1;
 }
 
 export async function saveCredentials(
@@ -93,25 +271,30 @@ export async function saveCredentials(
   provider: MailProviderKind,
   cred: { accessToken?: string; refreshToken?: string; expiresAt?: number },
 ): Promise<void> {
-  const payload: Record<string, EncryptedValue> = {};
-  if (cred.accessToken)
-    payload.accessToken = encryptCredential(cred.accessToken, accountId);
-  if (cred.refreshToken)
-    payload.refreshToken = encryptCredential(cred.refreshToken, accountId);
+  await inTransaction((client) =>
+    saveCredentialsWithRunner(client, accountId, provider, cred),
+  );
+}
+
+export async function clearCredentials(accountId: AccountId): Promise<void> {
   await db().query(
-    `insert into seer.oauth_credentials (account_id, provider, ciphertext, expires_at, version, rotated_at)
-       values ($1, $2, $3::jsonb, to_timestamp($4), 1, now())
-       on conflict (account_id) do update
-         set ciphertext = $3::jsonb,
-             expires_at = to_timestamp($4),
-             version = seer.oauth_credentials.version + 1,
-             rotated_at = now()`,
-    [
-      accountId,
-      provider,
-      JSON.stringify(payload),
-      cred.expiresAt ? cred.expiresAt / 1000 : null,
-    ],
+    "delete from seer.oauth_credentials where account_id = $1",
+    [accountId],
+  );
+}
+
+/** Record a provider refresh failure without storing provider secrets. */
+export async function markCredentialsReconnectRequired(
+  accountId: AccountId,
+  error: string,
+): Promise<void> {
+  await db().query(
+    `update seer.oauth_credentials
+        set status = 'reconnect_required',
+            last_error = $2,
+            rotated_at = now()
+      where account_id = $1`,
+    [accountId, error.slice(0, 500)],
   );
 }
 
@@ -164,7 +347,9 @@ export async function rotateCredentials(
           set ciphertext = $2::jsonb,
               expires_at = to_timestamp($3),
               version = version + 1,
-              rotated_at = now()
+              rotated_at = now(),
+              status = 'active',
+              last_error = null
         where account_id = $1`,
       [
         accountId,

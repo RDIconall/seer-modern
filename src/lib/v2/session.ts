@@ -1,7 +1,10 @@
 import { auth } from "@/auth";
-import { db } from "./db/pool";
-import { asAccountId, asUserId } from "./db/types";
-import type { MailAccount } from "./db/accounts";
+import {
+  listOwnedAccounts,
+  upsertUser,
+  type MailAccount,
+} from "./db/accounts";
+import { getActiveAccountId } from "../store/accounts";
 
 /**
  * Resolve the signed-in user's active v2 mail account, gated by the cutover
@@ -24,22 +27,39 @@ export function isV2Enabled(email: string | null | undefined): boolean {
   return list.has(email.toLowerCase());
 }
 
+export function selectV2Account(
+  accounts: MailAccount[],
+  activeId: string | null,
+  sessionEmail: string,
+): MailAccount | null {
+  return (
+    (activeId
+      ? accounts.find((account) => account.id === activeId)
+      : undefined) ??
+    accounts.find(
+      (account) => account.email.toLowerCase() === sessionEmail.toLowerCase(),
+    ) ??
+    null
+  );
+}
+
+export function effectiveActiveAccountId(
+  accounts: MailAccount[],
+  activeId: string | null,
+  sessionEmail: string,
+): string | null {
+  return selectV2Account(accounts, activeId, sessionEmail)?.id ?? null;
+}
+
 export async function getActiveV2Account(): Promise<MailAccount | null> {
   const session = await auth();
   const email = session?.user?.email?.toLowerCase();
   if (!email || !isV2Enabled(email)) return null;
 
-  const r = await db().query(
-    "select id, user_id, provider, email, display_name from seer.mail_accounts where email = $1",
-    [email],
-  );
-  const row = r.rows[0];
-  if (!row) return null;
-  return {
-    id: asAccountId(row.id),
-    userId: asUserId(row.user_id),
-    provider: row.provider,
-    email: row.email,
-    displayName: row.display_name,
-  };
+  const userId = await upsertUser(email);
+  const accounts = await listOwnedAccounts(userId);
+  // The cookie is absent or invalid/foreign: only the signed-in identity's
+  // mailbox is eligible as the fallback. The list is owner-scoped before the
+  // cookie is applied, so a foreign id can never switch users.
+  return selectV2Account(accounts, await getActiveAccountId(), email);
 }

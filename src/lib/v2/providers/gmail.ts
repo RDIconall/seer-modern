@@ -1,7 +1,14 @@
 import { providerFetch, type ProviderHttpOptions } from "./http";
+import {
+  conversationFetchNotFound,
+  gmailMutationAlreadyApplied,
+  mutationErrorIsNoOp,
+} from "./mutation-idempotent";
 import { nativeUrlFor } from "./native-url";
+import { gmailForwardHtml } from "./forward-html";
 import type {
   Address,
+  AttachmentContent,
   Conversation,
   ForwardCommand,
   MailProvider,
@@ -13,8 +20,11 @@ import type {
   SearchResult,
   SendCommand,
   SendReceipt,
+  SyncContext,
+  SyncFolder,
   SyncPage,
 } from "./types";
+import { assertSyncBudget } from "./types";
 
 /**
  * Gmail adapter. Translates Gmail REST v1 payloads into the neutral model and
@@ -129,8 +139,13 @@ export class GmailProvider implements MailProvider {
     return { authorization: `Bearer ${this.deps.accessToken}` };
   }
 
-  private async get<T>(path: string): Promise<T> {
-    return (await providerFetch(`${API}${path}`, { headers: this.auth() }, this.http)) as T;
+  private async get<T>(path: string, context?: SyncContext): Promise<T> {
+    assertSyncBudget(context);
+    return (await providerFetch(
+      `${API}${path}`,
+      { headers: this.auth() },
+      { ...this.http, deadlineMs: context?.deadlineMs, signal: context?.signal },
+    )) as T;
   }
 
   private async post<T>(path: string, body: unknown): Promise<T> {
@@ -145,8 +160,9 @@ export class GmailProvider implements MailProvider {
     )) as T;
   }
 
-  private async thread(id: string): Promise<Conversation> {
-    const t = await this.get<GmailThread>(`/threads/${id}?format=full`);
+  private async thread(id: string, context?: SyncContext): Promise<Conversation> {
+    assertSyncBudget(context);
+    const t = await this.get<GmailThread>(`/threads/${id}?format=full`, context);
     const messages = (t.messages ?? [])
       .map((m) => toMessage(m, this.deps.accountEmail))
       .sort((a, b) => a.sentAt.localeCompare(b.sentAt));
@@ -158,22 +174,46 @@ export class GmailProvider implements MailProvider {
     };
   }
 
+  private folderQuery(folder: SyncFolder): string {
+    switch (folder) {
+      case "inbox":
+        return "in:inbox";
+      case "sent":
+        return "in:sent";
+      case "trash":
+        return "in:trash";
+    }
+  }
+
   async sync(cursor?: string | null): Promise<SyncPage> {
+    return this.syncFolder("inbox", cursor);
+  }
+
+  async syncFolder(
+    folder: SyncFolder,
+    cursor?: string | null,
+    context?: SyncContext,
+  ): Promise<SyncPage> {
+    assertSyncBudget(context);
     const list = await this.get<{
       threads?: { id: string }[];
       nextPageToken?: string;
       resultSizeEstimate?: number;
     }>(
-      `/threads?q=${encodeURIComponent("in:inbox")}&maxResults=${this.pageSize}` +
+      `/threads?q=${encodeURIComponent(this.folderQuery(folder))}&maxResults=${this.pageSize}` +
         (cursor ? `&pageToken=${encodeURIComponent(cursor)}` : ""),
+      context,
     );
-    const conversations = await Promise.all(
-      (list.threads ?? []).map((t) => this.thread(t.id)),
-    );
+    const conversations: Conversation[] = [];
+    for (const t of list.threads ?? []) {
+      assertSyncBudget(context);
+      conversations.push(await this.thread(t.id, context));
+    }
     return {
       conversations,
       deletedConversationIds: [],
       nextCursor: list.nextPageToken ?? null,
+      // Gmail thread-list estimate — not an exact conversation count.
       providerTotal: list.resultSizeEstimate ?? conversations.length,
     };
   }
@@ -252,14 +292,46 @@ export class GmailProvider implements MailProvider {
   async forward(command: ForwardCommand, _key: string): Promise<SendReceipt> {
     void _key;
     const convo = await this.thread(command.conversationId);
+    const bodyHtml = gmailForwardHtml(convo, command.bodyHtml);
     const raw = this.encodeRaw(
       [`To: ${command.to.map((a) => a.email).join(", ")}`, `Subject: Fwd: ${convo.subject}`],
-      command.bodyHtml,
+      bodyHtml,
     );
     const r = await this.post<{ id: string; threadId: string }>("/messages/send", {
       raw,
     });
     return { providerMessageId: r.id, providerConversationId: r.threadId };
+  }
+
+  private attachmentList(message: GmailMessage): Message["attachments"] {
+    const out: { html?: string; text?: string; attachments: Message["attachments"] } = {
+      attachments: [],
+    };
+    walkBodies(message.payload, out);
+    return out.attachments;
+  }
+
+  async getAttachment(messageId: string, attachmentId: string): Promise<AttachmentContent> {
+    const message = await this.get<GmailMessage>(`/messages/${messageId}?format=full`);
+    const attachments = this.attachmentList(message);
+    const prefix = `${messageId}-`;
+    let resolved = attachments.find((a) => a.id === attachmentId);
+    if (!resolved && attachmentId.startsWith(prefix)) {
+      resolved = attachments[Number(attachmentId.slice(prefix.length))];
+    }
+    if (!resolved) {
+      resolved = attachments.find((a) => a.filename === attachmentId);
+    }
+    if (!resolved?.id) throw new Error(`attachment ${attachmentId} not found`);
+    const res = await this.get<{ data?: string }>(
+      `/messages/${messageId}/attachments/${resolved.id}`,
+    );
+    const padded = (res.data ?? "").replace(/-/g, "+").replace(/_/g, "/");
+    return {
+      body: Buffer.from(padded, "base64"),
+      mimeType: resolved.mimeType || "application/octet-stream",
+      filename: resolved.filename,
+    };
   }
 
   async mutateConversation(
@@ -268,7 +340,12 @@ export class GmailProvider implements MailProvider {
     _key: string,
   ): Promise<MutationReceipt> {
     void _key;
-    const convo = await this.thread(id);
+    let raw: GmailThread;
+    try {
+      raw = await this.get<GmailThread>(`/threads/${id}?format=full`);
+    } catch (err) {
+      conversationFetchNotFound(err, "gmail", id);
+    }
     const processed: string[] = [];
     const failed: string[] = [];
     const body =
@@ -279,16 +356,25 @@ export class GmailProvider implements MailProvider {
           : action === "markUnread"
             ? { addLabelIds: ["UNREAD"] }
             : null;
-    for (const m of convo.messages) {
+    for (const m of raw.messages ?? []) {
+      const labels = m.labelIds ?? [];
+      if (gmailMutationAlreadyApplied(action, labels)) {
+        processed.push(m.id);
+        continue;
+      }
       try {
         if (action === "trash") {
-          await this.post(`/messages/${m.providerMessageId}/trash`, {});
+          await this.post(`/messages/${m.id}/trash`, {});
         } else {
-          await this.post(`/messages/${m.providerMessageId}/modify`, body);
+          await this.post(`/messages/${m.id}/modify`, body);
         }
-        processed.push(m.providerMessageId);
-      } catch {
-        failed.push(m.providerMessageId);
+        processed.push(m.id);
+      } catch (err) {
+        if (mutationErrorIsNoOp(err)) {
+          processed.push(m.id);
+        } else {
+          failed.push(m.id);
+        }
       }
     }
     return { conversationId: id, action, processed, failed };

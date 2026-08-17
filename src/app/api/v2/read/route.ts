@@ -2,6 +2,8 @@ import { NextResponse } from "next/server";
 import { listAllAccounts } from "@/lib/v2/db/list-accounts";
 import { readBatch } from "@/lib/v2/intelligence/read-batch";
 import { defaultReaderModel } from "@/lib/v2/intelligence/model";
+import { fileMatters } from "@/lib/v2/intelligence/file-matters";
+import { seedFunctions } from "@/lib/v2/intelligence/functions";
 
 export const maxDuration = 300;
 
@@ -35,7 +37,21 @@ export async function GET(request: Request) {
         concurrency: 6,
         deadlineMs,
       });
-      report.push({ email: account.email, ...result });
+
+      // Reading creates matters; filing puts them on the whiteboard. It runs
+      // here so a new matter reaches its section on the same tick rather than
+      // sitting in "unfiled" until some later pass. A filing failure must not
+      // discard the reads that just succeeded.
+      await seedFunctions(account.id);
+      let filing: Awaited<ReturnType<typeof fileMatters>> | { error: string };
+      try {
+        filing = await fileMatters(account.id, { limit: 200 });
+      } catch (e) {
+        filing = {
+          error: e instanceof Error ? e.message.slice(0, 120) : "filing failed",
+        };
+      }
+      report.push({ email: account.email, ...result, filing });
     } catch (e) {
       report.push({
         email: account.email,

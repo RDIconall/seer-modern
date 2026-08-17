@@ -1,12 +1,13 @@
 import { Pool } from "pg";
+import { resolveDatabaseUrl, resolveSsl } from "@/lib/v2/db/pool";
 
 /**
  * POSTGRES (Supabase) — the durable, queryable home for Seer's memory.
  *
  * The whole app talks to storage through the kv facade; this module is the
- * Postgres backend behind it. It provisions its own schema at runtime
- * (the connection string is only available in the deployment, never on a
- * developer's machine), so there is no migration step to forget.
+ * Postgres backend behind it. Development/test instances may provision the
+ * compatibility table; production only probes the migration-owned table unless
+ * an operator explicitly enables the one-time setup escape hatch.
  *
  * Security (per Supabase's own guidance): every table lives in `public`,
  * which is reachable through the Data API, so RLS is ENABLED with NO
@@ -16,12 +17,7 @@ import { Pool } from "pg";
  */
 
 function connectionString(): string | null {
-  return (
-    process.env.POSTGRES_URL ||
-    process.env.POSTGRES_PRISMA_URL ||
-    process.env.DATABASE_URL ||
-    null
-  );
+  return resolveDatabaseUrl();
 }
 
 export function pgEnabled(): boolean {
@@ -37,18 +33,15 @@ function getPool(): Pool | null {
     pool = null;
     return pool;
   }
-  // Supabase's pooled endpoint presents a cert not in the runtime's CA
-  // bundle. `sslmode=require` in the connection string forces node-pg to
-  // verify it, which then overrides our ssl option and fails with
-  // "self-signed certificate in certificate chain". Strip sslmode so the
-  // explicit { rejectUnauthorized: false } below is what takes effect.
-  const sanitized = cs.replace(/([?&])sslmode=[^&]*(&|$)/i, (_m, pre, post) =>
-    pre === "?" && post === "" ? "" : pre === "?" ? "?" : post,
-  );
+  // One TLS policy for the whole app: strip the ssl parameters that would
+  // otherwise make node-pg discard our settings, and verify against Supabase's
+  // pinned root. This connection carries the mail corpus and, until V3
+  // replaces this store, the sealed OAuth tokens — turning verification off
+  // would encrypt the link while accepting any certificate offered.
+  const resolved = resolveSsl(cs);
   pool = new Pool({
-    connectionString: sanitized,
-    // TLS on, certificate verification off — Supabase over the pooler.
-    ssl: { rejectUnauthorized: false },
+    connectionString: resolved.connectionString,
+    ssl: resolved.ssl,
     // Serverless: keep the footprint small; the transaction pooler fans out.
     max: 3,
     idleTimeoutMillis: 10_000,
@@ -63,6 +56,27 @@ function getPool(): Pool | null {
 
 let schemaReady: Promise<boolean> | null = null;
 let lastSchemaError: string | null = null;
+
+export function shouldProvisionKvSchema(
+  env: Partial<Pick<NodeJS.ProcessEnv, "NODE_ENV" | "SEER_KV_SETUP">> = process.env,
+): boolean {
+  return env.NODE_ENV !== "production" || env.SEER_KV_SETUP === "1";
+}
+
+export function kvSchemaProvisioningStatements(
+  env: Partial<Pick<NodeJS.ProcessEnv, "NODE_ENV" | "SEER_KV_SETUP">> = process.env,
+): string[] {
+  if (!shouldProvisionKvSchema(env)) return [];
+  return [
+    `create table if not exists seer_kv (
+       key text primary key,
+       value jsonb not null,
+       expires_at timestamptz,
+       updated_at timestamptz not null default now()
+     )`,
+    "alter table seer_kv enable row level security",
+  ];
+}
 
 /**
  * Storage must never hang a user request. A cold pool plus first-use DDL
@@ -90,18 +104,34 @@ function ensureSchema(): Promise<boolean> {
   schemaReady = (async () => {
     const p = getPool();
     if (!p) return false;
+
+    // Ask whether the table is usable before trying to build it. The app now
+    // connects as a least-privilege role that deliberately cannot run DDL, so
+    // "I cannot create this" and "this does not work" are different answers —
+    // treating them the same would take the store down on every cold start.
+    try {
+      await withTimeout(p.query("select 1 from seer_kv limit 1"), "probe");
+      lastSchemaError = null;
+      return true;
+    } catch {
+      if (!shouldProvisionKvSchema()) {
+        lastSchemaError =
+          "public.seer_kv is missing or inaccessible; apply migrations before production startup";
+        return false;
+      }
+      // Fall through and provision only in development/test or explicit setup.
+    }
+
     // Statements run one at a time: some poolers reject multi-statement
     // simple queries, and a REVOKE on a role that doesn't exist must not
-    // sink the CREATE TABLE.
-    const stmts = [
-      `create table if not exists seer_kv (
-         key text primary key,
-         value jsonb not null,
-         expires_at timestamptz,
-         updated_at timestamptz not null default now()
-       )`,
-      `alter table seer_kv enable row level security`,
-    ];
+    // sink the CREATE TABLE. Production returns no statements here unless an
+    // operator explicitly enables the setup escape hatch.
+    const stmts = kvSchemaProvisioningStatements();
+    if (stmts.length === 0) {
+      lastSchemaError =
+        "public.seer_kv is missing or inaccessible; apply migrations before production startup";
+      return false;
+    }
     try {
       for (const stmt of stmts) await withTimeout(p.query(stmt), "ddl");
     } catch (e) {

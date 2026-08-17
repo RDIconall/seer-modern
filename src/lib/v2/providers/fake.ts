@@ -1,4 +1,5 @@
 import type {
+  AttachmentContent,
   Conversation,
   ForwardCommand,
   MailProvider,
@@ -10,6 +11,7 @@ import type {
   SearchResult,
   SendCommand,
   SendReceipt,
+  SyncFolder,
   SyncPage,
 } from "./types";
 
@@ -21,7 +23,7 @@ import type {
  * unchanged; when they diverge from this behavior, they are wrong.
  */
 
-type Folder = "inbox" | "archive" | "trash";
+type Folder = SyncFolder | "archive";
 
 type StoredMessage = Message & { folder: Folder; failMutation?: boolean };
 
@@ -61,19 +63,26 @@ export class FakeProvider implements MailProvider {
   }
 
   async sync(cursor?: string | null): Promise<SyncPage> {
+    return this.syncFolder("inbox", cursor);
+  }
+
+  async syncFolder(folder: SyncFolder, cursor?: string | null): Promise<SyncPage> {
     const start = cursor ? Number(cursor) : 0;
-    const inboxConvos = this.convos.filter((c) =>
-      c.messages.some((m) => m.folder === "inbox"),
+    const folderConvos = this.convos.filter((c) =>
+      c.messages.some((m) => m.folder === folder),
     );
-    const slice = inboxConvos.slice(start, start + this.pageSize);
+    const slice = folderConvos.slice(start, start + this.pageSize);
     const next = start + this.pageSize;
     return {
       conversations: slice.map((c) => this.live(c)),
-      deletedConversationIds: this.convos
-        .filter((c) => c.messages.every((m) => m.folder === "trash"))
-        .map((c) => c.providerConversationId),
-      nextCursor: next < inboxConvos.length ? String(next) : null,
-      providerTotal: inboxConvos.length,
+      deletedConversationIds:
+        folder === "trash"
+          ? []
+          : this.convos
+              .filter((c) => c.messages.every((m) => m.folder === "trash"))
+              .map((c) => c.providerConversationId),
+      nextCursor: next < folderConvos.length ? String(next) : null,
+      providerTotal: folderConvos.length,
     };
   }
 
@@ -123,7 +132,7 @@ export class FakeProvider implements MailProvider {
           isUnread: false,
           isOutgoing: true,
           attachments: [],
-          folder: "archive",
+          folder: "sent",
         },
       ],
     });
@@ -171,6 +180,30 @@ export class FakeProvider implements MailProvider {
     };
     this.idempotency.set(key, receipt);
     return receipt;
+  }
+
+  async getAttachment(messageId: string, attachmentId: string): Promise<AttachmentContent> {
+    for (const c of this.convos) {
+      for (const m of c.messages) {
+        if (m.providerMessageId !== messageId) continue;
+        const prefix = `${messageId}-`;
+        let index = m.attachments.findIndex((a) => a.id === attachmentId);
+        if (index < 0 && attachmentId.startsWith(prefix)) {
+          index = Number(attachmentId.slice(prefix.length));
+        }
+        if (index < 0) {
+          index = m.attachments.findIndex((a) => a.filename === attachmentId);
+        }
+        const att = m.attachments[index];
+        if (!att) throw new Error(`attachment ${attachmentId} not found`);
+        return {
+          body: Buffer.from(`fake:${att.filename}`, "utf8"),
+          mimeType: att.mimeType || "application/octet-stream",
+          filename: att.filename,
+        };
+      }
+    }
+    throw new Error(`message ${messageId} not found`);
   }
 
   async mutateConversation(

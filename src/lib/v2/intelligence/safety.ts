@@ -30,6 +30,8 @@ export type SafetyFacts = {
   yieldPersisted: boolean;
   /** The model had the full thread and required context. */
   hadCompleteContext: boolean;
+  /** A person wrote to the user by name — a letter, not a broadcast. */
+  isHumanCorrespondence: boolean;
 };
 
 export type SafetyResult = {
@@ -54,6 +56,11 @@ export function validateDelete(
   if (facts.liveMatterId) reasons.push("live_matter");
   if (facts.senderIsKnown) reasons.push("known_sender");
   if (facts.senderIsInternal) reasons.push("internal_sender");
+  // Every other veto here asks about the state of the work. This one asks what
+  // kind of mail it is, which is the gap a personal referral fell through: not
+  // yet a known sender, asking a favour rather than raising an obligation, and
+  // so deletable by every test that existed.
+  if (facts.isHumanCorrespondence) reasons.push("personal_greeting");
   if (!facts.yieldPersisted) reasons.push("unpersisted_yield");
   if (!facts.hadCompleteContext) reasons.push("incomplete_context");
 

@@ -3,7 +3,6 @@
   "installCommand": "npm install",
   "buildCommand": "npm run build",
   "crons": [
-    { "path": "/api/cron/sync", "schedule": "*/5 * * * *" },
     { "path": "/api/v2/sync", "schedule": "*/5 * * * *" },
     { "path": "/api/v2/read", "schedule": "*/5 * * * *" }
   ],

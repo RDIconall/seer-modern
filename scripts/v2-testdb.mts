@@ -49,6 +49,12 @@ export async function startTestDb(): Promise<TestDb> {
     database: "seer_test",
   });
 
+  // Supabase's Data API roles exist before migrations run in production.
+  // Create their bare equivalents here so least-privilege migrations are
+  // exercised against the same role graph rather than only inspected on a
+  // postgres-superuser connection.
+  await pool.query("create role anon nologin");
+  await pool.query("create role authenticated nologin");
   await applyMigrations(pool);
   setPoolForTesting(pool);
 

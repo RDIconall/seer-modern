@@ -1,7 +1,14 @@
 import { providerFetch, type ProviderHttpOptions } from "./http";
+import {
+  conversationFetchEmpty,
+  conversationFetchNotFound,
+  mutationErrorIsNoOp,
+  outlookMutationAlreadyApplied,
+} from "./mutation-idempotent";
 import { nativeUrlFor } from "./native-url";
 import type {
   Address,
+  AttachmentContent,
   Conversation,
   ForwardCommand,
   MailProvider,
@@ -13,8 +20,11 @@ import type {
   SearchResult,
   SendCommand,
   SendReceipt,
+  SyncContext,
+  SyncFolder,
   SyncPage,
 } from "./types";
+import { SyncDeadlineError, assertSyncBudget } from "./types";
 
 /**
  * Outlook / Microsoft Graph adapter. Translates Graph message payloads into the
@@ -96,8 +106,13 @@ export class OutlookProvider implements MailProvider {
     return { authorization: `Bearer ${this.deps.accessToken}` };
   }
 
-  private async get<T>(url: string): Promise<T> {
-    return (await providerFetch(url, { headers: this.auth() }, this.http)) as T;
+  private async get<T>(url: string, context?: SyncContext): Promise<T> {
+    assertSyncBudget(context);
+    return (await providerFetch(
+      url,
+      { headers: this.auth() },
+      { ...this.http, deadlineMs: context?.deadlineMs, signal: context?.signal },
+    )) as T;
   }
 
   private async post<T>(path: string, body: unknown): Promise<T> {
@@ -125,7 +140,10 @@ export class OutlookProvider implements MailProvider {
   }
 
   /** Every message in a conversation, across all folders, paginated. */
-  private async conversationMessages(conversationId: string): Promise<GraphMessage[]> {
+  private async conversationMessages(
+    conversationId: string,
+    context?: SyncContext,
+  ): Promise<GraphMessage[]> {
     const messages: GraphMessage[] = [];
     let url: string | null =
       `${API}/messages?$filter=${encodeURIComponent(
@@ -134,8 +152,9 @@ export class OutlookProvider implements MailProvider {
       // Metadata only — never the file bytes.
       `&$expand=attachments($select=id,name,contentType,size)`;
     while (url) {
+      assertSyncBudget(context);
       const page: { value?: GraphMessage[]; "@odata.nextLink"?: string } =
-        await this.get(url);
+        await this.get(url, context);
       messages.push(...(page.value ?? []));
       url = page["@odata.nextLink"] ?? null;
     }
@@ -154,43 +173,67 @@ export class OutlookProvider implements MailProvider {
     };
   }
 
-  /** The provider's own inbox message count, for coverage reconciliation. */
-  private async inboxTotal(): Promise<number> {
+  private folderPath(folder: SyncFolder): string {
+    switch (folder) {
+      case "inbox":
+        return "inbox";
+      case "sent":
+        return "sentitems";
+      case "trash":
+        return "deleteditems";
+    }
+  }
+
+  /** Graph folder message-item estimate — not an exact conversation count. */
+  private async folderTotal(folder: SyncFolder, context?: SyncContext): Promise<number> {
     try {
       const r: { totalItemCount?: number } = await this.get(
-        `${API}/mailFolders/inbox?$select=totalItemCount`,
+        `${API}/mailFolders/${this.folderPath(folder)}?$select=totalItemCount`,
+        context,
       );
       return r.totalItemCount ?? 0;
-    } catch {
+    } catch (error) {
+      if (error instanceof SyncDeadlineError) throw error;
       return 0;
     }
   }
 
   async sync(cursor?: string | null): Promise<SyncPage> {
+    return this.syncFolder("inbox", cursor);
+  }
+
+  async syncFolder(
+    folder: SyncFolder,
+    cursor?: string | null,
+    context?: SyncContext,
+  ): Promise<SyncPage> {
+    assertSyncBudget(context);
     const url =
       cursor ??
-      `${API}/mailFolders/inbox/messages?$top=${this.pageSize}&$select=id,conversationId,subject,from,toRecipients,ccRecipients,receivedDateTime,bodyPreview,body,isRead,hasAttachments&$expand=attachments($select=id,name,contentType,size)&$orderby=receivedDateTime desc`;
+      `${API}/mailFolders/${this.folderPath(folder)}/messages?$top=${this.pageSize}&$select=id,conversationId,subject,from,toRecipients,ccRecipients,receivedDateTime,bodyPreview,body,isRead,hasAttachments&$expand=attachments($select=id,name,contentType,size)&$orderby=receivedDateTime desc`;
     const page: {
       value?: GraphMessage[];
       "@odata.nextLink"?: string;
       "@odata.count"?: number;
-    } = await this.get(url);
-    const byConversation = new Map<string, GraphMessage[]>();
-    for (const m of page.value ?? []) {
-      const arr = byConversation.get(m.conversationId) ?? [];
-      arr.push(m);
-      byConversation.set(m.conversationId, arr);
+    } = await this.get(url, context);
+    // Deduplicate conversation ids while preserving first-seen order on this page.
+    const conversationIds = [
+      ...new Set((page.value ?? []).map((m) => m.conversationId)),
+    ];
+    const conversations: Conversation[] = [];
+    for (const id of conversationIds) {
+      assertSyncBudget(context);
+      conversations.push(
+        this.toConversation(id, await this.conversationMessages(id, context)),
+      );
     }
-    const conversations = [...byConversation.entries()].map(([id, msgs]) =>
-      this.toConversation(id, msgs),
-    );
     return {
       conversations,
       deletedConversationIds: [],
       nextCursor: page["@odata.nextLink"] ?? null,
-      // The folder's own message count — not this page's size, which made
-      // coverage under-report the mailbox.
-      providerTotal: page["@odata.count"] ?? (await this.inboxTotal()),
+      // Graph counts folder messages, not conversations — an item estimate only.
+      providerTotal:
+        page["@odata.count"] ?? (await this.folderTotal(folder, context)),
     };
   }
 
@@ -262,16 +305,56 @@ export class OutlookProvider implements MailProvider {
     };
   }
 
+  async getAttachment(messageId: string, attachmentId: string): Promise<AttachmentContent> {
+    const message = await this.get<GraphMessage>(
+      `${API}/messages/${messageId}?$select=id&$expand=attachments($select=id,name,contentType,size)`,
+    );
+    const attachments = message.attachments ?? [];
+    const prefix = `${messageId}-`;
+    let resolved = attachments.find((a) => a.id === attachmentId);
+    if (!resolved && attachmentId.startsWith(prefix)) {
+      resolved = attachments[Number(attachmentId.slice(prefix.length))];
+    }
+    if (!resolved) {
+      resolved = attachments.find((a) => a.name === attachmentId);
+    }
+    if (!resolved?.id) throw new Error(`attachment ${attachmentId} not found`);
+
+    const doFetch = this.deps.fetchImpl ?? fetch;
+    const res = await doFetch(
+      `${API}/messages/${messageId}/attachments/${resolved.id}/$value`,
+      { headers: this.auth(), cache: "no-store" },
+    );
+    if (!res.ok) {
+      throw new Error(`outlook attachment: ${res.status}`);
+    }
+    return {
+      body: Buffer.from(await res.arrayBuffer()),
+      mimeType: resolved.contentType ?? "application/octet-stream",
+      filename: resolved.name ?? "attachment",
+    };
+  }
+
   async mutateConversation(
     id: string,
     action: MutationAction,
     _key: string,
   ): Promise<MutationReceipt> {
     void _key;
-    const msgs = await this.conversationMessages(id);
+    let msgs: GraphMessage[];
+    try {
+      msgs = await this.conversationMessages(id);
+    } catch (err) {
+      conversationFetchNotFound(err, "outlook", id);
+    }
+    conversationFetchEmpty(msgs, "outlook", id);
     const processed: string[] = [];
     const failed: string[] = [];
     for (const m of msgs) {
+      if (outlookMutationAlreadyApplied(action, m.parentFolderId)) {
+        processed.push(m.id);
+        continue;
+      }
       try {
         if (action === "archive") {
           await this.post(`/messages/${m.id}/move`, { destinationId: "archive" });
@@ -283,8 +366,12 @@ export class OutlookProvider implements MailProvider {
           await this.patch(`/messages/${m.id}`, { isRead: false });
         }
         processed.push(m.id);
-      } catch {
-        failed.push(m.id);
+      } catch (err) {
+        if (mutationErrorIsNoOp(err)) {
+          processed.push(m.id);
+        } else {
+          failed.push(m.id);
+        }
       }
     }
     return { conversationId: id, action, processed, failed };
