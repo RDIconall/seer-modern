@@ -2381,3 +2381,190 @@ body {
   cursor: pointer;
   min-height: 32px;
 }
+
+/* --------------------------------------------------------------------
+   Triage — four verbs, and the mail's own days inside them
+
+   The piles are named after what the user is about to do, not after what
+   Seer concluded. A row leaves in one of four directions and only one
+   ends on the board: anything not deleted and not filed is live work, so
+   Keep makes it a matter. Triage is the mouth of Atlas.
+   -------------------------------------------------------------------- */
+
+.tri {
+  max-width: 560px;
+  margin-inline: auto;
+  padding-bottom: 24px;
+}
+
+/* Seer's grouping: quiet, stated once, with the count set small beside it. */
+.tri-g {
+  margin: 0;
+  padding: 22px 20px 5px;
+  font-size: 13px;
+  font-weight: 500;
+  letter-spacing: -0.01em;
+  color: var(--fg-strong);
+}
+.tri-g em {
+  margin-left: 7px;
+  font-style: normal;
+  font-weight: 400;
+  color: var(--nav-muted);
+}
+
+/* The mail's own days, inside Seer's grouping. */
+.tri-day {
+  padding: 11px 20px 4px;
+  letter-spacing: 0.09em;
+  text-transform: uppercase;
+  color: var(--nav-muted);
+  background: var(--bg);
+}
+
+.tri-set {
+  background: var(--card);
+  border-block: 1px solid var(--border);
+}
+.tri-settled {
+  margin-top: 20px;
+}
+
+.tri-r {
+  position: relative;
+  overflow: hidden;
+  border-top: 1px solid var(--row-active);
+}
+.tri-r:first-child {
+  border-top: 0;
+}
+
+/* Both destinations named on the track the row slides along. */
+.tri-rev {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 0 20px;
+  letter-spacing: 0.1em;
+}
+.tri-r[data-far="true"] .tri-rev {
+  background: var(--danger-soft);
+}
+.tri-rev-keep {
+  color: var(--brand-strong);
+}
+.tri-rev-drop {
+  color: var(--muted);
+}
+.tri-r[data-far="true"] .tri-rev-drop {
+  color: var(--danger);
+}
+
+.tri-in {
+  position: relative;
+  background: var(--card);
+  padding: 11px 20px 12px;
+  touch-action: pan-y;
+  cursor: pointer;
+}
+.tri-l1 {
+  display: flex;
+  align-items: baseline;
+  gap: 9px;
+}
+.tri-dot {
+  flex: none;
+  align-self: center;
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: var(--brand);
+}
+.tri-from {
+  flex: 1;
+  min-width: 0;
+  font-size: 15px;
+  font-weight: 500;
+  letter-spacing: -0.01em;
+  color: var(--fg-strong);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.tri-from.tri-read {
+  font-weight: 400;
+  color: var(--fg);
+}
+.tri-when {
+  flex: none;
+  color: var(--nav-muted);
+}
+.tri-subj {
+  margin-top: 2px;
+  font-size: 14.5px;
+  line-height: 1.35;
+  color: var(--fg-strong);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.tri-subj.tri-read {
+  color: var(--fg);
+}
+.tri-snip {
+  margin-top: 2px;
+  font-size: 13px;
+  line-height: 1.4;
+  color: var(--nav-muted);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.tri-clip {
+  margin-top: 5px;
+  color: var(--muted);
+}
+
+/* What was settled, and the way back, until the screen is left. */
+.tri-was {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 10px 20px 11px;
+  border-top: 1px solid var(--row-active);
+  background: var(--card);
+  color: var(--nav-muted);
+}
+.tri-was span {
+  flex: 1;
+  min-width: 0;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.tri-was button {
+  appearance: none;
+  background: none;
+  border: 0;
+  font: inherit;
+  font-size: 13px;
+  color: var(--brand-strong);
+  cursor: pointer;
+  min-height: 32px;
+}
+
+.tri-end {
+  padding: 34px 20px 10px;
+  color: var(--muted);
+  line-height: 1.8;
+}
+.tri-end b {
+  display: block;
+  margin-bottom: 6px;
+  font-size: 17px;
+  font-weight: 500;
+  letter-spacing: -0.01em;
+  color: var(--brand-strong);
+}

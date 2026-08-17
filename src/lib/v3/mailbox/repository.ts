@@ -38,6 +38,7 @@ type MailboxRowDb = {
   recipient_display: string | null;
   decision_id: string | null;
   home: string | null;
+  owner: string | null;
   veto_reasons: string[] | null;
   delete_rank: number;
   function_name: string | null;
@@ -103,6 +104,7 @@ function mapRow(row: MailboxRowDb): MailboxRow {
     deleteRank: row.delete_rank,
     deleteToken,
     category: row.function_name,
+    owner: (row.owner ?? "nobody") as MailboxRow["owner"],
     vetoReasons: row.veto_reasons ?? [],
   };
 }
@@ -122,6 +124,7 @@ const MAILBOX_SELECT = `select c.id as conversation_id,
             d.id as decision_id,
             d.home,
             d.summary as decision_summary,
+            d.owner,
             d.veto_reasons,
             d.priority,
             d.due_date,

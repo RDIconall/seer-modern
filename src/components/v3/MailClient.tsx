@@ -27,6 +27,7 @@ import { ReaderPane } from "./ReaderPane";
 import { SeerMark } from "./SeerMark";
 import { Settings } from "./Settings";
 import { TriageCards } from "./TriageCards";
+import { TriageList } from "./TriageList";
 import { fetchSearch, SearchBox, type SearchResult } from "./SearchBox";
 import { SearchRequestGuard } from "./search-request";
 import type { ReaderComposeIntent } from "@/components/v2/Reader";
@@ -491,6 +492,12 @@ export function MailClient({
 
   const folderContent = searchRows ? (
     <SearchResults rows={searchRows} onOpen={openSearchResult} />
+  ) : activeMailbox && section === "triage" ? (
+    <TriageList
+      rows={activeMailbox.rows}
+      onCommands={runCommands}
+      onOpen={openRow}
+    />
   ) : activeMailbox && dealing ? (
     <TriageCards
       rows={activeMailbox.rows}

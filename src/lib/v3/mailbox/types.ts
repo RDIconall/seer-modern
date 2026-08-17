@@ -24,6 +24,12 @@ export type MailboxRow = {
   matterTitle: string | null;
   /** What Seer's current decision says this is. Server-set; never re-derived. */
   disposition: Disposition;
+  /**
+   * Who owes the next move. Triage needs it to tell "answer this" apart from
+   * "keep this": a conversation the user owes a reply on is work, not filing,
+   * whatever pile its disposition would otherwise put it in.
+   */
+  owner: "you" | "team" | "them" | "nobody";
   /** 0 = most likely to delete. The number the triage sort orders by. */
   deleteRank: number;
   /**
