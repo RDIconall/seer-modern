@@ -215,9 +215,6 @@ export function MailClient({
   mobile = false,
 }: { preview?: MailClientPreview; mobile?: boolean } = {}) {
   const [section, setSection] = useState<MailSection>(preview?.initialSection ?? "inbox");
-  // Cards are a mode of triage, not a separate screen: the same rows, dealt one
-  // at a time instead of listed.
-  const [cards, setCards] = useState(false);
   const [conversationId, setConversationId] = useState<string | null>(
     preview?.initialConversationId ?? null,
   );
@@ -254,7 +251,8 @@ export function MailClient({
 
   // Triage is a second reading of the inbox, not a fourth folder: same mail,
   // ordered by what to do with it rather than by when it landed.
-  const triaging = section === "triage";
+  const triaging = section === "triage" || section === "cards";
+  const dealing = section === "cards";
   const folder: MailboxFolder = isFolder(section) ? section : "inbox";
   const mailboxSort: MailboxSort = triaging ? "triage" : "date";
   const previewView = triaging ? preview?.triageInbox : preview?.mailbox[folder];
@@ -493,14 +491,14 @@ export function MailClient({
 
   const folderContent = searchRows ? (
     <SearchResults rows={searchRows} onOpen={openSearchResult} />
-  ) : activeMailbox && cards && triaging ? (
+  ) : activeMailbox && dealing ? (
     <TriageCards
       rows={activeMailbox.rows}
       onCommands={async (items) => {
         await runCommands(items.map((item) => item.command));
       }}
       onOpen={openRow}
-      onExit={() => setCards(false)}
+      onExit={() => setSection("triage")}
     />
   ) : activeMailbox ? (
     <FolderList
@@ -509,7 +507,7 @@ export function MailClient({
       onOpen={openRow}
       onPrefetch={mailbox.prefetchBody}
       onCommands={runCommands}
-      onCards={triaging ? () => setCards(true) : undefined}
+      onCards={triaging ? () => setSection("cards") : undefined}
     />
   ) : (
     <section className="mail-folder-layout mail-reader-loading" aria-label="Loading mailbox">
@@ -517,11 +515,11 @@ export function MailClient({
     </section>
   );
 
-  const content = isFolder(section) ? (
+  const content = isFolder(section) || triaging ? (
     <div className="mail-workspace">
       <div
         className="mail-folder-pane"
-        aria-label={`${section} folder`}
+        aria-label={`${section} mail`}
         aria-hidden={mobileModalOpen ? true : undefined}
         inert={mobileModalOpen ? true : undefined}
       >

@@ -2,7 +2,7 @@
 
 import * as React from "react";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { Archive, RotateCcw, Trash2 } from "lucide-react";
+import { Archive, Check, RotateCcw, Trash2 } from "lucide-react";
 import type { Command } from "@/lib/v2/commands/types";
 import type { MailboxRow } from "@/lib/v3/mailbox/types";
 import {
@@ -116,7 +116,7 @@ export function TriageCards({
 
   if (isFinished(deck) || !card) {
     return (
-      <section className="deck-done" aria-live="polite">
+      <section className="deck deck-done seer-deck-bg" aria-live="polite">
         <p className="deck-done-line">
           {deck.decided > 0
             ? `${deck.decided} decided. Nothing left in this pile.`
@@ -124,13 +124,13 @@ export function TriageCards({
         </p>
         <div className="deck-actions">
           {deck.last && (
-            <button type="button" className="deck-btn" onClick={() => setDeck(undoLast)}>
-              <RotateCcw aria-hidden className="deck-icon" /> Undo
-            </button>
+            <DeckAction label="Undo" onClick={() => setDeck(undoLast)}>
+              <RotateCcw aria-hidden />
+            </DeckAction>
           )}
-          <button type="button" className="deck-btn deck-btn-primary" onClick={onExit}>
-            Back to the list
-          </button>
+          <DeckAction label="List" primary onClick={onExit}>
+            <Check aria-hidden />
+          </DeckAction>
         </div>
       </section>
     );
@@ -141,7 +141,7 @@ export function TriageCards({
   const destructive = wouldDelete(card);
 
   return (
-    <section className="deck" aria-label="Triage">
+    <section className="deck seer-deck-bg" aria-label="Cards">
       <header className="deck-head">
         <span className="deck-count tabular">
           {deck.index + 1} of {total}
@@ -190,50 +190,91 @@ export function TriageCards({
         </div>
       </div>
 
+      {/* Round buttons on the field, labelled underneath. The deck is worked
+          with the thumb, so the targets are big and the words say what will
+          happen rather than naming a mode. */}
       <div className="deck-actions">
-        <button
-          type="button"
-          className="deck-btn"
-          onClick={() => commit("delete")}
-          title={
-            destructive
-              ? "Delete this conversation"
-              : "Seer did not clear this for deletion, so it will be archived"
-          }
+        <DeckAction label="Delete" onClick={() => commit("delete")}>
+          <Trash2 aria-hidden />
+        </DeckAction>
+        <DeckAction label="Archive" onClick={() => commit("archive")}>
+          <Archive aria-hidden />
+        </DeckAction>
+        <DeckAction label="Keep" primary onClick={() => commit("keep")}>
+          <Check aria-hidden />
+        </DeckAction>
+        <DeckAction
+          label="Undo"
+          disabled={!deck.last}
+          onClick={() => setDeck(undoLast)}
         >
-          <Trash2 aria-hidden className="deck-icon" />
-          {destructive ? "Delete" : "Archive"}
-        </button>
-        <button type="button" className="deck-btn" onClick={() => commit("archive")}>
-          <Archive aria-hidden className="deck-icon" /> Archive
-        </button>
-        <button
-          type="button"
-          className="deck-btn deck-btn-primary"
-          onClick={() => commit("keep")}
-        >
-          Keep
-        </button>
-        {deck.last && (
-          <button type="button" className="deck-btn" onClick={() => setDeck(undoLast)}>
-            <RotateCcw aria-hidden className="deck-icon" /> Undo
-          </button>
-        )}
+          <RotateCcw aria-hidden />
+        </DeckAction>
       </div>
     </section>
   );
 }
 
-function CardFace({ row }: { row: MailboxRow }) {
+function DeckAction({
+  children,
+  label,
+  onClick,
+  primary,
+  disabled,
+}: {
+  children: React.ReactNode;
+  label: string;
+  onClick: () => void;
+  primary?: boolean;
+  disabled?: boolean;
+}) {
   return (
-    <div className="deck-face">
+    <button
+      type="button"
+      className="deck-action"
+      data-primary={primary ? "true" : undefined}
+      disabled={disabled}
+      onClick={onClick}
+    >
+      <span className="deck-action-ring">{children}</span>
+      <span className="deck-action-label">{label}</span>
+    </button>
+  );
+}
+
+const initialOf = (name: string) => (name.trim()[0] ?? "?").toUpperCase();
+
+/**
+ * One card. The sender identifies it, the middle says what it is in the largest
+ * type on the card, and the preview sits under that in a quieter voice. Nothing
+ * competes with the one line that tells you whether to keep it.
+ */
+function CardFace({ row }: { row: MailboxRow }) {
+  const sender = row.senderDisplayName || "Unknown sender";
+  return (
+    <div className="seer-card-face deck-face">
       <div className="deck-face-top">
-        <span className="deck-sender">{row.senderDisplayName || "Unknown sender"}</span>
-        {row.category && <span className="deck-cat tabular">{row.category}</span>}
+        <span className="deck-avatar" aria-hidden>
+          {initialOf(sender)}
+        </span>
+        <span className="deck-who">
+          <span className="deck-sender">{sender}</span>
+          {row.category && <span className="deck-cat">{row.category}</span>}
+        </span>
+        <time className="deck-when tabular" dateTime={row.timestamp}>
+          {row.timestamp ? new Date(row.timestamp).toLocaleDateString(undefined, {
+            month: "short",
+            day: "numeric",
+          }) : ""}
+        </time>
       </div>
-      <h2 className="deck-subject">{row.subject || "(no subject)"}</h2>
-      {row.decisionSummary && <p className="deck-why">{row.decisionSummary}</p>}
-      {row.snippet && <p className="deck-snippet">{row.snippet}</p>}
+
+      <div className="deck-face-middle">
+        <h2 className="deck-subject">{row.subject || "(no subject)"}</h2>
+        {row.decisionSummary && <p className="deck-why">{row.decisionSummary}</p>}
+        {row.snippet && <p className="deck-snippet">{row.snippet}</p>}
+      </div>
+
       <div className="deck-face-foot">
         {row.attachments.length > 0 && (
           <span className="tabular">
@@ -241,8 +282,9 @@ function CardFace({ row }: { row: MailboxRow }) {
           </span>
         )}
         {!row.deleteToken && (
-          // The reason this one is not simply clearable, said on the card.
-          <span className="deck-held">Held back — not cleared for deletion</span>
+          // Said on the card: Seer did not clear this one, but the button still
+          // works — it is the user's mail.
+          <span className="deck-held">Seer didn’t clear this one</span>
         )}
       </div>
     </div>

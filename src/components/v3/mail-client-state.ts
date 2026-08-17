@@ -3,6 +3,7 @@ import type { MailboxSort } from "@/lib/v3/mailbox/types";
 export type MailSection =
   | "inbox"
   | "triage"
+  | "cards"
   | "sent"
   | "trash"
   | "atlas"
@@ -11,6 +12,7 @@ export type MailSection =
 const sections = new Set<MailSection>([
   "inbox",
   "triage",
+  "cards",
   "sent",
   "trash",
   "atlas",

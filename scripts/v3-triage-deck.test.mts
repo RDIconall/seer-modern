@@ -168,8 +168,22 @@ const row = (id: string, deleteToken: string | null = null): MailboxRow => ({
     /deck-verdict-clear[^>]*>Archive</,
     "a refused card never offers Delete, however it is swiped",
   );
-  assert.match(heldHtml, /Held back/, "the card says why it cannot simply be cleared");
+  assert.match(
+    heldHtml,
+    /didn’t clear this one/,
+    "the card says Seer did not clear it — the button still works",
+  );
   assert.doesNotMatch(heldHtml, /deck-verdict-clear[^>]*>Delete</);
+
+  // The deck keeps the look it always had: paper on the teal field.
+  assert.match(html, /seer-deck-bg/, "the deck runs on the teal field");
+  assert.match(html, /seer-card-face/, "a card is the same paper it always was");
+  assert.match(html, /deck-avatar/, "the sender is carried by an initial");
+  assert.match(
+    html,
+    /deck-action-label/,
+    "the actions are round buttons labelled underneath",
+  );
 
   // An empty pile is a finished pile, not a blank screen.
   assert.match(render([]), /Nothing to triage/);
