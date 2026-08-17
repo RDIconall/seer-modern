@@ -1080,49 +1080,107 @@ body {
   inset: -14px;
 }
 
+/*
+ * A pile heading: what the pile is, and the one action that empties it. It
+ * reads as a heading rather than a form, so the checkbox only joins it once the
+ * user has actually started selecting.
+ */
 .mail-list-group {
   display: flex;
-  align-items: flex-start;
-  gap: 10px;
-  margin-top: 14px;
-  padding: 10px 0 6px;
-}
-
-.mail-list-group-text {
-  display: flex;
-  min-width: 0;
-  flex-direction: column;
-  gap: 2px;
+  align-items: center;
+  gap: 8px;
+  margin-top: 18px;
+  padding: 6px 0 5px;
 }
 
 .mail-list-group-label {
-  color: var(--fg-strong);
-  font-size: 13px;
-  font-weight: 700;
+  flex: 1;
+  min-width: 0;
+  color: var(--muted);
+  font-size: 10.5px;
+  font-weight: 500;
+  letter-spacing: 0.07em;
+  text-transform: uppercase;
 }
 
 .mail-list-group-count {
-  color: var(--muted);
-  font-weight: 500;
+  flex: none;
+  color: var(--nav-muted);
 }
 
-.mail-list-group-hint {
-  color: var(--muted);
-  font-size: 12px;
+/* The pile-level sweep. Stated as what it will do and to how many. */
+.mail-list-sweep {
+  flex: none;
+  appearance: none;
+  background: none;
+  border: 0;
+  padding: 4px 0;
+  font: inherit;
+  font-size: 13px;
+  color: var(--brand-strong);
+  cursor: pointer;
+  min-height: 32px;
+}
+.mail-list-sweep:disabled {
+  opacity: 0.5;
+  cursor: default;
+}
+
+/*
+ * A triage row is two lines. Who it is from and what it is on the first, with
+ * the date; what it means and where it was filed on the second. Both right-hand
+ * columns are tabular so they line up down the list.
+ */
+.mail-list-triage {
+  display: flex;
+  min-width: 0;
+  flex: 1;
+  flex-direction: column;
+  gap: 3px;
+}
+.mail-list-line {
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+  min-width: 0;
+}
+.mail-list-when {
+  flex: none;
+  margin-left: auto;
+  color: var(--nav-muted);
+}
+
+/* The sender carries the line; the subject follows it in the same breath. */
+.mail-list-triage .mail-list-sender {
+  flex: none;
+  max-width: 45%;
+  color: var(--fg-strong);
+  font-size: 15px;
+  font-weight: 600;
+}
+.mail-list-triage .mail-list-subject {
+  flex: 1;
+  min-width: 0;
+  color: var(--fg);
+  font-size: 15px;
 }
 
 .mail-list-decision {
+  flex: 1;
+  min-width: 0;
   overflow: hidden;
-  color: var(--fg);
+  color: var(--muted);
   font-size: 13px;
   text-overflow: ellipsis;
   white-space: nowrap;
 }
 
 .mail-list-category {
+  flex: none;
   overflow: hidden;
-  color: var(--muted);
-  font-size: 12px;
+  color: var(--nav-muted);
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
   text-overflow: ellipsis;
   white-space: nowrap;
 }

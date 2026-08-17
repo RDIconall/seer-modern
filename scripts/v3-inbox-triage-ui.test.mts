@@ -78,18 +78,33 @@ assert.match(triageHtml, /Seer cleared these for deletion/);
 assert.match(triageHtml, /IT &amp; software notices|IT & software notices/);
 assert.match(triageHtml, /Routine vendor digest/);
 
-// A row without a delete token must not expose a per-row Delete control.
-assert.match(triageHtml, /aria-label="Delete Your Monthly Scribe Activity"/);
+/**
+ * Triage rows carry no per-row controls at all: the pile is the unit of work,
+ * so the sweep on the heading is the affordance and the row is just the mail.
+ */
+assert.doesNotMatch(triageHtml, /mail-list-actions/, "a triage row is not a toolbar");
 assert.doesNotMatch(
   triageHtml,
-  /aria-label="Delete Invoice received/,
-  "record rows must not render a delete affordance without a token",
+  /aria-label="Delete /,
+  "no per-row delete control in triage",
 );
-assert.doesNotMatch(
-  triageHtml,
-  /aria-label="Delete RMS Amendment/,
-  "matter rows must not render a delete affordance without a token",
+
+// Nor is the list a form: no checkbox and no select-all bar until the user has
+// actually started selecting.
+assert.doesNotMatch(triageHtml, /mail-list-checkbox/, "checkboxes appear only when selecting");
+assert.doesNotMatch(triageHtml, /mail-bulk-toolbar/);
+
+/**
+ * The sweep is offered on the two piles that can be emptied in one move, and
+ * withheld from the ones that cannot: a live matter is not cleared in bulk, and
+ * "Needs you" is the pile whose whole point is that each one wants a look.
+ */
+assert.match(triageHtml, /class="mail-list-sweep[^"]*"[^>]*>Clear \d+</, "the clear pile sweeps");
+assert.match(triageHtml, /class="mail-list-sweep[^"]*"[^>]*>File \d+</, "the record pile files");
+const sweepLabels = [...triageHtml.matchAll(/class="mail-list-sweep[^"]*"[^>]*>([^<]*)</g)].map(
+  (m) => m[1],
 );
+assert.equal(sweepLabels.length, 2, `only two piles sweep, got ${sweepLabels.join(", ")}`);
 
 const mixedHtml = renderToString(
   createElement(FolderList, {

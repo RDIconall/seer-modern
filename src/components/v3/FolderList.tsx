@@ -113,6 +113,8 @@ function useLongPress(onLongPress: () => void) {
   return { handlers, fired };
 }
 
+type SweepMode = "archive" | "trash";
+
 type ListEntry =
   | {
       kind: "heading";
@@ -121,9 +123,27 @@ type ListEntry =
       ids: string[];
       label: string;
       hint: string;
+      /** A one-tap action for the whole pile, where the pile has one. */
+      sweep: { label: string; mode: SweepMode } | null;
     }
   | { kind: "row"; key: string; row: MailboxRow; index: number }
   | { kind: "held"; key: string; senders: string[]; count: number };
+
+/**
+ * The pile-level action. Clearing the safe-to-delete pile and filing the
+ * record pile are the two moves triage exists to make in one gesture instead of
+ * fifty. The others have no sweep on purpose: a live matter is not something you
+ * clear in bulk, and "needs you" is the pile whose whole point is that each one
+ * wants a look.
+ */
+function sweepFor(
+  disposition: Disposition,
+  count: number,
+): { label: string; mode: SweepMode } | null {
+  if (disposition === "delete") return { label: `Clear ${count}`, mode: "trash" };
+  if (disposition === "record") return { label: `File ${count}`, mode: "archive" };
+  return null;
+}
 
 /**
  * Mail a person wrote to the user by name, which the reader proposed to bin and
@@ -172,6 +192,7 @@ function listEntries(rows: MailboxRow[], triage: boolean): ListEntry[] {
       ids,
       label: triageGroupLabel(disposition),
       hint: triageGroupHint(disposition),
+      sweep: sweepFor(disposition, ids.length),
     });
     for (let j = start; j < i; j += 1) {
       entries.push({
@@ -383,6 +404,15 @@ export function FolderList({
   const actDelete = () =>
     void run(commandsForSelection(view.rows, liveSelection, "trash"));
 
+  /**
+   * Sweep a whole pile in one press. It routes through the same commandFor as
+   * every other action, so "Clear" still deletes only what the server signed a
+   * token for and archives the rest — the button is faster than the checkboxes,
+   * never further-reaching than them.
+   */
+  const actSweep = (ids: string[], mode: SweepMode) =>
+    run(commandsForSelection(view.rows, new Set(ids), mode));
+
   const actMarkUnread = () => {
     const picked = view.rows.filter((row) => liveSelection.has(row.conversationId));
     void run(
@@ -466,12 +496,15 @@ export function FolderList({
           it does in Gmail and Outlook, rather than posing as the first row of
           the list. The actions join it in the same bar once something is
           ticked, so the controls never move under the cursor. */}
-      {view.rows.length > 0 && (
+      {/* The bar belongs to selecting, not to the list. An inbox that always
+          shows a "Select all" is a spreadsheet; long-pressing a row is what
+          says the user wants to act on several at once. */}
+      {selecting && view.rows.length > 0 && (
         <div
           className="mail-bulk-toolbar"
-          data-selecting={selecting ? "true" : "false"}
+          data-selecting="true"
           role="toolbar"
-          aria-label={selecting ? "Selected message actions" : "Message selection"}
+          aria-label="Selected message actions"
         >
           <Check
             state={selectAllState}
@@ -545,27 +578,37 @@ export function FolderList({
             if (entry.kind === "heading") {
               return (
                 <li key={entry.key} className="mail-list-group">
-                  <Check
-                    state={groupState(liveSelection, entry.ids)}
-                    onChange={(checked) =>
-                      dispatchSelection({
-                        kind: "group",
-                        ids: entry.ids,
-                        checked,
-                      })
-                    }
-                    label={`Select all in ${entry.label}`}
-                  />
-                  <div className="mail-list-group-text">
-                    <span className="mail-list-group-label">
-                      {entry.label}
-                      <span className="mail-list-group-count">
-                        {" "}
-                        · {entry.ids.length}
-                      </span>
+                  {/* The checkbox only appears once the user is selecting. A
+                      pile reads as a heading, not as a form. */}
+                  {selecting && (
+                    <Check
+                      state={groupState(liveSelection, entry.ids)}
+                      onChange={(checked) =>
+                        dispatchSelection({
+                          kind: "group",
+                          ids: entry.ids,
+                          checked,
+                        })
+                      }
+                      label={`Select all in ${entry.label}`}
+                    />
+                  )}
+                  <span className="mail-list-group-label">{entry.label}</span>
+                  {entry.sweep ? (
+                    <button
+                      type="button"
+                      className="mail-list-sweep mail-focus-ring"
+                      disabled={busy}
+                      title={entry.hint}
+                      onClick={() => void actSweep(entry.ids, entry.sweep!.mode)}
+                    >
+                      {entry.sweep.label}
+                    </button>
+                  ) : (
+                    <span className="mail-list-group-count tabular">
+                      {entry.ids.length}
                     </span>
-                    <span className="mail-list-group-hint">{entry.hint}</span>
-                  </div>
+                  )}
                 </li>
               );
             }
@@ -587,11 +630,13 @@ export function FolderList({
                 data-unread={row.isUnread ? "true" : "false"}
                 data-selected={checked ? "true" : "false"}
               >
-                <Check
-                  state={checked ? "all" : "none"}
-                  onChange={onRowCheck(index)}
-                  label={`Select ${rowLabel(row)}`}
-                />
+                {selecting && (
+                  <Check
+                    state={checked ? "all" : "none"}
+                    onChange={onRowCheck(index)}
+                    label={`Select ${rowLabel(row)}`}
+                  />
+                )}
                 <RowButton
                   row={row}
                   index={index}
@@ -601,41 +646,57 @@ export function FolderList({
                   onOpen={onOpen}
                   onPrefetch={onPrefetch}
                 >
-                  <span className="mail-list-main">
-                    <span className="mail-list-sender">
-                      {row.senderDisplayName || "Unknown sender"}
+                  {triage ? (
+                    // Two lines: who and what it is, then what it means. The
+                    // date and the pile it was filed under sit on the right,
+                    // where they line up down the column.
+                    <span className="mail-list-triage">
+                      <span className="mail-list-line">
+                        <span className="mail-list-sender">
+                          {row.senderDisplayName || "Unknown sender"}
+                        </span>
+                        <span className="mail-list-subject">
+                          {row.subject || "(no subject)"}
+                        </span>
+                        <time className="mail-list-when tabular" dateTime={row.timestamp}>
+                          {shortTime(row.timestamp)}
+                        </time>
+                      </span>
+                      <span className="mail-list-line">
+                        <span className="mail-list-decision">
+                          {row.decisionSummary || row.snippet || ""}
+                        </span>
+                        {row.category && (
+                          <span className="mail-list-category tabular">{row.category}</span>
+                        )}
+                      </span>
                     </span>
-                    <span className="mail-list-subject">
-                      {row.subject || "(no subject)"}
-                    </span>
-                    {triage ? (
-                      <>
-                        {row.decisionSummary && (
-                          <span className="mail-list-decision">
-                            {row.decisionSummary}
+                  ) : (
+                    <>
+                      <span className="mail-list-main">
+                        <span className="mail-list-sender">
+                          {row.senderDisplayName || "Unknown sender"}
+                        </span>
+                        <span className="mail-list-subject">
+                          {row.subject || "(no subject)"}
+                        </span>
+                        <span className="mail-list-snippet">
+                          {row.snippet || "No preview available"}
+                        </span>
+                      </span>
+                      <span className="mail-list-meta">
+                        <time dateTime={row.timestamp}>{shortTime(row.timestamp)}</time>
+                        {row.attachments.length > 0 && (
+                          <span aria-label={`${row.attachments.length} attachments`}>
+                            · {row.attachments.length} file
+                            {row.attachments.length === 1 ? "" : "s"}
                           </span>
                         )}
-                        {row.category && (
-                          <span className="mail-list-category">{row.category}</span>
-                        )}
-                      </>
-                    ) : (
-                      <span className="mail-list-snippet">
-                        {row.snippet || "No preview available"}
                       </span>
-                    )}
-                  </span>
-                  <span className="mail-list-meta">
-                    <time dateTime={row.timestamp}>{shortTime(row.timestamp)}</time>
-                    {row.attachments.length > 0 && (
-                      <span aria-label={`${row.attachments.length} attachments`}>
-                        · {row.attachments.length} file
-                        {row.attachments.length === 1 ? "" : "s"}
-                      </span>
-                    )}
-                  </span>
+                    </>
+                  )}
                 </RowButton>
-                {view.folder !== "sent" && (
+                {view.folder !== "sent" && !triage && (
                   <span className="mail-list-actions">
                     <button
                       type="button"
