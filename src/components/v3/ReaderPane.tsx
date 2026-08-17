@@ -91,6 +91,14 @@ export function ReaderPane({
     }
   };
 
+  const runDelete = async () => {
+    try {
+      await commands.onDelete();
+    } catch (cause) {
+      onNotice(cause instanceof Error ? cause.message : "Delete failed", true);
+    }
+  };
+
   if (loading) {
     return (
       <section
@@ -146,9 +154,7 @@ export function ReaderPane({
         onReplyAll={() => onCompose({ mode: "replyAll" })}
         onForward={() => onCompose({ mode: "forward" })}
         onArchive={() => void runArchive()}
-        onDelete={() =>
-          onNotice("Delete needs a current safety token from Triage.", true)
-        }
+        onDelete={() => void runDelete()}
       />
     </section>
   );

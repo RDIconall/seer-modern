@@ -26,8 +26,10 @@ const dateHtml = renderToString(
   }),
 );
 
-assert.match(dateHtml, /Date/);
-assert.match(dateHtml, /Most likely to delete/);
+// The inbox is plain: mail in the order it arrived, and no sort control, since
+// triage is a tab of its own now.
+assert.match(dateHtml, /Inbox/);
+assert.doesNotMatch(dateHtml, /Most likely to delete/);
 assert.doesNotMatch(dateHtml, /Ready to clear/);
 assert.doesNotMatch(dateHtml, /Filed for the record/);
 assert.doesNotMatch(dateHtml, /Not read yet/);
@@ -125,37 +127,37 @@ assert.match(
   "select-all must reach the indeterminate state for a partial selection",
 );
 assert.match(mixedHtml, /2(?:<!-- -->)? selected/);
-assert.match(
+/**
+ * Delete acts on everything the user picked. A mixed selection — one Seer
+ * cleared, one it refused — deletes both, because the person selected both.
+ * Seer's reading constrains Seer's own sweeps, not its user.
+ */
+assert.match(mixedHtml, /Delete</, "Delete is offered for the whole selection");
+assert.doesNotMatch(
   mixedHtml,
-  /Delete(?:<!-- -->)* \(1\)/,
-  "Delete must count only the rows it is authorised to act on",
+  /Delete(?:<!-- -->)* \(\d+\)/,
+  "Delete no longer reports a reduced count",
 );
-assert.match(
+assert.doesNotMatch(
   mixedHtml,
-  /aren’t cleared for deletion/,
-  "a mixed selection must say how much of it Delete will skip",
+  /cleared for deletion/,
+  "no refusal notice: the user's selection is the authority",
 );
+
 
 console.log("v3-inbox-triage-ui: OK");
 
 /**
- * The inbox opens triaged.
+ * Triage is its own place.
  *
- * Everything above — the piles, the ledger, the held-back note, the row that
- * says what a message means rather than quoting its first line — hangs off this
- * sort. Shipped behind a toggle nobody flips, it may as well not exist, and for
- * a while it did not: the inbox looked exactly as it always had.
+ * It was a sort on the inbox, and a sort is a thing you have to know to look
+ * for. Now the inbox is your mail in the order it came and triage is the pile
+ * Seer sorted, each with a tab, so neither hides inside the other.
  */
 const clientSource = await fs.readFile("src/components/v3/MailClient.tsx", "utf8");
-assert.match(
-  clientSource,
-  /useState<MailboxSort>\(\s*preview\?\.mailbox\.inbox\.sort \?\? "triage"/,
-  "the inbox must open sorted by what to do with the mail",
-);
-// Whichever sort is the default is the one the hash leaves out, so the other
-// one survives a reload.
-assert.match(
-  clientSource,
-  /if \(sort !== "triage"\) params\.set\("sort", sort\)/,
-  "date has to be written to the hash now that triage is the default",
-);
+assert.match(clientSource, /const triaging = section === "triage"/,
+  "triage is a section, not a sort on the inbox");
+assert.match(clientSource, /mailboxSort: MailboxSort = triaging \? "triage" : "date"/,
+  "the section decides the ordering");
+assert.doesNotMatch(clientSource, /setInboxSort/, "there is no inbox sort state left");
+assert.doesNotMatch(clientSource, /onSortChange/, "and no sort control to wire");

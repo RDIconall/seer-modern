@@ -2313,3 +2313,16 @@ body {
   font-size: 15px;
   color: var(--fg);
 }
+
+/* Triage offers its own dealt-one-at-a-time reading of the same pile. */
+.mail-cards-link {
+  appearance: none;
+  background: none;
+  border: 0;
+  padding: 4px 0;
+  font: inherit;
+  font-size: 13px;
+  color: var(--brand-strong);
+  cursor: pointer;
+  min-height: 32px;
+}

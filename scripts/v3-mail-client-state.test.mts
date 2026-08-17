@@ -23,7 +23,15 @@ assert.deepEqual(parseMailHash("#section=inbox&sort=triage"), {
   conversation: undefined,
   sort: "triage",
 });
+// Triage is its own section now, not a lens on the inbox.
 assert.deepEqual(parseMailHash("#section=triage"), {
+  section: "triage",
+  query: undefined,
+  conversation: undefined,
+  sort: undefined,
+});
+// Anything that is not a section is still refused.
+assert.deepEqual(parseMailHash("#section=nowhere"), {
   section: undefined,
   query: undefined,
   conversation: undefined,

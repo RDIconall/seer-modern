@@ -6,9 +6,9 @@ import { Archive, MailOpen, RotateCcw, Trash2, X } from "lucide-react";
 import type { Command, CommandResult } from "@/lib/v2/commands/types";
 import type { Disposition } from "@/lib/v3/mailbox/triage-rank";
 import { triageGroupHint, triageGroupLabel } from "@/lib/v3/mailbox/triage-rank";
-import type { MailboxRow, MailboxSort, MailboxView } from "@/lib/v3/mailbox/types";
-import { commandFor } from "@/components/v2/triage-command";
-import { commandsForSelection, deletableCount, groupState } from "@/components/v2/triage-select";
+import type { MailboxRow, MailboxView } from "@/lib/v3/mailbox/types";
+import { userCommandFor } from "@/components/v2/triage-command";
+import { commandsForSelection, groupState, sweepCommands } from "@/components/v2/triage-select";
 import {
   EMPTY_SELECTION,
   reduceSelection,
@@ -292,8 +292,6 @@ function RowButton({
 export function FolderList({
   view,
   refreshing,
-  sort,
-  onSortChange,
   onOpen,
   onPrefetch,
   onCommands,
@@ -302,8 +300,6 @@ export function FolderList({
 }: {
   view: MailboxView;
   refreshing: boolean;
-  sort: MailboxSort;
-  onSortChange?: (sort: MailboxSort) => void;
   onOpen: (row: MailboxRow) => void;
   onPrefetch: (conversationId: string) => void;
   onCommands: (commands: Command[]) => Promise<CommandResult[]>;
@@ -349,7 +345,6 @@ export function FolderList({
   const liveSelection = selection.ids as Set<string>;
   const selectedCount = liveSelection.size;
   const selecting = selectedCount > 0;
-  const canDelete = deletableCount(view.rows, liveSelection);
   const selectAllState = groupState(liveSelection, allIds);
 
   // Escape drops the selection, the way it does in every mail client — being
@@ -405,13 +400,12 @@ export function FolderList({
     void run(commandsForSelection(view.rows, liveSelection, "trash"));
 
   /**
-   * Sweep a whole pile in one press. It routes through the same commandFor as
-   * every other action, so "Clear" still deletes only what the server signed a
-   * token for and archives the rest — the button is faster than the checkboxes,
-   * never further-reaching than them.
+   * Sweep a whole pile in one press. Nobody has read these row by row, so this
+   * is the path that stays token-gated: "Clear" deletes only what the server
+   * cleared and archives the rest.
    */
   const actSweep = (ids: string[], mode: SweepMode) =>
-    run(commandsForSelection(view.rows, new Set(ids), mode));
+    run(sweepCommands(view.rows, new Set(ids), mode));
 
   const actMarkUnread = () => {
     const picked = view.rows.filter((row) => liveSelection.has(row.conversationId));
@@ -433,8 +427,9 @@ export function FolderList({
       ]);
       return;
     }
+    // The user is looking straight at this row and pressed the button.
     void run([
-      { command: commandFor(row, mode), conversationId: row.conversationId },
+      { command: userCommandFor(row, mode), conversationId: row.conversationId },
     ]);
   };
 
@@ -442,7 +437,7 @@ export function FolderList({
     <section className="mail-folder-layout" aria-label={`${view.folder} messages`}>
       <header className="mail-list-header">
         <div>
-          <h1>{view.folder[0].toUpperCase() + view.folder.slice(1)}</h1>
+          <h1>{triage ? "Triage" : view.folder[0].toUpperCase() + view.folder.slice(1)}</h1>
           {triage ? (
             // Sorted by what to do with it, the count that matters is not how
             // much mail there is but how much of it is still the user's problem.
@@ -457,36 +452,8 @@ export function FolderList({
             </p>
           )}
         </div>
-        {view.folder === "inbox" && onSortChange && (
-          <div
-            className="mail-sort"
-            role="radiogroup"
-            aria-label="Sort inbox"
-          >
-            <button
-              type="button"
-              role="radio"
-              className="mail-sort-option mail-focus-ring"
-              aria-checked={sort === "date"}
-              data-active={sort === "date" ? "true" : "false"}
-              onClick={() => onSortChange("date")}
-            >
-              Date
-            </button>
-            <button
-              type="button"
-              role="radio"
-              className="mail-sort-option mail-focus-ring"
-              aria-checked={sort === "triage"}
-              data-active={sort === "triage" ? "true" : "false"}
-              onClick={() => onSortChange("triage")}
-            >
-              Most likely to delete
-            </button>
-          </div>
-        )}
         {onCards && (
-          <button type="button" className="mail-sort-option mail-focus-ring" onClick={onCards}>
+          <button type="button" className="mail-cards-link mail-focus-ring" onClick={onCards}>
             Cards
           </button>
         )}
@@ -530,16 +497,12 @@ export function FolderList({
               <button
                 type="button"
                 className="mail-action mail-focus-ring"
-                disabled={busy || canDelete === 0}
-                title={
-                  canDelete === selectedCount
-                    ? "Delete the selected conversations"
-                    : "Only conversations Seer cleared for deletion will be deleted"
-                }
+                disabled={busy}
+                title="Delete the selected conversations"
                 onClick={actDelete}
               >
                 <Trash2 aria-hidden className="mail-bulk-icon" />
-                Delete{canDelete !== selectedCount ? ` (${canDelete})` : ""}
+                Delete
               </button>
               <button
                 type="button"
@@ -550,13 +513,6 @@ export function FolderList({
                 <MailOpen aria-hidden className="mail-bulk-icon" />
                 Mark unread
               </button>
-              {canDelete !== selectedCount && (
-                <span className="mail-bulk-hint">
-                  {canDelete === 0
-                    ? "None of these are cleared for deletion"
-                    : `${selectedCount - canDelete} of these aren’t cleared for deletion`}
-                </span>
-              )}
               <button
                 type="button"
                 className="mail-bulk-clear mail-focus-ring"
@@ -710,7 +666,7 @@ export function FolderList({
                     >
                       <PrimaryIcon aria-hidden />
                     </button>
-                    {row.deleteToken && (
+                    {(
                       <button
                         type="button"
                         className="mail-action mail-list-action mail-focus-ring"

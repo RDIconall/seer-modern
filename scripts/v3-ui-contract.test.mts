@@ -53,12 +53,16 @@ assert.match(client, /useSyncExternalStore/);
 assert.match(client, /getServerMobileSnapshot/);
 assert.match(client, /getServerHashSnapshot/);
 assert.doesNotMatch(client, /from\s+["']@\/components\/v2\/Triage["']/);
-assert.doesNotMatch(client, /section === ["']triage["']/);
+/**
+ * Triage is a place of its own: the inbox is your mail in the order it came,
+ * triage is the pile Seer sorted for clearing. What must stay gone is the old
+ * standalone screen that computed its own placement — asserted above.
+ */
+assert.match(client, /triaging/, "the client knows when it is triaging");
 
-for (const label of ["Inbox", "Sent", "Trash", "Atlas", "Settings"]) {
+for (const label of ["Inbox", "Triage", "Sent", "Trash", "Atlas", "Settings"]) {
   assert.match(navigation, new RegExp(label), `navigation is missing ${label}`);
 }
-assert.doesNotMatch(navigation, /["']triage["']|Triage/);
 assert.match(navigation, /bottom|mobile/i);
 assert.match(navigation, /aria-label/);
 assert.match(navigation, /mail-mobile-compose/);
@@ -159,11 +163,12 @@ assert.match(
   /selecting\s*\)?\s*\{?\s*\n?\s*onToggle|if \(selecting\)/,
   "tapping a row while selecting must toggle it rather than navigate",
 );
-assert.match(folderList, /Most likely to delete/);
-assert.match(folderList, /["']date["']/);
+// The list no longer carries a sort control: which reading you are looking at
+// is which tab you are on.
+assert.doesNotMatch(folderList, /Most likely to delete/);
 assert.match(folderList, /["']triage["']/);
-assert.match(folderList, /deleteToken/);
-assert.match(folderList, /deletableCount|commandsForSelection/);
+assert.match(folderList, /commandsForSelection/);
+assert.match(folderList, /sweepCommands/);
 assert.doesNotMatch(
   folderList,
   /deleteRank\s*\(|dispositionFromHome|TRIAGE_ORDER/,
@@ -218,7 +223,8 @@ const normalSsr = renderToString(
 );
 assert.match(normalSsr, /mail-bottom-nav/, "normal SSR keeps mobile navigation");
 assert.match(normalSsr, /mail-mobile-compose/, "normal SSR keeps compose FAB");
-assert.doesNotMatch(normalSsr, />Triage</);
+// Triage has a tab of its own in the navigation.
+assert.match(normalSsr, />Triage</, "navigation offers triage as its own place");
 
 const emptySentPreview = {
   ...v3Preview,

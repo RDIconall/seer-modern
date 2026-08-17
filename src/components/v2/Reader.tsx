@@ -306,16 +306,15 @@ export function useReaderCommands({
         type: "archive",
         conversationId: corpusConversationId,
       }),
-    onDelete: () => {
-      if (!deleteToken) {
-        throw new Error("delete token required");
-      }
-      return dispatchCommand({
-        type: "delete",
-        conversationId: corpusConversationId,
-        deleteToken,
-      });
-    },
+    // Reading a conversation and pressing Delete is as explicit as it gets. If
+    // Seer happens to have cleared it too, send that clearance along; if it did
+    // not, the user's decision still stands.
+    onDelete: () =>
+      dispatchCommand(
+        deleteToken
+          ? { type: "delete", conversationId: corpusConversationId, deleteToken }
+          : { type: "delete", conversationId: corpusConversationId, byUser: true },
+      ),
     dispatchCommand,
   };
 }

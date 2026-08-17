@@ -41,18 +41,38 @@ for (const required of [
 assert.ok(!files.includes("Triage.tsx"), "standalone Triage screen must be removed");
 assert.ok(!files.includes("MailApp.tsx"), "dead MailApp host must be removed");
 
-// Inbox delete is authorised solely by the server-minted token.
+/**
+ * Two ways to delete, and they must not be confused.
+ *
+ * A sweep is Seer emptying a pile nobody read row by row, so it goes through
+ * sweepCommands and may only take what the server signed a token for. A
+ * selection is the user pointing at mail they picked out themselves, so it goes
+ * through commandsForSelection and takes what they pointed at. Seer's judgement
+ * constrains Seer; it does not lock the user out of their own mailbox.
+ */
 const folderList = await fs.readFile(
   path.join(process.cwd(), "src", "components", "v3", "FolderList.tsx"),
   "utf8",
 );
 assert.ok(
-  folderList.includes("deleteToken"),
-  "FolderList must use the server delete token",
+  folderList.includes("sweepCommands"),
+  "a pile sweep must go through the token-gated helper",
 );
 assert.ok(
-  /deletableCount|commandsForSelection/.test(folderList),
-  "FolderList must gate bulk delete through the shared selection helpers",
+  folderList.includes("commandsForSelection"),
+  "a user selection must go through the shared selection helper",
+);
+const triageCommand = await fs.readFile(
+  path.join(process.cwd(), "src", "components", "v2", "triage-command.ts"),
+  "utf8",
+);
+assert.ok(
+  /commandFor[\s\S]*?row\.deleteToken/.test(triageCommand),
+  "the sweep path must still require the server-minted token",
+);
+assert.ok(
+  /userCommandFor[\s\S]*?byUser: true/.test(triageCommand),
+  "an explicit user delete must be marked as theirs",
 );
 // Categories come from the server row, not a client-side org/domain guess.
 assert.ok(

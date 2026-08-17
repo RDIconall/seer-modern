@@ -1,12 +1,12 @@
 "use client";
 
 import * as React from "react";
-import { Inbox, LayoutGrid, Send, Settings, Trash2 } from "lucide-react";
+import { Inbox, LayoutGrid, ListFilter, Send, Settings, Trash2 } from "lucide-react";
 import type { LucideIcon } from "lucide-react";
 import type { MailboxFolder } from "@/lib/v3/mailbox/types";
 import { SeerMark } from "./SeerMark";
 
-export type MailSection = MailboxFolder | "atlas" | "settings";
+export type MailSection = MailboxFolder | "triage" | "atlas" | "settings";
 
 type NavigationItem = {
   id: MailSection;
@@ -16,6 +16,9 @@ type NavigationItem = {
 
 const items: NavigationItem[] = [
   { id: "inbox", label: "Inbox", icon: Inbox },
+  // Triage is its own place, not a lens on the inbox: the inbox is your mail in
+  // the order it arrived, triage is the pile Seer sorted for clearing.
+  { id: "triage", label: "Triage", icon: ListFilter },
   { id: "sent", label: "Sent", icon: Send },
   { id: "trash", label: "Trash", icon: Trash2 },
   { id: "atlas", label: "Atlas", icon: LayoutGrid },

@@ -1,5 +1,5 @@
 import type { Command } from "@/lib/v2/commands/types";
-import { commandFor, type TriageActionRow } from "./triage-command";
+import { commandFor, userCommandFor, type TriageActionRow } from "./triage-command";
 
 /**
  * Bulk selection for triage, in the Gmail sense: visible checkboxes, a range
@@ -75,23 +75,40 @@ export function pruneSelection(
 /**
  * The commands a toolbar action produces.
  *
- * Delete is the reason this is a tested function. A selection is usually mixed:
- * some rows the server authorised for deletion, some it refused. "Delete" must
- * act on the authorised ones ALONE — never archiving the rest as a side effect
- * the user did not ask for, and never deleting what the safety layer vetoed.
+ * Delete is the reason this is a tested function. A selection is what the user
+ * picked out by hand, so Delete acts on all of it — Seer's reading of a
+ * conversation does not get a veto over its reader. The token still governs the
+ * pile-level sweep, where nobody looked at the rows one by one.
  */
 export function commandsForSelection<T extends TriageActionRow>(
   rows: T[],
   selected: Set<string>,
   mode: "archive" | "trash",
 ): { command: Command; conversationId: string }[] {
-  const picked = rows.filter((r) => selected.has(r.conversationId));
-  const target =
-    mode === "trash" ? picked.filter((r) => Boolean(r.deleteToken)) : picked;
-  return target.map((row) => ({
-    command: commandFor(row, mode),
-    conversationId: row.conversationId,
-  }));
+  return rows
+    .filter((r) => selected.has(r.conversationId))
+    .map((row) => ({
+      command: userCommandFor(row, mode),
+      conversationId: row.conversationId,
+    }));
+}
+
+/**
+ * The commands a one-press sweep of a whole pile produces. This is Seer acting
+ * over mail the user has not read row by row, so it may only delete what the
+ * server cleared and archives the rest.
+ */
+export function sweepCommands<T extends TriageActionRow>(
+  rows: T[],
+  ids: Set<string>,
+  mode: "archive" | "trash",
+): { command: Command; conversationId: string }[] {
+  return rows
+    .filter((r) => ids.has(r.conversationId))
+    .map((row) => ({
+      command: commandFor(row, mode),
+      conversationId: row.conversationId,
+    }));
 }
 
 /** How many of the selected rows Delete would actually act on. */

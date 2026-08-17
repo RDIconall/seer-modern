@@ -78,16 +78,14 @@ function writeHash(
   section: MailSection,
   conversation: string | null,
   query: string,
-  sort: MailboxSort,
 ): void {
   if (typeof window === "undefined") return;
   const params = new URLSearchParams();
+  // The section says whether this is the inbox or triage, so there is no
+  // separate sort to remember.
   params.set("section", section);
   if (conversation) params.set("conversation", conversation);
   if (query) params.set("q", query);
-  // Triage is the default, so it is date that has to be written down for a
-  // reload to come back to it.
-  if (sort !== "triage") params.set("sort", sort);
   window.history.replaceState(null, "", `#${params.toString()}`);
   window.dispatchEvent(new Event("hashchange"));
 }
@@ -217,18 +215,6 @@ export function MailClient({
   mobile = false,
 }: { preview?: MailClientPreview; mobile?: boolean } = {}) {
   const [section, setSection] = useState<MailSection>(preview?.initialSection ?? "inbox");
-  /**
-   * The inbox opens sorted by what to do with the mail, not by when it arrived.
-   *
-   * Everything that makes this an inbox rather than a list — the piles, the
-   * ledger of what still needs you, the line saying what the sweep will not
-   * take — hangs off this sort, and behind a toggle nobody flips it may as well
-   * not exist. Date is still one tap away for the times you are looking for a
-   * particular message rather than working the pile.
-   */
-  const [inboxSort, setInboxSort] = useState<MailboxSort>(
-    preview?.mailbox.inbox.sort ?? "triage",
-  );
   // Cards are a mode of triage, not a separate screen: the same rows, dealt one
   // at a time instead of listed.
   const [cards, setCards] = useState(false);
@@ -256,7 +242,6 @@ export function MailClient({
     section: hashSection,
     conversation: hashConversation,
     query: hashQuery,
-    sort: hashSort,
   } = parseMailHash(hashSnapshot);
   const pendingHashConversation =
     hashConversation && !hashAppliedRef.current ? hashConversation : null;
@@ -267,10 +252,12 @@ export function MailClient({
   });
   const mobileModalOpen = isMobile && modalOpen;
 
-  const folder = isFolder(section) ? section : "inbox";
-  const mailboxSort: MailboxSort = folder === "inbox" ? inboxSort : "date";
-  const previewView =
-    mailboxSort === "triage" ? preview?.triageInbox : preview?.mailbox[folder];
+  // Triage is a second reading of the inbox, not a fourth folder: same mail,
+  // ordered by what to do with it rather than by when it landed.
+  const triaging = section === "triage";
+  const folder: MailboxFolder = isFolder(section) ? section : "inbox";
+  const mailboxSort: MailboxSort = triaging ? "triage" : "date";
+  const previewView = triaging ? preview?.triageInbox : preview?.mailbox[folder];
   const mailbox = useMailbox(folder, {
     initialView: previewView,
     disabled: Boolean(preview),
@@ -300,7 +287,6 @@ export function MailClient({
 
   useEffect(() => {
     if (hashSection) setSection(hashSection);
-    if (hashSort) setInboxSort(hashSort);
     if (hashConversation) {
       hashAppliedRef.current = true;
       setConversationId(hashConversation);
@@ -313,14 +299,13 @@ export function MailClient({
     hashConversation,
     hashQuery,
     hashSection,
-    hashSort,
     hashSnapshot,
     restoreSearch,
   ]);
 
   useEffect(() => {
-    if (hashReady) writeHash(section, conversationId, query, inboxSort);
-  }, [conversationId, hashReady, inboxSort, query, section]);
+    if (hashReady) writeHash(section, conversationId, query);
+  }, [conversationId, hashReady, query, section]);
 
   useEffect(() => {
     if (typeof window === "undefined") return;
@@ -508,7 +493,7 @@ export function MailClient({
 
   const folderContent = searchRows ? (
     <SearchResults rows={searchRows} onOpen={openSearchResult} />
-  ) : activeMailbox && cards && mailboxSort === "triage" ? (
+  ) : activeMailbox && cards && triaging ? (
     <TriageCards
       rows={activeMailbox.rows}
       onCommands={async (items) => {
@@ -521,12 +506,10 @@ export function MailClient({
     <FolderList
       view={activeMailbox}
       refreshing={mailbox.refreshing}
-      sort={mailboxSort}
-      onSortChange={folder === "inbox" ? setInboxSort : undefined}
       onOpen={openRow}
       onPrefetch={mailbox.prefetchBody}
       onCommands={runCommands}
-      onCards={folder === "inbox" && mailboxSort === "triage" ? () => setCards(true) : undefined}
+      onCards={triaging ? () => setCards(true) : undefined}
     />
   ) : (
     <section className="mail-folder-layout mail-reader-loading" aria-label="Loading mailbox">

@@ -8,7 +8,25 @@ import type { Home } from "../db/types";
  */
 
 export type Command =
-  | { type: "delete"; conversationId: string; deleteToken: string }
+  /**
+   * Two ways to delete, and the difference is who decided.
+   *
+   * `deleteToken` is Seer's own clearance, signed against the current decision,
+   * and it is what a pile-level sweep carries: an automated action over mail the
+   * user has not looked at individually must not be able to reach past what the
+   * safety layer allowed.
+   *
+   * `byUser` is a person selecting a conversation and pressing Delete. That is
+   * their mail and their call, and it is not second-guessed — the same principle
+   * `correctConversation` already works on. Seer's judgement constrains Seer,
+   * not the person it works for.
+   */
+  | {
+      type: "delete";
+      conversationId: string;
+      deleteToken?: string | null;
+      byUser?: boolean;
+    }
   | { type: "archive"; conversationId: string }
   | { type: "restore"; conversationId: string }
   | { type: "markUnread"; conversationId: string }

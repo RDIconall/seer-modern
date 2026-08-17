@@ -120,7 +120,20 @@ async function run(
 ): Promise<CommandResult> {
   switch (command.type) {
     case "delete": {
-      // The token must be authentic AND still map to the current delete decision.
+      // A person who selected this and pressed Delete has said what they want
+      // done with their own mail. Ownership is the only question worth asking;
+      // Seer's opinion of the conversation constrains Seer, not them.
+      if (command.byUser) {
+        if (!(await conversationBelongsToAccount(ctx.accountId, command.conversationId))) {
+          return fail("conversation not found");
+        }
+        return enqueueMutation(ctx, "trash", command.conversationId, idempotencyKey);
+      }
+
+      // Otherwise this is Seer acting over a pile, and it may only reach as far
+      // as the safety layer cleared: the token must be authentic AND still map
+      // to the current delete decision.
+      if (!command.deleteToken) return fail("delete needs clearance or a user");
       const verified = verifyDecisionToken(command.deleteToken);
       if (!verified || verified.conversationId !== command.conversationId) {
         return fail("invalid delete token");
