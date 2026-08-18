@@ -566,7 +566,11 @@ export function MailClient({
   );
 
   return (
-    <div className="mail-client" data-reader-open={conversationId ? "true" : "false"}>
+    <div
+      className="mail-client"
+      data-section={section}
+      data-reader-open={conversationId ? "true" : "false"}
+    >
       <Navigation
         active={section}
         onNavigate={navigate}

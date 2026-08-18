@@ -29,6 +29,14 @@ const FAR = 176;
 
 type Settled = { row: MailboxRow; what: string };
 
+/** A row action must not also open the mail underneath it. */
+const press =
+  (act: () => void) => (event: React.MouseEvent<HTMLButtonElement>) => {
+    event.preventDefault();
+    event.stopPropagation();
+    act();
+  };
+
 export function TriageList({
   rows,
   onCommands,
@@ -239,6 +247,23 @@ function TriageRow({
               : "You owe a reply"}
           </div>
         )}
+        {/* The same four directions as the pull, said in words. A pointer has no
+            swipe, and deleting your own mail should never depend on a gesture. */}
+        <div className="tri-do">
+          <button type="button" className="tri-do-b" onClick={press(onAtlas)}>
+            Keep
+          </button>
+          <button type="button" className="tri-do-b" onClick={press(onFile)}>
+            File
+          </button>
+          <button
+            type="button"
+            className="tri-do-b tri-do-del"
+            onClick={press(onTrash)}
+          >
+            Delete
+          </button>
+        </div>
       </div>
     </div>
   );
