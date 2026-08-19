@@ -7,6 +7,7 @@
  * sixth turn the same paragraph is on the screen six times.
  */
 import assert from "node:assert/strict";
+import { plainBodyBlocks } from "../src/components/v2/MessageHtml.tsx";
 import {
   conversationFiles,
   freshBody,
@@ -190,13 +191,20 @@ assert.equal(yourTurn.peek, "Priya — we are costing it now.");
 
 const withFiles = conv([
   msg({
+    sentAt: "2026-08-04T09:00:00.000Z",
     attachments: [
       { id: "a1", filename: "CO v3.pdf", mimeType: "application/pdf", sizeBytes: 1000 },
     ],
   }),
   msg({
+    sentAt: "2026-08-05T10:00:00.000Z",
     attachments: [
       { id: "a2", filename: "CO v3.pdf", mimeType: "application/pdf", sizeBytes: 2000 },
+    ],
+  }),
+  msg({
+    sentAt: "2026-08-06T11:00:00.000Z",
+    attachments: [
       { id: "a3", filename: "model.xlsx", mimeType: "application/vnd.ms-excel", sizeBytes: 41000 },
     ],
   }),
@@ -207,6 +215,16 @@ const co = files.find((f) => f.filename === "CO v3.pdf")!;
 assert.equal(co.versions, 2, "a re-sent document is counted as a version");
 assert.equal(co.attachmentId, "a2", "the newest copy is the one offered");
 assert.equal(co.sizeBytes, 2000);
+assert.ok(files[0].sentAt >= files[1].sentAt, "newest attachment is listed first");
+assert.equal(files[0].filename, "model.xlsx");
+
+// Digest mail often arrives as one long middle-dot line.
+{
+  const blocks = plainBodyBlocks(
+    "32 escalations · 0 open RDI commitments · 3 sites with no visit · 1 invoice due · 2 new referrals",
+  );
+  assert.equal(blocks.length, 5);
+}
 
 // --- who is on it ------------------------------------------------------------
 

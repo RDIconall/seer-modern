@@ -93,7 +93,7 @@ assert.equal(timeLabel("2026-08-14T09:04:00.000Z", now), "");
   );
   assert.deepEqual(
     piles.map((p) => p.label),
-    ["Delete", "File", "Answer", "Keep"],
+    ["Delete", "Archive", "Answer", "Atlas"],
   );
 
   // Days sit inside a pile, newest first.
@@ -132,10 +132,12 @@ assert.equal(timeLabel("2026-08-14T09:04:00.000Z", now), "");
   ).replace(/<!--[\s\S]*?-->/g, "");
 
   assert.deepEqual(
-    [...html.matchAll(/class="tri-g">([^<]*)<em/g)].map((m) => m[1]),
-    ["Delete", "File", "Answer", "Keep"],
+    [...html.matchAll(/class="tri-g-name">([^<]*)<em/g)].map((m) => m[1].trim()),
+    ["Delete", "Archive", "Answer", "Atlas"],
     "the screen is four verbs, in the order the work is done",
   );
+  assert.match(html, /class="tri-g-hint"/, "each pile says what the verb means");
+  assert.match(html, /class="tri-do"/, "rows carry Atlas, Archive and Delete as buttons");
   assert.match(html, /class="tri-day tabular"/, "the mail keeps its own days inside");
 
   // Both destinations are named on the track before the pull commits.

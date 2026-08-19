@@ -7,6 +7,7 @@ import type { MailboxRow } from "@/lib/v3/mailbox/types";
 import {
   timeLabel,
   triagePiles,
+  VERB_HINT,
   type TriageVerb,
 } from "@/lib/v3/mailbox/triage-verb";
 
@@ -28,6 +29,14 @@ const NEAR = 78;
 const FAR = 176;
 
 type Settled = { row: MailboxRow; what: string };
+
+/** A row action must not also open the mail underneath it. */
+const press =
+  (act: () => void) => (event: React.MouseEvent<HTMLButtonElement>) => {
+    event.preventDefault();
+    event.stopPropagation();
+    act();
+  };
 
 export function TriageList({
   rows,
@@ -61,7 +70,7 @@ export function TriageList({
     });
 
   const toFile = (row: MailboxRow) =>
-    settle(row, "Filed", { type: "archive", conversationId: row.conversationId });
+    settle(row, "Archived", { type: "archive", conversationId: row.conversationId });
 
   const toTrash = (row: MailboxRow) =>
     settle(row, "Deleted", {
@@ -76,7 +85,7 @@ export function TriageList({
     if (!entry) return;
     // Deleting and filing both moved the mail, so putting it back is a restore.
     // Keeping it only changed Seer's mind, and there is nothing to fetch back.
-    if (entry.what === "Deleted" || entry.what === "Filed") {
+    if (entry.what === "Deleted" || entry.what === "Archived") {
       void onCommands([{ type: "restore", conversationId: row.conversationId }]);
     }
   };
@@ -88,15 +97,18 @@ export function TriageList({
       {piles.length === 0 ? (
         <div className="tri-end">
           <b>Clear</b>
-          {counted("Deleted")} deleted · {counted("Filed")} filed ·{" "}
+          {counted("Deleted")} deleted · {counted("Archived")} archived ·{" "}
           {counted("Answered")} answered · {counted("Atlas")} to Atlas
         </div>
       ) : (
         piles.map((pile) => (
           <div key={pile.verb}>
             <h2 className="tri-g">
-              {pile.label}
-              <em className="tabular">{pile.count}</em>
+              <span className="tri-g-name">
+                {pile.label}
+                <em className="tabular">{pile.count}</em>
+              </span>
+              <span className="tri-g-hint">{VERB_HINT[pile.verb]}</span>
             </h2>
             {pile.days.map((day) => (
               <div key={day.day}>
@@ -239,6 +251,21 @@ function TriageRow({
               : "You owe a reply"}
           </div>
         )}
+        <div className="tri-do">
+          <button type="button" className="tri-do-b" onClick={press(onAtlas)}>
+            Atlas
+          </button>
+          <button type="button" className="tri-do-b" onClick={press(onFile)}>
+            Archive
+          </button>
+          <button
+            type="button"
+            className="tri-do-b tri-do-del"
+            onClick={press(onTrash)}
+          >
+            Delete
+          </button>
+        </div>
       </div>
     </div>
   );

@@ -73,7 +73,10 @@ export function Reader({
   onArchive: () => void;
   onDelete: () => void;
 }) {
-  const nativeUrl = nativeUrlFor(provider, conversation.providerConversationId);
+  const latestMessage = conversation.messages[conversation.messages.length - 1];
+  const nativeUrl = nativeUrlFor(provider, conversation.providerConversationId, {
+    messageId: latestMessage?.providerMessageId,
+  });
   const ownDomain = (ownEmail ?? "").split("@")[1] ?? "";
   const lanes = useMemo(
     () => shapeThread(conversation, ownDomain, ownEmail),
@@ -141,7 +144,7 @@ export function Reader({
 
       {files.length > 0 && (
         <div className="reader-files" aria-label="Files on this conversation">
-          {files.map((file) => (
+          {files.map((file, index) => (
             <a
               key={`${file.messageId}:${file.attachmentId}`}
               className="reader-file mail-focus-ring"
@@ -151,9 +154,13 @@ export function Reader({
               <span>
                 <b>{file.filename}</b>
                 <em className="tabular">
+                  {index === 0 ? "Latest · " : ""}
+                  {shortDate(file.sentAt)}
                   {file.versions > 1
-                    ? `${file.versions} versions`
-                    : fileSize(file.sizeBytes)}
+                    ? ` · ${file.versions} versions`
+                    : file.sizeBytes > 0
+                      ? ` · ${fileSize(file.sizeBytes)}`
+                      : ""}
                 </em>
               </span>
             </a>
@@ -186,7 +193,9 @@ export function Reader({
                           <b>{turn.who}</b>
                           <em className="tabular">{shortDate(turn.message.sentAt)}</em>
                         </div>
-                        <p className="reader-branch-text">{turn.text}</p>
+                        <div className="reader-branch-text">
+                          <MessageHtml html={turn.message.bodyHtml} text={turn.text} />
+                        </div>
                       </div>
                     ))}
                   </div>
@@ -213,7 +222,7 @@ export function Reader({
               </button>
               {isOpen && (
                 <div className="reader-turn-body">
-                  <MessageHtml html={null} text={lane.body} />
+                  <MessageHtml html={lane.message.bodyHtml} text={lane.body} />
                   {lane.quotedCount > 0 && (
                     <p className="reader-stripped tabular">
                       {lane.quotedCount} quoted message

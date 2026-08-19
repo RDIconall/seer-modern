@@ -182,7 +182,7 @@ export function TriageCards({
             {destructive ? "Delete" : "Archive"}
           </span>
           <span className="deck-verdict deck-verdict-keep" data-on={keeping}>
-            Keep
+            Atlas
           </span>
           <button type="button" className="deck-open" onClick={() => onOpen(card)}>
             <CardFace row={card} />
@@ -200,7 +200,7 @@ export function TriageCards({
         <DeckAction label="Archive" onClick={() => commit("archive")}>
           <Archive aria-hidden />
         </DeckAction>
-        <DeckAction label="Keep" primary onClick={() => commit("keep")}>
+        <DeckAction label="Atlas" primary onClick={() => commit("keep")}>
           <Check aria-hidden />
         </DeckAction>
         <DeckAction

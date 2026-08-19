@@ -209,11 +209,13 @@ export type ConversationFile = {
   /** The most recent attachment carrying this name. */
   attachmentId: string;
   messageId: string;
+  /** When the latest version of this file landed on the thread. */
+  sentAt: string;
 };
 
 /**
- * Every file on the thread, once. Hunting turn by turn for the latest version
- * of a document is one of the things a thread makes people do.
+ * Every file on the thread, once, newest first. Hunting turn by turn for the
+ * latest version of a document is one of the things a thread makes people do.
  */
 export function conversationFiles(conversation: Conversation): ConversationFile[] {
   const byName = new Map<string, ConversationFile>();
@@ -227,6 +229,7 @@ export function conversationFiles(conversation: Conversation): ConversationFile[
         existing.attachmentId = attachment.id;
         existing.messageId = message.providerMessageId;
         existing.sizeBytes = attachment.sizeBytes;
+        existing.sentAt = message.sentAt;
         continue;
       }
       byName.set(key, {
@@ -236,10 +239,13 @@ export function conversationFiles(conversation: Conversation): ConversationFile[
         versions: 1,
         attachmentId: attachment.id,
         messageId: message.providerMessageId,
+        sentAt: message.sentAt,
       });
     }
   }
-  return [...byName.values()];
+  return [...byName.values()].sort(
+    (a, b) => Date.parse(b.sentAt || "") - Date.parse(a.sentAt || ""),
+  );
 }
 
 export type Participant = {

@@ -19,9 +19,17 @@ export const VERB_ORDER: TriageVerb[] = ["delete", "file", "answer", "keep"];
 
 export const VERB_LABEL: Record<TriageVerb, string> = {
   delete: "Delete",
-  file: "File",
+  file: "Archive",
   answer: "Answer",
-  keep: "Keep",
+  keep: "Atlas",
+};
+
+/** One line under each pile name — what the verb actually does. */
+export const VERB_HINT: Record<TriageVerb, string> = {
+  delete: "Safe to clear",
+  file: "Receipts & records — out of inbox",
+  answer: "Waiting on you",
+  keep: "Live work — goes on the board",
 };
 
 /**
