@@ -1,8 +1,8 @@
 import { db } from "@/lib/v2/db/pool";
 import type { AccountId } from "@/lib/v2/db/types";
-import { personName } from "@/lib/v2/view/person-name";
 import { signDecisionToken } from "@/lib/v2/view/token";
 import { decodeMailboxCursor, encodeMailboxCursor } from "./cursor";
+import { effectiveUnread, mailboxListLabel } from "./list-label";
 import { TRIAGE_ORDER, deleteRank, dispositionFromHome } from "./triage-rank";
 import type { MailboxFolder, MailboxRow, MailboxSort, MailboxView } from "./types";
 
@@ -27,7 +27,9 @@ type MailboxRowDb = {
   from_email: string | null;
   from_name: string | null;
   to_emails: string[] | null;
-  is_outgoing: boolean;
+  latest_sent_at: string | Date | null;
+  latest_outgoing: boolean;
+  latest_unread: boolean;
   snippet: string | null;
   attachment_names: string[] | null;
   decision_summary: string | null;
@@ -44,25 +46,15 @@ type MailboxRowDb = {
   function_name: string | null;
 };
 
-function displayFromEmail(email: string): string {
-  const local = email.split("@")[0] ?? email;
-  if (!local) return email;
-  return local.charAt(0).toUpperCase() + local.slice(1);
-}
-
-function senderDisplayName(row: MailboxRowDb): string {
-  if (row.is_outgoing) {
-    const named = personName(row.recipient_display ?? undefined);
-    if (named) return named;
-    const to = row.to_emails?.[0];
-    return to ? displayFromEmail(to) : personName(row.from_name ?? undefined) || row.from_email || "";
-  }
-  return (
-    personName(row.person_display ?? undefined) ||
-    personName(row.from_name ?? undefined) ||
-    row.from_email ||
-    ""
-  );
+function listLabel(row: MailboxRowDb): string {
+  return mailboxListLabel({
+    latestOutgoing: row.latest_outgoing,
+    personDisplay: row.person_display,
+    fromName: row.from_name,
+    fromEmail: row.from_email,
+    recipientDisplay: row.recipient_display,
+    toEmail: row.to_emails?.[0],
+  });
 }
 
 function isoDate(value: string | Date | null): string | null {
@@ -79,6 +71,11 @@ function isoTimestamp(value: string | Date | null): string {
 /** Matches SQL `coalesce(c.last_message_at, 'epoch'::timestamptz)` for triage cursors. */
 const EPOCH_ISO = "1970-01-01T00:00:00.000Z";
 
+/** Newest message time — falls back to the conversation stamp when sync lags. */
+function listTimestamp(row: MailboxRowDb): string {
+  return isoTimestamp(row.latest_sent_at ?? row.last_message_at);
+}
+
 function mapRow(row: MailboxRowDb): MailboxRow {
   const disposition = dispositionFromHome(row.home);
   // Token only on delete — the command bus refuses deletes without one, so a
@@ -90,10 +87,10 @@ function mapRow(row: MailboxRowDb): MailboxRow {
   return {
     conversationId: row.conversation_id,
     providerConversationId: row.provider_conversation_id,
-    senderDisplayName: senderDisplayName(row),
+    senderDisplayName: listLabel(row),
     subject: row.subject ?? "",
-    timestamp: isoTimestamp(row.last_message_at),
-    isUnread: row.is_unread,
+    timestamp: listTimestamp(row),
+    isUnread: effectiveUnread(row.is_unread, row.latest_outgoing, row.latest_unread),
     snippet: row.snippet ?? "",
     attachments: row.attachment_names ?? [],
     decisionSummary: row.decision_summary,
@@ -118,7 +115,9 @@ const MAILBOX_SELECT = `select c.id as conversation_id,
             lm.from_email,
             lm.from_name,
             lm.to_emails,
-            lm.is_outgoing,
+            lm.sent_at as latest_sent_at,
+            lm.is_outgoing as latest_outgoing,
+            lm.is_unread as latest_unread,
             lm.snippet,
             lm.attachment_names,
             d.id as decision_id,
@@ -140,12 +139,14 @@ const MAILBOX_SELECT = `select c.id as conversation_id,
          select m.from_email,
                 m.from_name,
                 m.to_emails,
+                m.sent_at,
                 m.is_outgoing,
+                m.is_unread,
                 m.snippet,
                 m.attachment_names
            from seer.messages m
           where m.conversation_id = c.id
-          order by m.sent_at desc nulls last
+          order by m.sent_at desc nulls last, m.provider_message_id desc
           limit 1
        ) lm on true
        left join seer.people p
@@ -224,9 +225,12 @@ export async function getMailboxView(
           `${MAILBOX_SELECT}
         and (
           $3::timestamptz is null
-          or (c.last_message_at, c.id) < ($3::timestamptz, $4::uuid)
+          or (
+            coalesce(lm.sent_at, c.last_message_at),
+            c.id
+          ) < ($3::timestamptz, $4::uuid)
         )
-      order by c.last_message_at desc nulls last, c.id desc
+      order by coalesce(lm.sent_at, c.last_message_at) desc nulls last, c.id desc
       limit $5`,
           [
             accountId,
@@ -251,12 +255,15 @@ export async function getMailboxView(
         at: last.last_message_at ? isoTimestamp(last.last_message_at) : EPOCH_ISO,
         id: last.conversation_id,
       });
-    } else if (last.last_message_at) {
-      nextCursor = encodeMailboxCursor({
-        sort: "date",
-        at: isoTimestamp(last.last_message_at),
-        id: last.conversation_id,
-      });
+    } else {
+      const at = listTimestamp(last);
+      if (at) {
+        nextCursor = encodeMailboxCursor({
+          sort: "date",
+          at,
+          id: last.conversation_id,
+        });
+      }
     }
   }
 
