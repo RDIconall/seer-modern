@@ -157,7 +157,69 @@ try {
   const sent = await getMailboxView(accountId, "sent", 10);
   assert.equal(sent.total, 1);
   assert.equal(sent.rows[0].subject, "Outgoing note");
-  assert.equal(sent.rows[0].senderDisplayName, "Bob");
+  assert.equal(sent.rows[0].senderDisplayName, "To Bob");
+
+  // Outgoing latest + read → not bold even when older messages are unread.
+  const answeredId = await seedConversation(
+    db.pool,
+    accountId,
+    "p-answered",
+    "inbox",
+    "Replied thread",
+    "2026-08-12T12:00:00Z",
+    { unread: true, outgoing: false },
+  );
+  await db.pool.query(
+    `insert into seer.messages
+       (account_id, conversation_id, provider_message_id, from_email, from_name,
+        to_emails, sent_at, snippet, is_unread, is_outgoing, attachment_names)
+     values ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11)`,
+    [
+      accountId,
+      answeredId,
+      "p-answered-m2",
+      "me@example.com",
+      "Me",
+      ["may.yau@example.com"],
+      "2026-08-13T12:00:00Z",
+      "my reply",
+      false,
+      true,
+      [],
+    ],
+  );
+  await db.pool.query(
+    `update seer.conversations set last_message_at = $2, is_unread = true where id = $1`,
+    [answeredId, "2026-08-13T12:00:00Z"],
+  );
+  const answered = await getMailboxView(accountId, "inbox", 10);
+  const answeredRow = answered.rows.find((r) => r.subject === "Replied thread");
+  assert.ok(answeredRow, "answered thread appears in inbox");
+  assert.equal(answeredRow!.senderDisplayName, "To May Yau");
+  assert.equal(answeredRow!.isUnread, false, "answered thread must not stay bold");
+
+  // Stale conversation stamp must not bury a newer latest message.
+  const staleId = await seedConversation(
+    db.pool,
+    accountId,
+    "p-stale",
+    "inbox",
+    "Fresh reply stale stamp",
+    "2026-08-01T12:00:00Z",
+    { unread: false },
+  );
+  await db.pool.query(
+    `insert into seer.messages
+       (account_id, conversation_id, provider_message_id, from_email, sent_at, snippet, is_unread, is_outgoing)
+     values ($1, $2, $3, 'alice@example.com', $4, 'newest', false, false)`,
+    [accountId, staleId, "p-stale-m2", "2026-08-14T12:00:00Z"],
+  );
+  const sorted = await getMailboxView(accountId, "inbox", 10);
+  assert.equal(
+    sorted.rows[0].subject,
+    "Fresh reply stale stamp",
+    "newest message time must sort first even when last_message_at lags",
+  );
 
   const trash = await getMailboxView(accountId, "trash", 10);
   assert.equal(trash.total, 1);
