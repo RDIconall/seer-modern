@@ -98,8 +98,7 @@ async function claimPending(
             select 1
               from seer.outbox older
              where older.account_id = seer.outbox.account_id
-               and older.command->>'conversationId' =
-                   seer.outbox.command->>'conversationId'
+               and older.conversation_id = seer.outbox.conversation_id
                and (
                  older.created_at < seer.outbox.created_at
                  or (

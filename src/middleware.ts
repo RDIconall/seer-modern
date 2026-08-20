@@ -27,7 +27,9 @@ const CRON_PATH_PREFIXES = [
   "/api/cron/",
   "/api/v2/sync",
   "/api/v2/read",
+  "/api/v2/accounts/",
   "/api/v3/outbox/",
+  "/api/webhooks/",
 ];
 
 export function isCronPath(pathname: string): boolean {

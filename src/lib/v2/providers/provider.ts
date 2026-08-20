@@ -81,11 +81,16 @@ const microsoftRefresh: RefreshFn = async (refreshToken) => {
 };
 
 export async function providerFor(account: MailAccount): Promise<MailProvider> {
-  const cred = await getCredentials(account.id);
-  if (!cred) throw new Error(`no credentials for account ${account.id}`);
-  const refreshFn = account.provider === "google" ? googleRefresh : microsoftRefresh;
-  const accessToken = await freshAccessToken(account.id, account.provider, refreshFn);
+  const accessToken = await accessTokenFor(account);
   return account.provider === "google"
     ? new GmailProvider({ accessToken, accountEmail: account.email })
     : new OutlookProvider({ accessToken, accountEmail: account.email });
+}
+
+/** Fresh access token for provider HTTP that lives outside the adapter (push). */
+export async function accessTokenFor(account: MailAccount): Promise<string> {
+  const cred = await getCredentials(account.id);
+  if (!cred) throw new Error(`no credentials for account ${account.id}`);
+  const refreshFn = account.provider === "google" ? googleRefresh : microsoftRefresh;
+  return freshAccessToken(account.id, account.provider, refreshFn);
 }

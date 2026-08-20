@@ -59,13 +59,16 @@ export async function getSyncMask(
     `select command, status, reconcile_needed, updated_at
        from seer.outbox
       where account_id = $1
-        and command->>'conversationId' = $2
+        and conversation_id = $2::uuid
         and (
           status in ('pending', 'inflight')
           or (status = 'failed' and reconcile_needed = true)
-          or status = 'done'
+          or (
+            status = 'done'
+            and updated_at > now() - ($3::int * interval '1 millisecond')
+          )
         )`,
-    [accountId, conversationId],
+    [accountId, conversationId, DONE_CONVERGENCE_MS],
   );
 
   const blockedFolders = new Set<string>();
