@@ -60,6 +60,34 @@ export async function GET(request: Request) {
     entries.push({ account, provider });
   }
 
+  // Enroll / repair push off the sync path so Outlook Graph subscriptions
+  // appear without waiting for a re-login or the renewal cron alone.
+  if (process.env.AUTH_URL) {
+    const { getPushSubscription } = await import("@/lib/v2/push/repository");
+    const { ensurePushForAccount } = await import("@/lib/v2/push/ensure");
+    for (const { account } of entries) {
+      if (account.status !== "active") continue;
+      try {
+        const existing = await getPushSubscription(account.id);
+        const needs =
+          !existing ||
+          (account.provider === "microsoft" && !existing.graphSubscriptionId) ||
+          (account.provider === "google" &&
+            !existing.gmailWatchExpiresAt &&
+            Boolean(process.env.GMAIL_PUBSUB_TOPIC));
+        if (needs) {
+          await ensurePushForAccount(account);
+          report.push({ email: account.email, push: "enrolled" });
+        }
+      } catch (e) {
+        report.push({
+          email: account.email,
+          pushError: e instanceof Error ? e.message.slice(0, 120) : "push failed",
+        });
+      }
+    }
+  }
+
   if (entries.length > 0 && syncBudget.deadlineMs !== undefined) {
     report.push(
       ...(await syncTickRoundRobin(entries, mode, activeFolders, {
