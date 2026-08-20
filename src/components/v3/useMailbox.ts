@@ -15,7 +15,7 @@ import {
   viewForFolder,
 } from "./mailbox-state";
 
-const CACHE_VERSION = 4;
+const CACHE_VERSION = 5;
 const mailboxCache = new Map<string, MailboxView>();
 const bodyCache = new Map<string, unknown>();
 

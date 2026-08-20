@@ -39,6 +39,12 @@
   --primary: #0d0d0d;
   --primary-soft: #ececec;
   --accent: #c93400;
+  /*
+   * Destruction has its own colour so it can never be mistaken for filing.
+   * Deleting is the one action here that does not come back on its own.
+   */
+  --danger: #c0392b;
+  --danger-soft: #fbeeec;
   --row-hover: #f0f0f0;
   --unread: #0d0d0d;
   --selection: #e6f3f1;
@@ -64,6 +70,8 @@
     --primary: #ececec;
     --primary-soft: #3a3a3a;
     --accent: #ff8a65;
+    --danger: #ff7a6a;
+    --danger-soft: #3a201c;
     --row-hover: #2f2f2f;
     --unread: #ffffff;
     --selection: #16332f;
@@ -174,8 +182,13 @@ body {
   will-change: transform;
 }
 
-/* Quiet brand deck — deep teal field, no candy aurora */
-.seer-deck-bg {
+/* Quiet brand deck — deep teal field, no candy aurora.
+ *
+ * Cards take the whole window rather than sitting in a panel, so the shell
+ * itself carries the field: one gradient, painted once, under the rail, the
+ * toolbar and the deck alike. */
+.seer-deck-bg,
+.mail-client[data-section="cards"] {
   background:
     url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='160' height='160'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.9' numOctaves='2' stitchTiles='stitch'/%3E%3CfeColorMatrix type='matrix' values='0 0 0 0 1 0 0 0 0 1 0 0 0 0 1 0 0 0 0.035 0'/%3E%3C/filter%3E%3Crect width='160' height='160' filter='url(%23n)'/%3E%3C/svg%3E"),
     radial-gradient(
@@ -2299,8 +2312,13 @@ body {
 .deck-verdict[data-on="true"] {
   opacity: 1;
 }
+/* Filing and deleting are not the same promise, so the badge only turns red
+   when the swipe will actually destroy something. */
 .deck-verdict-clear {
   right: 20px;
+  background: var(--fg-strong);
+}
+.deck-verdict-clear[data-destructive="true"] {
   background: var(--danger);
 }
 .deck-verdict-keep {
@@ -2383,6 +2401,82 @@ body {
 }
 
 /* --------------------------------------------------------------------
+   Cards on the whole window
+
+   The deck is not a panel inside the app, it is the app while you are
+   dealing. The shell paints the field, so everything standing on it —
+   rail, toolbar, search, bottom bar — is restated in white and glass.
+   The card itself keeps its paper; that contrast is the point.
+   -------------------------------------------------------------------- */
+
+.mail-client[data-section="cards"] {
+  color: #fff;
+}
+
+.mail-client[data-section="cards"] .deck {
+  background: none;
+}
+
+.mail-client[data-section="cards"] .mail-navigation,
+.mail-client[data-section="cards"] .mail-toolbar {
+  border-color: rgba(255, 255, 255, 0.18);
+}
+
+.mail-client[data-section="cards"] .mail-brand,
+.mail-client[data-section="cards"] .mail-toolbar-status,
+.mail-client[data-section="cards"] .mail-nav-item {
+  color: rgba(255, 255, 255, 0.82);
+}
+
+.mail-client[data-section="cards"] .mail-nav-item:hover {
+  color: #fff;
+  background: rgba(255, 255, 255, 0.12);
+}
+
+.mail-client[data-section="cards"] .mail-nav-item[data-active="true"],
+.mail-client[data-section="cards"] .mail-nav-item[data-active="true"] .mail-nav-icon {
+  color: #fff;
+}
+
+.mail-client[data-section="cards"] .mail-nav-item[data-active="true"] {
+  background: rgba(255, 255, 255, 0.18);
+}
+
+.mail-client[data-section="cards"] .mail-compose-button,
+.mail-client[data-section="cards"] .mail-mobile-compose {
+  color: var(--brand-strong);
+  background: #fff;
+}
+
+.mail-client[data-section="cards"] .mail-search form {
+  border-color: rgba(255, 255, 255, 0.28);
+  background: rgba(255, 255, 255, 0.14);
+}
+
+.mail-client[data-section="cards"] .mail-search input,
+.mail-client[data-section="cards"] .mail-search-submit,
+.mail-client[data-section="cards"] .mail-search-icon,
+.mail-client[data-section="cards"] .mail-search-clear {
+  color: #fff;
+}
+
+.mail-client[data-section="cards"] .mail-search input::placeholder {
+  color: rgba(255, 255, 255, 0.7);
+}
+
+@media (max-width: 700px) {
+  .mail-client[data-section="cards"] .mail-bottom-nav {
+    border-color: rgba(255, 255, 255, 0.16);
+    background: rgba(6, 74, 68, 0.72);
+  }
+
+  .mail-client[data-section="cards"] .mail-bottom-nav .mail-nav-item[data-active="true"],
+  .mail-client[data-section="cards"] .mail-bottom-nav .mail-nav-item[data-active="true"] .mail-nav-icon {
+    color: #fff;
+  }
+}
+
+/* --------------------------------------------------------------------
    Triage — four verbs, and the mail's own days inside them
 
    The piles are named after what the user is about to do, not after what
@@ -2399,6 +2493,11 @@ body {
 
 /* Seer's grouping: quiet, stated once, with the count set small beside it. */
 .tri-g {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 4px 12px;
   margin: 0;
   padding: 22px 20px 5px;
   font-size: 13px;
@@ -2406,11 +2505,21 @@ body {
   letter-spacing: -0.01em;
   color: var(--fg-strong);
 }
+.tri-g-name {
+  display: inline-flex;
+  align-items: baseline;
+  gap: 0;
+}
 .tri-g em {
   margin-left: 7px;
   font-style: normal;
   font-weight: 400;
   color: var(--nav-muted);
+}
+.tri-g-hint {
+  font-size: 12px;
+  font-weight: 400;
+  color: var(--muted);
 }
 
 /* The mail's own days, inside Seer's grouping. */
@@ -2433,7 +2542,7 @@ body {
 .tri-r {
   position: relative;
   overflow: hidden;
-  border-top: 1px solid var(--row-active);
+  border-top: 1px solid var(--border);
 }
 .tri-r:first-child {
   border-top: 0;
@@ -2527,13 +2636,43 @@ body {
   color: var(--muted);
 }
 
+/* The pull's four directions, written out. Quiet enough to read past, close
+   enough to reach, and Delete carries its own colour so it is never pressed
+   by mistake for File. */
+.tri-do {
+  display: flex;
+  gap: 4px;
+  margin: 6px -8px -4px auto;
+  justify-content: flex-end;
+}
+.tri-do-b {
+  appearance: none;
+  border: 0;
+  border-radius: 7px;
+  padding: 5px 9px;
+  min-height: 32px;
+  background: none;
+  font: inherit;
+  font-size: 13px;
+  color: var(--muted);
+  cursor: pointer;
+}
+.tri-do-b:hover {
+  color: var(--fg-strong);
+  background: var(--row-hover);
+}
+.tri-do-del:hover {
+  color: var(--danger);
+  background: var(--danger-soft);
+}
+
 /* What was settled, and the way back, until the screen is left. */
 .tri-was {
   display: flex;
   align-items: center;
   gap: 12px;
   padding: 10px 20px 11px;
-  border-top: 1px solid var(--row-active);
+  border-top: 1px solid var(--border);
   background: var(--card);
   color: var(--nav-muted);
 }

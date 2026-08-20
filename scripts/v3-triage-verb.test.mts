@@ -93,7 +93,7 @@ assert.equal(timeLabel("2026-08-14T09:04:00.000Z", now), "");
   );
   assert.deepEqual(
     piles.map((p) => p.label),
-    ["Delete", "File", "Answer", "Keep"],
+    ["Delete", "Archive", "Answer", "Atlas"],
   );
 
   // Days sit inside a pile, newest first.
@@ -132,10 +132,11 @@ assert.equal(timeLabel("2026-08-14T09:04:00.000Z", now), "");
   ).replace(/<!--[\s\S]*?-->/g, "");
 
   assert.deepEqual(
-    [...html.matchAll(/class="tri-g">([^<]*)<em/g)].map((m) => m[1]),
-    ["Delete", "File", "Answer", "Keep"],
+    [...html.matchAll(/class="tri-g-name">([^<]*)<em/g)].map((m) => m[1]),
+    ["Delete", "Archive", "Answer", "Atlas"],
     "the screen is four verbs, in the order the work is done",
   );
+  assert.match(html, /class="tri-g-hint"/, "each pile says what the verb does");
   assert.match(html, /class="tri-day tabular"/, "the mail keeps its own days inside");
 
   // Both destinations are named on the track before the pull commits.
@@ -156,5 +157,7 @@ assert.match(source, /type: "correctConversation"/, "Keep corrects the decision"
 assert.match(source, /home: "matter"/, "Keep puts the conversation on Atlas");
 assert.match(source, /byUser: true/, "deleting from triage is the user's own call");
 assert.match(source, /type: "archive"/, "filing archives");
+assert.match(source, /tri-do-del/, "delete is a button, not only a swipe");
+assert.match(source, />\s*Delete\s*</, "delete is labelled on the row");
 
 console.log("v3-triage-verb: OK");

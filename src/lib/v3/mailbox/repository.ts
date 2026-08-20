@@ -27,9 +27,13 @@ type MailboxRowDb = {
   from_email: string | null;
   from_name: string | null;
   to_emails: string[] | null;
-  latest_sent_at: string | Date | null;
-  latest_outgoing: boolean;
-  latest_unread: boolean;
+  face_sent_at: string | Date | null;
+  face_outgoing: boolean;
+  face_unread: boolean;
+  activity_sent_at: string | Date | null;
+  incoming_unread: boolean;
+  outgoing_unread: boolean;
+  has_incoming: boolean;
   snippet: string | null;
   attachment_names: string[] | null;
   decision_summary: string | null;
@@ -48,13 +52,29 @@ type MailboxRowDb = {
 
 function listLabel(row: MailboxRowDb): string {
   return mailboxListLabel({
-    latestOutgoing: row.latest_outgoing,
+    latestOutgoing: row.face_outgoing,
     personDisplay: row.person_display,
     fromName: row.from_name,
     fromEmail: row.from_email,
     recipientDisplay: row.recipient_display,
     toEmail: row.to_emails?.[0],
   });
+}
+
+/**
+ * Folder views pick a different face message than the activity clock.
+ *
+ * Inbox names the latest person who wrote to you (Outlook/Gmail style). Sent
+ * names who you wrote to. Unread follows the same folder: inbox stays bold
+ * while an incoming message is unread, even after you replied.
+ */
+function unreadForFolder(folder: MailboxFolder, row: MailboxRowDb): boolean {
+  if (folder === "inbox") {
+    if (row.has_incoming) return row.incoming_unread;
+    return effectiveUnread(row.is_unread, row.face_outgoing, row.face_unread);
+  }
+  if (folder === "sent") return row.outgoing_unread;
+  return row.is_unread;
 }
 
 function isoDate(value: string | Date | null): string | null {
@@ -71,12 +91,12 @@ function isoTimestamp(value: string | Date | null): string {
 /** Matches SQL `coalesce(c.last_message_at, 'epoch'::timestamptz)` for triage cursors. */
 const EPOCH_ISO = "1970-01-01T00:00:00.000Z";
 
-/** Newest message time — falls back to the conversation stamp when sync lags. */
-function listTimestamp(row: MailboxRowDb): string {
-  return isoTimestamp(row.latest_sent_at ?? row.last_message_at);
+/** Newest activity — falls back to the conversation stamp when sync lags. */
+function activityTimestamp(row: MailboxRowDb): string {
+  return isoTimestamp(row.activity_sent_at ?? row.last_message_at);
 }
 
-function mapRow(row: MailboxRowDb): MailboxRow {
+function mapRow(row: MailboxRowDb, folder: MailboxFolder): MailboxRow {
   const disposition = dispositionFromHome(row.home);
   // Token only on delete — the command bus refuses deletes without one, so a
   // bulk action in the inbox can never touch vetoed or undecided mail.
@@ -89,8 +109,8 @@ function mapRow(row: MailboxRowDb): MailboxRow {
     providerConversationId: row.provider_conversation_id,
     senderDisplayName: listLabel(row),
     subject: row.subject ?? "",
-    timestamp: listTimestamp(row),
-    isUnread: effectiveUnread(row.is_unread, row.latest_outgoing, row.latest_unread),
+    timestamp: activityTimestamp(row),
+    isUnread: unreadForFolder(folder, row),
     snippet: row.snippet ?? "",
     attachments: row.attachment_names ?? [],
     decisionSummary: row.decision_summary,
@@ -106,6 +126,11 @@ function mapRow(row: MailboxRowDb): MailboxRow {
   };
 }
 
+/**
+ * `$2` is the folder being listed. The face lateral prefers messages that
+ * belong in that folder's story (incoming for inbox, outgoing for sent); the
+ * activity lateral is the true newest message for sort order.
+ */
 const MAILBOX_SELECT = `select c.id as conversation_id,
             c.provider_conversation_id,
             c.subject,
@@ -115,9 +140,13 @@ const MAILBOX_SELECT = `select c.id as conversation_id,
             lm.from_email,
             lm.from_name,
             lm.to_emails,
-            lm.sent_at as latest_sent_at,
-            lm.is_outgoing as latest_outgoing,
-            lm.is_unread as latest_unread,
+            lm.sent_at as face_sent_at,
+            lm.is_outgoing as face_outgoing,
+            lm.is_unread as face_unread,
+            act.sent_at as activity_sent_at,
+            coalesce(ur.incoming_unread, false) as incoming_unread,
+            coalesce(ur.outgoing_unread, false) as outgoing_unread,
+            coalesce(ur.has_incoming, false) as has_incoming,
             lm.snippet,
             lm.attachment_names,
             d.id as decision_id,
@@ -146,9 +175,30 @@ const MAILBOX_SELECT = `select c.id as conversation_id,
                 m.attachment_names
            from seer.messages m
           where m.conversation_id = c.id
-          order by m.sent_at desc nulls last, m.provider_message_id desc
+          order by
+            case
+              when $2::text = 'inbox' and m.is_outgoing then 1
+              when $2::text = 'sent' and not m.is_outgoing then 1
+              else 0
+            end,
+            m.sent_at desc nulls last,
+            m.provider_message_id desc
           limit 1
        ) lm on true
+       left join lateral (
+         select m.sent_at
+           from seer.messages m
+          where m.conversation_id = c.id
+          order by m.sent_at desc nulls last, m.provider_message_id desc
+          limit 1
+       ) act on true
+       left join lateral (
+         select coalesce(bool_or(m.is_unread) filter (where not m.is_outgoing), false) as incoming_unread,
+                coalesce(bool_or(m.is_unread) filter (where m.is_outgoing), false) as outgoing_unread,
+                bool_or(not m.is_outgoing) as has_incoming
+           from seer.messages m
+          where m.conversation_id = c.id
+       ) ur on true
        left join seer.people p
          on p.account_id = c.account_id and p.email = lm.from_email
        left join seer.people rp
@@ -226,11 +276,11 @@ export async function getMailboxView(
         and (
           $3::timestamptz is null
           or (
-            coalesce(lm.sent_at, c.last_message_at),
+            coalesce(act.sent_at, c.last_message_at),
             c.id
           ) < ($3::timestamptz, $4::uuid)
         )
-      order by coalesce(lm.sent_at, c.last_message_at) desc nulls last, c.id desc
+      order by coalesce(act.sent_at, c.last_message_at) desc nulls last, c.id desc
       limit $5`,
           [
             accountId,
@@ -256,7 +306,7 @@ export async function getMailboxView(
         id: last.conversation_id,
       });
     } else {
-      const at = listTimestamp(last);
+      const at = activityTimestamp(last);
       if (at) {
         nextCursor = encodeMailboxCursor({
           sort: "date",
@@ -271,7 +321,7 @@ export async function getMailboxView(
     accountId,
     folder,
     sort,
-    rows: page.map(mapRow),
+    rows: page.map((row) => mapRow(row, folder)),
     total: totalRow.rows[0]?.n ?? 0,
     needsYou: needsYouRow.rows[0]?.n ?? 0,
     nextCursor,

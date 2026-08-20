@@ -159,7 +159,8 @@ try {
   assert.equal(sent.rows[0].subject, "Outgoing note");
   assert.equal(sent.rows[0].senderDisplayName, "To Bob");
 
-  // Outgoing latest + read → not bold even when older messages are unread.
+  // Inbox face stays on the person who wrote to you, even after you reply —
+  // matching Outlook/Gmail folder views. Unread follows incoming mail.
   const answeredId = await seedConversation(
     db.pool,
     accountId,
@@ -189,14 +190,51 @@ try {
     ],
   );
   await db.pool.query(
-    `update seer.conversations set last_message_at = $2, is_unread = true where id = $1`,
+    `update seer.conversations
+        set last_message_at = $2,
+            is_unread = true,
+            folders = array['inbox', 'sent']::text[]
+      where id = $1`,
     [answeredId, "2026-08-13T12:00:00Z"],
   );
   const answered = await getMailboxView(accountId, "inbox", 10);
   const answeredRow = answered.rows.find((r) => r.subject === "Replied thread");
   assert.ok(answeredRow, "answered thread appears in inbox");
-  assert.equal(answeredRow!.senderDisplayName, "To May Yau");
-  assert.equal(answeredRow!.isUnread, false, "answered thread must not stay bold");
+  assert.equal(answeredRow!.senderDisplayName, "Alice", "inbox face is the incoming sender");
+  assert.equal(answeredRow!.snippet, "hello", "inbox snippet is the incoming body");
+  assert.equal(answeredRow!.isUnread, true, "inbox stays bold while incoming is unread");
+
+  await db.pool.query(
+    `update seer.messages set is_unread = false
+      where conversation_id = $1 and is_outgoing = false`,
+    [answeredId],
+  );
+  await db.pool.query(`update seer.conversations set is_unread = false where id = $1`, [
+    answeredId,
+  ]);
+  const answeredRead = await getMailboxView(accountId, "inbox", 10);
+  const answeredReadRow = answeredRead.rows.find((r) => r.subject === "Replied thread");
+  assert.equal(answeredReadRow!.isUnread, false, "inbox clears bold once incoming is read");
+
+  const answeredSent = await getMailboxView(accountId, "sent", 10);
+  const answeredSentRow = answeredSent.rows.find((r) => r.subject === "Replied thread");
+  assert.ok(answeredSentRow, "same thread appears under sent");
+  assert.equal(answeredSentRow!.senderDisplayName, "To May Yau", "sent face is who you wrote to");
+  assert.equal(answeredSentRow!.snippet, "my reply", "sent snippet is your outbound body");
+
+  // Outbound-only inbox thread still gets an explicit To label.
+  await seedConversation(
+    db.pool,
+    accountId,
+    "p-out-only",
+    "inbox",
+    "Outbound only",
+    "2026-08-13T15:00:00Z",
+    { outgoing: true, unread: false, snippet: "just me" },
+  );
+  const outOnly = await getMailboxView(accountId, "inbox", 10);
+  const outOnlyRow = outOnly.rows.find((r) => r.subject === "Outbound only");
+  assert.equal(outOnlyRow!.senderDisplayName, "To Bob");
 
   // Stale conversation stamp must not bury a newer latest message.
   const staleId = await seedConversation(

@@ -178,7 +178,11 @@ export function TriageCards({
           onPointerCancel={endDrag}
         >
           {/* What the gesture will do, named before it happens. */}
-          <span className="deck-verdict deck-verdict-clear" data-on={clearing}>
+          <span
+            className="deck-verdict deck-verdict-clear"
+            data-on={clearing}
+            data-destructive={destructive}
+          >
             {destructive ? "Delete" : "Archive"}
           </span>
           <span className="deck-verdict deck-verdict-keep" data-on={keeping}>
