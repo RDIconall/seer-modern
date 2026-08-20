@@ -105,7 +105,14 @@ async function writeConversation(
              message_count = excluded.message_count,
              is_deleted = false,
              last_synced_at = now(),
-             updated_at = now()
+             updated_at = case
+               when seer.conversations.subject is distinct from excluded.subject
+                 or seer.conversations.last_message_at is distinct from excluded.last_message_at
+                 or seer.conversations.message_count is distinct from excluded.message_count
+                 or seer.conversations.is_deleted
+               then now()
+               else seer.conversations.updated_at
+             end
        returning id`,
     [
       accountId,
@@ -125,6 +132,7 @@ async function writeConversation(
     convo.lastMessageAt || null,
   );
   if (!mask.blockedFolders.has(folder)) {
+    // Skip the rewrite when this folder is already on the row.
     await client.query(
       `update seer.conversations
           set folders = (
@@ -132,12 +140,15 @@ async function writeConversation(
                   from unnest(folders || array[$2]::text[]) as f
               ),
               updated_at = now()
-        where id = $1`,
+        where id = $1
+          and not (folders @> array[$2]::text[])`,
       [conversationId, folder],
     );
   }
+
+  let messagesTouched = false;
   for (const m of convo.messages) {
-    await client.query(
+    const written = await client.query(
       `insert into seer.messages
          (account_id, conversation_id, provider_message_id, from_email, from_name,
           to_emails, cc_emails, sent_at, snippet, body_html, body_text, is_unread,
@@ -147,7 +158,22 @@ async function writeConversation(
            set body_html = excluded.body_html,
                body_text = excluded.body_text,
                is_unread = excluded.is_unread,
-               attachment_names = excluded.attachment_names`,
+               attachment_names = excluded.attachment_names,
+               from_email = excluded.from_email,
+               from_name = excluded.from_name,
+               to_emails = excluded.to_emails,
+               cc_emails = excluded.cc_emails,
+               snippet = excluded.snippet
+         where seer.messages.body_html is distinct from excluded.body_html
+            or seer.messages.body_text is distinct from excluded.body_text
+            or seer.messages.is_unread is distinct from excluded.is_unread
+            or seer.messages.attachment_names is distinct from excluded.attachment_names
+            or seer.messages.from_email is distinct from excluded.from_email
+            or seer.messages.from_name is distinct from excluded.from_name
+            or seer.messages.to_emails is distinct from excluded.to_emails
+            or seer.messages.cc_emails is distinct from excluded.cc_emails
+            or seer.messages.snippet is distinct from excluded.snippet
+         returning provider_message_id`,
       [
         accountId,
         conversationId,
@@ -165,9 +191,10 @@ async function writeConversation(
         m.attachments.map((a) => a.filename),
       ],
     );
+    if ((written.rowCount ?? 0) > 0) messagesTouched = true;
   }
 
-  if (!mask.protectUnread) {
+  if (!mask.protectUnread && messagesTouched) {
     await client.query(
       `update seer.conversations c
           set is_unread = (
@@ -347,6 +374,16 @@ export async function completeFolderSnapshot(
         where account_id = $1 and folder = $2
           and snapshot_generation = $3`,
       [accountId, folder, generation, providerTotal],
+    );
+
+    // Prior generations only exist to finish this snapshot. Leaving them
+    // accumulates ~one row per conversation per rescan forever.
+    await client.query(
+      `delete from seer.folder_sync_seen
+        where account_id = $1
+          and folder = $2
+          and snapshot_generation is distinct from $3`,
+      [accountId, folder, generation],
     );
     return true;
   });

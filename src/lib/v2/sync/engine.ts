@@ -37,8 +37,9 @@ export type SyncFolderOptions = {
 
 /** Safety margin for provider latency and per-page persistence before deadline. */
 export const SYNC_PAGE_SAFETY_HEADROOM_MS = 15_000;
-/** Inbox phone actions converge without restarting the large historical scan. */
-export const INBOX_RECONCILIATION_INTERVAL_MS = 15 * 60 * 1000;
+/** Inbox phone actions converge without restarting the large historical scan.
+ *  Push/webhook is the primary path for new mail; this is the safety net. */
+export const INBOX_RECONCILIATION_INTERVAL_MS = 60 * 60 * 1000;
 /** Sent and Trash are browsable history; rescan them less often than Inbox. */
 export const HISTORY_RECONCILIATION_INTERVAL_MS = 6 * 60 * 60 * 1000;
 

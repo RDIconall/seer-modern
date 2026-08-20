@@ -213,7 +213,7 @@ export class OutlookProvider implements MailProvider {
     assertSyncBudget(context);
     const url =
       cursor ??
-      `${API}/mailFolders/${this.folderPath(folder)}/messages?$top=${this.pageSize}&$select=id,conversationId,subject,from,toRecipients,ccRecipients,receivedDateTime,bodyPreview,body,isRead,hasAttachments&$expand=attachments($select=id,name,contentType,size)&$orderby=receivedDateTime desc`;
+      `${API}/mailFolders/${this.folderPath(folder)}/messages?$top=${this.pageSize}&$select=id,conversationId,subject,from,toRecipients,ccRecipients,receivedDateTime,bodyPreview,isRead,hasAttachments&$orderby=receivedDateTime desc`;
     const page: {
       value?: GraphMessage[];
       "@odata.nextLink"?: string;

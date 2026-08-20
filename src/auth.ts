@@ -163,6 +163,16 @@ export const { handlers, auth, signIn, signOut } = NextAuth({
           } catch {
             /* cookies() may be unavailable in some auth runtimes */
           }
+          // Enroll provider push off the auth hot path — cron remains the net.
+          void import("@/lib/v2/push/ensure")
+            .then(({ ensurePushForAccount }) => ensurePushForAccount(saved))
+            .catch((e) =>
+              console.error(
+                "[seer] push enroll failed",
+                saved.email,
+                e instanceof Error ? e.message : e,
+              ),
+            );
         }
         return token;
       }
