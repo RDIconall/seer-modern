@@ -2392,15 +2392,87 @@ body {
    -------------------------------------------------------------------- */
 
 .tri {
-  max-width: 560px;
+  width: 100%;
+  max-width: 1440px;
   margin-inline: auto;
-  padding-bottom: 24px;
+  padding: 0 24px 32px;
+  outline: none;
+}
+
+.tri-toolbar {
+  position: sticky;
+  top: 0;
+  z-index: 12;
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  min-height: 50px;
+  padding: 8px 12px;
+  border-bottom: 1px solid var(--border);
+  background: color-mix(in srgb, var(--bg) 92%, transparent);
+  backdrop-filter: blur(14px);
+}
+.tri-select-all {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  color: var(--fg-strong);
+  cursor: pointer;
+}
+.tri-select-all input,
+.tri-check input {
+  width: 16px;
+  height: 16px;
+  accent-color: var(--brand-strong);
+}
+.tri-bulk-actions {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+}
+.tri-bulk-actions button,
+.tri-row-actions button {
+  appearance: none;
+  border: 0;
+  border-radius: 7px;
+  background: none;
+  padding: 6px 8px;
+  font: inherit;
+  font-size: 12px;
+  color: var(--nav-muted);
+  cursor: pointer;
+}
+.tri-bulk-actions button:hover:not(:disabled),
+.tri-row-actions button:hover {
+  color: var(--fg-strong);
+  background: var(--row-hover);
+}
+.tri-bulk-actions button:first-child:hover:not(:disabled),
+.tri-row-actions button:first-child:hover {
+  color: var(--danger, #c0392b);
+  background: var(--danger-soft, #fbeeec);
+}
+.tri-bulk-actions button:disabled {
+  opacity: 0.38;
+  cursor: default;
+}
+.tri-select-toggle {
+  display: none;
+}
+.tri-key-help {
+  margin-left: auto;
+  color: var(--muted);
+  font-size: 11px;
+  white-space: nowrap;
 }
 
 /* Seer's grouping: quiet, stated once, with the count set small beside it. */
 .tri-g {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
   margin: 0;
-  padding: 22px 20px 5px;
+  padding: 24px 12px 8px;
   font-size: 13px;
   font-weight: 500;
   letter-spacing: -0.01em;
@@ -2412,10 +2484,37 @@ body {
   font-weight: 400;
   color: var(--nav-muted);
 }
+.tri-g small {
+  font-size: 11px;
+  font-weight: 400;
+  color: var(--muted);
+}
+
+.tri-table-head,
+.tri-in {
+  display: grid;
+  grid-template-columns:
+    32px minmax(120px, 0.85fr) minmax(180px, 1.35fr)
+    minmax(180px, 1.7fr) minmax(90px, 0.6fr) 88px minmax(210px, auto);
+  align-items: center;
+  column-gap: 12px;
+}
+.tri-table-head {
+  min-height: 30px;
+  padding: 0 12px;
+  border: 1px solid var(--border);
+  border-bottom: 0;
+  border-radius: 10px 10px 0 0;
+  background: var(--bg);
+  color: var(--muted);
+  font-size: 10px;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
 
 /* The mail's own days, inside Seer's grouping. */
 .tri-day {
-  padding: 11px 20px 4px;
+  padding: 9px 12px 5px;
   letter-spacing: 0.09em;
   text-transform: uppercase;
   color: var(--nav-muted);
@@ -2424,7 +2523,12 @@ body {
 
 .tri-set {
   background: var(--card);
-  border-block: 1px solid var(--border);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  overflow: hidden;
+}
+.tri-day-group:first-of-type .tri-set {
+  border-radius: 0 0 8px 8px;
 }
 .tri-settled {
   margin-top: 20px;
@@ -2433,7 +2537,7 @@ body {
 .tri-r {
   position: relative;
   overflow: hidden;
-  border-top: 1px solid var(--row-active);
+  border-top: 1px solid var(--border);
 }
 .tri-r:first-child {
   border-top: 0;
@@ -2465,8 +2569,24 @@ body {
 .tri-in {
   position: relative;
   background: var(--card);
-  padding: 11px 20px 12px;
+  min-height: 52px;
+  padding: 7px 12px;
   touch-action: pan-y;
+  cursor: pointer;
+  outline: none;
+}
+.tri-in:hover,
+.tri-in:focus-visible {
+  background: var(--row-hover);
+}
+.tri-r[data-selected="true"] .tri-in {
+  background: var(--selection);
+}
+.tri-check {
+  display: grid;
+  place-items: center;
+  width: 28px;
+  min-height: 36px;
   cursor: pointer;
 }
 .tri-l1 {
@@ -2500,10 +2620,16 @@ body {
 .tri-when {
   flex: none;
   color: var(--nav-muted);
+  text-align: right;
+}
+.tri-mobile-when {
+  display: none;
+  flex: none;
+  color: var(--nav-muted);
 }
 .tri-subj {
-  margin-top: 2px;
-  font-size: 14.5px;
+  margin: 0;
+  font-size: 13.5px;
   line-height: 1.35;
   color: var(--fg-strong);
   white-space: nowrap;
@@ -2514,7 +2640,7 @@ body {
   color: var(--fg);
 }
 .tri-snip {
-  margin-top: 2px;
+  margin: 0;
   font-size: 13px;
   line-height: 1.4;
   color: var(--nav-muted);
@@ -2523,8 +2649,32 @@ body {
   text-overflow: ellipsis;
 }
 .tri-clip {
-  margin-top: 5px;
+  display: none;
   color: var(--muted);
+}
+.tri-cell-from,
+.tri-cell-subject,
+.tri-cell-why,
+.tri-cell-category,
+.tri-cell-date {
+  min-width: 0;
+}
+.tri-cell-category {
+  overflow: hidden;
+  color: var(--muted);
+  font-size: 11px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.tri-row-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 1px;
+  opacity: 0.55;
+}
+.tri-in:hover .tri-row-actions,
+.tri-in:focus-within .tri-row-actions {
+  opacity: 1;
 }
 
 /* What was settled, and the way back, until the screen is left. */
@@ -2567,4 +2717,82 @@ body {
   font-weight: 500;
   letter-spacing: -0.01em;
   color: var(--brand-strong);
+}
+
+@media (max-width: 899px) {
+  .tri {
+    max-width: 560px;
+    padding: 0 0 24px;
+  }
+  .tri-toolbar {
+    min-height: 44px;
+    padding-inline: 14px;
+  }
+  .tri-key-help,
+  .tri-table-head,
+  .tri-select-all {
+    display: none;
+  }
+  .tri-bulk-actions {
+    width: 100%;
+  }
+  .tri-bulk-actions button {
+    min-height: 34px;
+  }
+  .tri-select-toggle {
+    display: inline-block;
+    margin-left: auto;
+  }
+  .tri-g {
+    padding: 20px 20px 5px;
+  }
+  .tri-g small {
+    display: none;
+  }
+  .tri-day {
+    padding: 11px 20px 4px;
+  }
+  .tri-set,
+  .tri-day-group:first-of-type .tri-set {
+    border-inline: 0;
+    border-radius: 0;
+  }
+  .tri-in {
+    display: block;
+    min-height: 0;
+    padding: 11px 20px 12px;
+  }
+  .tri-check {
+    display: none;
+    float: left;
+    width: 28px;
+    min-height: 27px;
+    margin-left: -10px;
+    margin-right: 5px;
+  }
+  .tri[data-selecting="true"] .tri-check {
+    display: grid;
+  }
+  .tri-l1 {
+    display: flex;
+  }
+  .tri-subj {
+    margin-top: 2px;
+    font-size: 14.5px;
+  }
+  .tri-snip {
+    margin-top: 2px;
+  }
+  .tri-cell-category,
+  .tri-cell-date,
+  .tri-row-actions {
+    display: none;
+  }
+  .tri-mobile-when {
+    display: inline;
+  }
+  .tri-clip {
+    display: block;
+    margin-top: 5px;
+  }
 }

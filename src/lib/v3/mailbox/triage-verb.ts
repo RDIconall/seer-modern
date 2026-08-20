@@ -15,13 +15,25 @@ import type { MailboxRow } from "./types";
  */
 export type TriageVerb = "delete" | "file" | "answer" | "keep";
 
+/**
+ * Action likelihood, highest first. Triage is a work queue rather than four
+ * equal buckets: clear the obvious deletes, archive the records, then spend
+ * attention on replies and live work.
+ */
 export const VERB_ORDER: TriageVerb[] = ["delete", "file", "answer", "keep"];
 
 export const VERB_LABEL: Record<TriageVerb, string> = {
   delete: "Delete",
-  file: "File",
+  file: "Archive",
   answer: "Answer",
-  keep: "Keep",
+  keep: "Atlas",
+};
+
+export const VERB_HINT: Record<TriageVerb, string> = {
+  delete: "Most likely next action",
+  file: "Receipts and records",
+  answer: "Waiting on you",
+  keep: "Live work",
 };
 
 /**

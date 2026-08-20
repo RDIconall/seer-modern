@@ -93,7 +93,7 @@ assert.equal(timeLabel("2026-08-14T09:04:00.000Z", now), "");
   );
   assert.deepEqual(
     piles.map((p) => p.label),
-    ["Delete", "File", "Answer", "Keep"],
+    ["Delete", "Archive", "Answer", "Atlas"],
   );
 
   // Days sit inside a pile, newest first.
@@ -132,9 +132,9 @@ assert.equal(timeLabel("2026-08-14T09:04:00.000Z", now), "");
   ).replace(/<!--[\s\S]*?-->/g, "");
 
   assert.deepEqual(
-    [...html.matchAll(/class="tri-g">([^<]*)<em/g)].map((m) => m[1]),
-    ["Delete", "File", "Answer", "Keep"],
-    "the screen is four verbs, in the order the work is done",
+    [...html.matchAll(/class="tri-g"><span>([^<]*)<em/g)].map((m) => m[1]),
+    ["Delete", "Archive", "Answer", "Atlas"],
+    "categories are ordered by likelihood of action",
   );
   assert.match(html, /class="tri-day tabular"/, "the mail keeps its own days inside");
 
@@ -156,5 +156,10 @@ assert.match(source, /type: "correctConversation"/, "Keep corrects the decision"
 assert.match(source, /home: "matter"/, "Keep puts the conversation on Atlas");
 assert.match(source, /byUser: true/, "deleting from triage is the user's own call");
 assert.match(source, /type: "archive"/, "filing archives");
+assert.match(source, /reduceSelection/, "triage shares tested range-selection semantics");
+assert.match(source, /event\.metaKey \|\| event\.ctrlKey/, "multi-click selects rows");
+assert.match(source, /event\.key\.toLowerCase\(\) === "j"/, "J/K keyboard navigation");
+assert.match(source, /onWheel/, "desktop trackpad gestures use the swipe rail");
+assert.match(source, /bulkAct\("delete"\)/, "selected rows can be deleted together");
 
 console.log("v3-triage-verb: OK");
