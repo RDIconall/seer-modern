@@ -45,6 +45,10 @@ type PreviewReader = {
   provider: ProviderKind;
 };
 
+type ComposeState =
+  | { mode: "send" }
+  | (ReaderComposeIntent & { expanded?: boolean });
+
 export type MailClientPreview = {
   mailbox: Record<MailboxFolder, MailboxView>;
   /** The same inbox in triage order, so the sort control works without a server. */
@@ -221,7 +225,7 @@ export function MailClient({
     preview?.initialConversationId ?? null,
   );
   const [providerConversationId, setProviderConversationId] = useState<string | null>(null);
-  const [compose, setCompose] = useState<ReaderComposeIntent | { mode: "send" } | null>(
+  const [compose, setCompose] = useState<ComposeState | null>(
     preview?.initialCompose ? { mode: "send" } : null,
   );
   const [query, setQuery] = useState("");
@@ -245,10 +249,17 @@ export function MailClient({
   } = parseMailHash(hashSnapshot);
   const pendingHashConversation =
     hashConversation && !hashAppliedRef.current ? hashConversation : null;
+  const isFullCompose =
+    compose?.mode === "send" ||
+    (compose?.mode !== undefined && compose.expanded === true);
+  const inlineIntent: ReaderComposeIntent | null =
+    compose && compose.mode !== "send" && !compose.expanded
+      ? { mode: compose.mode }
+      : null;
   const { modalOpen } = modalBackgroundState({
     isMobile,
     conversationId: conversationId ?? pendingHashConversation,
-    composing: Boolean(compose),
+    composing: isFullCompose,
   });
   const mobileModalOpen = isMobile && modalOpen;
 
@@ -437,7 +448,7 @@ export function MailClient({
       if (
         target?.matches("input, textarea, select") ||
         target?.isContentEditable ||
-        compose
+        isFullCompose
       ) {
         return;
       }
@@ -454,7 +465,8 @@ export function MailClient({
       }
       if (key === "escape") {
         setPaletteOpen(false);
-        if (conversationId) setConversationId(null);
+        if (inlineIntent) setCompose(null);
+        else if (conversationId) setConversationId(null);
         return;
       }
       if (goPrefix.current) {
@@ -493,6 +505,7 @@ export function MailClient({
         });
         return;
       }
+      if (inlineIntent) return;
       if (conversationId && key === "e") {
         event.preventDefault();
         void runCommands([{ type: "archive", conversationId }]).then(() => {
@@ -586,6 +599,10 @@ export function MailClient({
         setProviderConversationId(null);
       }}
       onCompose={(intent) => setCompose(intent)}
+      inlineIntent={inlineIntent}
+      onInlineClose={() => setCompose(null)}
+      onExpand={(intent) => setCompose({ ...intent, expanded: true })}
+      onSent={noticeResult}
       onNotice={(message, error = false) => setNotice({ message, error })}
       accountId={mailbox.view?.accountId}
       onCommandComplete={() => {
@@ -656,8 +673,8 @@ export function MailClient({
       {readerContent && (
         <div
           className="mail-reader-pane"
-          aria-hidden={mobileModalOpen && Boolean(compose) ? true : undefined}
-          inert={mobileModalOpen && Boolean(compose) ? true : undefined}
+          aria-hidden={mobileModalOpen && isFullCompose ? true : undefined}
+          inert={mobileModalOpen && isFullCompose ? true : undefined}
         >
           {readerContent}
         </div>
@@ -696,8 +713,8 @@ export function MailClient({
       />
       <main
         className="mail-main"
-        aria-hidden={mobileModalOpen && Boolean(compose) ? true : undefined}
-        inert={mobileModalOpen && Boolean(compose) ? true : undefined}
+        aria-hidden={mobileModalOpen && isFullCompose ? true : undefined}
+        inert={mobileModalOpen && isFullCompose ? true : undefined}
       >
         <header
           className="mail-toolbar"
@@ -719,9 +736,13 @@ export function MailClient({
         </header>
         <div className="mail-content">{content}</div>
       </main>
-      {compose && (
+      {compose && isFullCompose && (
         <ComposePane
-          intent={compose.mode === "send" ? undefined : compose}
+          intent={
+            compose.mode === "send"
+              ? undefined
+              : { mode: compose.mode }
+          }
           providerConversationId={providerConversationId ?? undefined}
           conversationId={conversationId ?? undefined}
           accountId={mailbox.view?.accountId}

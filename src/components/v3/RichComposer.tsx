@@ -13,10 +13,12 @@ export function RichComposer({
   value,
   onChange,
   placeholder = "Write a message",
+  autoFocus = false,
 }: {
   value: RichComposerValue;
   onChange: (value: RichComposerValue) => void;
   placeholder?: string;
+  autoFocus?: boolean;
 }) {
   const editor = useEditor({
     immediatelyRender: false,
@@ -43,6 +45,11 @@ export function RichComposer({
     if (!editor || editor.isFocused || editor.getHTML() === value.html) return;
     editor.commands.setContent(value.html || "");
   }, [editor, value.html]);
+
+  useEffect(() => {
+    if (!editor || !autoFocus) return;
+    editor.commands.focus("end");
+  }, [autoFocus, editor]);
 
   if (!editor) return <div className="mail-compose-editor" aria-label="Loading editor" />;
 

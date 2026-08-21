@@ -64,6 +64,7 @@ export function Reader({
   onArchive,
   onDelete,
   onMove,
+  replySlot,
 }: {
   provider: ProviderKind;
   conversation: Conversation;
@@ -74,6 +75,7 @@ export function Reader({
   onArchive: () => void;
   onDelete: () => void;
   onMove?: (destinationId: string) => void;
+  replySlot?: React.ReactNode;
 }) {
   const nativeUrl = nativeUrlFor(provider, conversation.providerConversationId);
   const ownDomain = (ownEmail ?? "").split("@")[1] ?? "";
@@ -165,7 +167,7 @@ export function Reader({
       )}
 
       <div className="reader-lane">
-        {lanes.map((lane, index) => {
+        {lanes.map((lane) => {
           if (lane.kind === "branch") {
             const key = `branch:${lane.turns[0].message.providerMessageId}`;
             const isOpen = open.has(key);
@@ -211,39 +213,48 @@ export function Reader({
 
           const key = lane.message.providerMessageId;
           const isOpen = open.has(key);
+          const isLastTurn =
+            key === lastTurnKey?.message.providerMessageId;
           return (
-            <section key={key} className="reader-turn" data-open={isOpen} data-last={index === lanes.length - 1}>
-              <button
-                type="button"
-                className="reader-turn-head mail-focus-ring"
-                aria-expanded={isOpen}
-                onClick={() => toggle(key)}
+            <React.Fragment key={key}>
+              <section
+                className="reader-turn"
+                data-open={isOpen}
+                data-last={isLastTurn}
               >
-                <span className={`reader-turn-who${lane.isYou ? " reader-turn-you" : ""}`}>
-                  {lane.who}
-                </span>
-                {!isOpen && <span className="reader-turn-peek">{lane.peek}</span>}
-                <span className="reader-turn-when tabular">{shortDate(lane.message.sentAt)}</span>
-              </button>
-              {isOpen && (
-                <div className="reader-turn-body">
-                  <MailReader
-                    html={
-                      lane.quotedCount === 0
-                        ? lane.message.bodyHtml
-                        : null
-                    }
-                    text={lane.body}
-                  />
-                  {lane.quotedCount > 0 && (
-                    <p className="reader-stripped tabular">
-                      {lane.quotedCount} quoted message
-                      {lane.quotedCount > 1 ? "s" : ""} hidden
-                    </p>
-                  )}
-                </div>
-              )}
-            </section>
+                <button
+                  type="button"
+                  className="reader-turn-head mail-focus-ring"
+                  aria-expanded={isOpen}
+                  onClick={() => toggle(key)}
+                >
+                  <span className={`reader-turn-who${lane.isYou ? " reader-turn-you" : ""}`}>
+                    {lane.who}
+                  </span>
+                  {!isOpen && <span className="reader-turn-peek">{lane.peek}</span>}
+                  <span className="reader-turn-when tabular">{shortDate(lane.message.sentAt)}</span>
+                </button>
+                {isOpen && (
+                  <div className="reader-turn-body">
+                    <MailReader
+                      html={
+                        lane.quotedCount === 0
+                          ? lane.message.bodyHtml
+                          : null
+                      }
+                      text={lane.body}
+                    />
+                    {lane.quotedCount > 0 && (
+                      <p className="reader-stripped tabular">
+                        {lane.quotedCount} quoted message
+                        {lane.quotedCount > 1 ? "s" : ""} hidden
+                      </p>
+                    )}
+                  </div>
+                )}
+              </section>
+              {isLastTurn ? replySlot : null}
+            </React.Fragment>
           );
         })}
       </div>

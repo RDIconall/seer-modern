@@ -1677,6 +1677,152 @@ body {
   gap: 8px;
 }
 
+.inline-reply {
+  position: relative;
+  z-index: 4;
+  margin: 10px 0 18px;
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  background: var(--card);
+  box-shadow: 0 8px 24px rgb(0 0 0 / 0.05);
+}
+
+.inline-reply:not(.inline-reply-open) {
+  position: sticky;
+  bottom: 8px;
+}
+
+.inline-reply-collapsed {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+}
+
+.inline-reply-collapsed button,
+.inline-reply-modes button {
+  border: 0;
+  padding: 10px 12px;
+  background: transparent;
+  color: var(--fg);
+  font: inherit;
+  font-size: 13px;
+  font-weight: 650;
+}
+
+.inline-reply-collapsed button + button {
+  border-left: 1px solid var(--border);
+}
+
+.inline-reply-collapsed button:hover,
+.inline-reply-modes button:hover,
+.inline-reply-modes button[aria-selected="true"] {
+  background: var(--row-hover);
+  color: var(--accent);
+}
+
+.inline-reply-open {
+  padding: 12px;
+  border-color: color-mix(in srgb, var(--accent) 50%, var(--border));
+}
+
+.inline-reply-modes {
+  display: flex;
+  gap: 4px;
+  margin: -4px -4px 8px;
+}
+
+.inline-reply-modes button {
+  border-radius: 7px;
+  padding: 6px 9px;
+}
+
+.inline-reply-context {
+  margin: 0 0 9px;
+  color: var(--muted);
+  font-size: 12px;
+}
+
+.inline-reply-recipient {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr);
+  align-items: center;
+  gap: 10px;
+  margin-bottom: 9px;
+  border-bottom: 1px solid var(--border);
+  padding-bottom: 8px;
+  font-size: 12px;
+}
+
+.inline-reply-editor .mail-rich-composer {
+  border-radius: 8px;
+}
+
+.inline-reply-editor .mail-compose-editor {
+  min-height: 86px;
+  max-height: 220px;
+  overflow-y: auto;
+}
+
+.inline-reply-extras,
+.inline-reply-actions {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin-top: 9px;
+}
+
+.inline-reply-extras button,
+.inline-reply-actions > button:not(.mail-action) {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  border: 0;
+  border-radius: 6px;
+  padding: 5px 7px;
+  background: transparent;
+  color: var(--muted);
+  font: inherit;
+  font-size: 12px;
+}
+
+.inline-reply-extras button:hover,
+.inline-reply-actions > button:not(.mail-action):hover {
+  background: var(--row-hover);
+  color: var(--fg);
+}
+
+.inline-reply-extras svg,
+.inline-reply-actions svg {
+  width: 14px;
+  height: 14px;
+}
+
+.inline-reply-extras span,
+.inline-reply-shortcut {
+  margin-left: auto;
+  color: var(--muted);
+  font-size: 11px;
+}
+
+.inline-reply-actions .mail-action {
+  min-width: 84px;
+}
+
+@media (max-width: 700px) {
+  .inline-reply {
+    margin-right: 2px;
+    margin-left: 2px;
+  }
+
+  .inline-reply-open {
+    padding: 10px;
+  }
+
+  .inline-reply-shortcut {
+    display: none;
+  }
+}
+
 .mail-compose-error,
 .mail-recipient-error {
   margin: 0;

@@ -4,12 +4,14 @@ import * as React from "react";
 import { ArrowLeft, LoaderCircle } from "lucide-react";
 import { useEffect, useState } from "react";
 import type { Conversation, ProviderKind } from "@/lib/v2/providers/types";
+import type { CommandResult } from "@/lib/v2/commands/types";
 import { fetchDefault } from "@/lib/v3/net/fetch";
 import {
   Reader,
   useReaderCommands,
   type ReaderComposeIntent,
 } from "@/components/v2/Reader";
+import { InlineReply } from "./InlineReply";
 
 type ReaderResponse = {
   conversation: Conversation;
@@ -22,6 +24,10 @@ export function ReaderPane({
   conversationId,
   onBack,
   onCompose,
+  inlineIntent,
+  onInlineClose,
+  onExpand,
+  onSent,
   onNotice,
   onCommandComplete,
   onProviderConversationId,
@@ -31,6 +37,10 @@ export function ReaderPane({
   conversationId: string;
   onBack: () => void;
   onCompose: (intent: ReaderComposeIntent) => void;
+  inlineIntent?: ReaderComposeIntent | null;
+  onInlineClose: () => void;
+  onExpand: (intent: ReaderComposeIntent) => void;
+  onSent: (result: CommandResult) => void;
   onNotice: (message: string, error?: boolean) => void;
   onCommandComplete?: () => void;
   onProviderConversationId?: (id: string) => void;
@@ -171,6 +181,20 @@ export function ReaderPane({
         onArchive={() => void runArchive()}
         onDelete={() => void runDelete()}
         onMove={(destinationId) => void runMove(destinationId)}
+        replySlot={
+          <InlineReply
+            conversation={data.conversation}
+            providerConversationId={
+              data.conversation.providerConversationId
+            }
+            accountId={accountId}
+            intent={inlineIntent ?? null}
+            onActivate={onCompose}
+            onClose={onInlineClose}
+            onExpand={onExpand}
+            onSent={onSent}
+          />
+        }
       />
     </section>
   );
