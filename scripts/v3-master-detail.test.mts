@@ -31,7 +31,10 @@ const triage = renderToString(
 assert.match(triage, /mail-workspace/);
 assert.match(triage, /mail-folder-pane/);
 assert.match(triage, /mail-reader-pane/);
-assert.match(triage, /triage-table-compact/);
+assert.match(triage, /compact-mail-list/);
+for (const action of ["Delete", "File", "Answer", "Keep"]) {
+  assert.match(triage, new RegExp(`>${action}<`));
+}
 assert.match(triage, /Reading RMS Amendment/);
 
 const atlas = renderToString(
@@ -54,8 +57,8 @@ const clientSource = readFileSync(
 );
 assert.match(
   clientSource,
-  /<ReaderPane[\s\S]*key=\{conversationId\}/,
-  "changing rows must remount the reader instead of showing stale conversation state",
+  /<ReaderPane[\s\S]*key=\{`\$\{conversationId\}:\$\{focusedMessageId/,
+  "changing rows or their target message must remount the reader instead of showing stale state",
 );
 const folderPane = clientSource.slice(
   clientSource.indexOf('className="mail-folder-pane"'),
