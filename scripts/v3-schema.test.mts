@@ -252,6 +252,9 @@ try {
       "next_attempt_at",
       "created_at",
       "updated_at",
+      // Generated from the command, so the sync mask can index the one field
+      // it scans by instead of reading every pending row's JSON.
+      "conversation_id",
     ],
     "outbox columns",
   );
