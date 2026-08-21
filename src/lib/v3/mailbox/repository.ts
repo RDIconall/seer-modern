@@ -21,6 +21,7 @@ const DELETE_RANK_SQL = `case d.home
 type MailboxRowDb = {
   conversation_id: string;
   provider_conversation_id: string;
+  provider_message_id: string | null;
   subject: string;
   last_message_at: string | Date | null;
   is_unread: boolean;
@@ -90,6 +91,7 @@ function mapRow(row: MailboxRowDb): MailboxRow {
   return {
     conversationId: row.conversation_id,
     providerConversationId: row.provider_conversation_id,
+    latestMessageId: row.provider_message_id ?? undefined,
     senderDisplayName: senderDisplayName(row),
     subject: row.subject ?? "",
     timestamp: isoTimestamp(row.last_message_at),
@@ -117,6 +119,7 @@ const MAILBOX_SELECT = `select c.id as conversation_id,
             c.function_name,
             lm.from_email,
             lm.from_name,
+            lm.provider_message_id,
             lm.to_emails,
             lm.is_outgoing,
             lm.snippet,
@@ -139,6 +142,7 @@ const MAILBOX_SELECT = `select c.id as conversation_id,
        left join lateral (
          select m.from_email,
                 m.from_name,
+                m.provider_message_id,
                 m.to_emails,
                 m.is_outgoing,
                 m.snippet,

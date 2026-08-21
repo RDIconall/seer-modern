@@ -1,7 +1,7 @@
 "use client";
 
 import * as React from "react";
-import { Home, Search as SearchIcon, X as CloseIcon } from "lucide-react";
+import { Search as SearchIcon, X as CloseIcon } from "lucide-react";
 import {
   useCallback,
   useEffect,
@@ -28,8 +28,6 @@ import { ReaderPane } from "./ReaderPane";
 import { SeerMark } from "./SeerMark";
 import { Settings } from "./Settings";
 import { TriageCards } from "./TriageCards";
-import { TriageList } from "./TriageList";
-import { TriageTable } from "./TriageTable";
 import { MobileMailboxList } from "./MobileMailboxList";
 import { fetchSearch, SearchBox, type SearchResult } from "./SearchBox";
 import { SearchRequestGuard } from "./search-request";
@@ -228,6 +226,7 @@ export function MailClient({
   const [conversationId, setConversationId] = useState<string | null>(
     preview?.initialConversationId ?? null,
   );
+  const [focusedMessageId, setFocusedMessageId] = useState<string | null>(null);
   const [providerConversationId, setProviderConversationId] = useState<string | null>(null);
   const [compose, setCompose] = useState<ComposeState | null>(
     preview?.initialCompose ? { mode: "send" } : null,
@@ -237,32 +236,12 @@ export function MailClient({
   const [notice, setNotice] = useState<{ message: string; error: boolean; outboxId?: string } | null>(null);
   const [paletteOpen, setPaletteOpen] = useState(false);
   const [mobileSearchOpen, setMobileSearchOpen] = useState(false);
-  const [triageView, setTriageView] = useState<"table" | "piles">("table");
   const [hashReady, setHashReady] = useState(false);
   const restoredSearchRef = useRef<string | null>(null);
   const searchGuard = useRef(new SearchRequestGuard());
   const hashAppliedRef = useRef(false);
   const isMobile = useIsMobile();
 
-  // A browser with site data blocked throws on the property access itself, so
-  // remembering a view preference must never be able to take the client down.
-  useEffect(() => {
-    try {
-      const saved = window.localStorage.getItem("seer.v3.triage.view");
-      if (saved === "table" || saved === "piles") setTriageView(saved);
-    } catch {
-      /* no stored preference is available */
-    }
-  }, []);
-
-  const chooseTriageView = (next: "table" | "piles") => {
-    setTriageView(next);
-    try {
-      window.localStorage.setItem("seer.v3.triage.view", next);
-    } catch {
-      /* the choice still holds for this session */
-    }
-  };
   const hashSnapshot = useSyncExternalStore(
     subscribeHash,
     getHashSnapshot,
@@ -350,6 +329,7 @@ export function MailClient({
     const onAccountChanged = () => {
       searchGuard.current.invalidateForAccountChange();
       setConversationId(null);
+      setFocusedMessageId(null);
       setProviderConversationId(null);
       setSearchRows(null);
       setQuery("");
@@ -389,6 +369,7 @@ export function MailClient({
     searchGuard.current.cancel();
     setSection(next);
     setConversationId(null);
+    setFocusedMessageId(null);
     setProviderConversationId(null);
     setCompose(null);
     setSearchRows(null);
@@ -399,12 +380,14 @@ export function MailClient({
 
   const openRow = (row: MailboxRow) => {
     setConversationId(row.conversationId);
+    setFocusedMessageId(row.latestMessageId ?? null);
     setProviderConversationId(row.providerConversationId);
     setCompose(null);
   };
 
   const openAtlasConversation = useCallback((row: ConversationRow) => {
     setConversationId(row.conversationId);
+    setFocusedMessageId(null);
     setProviderConversationId(row.providerConversationId);
     setCompose(null);
   }, []);
@@ -433,6 +416,7 @@ export function MailClient({
       const conversation = latestConversation(matter);
       if (!conversation) return;
       setConversationId(conversation.conversationId);
+      setFocusedMessageId(null);
       setProviderConversationId(conversation.providerConversationId);
       setCompose({ mode });
     },
@@ -583,7 +567,10 @@ export function MailClient({
       if (key === "escape") {
         setPaletteOpen(false);
         if (inlineIntent) setCompose(null);
-        else if (conversationId) setConversationId(null);
+        else if (conversationId) {
+          setConversationId(null);
+          setFocusedMessageId(null);
+        }
         return;
       }
       if (goPrefix.current) {
@@ -627,6 +614,7 @@ export function MailClient({
         event.preventDefault();
         void runCommands([{ type: "archive", conversationId }]).then(() => {
           setConversationId(null);
+          setFocusedMessageId(null);
         });
         return;
       }
@@ -677,6 +665,7 @@ export function MailClient({
     setQuery(value);
     setSearchRows(rows);
     setConversationId(null);
+    setFocusedMessageId(null);
     setProviderConversationId(null);
   };
 
@@ -686,6 +675,7 @@ export function MailClient({
     setQuery(cleared.query);
     setSearchRows(cleared.rows);
     setConversationId(cleared.conversation);
+    setFocusedMessageId(null);
     setProviderConversationId(null);
     restoredSearchRef.current = null;
   };
@@ -693,6 +683,7 @@ export function MailClient({
   const openSearchResult = (row: SearchResult) => {
     if (!row.conversationId) return;
     setConversationId(row.conversationId);
+    setFocusedMessageId(null);
     setProviderConversationId(row.providerConversationId);
     setSearchRows(null);
   };
@@ -710,10 +701,12 @@ export function MailClient({
 
   const readerContent = conversationId ? (
     <ReaderPane
-      key={conversationId}
+      key={`${conversationId}:${focusedMessageId ?? ""}`}
       conversationId={conversationId}
+      focusMessageId={focusedMessageId ?? undefined}
       onBack={() => {
         setConversationId(null);
+        setFocusedMessageId(null);
         setProviderConversationId(null);
       }}
       onCompose={(intent) => setCompose(intent)}
@@ -726,6 +719,7 @@ export function MailClient({
       onCommandComplete={() => {
         void mailbox.reload();
         setConversationId(null);
+        setFocusedMessageId(null);
         setProviderConversationId(null);
       }}
       onProviderConversationId={rememberProviderConversationId}
@@ -736,46 +730,14 @@ export function MailClient({
   const folderContent = searchRows ? (
     <SearchResults rows={searchRows} onOpen={openSearchResult} />
   ) : activeMailbox && section === "triage" ? (
-    isMobile ? (
-      <MobileMailboxList
-        view={activeMailbox}
-        triage
-        currentConversationId={conversationId}
-        onOpen={openRow}
-        onCommands={runCommands}
-      />
-    ) : triageView === "piles" && !conversationId ? (
-      <div className="triage-pile-shell">
-        {!isMobile ? (
-          <div className="triage-view-toggle triage-pile-toggle" role="group" aria-label="Triage view">
-            <button type="button" aria-pressed="false" onClick={() => chooseTriageView("table")}>
-              Table
-            </button>
-            <button type="button" aria-pressed="true">
-              Piles
-            </button>
-            <button type="button" onClick={() => setSection("cards")}>
-              Cards
-            </button>
-          </div>
-        ) : null}
-        <TriageList
-          rows={activeMailbox.rows}
-          onCommands={runCommands}
-          onOpen={openRow}
-        />
-      </div>
-    ) : (
-      <TriageTable
-        view={activeMailbox}
-        onCommands={runCommands}
-        onOpen={openRow}
-        onPiles={() => chooseTriageView("piles")}
-        onCards={() => setSection("cards")}
-        compact={Boolean(conversationId)}
-        currentConversationId={conversationId}
-      />
-    )
+    <MobileMailboxList
+      view={activeMailbox}
+      triage
+      currentConversationId={conversationId}
+      onOpen={openRow}
+      onCommands={runCommands}
+      onCards={() => setSection("cards")}
+    />
   ) : activeMailbox && dealing ? (
     <TriageCards
       rows={activeMailbox.rows}
@@ -785,7 +747,7 @@ export function MailClient({
       onOpen={openRow}
       onExit={() => setSection("triage")}
     />
-  ) : activeMailbox && isMobile && section === "inbox" ? (
+  ) : activeMailbox && section === "inbox" ? (
     <MobileMailboxList
       view={activeMailbox}
       currentConversationId={conversationId}
@@ -893,7 +855,6 @@ export function MailClient({
               so the toolbar is the only place the app can say whose it is. */}
           <SeerMark size={24} className="mail-toolbar-mark" />
           <div className="mail-mobile-title">
-            <Home aria-hidden />
             <strong>
               {section === "atlas"
                 ? "Atlas"

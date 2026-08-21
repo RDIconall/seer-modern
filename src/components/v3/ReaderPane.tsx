@@ -22,6 +22,7 @@ type ReaderResponse = {
 
 export function ReaderPane({
   conversationId,
+  focusMessageId,
   onBack,
   onCompose,
   inlineIntent,
@@ -35,6 +36,7 @@ export function ReaderPane({
   preview,
 }: {
   conversationId: string;
+  focusMessageId?: string;
   onBack: () => void;
   onCompose: (intent: ReaderComposeIntent) => void;
   inlineIntent?: ReaderComposeIntent | null;
@@ -174,6 +176,7 @@ export function ReaderPane({
       <Reader
         provider={data.provider}
         conversation={data.conversation}
+        focusMessageId={focusMessageId}
         ownEmail={data.ownEmail}
         onReply={() => onCompose({ mode: "reply" })}
         onReplyAll={() => onCompose({ mode: "replyAll" })}

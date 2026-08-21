@@ -22,14 +22,14 @@ const DIRECTION_LOCK = 1.35;
 export function mobileSwipeAction(
   offset: number,
 ): "archive" | "delete" | null {
-  if (offset >= SWIPE_THRESHOLD) return "archive";
-  if (offset <= -SWIPE_THRESHOLD) return "delete";
+  if (offset >= SWIPE_THRESHOLD) return "delete";
+  if (offset <= -SWIPE_THRESHOLD) return "archive";
   return null;
 }
 
 /**
  * The one mobile mail row. Inbox, Triage and Atlas feed it different data but
- * the muscle memory never changes: right archives, left deletes, tap reads.
+ * the muscle memory never changes: left archives, right deletes, tap reads.
  */
 export function MobileMailRow({
   model,
@@ -66,13 +66,13 @@ export function MobileMailRow({
       data-current={current ? "true" : "false"}
       data-dragging={dragging ? "true" : "false"}
     >
-      <div className="mobile-mail-reveal mobile-mail-reveal-archive">
-        <Archive aria-hidden />
-        <span>Archive</span>
-      </div>
       <div className="mobile-mail-reveal mobile-mail-reveal-delete">
         <Trash2 aria-hidden />
         <span>Delete</span>
+      </div>
+      <div className="mobile-mail-reveal mobile-mail-reveal-archive">
+        <Archive aria-hidden />
+        <span>Archive</span>
       </div>
       <button
         type="button"

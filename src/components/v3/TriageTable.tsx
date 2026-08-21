@@ -4,6 +4,7 @@ import * as React from "react";
 import { useMemo, useState } from "react";
 import type { Command } from "@/lib/v2/commands/types";
 import type { MailboxRow, MailboxView } from "@/lib/v3/mailbox/types";
+import { triagePiles } from "@/lib/v3/mailbox/triage-verb";
 
 const when = (iso: string) => {
   const date = new Date(iso);
@@ -30,14 +31,14 @@ export function TriageTable({
   currentConversationId?: string | null;
 }) {
   const [selected, setSelected] = useState<ReadonlySet<string>>(new Set());
-  const groups = useMemo(() => {
-    const grouped = new Map<string, MailboxRow[]>();
-    for (const row of view.rows) {
-      const name = row.category?.trim() || "Other";
-      grouped.set(name, [...(grouped.get(name) ?? []), row]);
-    }
-    return [...grouped.entries()];
-  }, [view.rows]);
+  const groups = useMemo(
+    () =>
+      triagePiles(view.rows, new Set()).map((pile) => [
+        pile.label,
+        pile.days.flatMap((day) => day.rows),
+      ] as const),
+    [view.rows],
+  );
 
   const selectedRows = view.rows.filter((row) =>
     selected.has(row.conversationId),

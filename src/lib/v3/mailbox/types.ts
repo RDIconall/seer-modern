@@ -12,6 +12,8 @@ export type MailboxSort = "date" | "triage";
 export type MailboxRow = {
   conversationId: string;
   providerConversationId: string;
+  /** The concrete message represented by this row, normally the newest turn. */
+  latestMessageId?: string;
   senderDisplayName: string;
   subject: string;
   timestamp: string;

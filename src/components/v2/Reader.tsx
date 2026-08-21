@@ -1,7 +1,7 @@
 "use client";
 
 import * as React from "react";
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import type { Conversation } from "@/lib/v2/providers/types";
 import type { ProviderKind } from "@/lib/v2/providers/types";
 import { nativeUrlFor } from "@/lib/v2/providers/native-url";
@@ -62,6 +62,7 @@ const fileSize = (bytes: number) =>
 export function Reader({
   provider,
   conversation,
+  focusMessageId,
   ownEmail,
   onReply,
   onReplyAll,
@@ -74,6 +75,7 @@ export function Reader({
 }: {
   provider: ProviderKind;
   conversation: Conversation;
+  focusMessageId?: string;
   ownEmail?: string | null;
   onReply: () => void;
   onReplyAll: () => void;
@@ -100,9 +102,35 @@ export function Reader({
   const lastTurnKey = [...lanes]
     .reverse()
     .find((lane) => lane.kind === "turn") as Turn | undefined;
+  const focusedLaneKey = focusMessageId
+    ? lanes.find((lane) =>
+        lane.kind === "turn"
+          ? lane.message.providerMessageId === focusMessageId
+          : lane.turns.some(
+              (turn) => turn.message.providerMessageId === focusMessageId,
+            ),
+      )
+    : undefined;
+  const initialOpenKey =
+    focusedLaneKey?.kind === "branch"
+      ? `branch:${focusedLaneKey.turns[0].message.providerMessageId}`
+      : focusedLaneKey?.kind === "turn"
+        ? focusedLaneKey.message.providerMessageId
+        : lastTurnKey?.message.providerMessageId;
   const [open, setOpen] = useState<ReadonlySet<string>>(
-    () => new Set(lastTurnKey ? [lastTurnKey.message.providerMessageId] : []),
+    () => new Set(initialOpenKey ? [initialOpenKey] : []),
   );
+  const readerRef = useRef<HTMLElement>(null);
+  const focusedOnce = useRef(false);
+
+  useEffect(() => {
+    if (!focusMessageId || focusedOnce.current) return;
+    const target = [...(readerRef.current?.querySelectorAll<HTMLElement>("[data-message-id]") ?? [])]
+      .find((node) => node.dataset.messageId === focusMessageId);
+    if (!target) return;
+    focusedOnce.current = true;
+    target.scrollIntoView({ block: "center" });
+  }, [focusMessageId, open]);
   const toggle = (key: string) =>
     setOpen((prev) => {
       const next = new Set(prev);
@@ -112,7 +140,7 @@ export function Reader({
     });
 
   return (
-    <article className="seer-reader">
+    <article className="seer-reader" ref={readerRef}>
       <header className="reader-head">
         <h1 className="reader-matter">{conversation.subject}</h1>
         <p className="reader-sub">
@@ -184,7 +212,11 @@ export function Reader({
                 {isOpen && (
                   <div className="reader-branch-inner">
                     {lane.turns.map((turn) => (
-                      <div key={turn.message.providerMessageId} className="reader-branch-turn">
+                      <div
+                        key={turn.message.providerMessageId}
+                        className="reader-branch-turn"
+                        data-message-id={turn.message.providerMessageId}
+                      >
                         <div className="reader-branch-from">
                           <b>{turn.who}</b>
                           <em className="tabular">{shortDate(turn.message.sentAt)}</em>
@@ -217,6 +249,7 @@ export function Reader({
             <React.Fragment key={key}>
               <section
                 className="reader-turn"
+                data-message-id={lane.message.providerMessageId}
                 data-open={isOpen}
                 data-last={isLastTurn}
               >

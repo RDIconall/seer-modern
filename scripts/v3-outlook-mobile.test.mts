@@ -8,9 +8,9 @@ import {
 } from "../src/components/v3/MobileMailRow.tsx";
 
 assert.equal(mobileSwipeAction(87), null);
-assert.equal(mobileSwipeAction(88), "archive");
+assert.equal(mobileSwipeAction(88), "delete");
 assert.equal(mobileSwipeAction(-87), null);
-assert.equal(mobileSwipeAction(-88), "delete");
+assert.equal(mobileSwipeAction(-88), "archive");
 
 const html = renderToString(
   createElement(MobileMailRow, {
