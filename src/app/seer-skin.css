@@ -158,12 +158,32 @@ body {
   align-items: start;
 }
 
+/*
+ * A column is a card, and it must not clip: clipping makes the column its own
+ * scrollport, and the section heading below — sticky against the page chrome —
+ * would then be held 67px down inside it, stranding the first matter above the
+ * heading and hiding another behind it. The rounded corners are worn by the
+ * heading and the last run of rows instead.
+ */
 .wb-column {
   min-width: 0;
-  overflow: hidden;
   border: 1px solid var(--border);
   border-radius: 9px;
   background: var(--card);
+}
+
+.wb-columns .wb-shead {
+  position: static;
+  border-radius: 8px 8px 0 0;
+}
+
+.wb-column > .wb-sec:last-child {
+  overflow: hidden;
+  border-radius: 0 0 8px 8px;
+}
+
+.wb-column > .wb-sec:last-child > .wb-m:last-child {
+  border-bottom: 0;
 }
 
 /* Two rows of chrome, both sticky: the account of the board and the filter
@@ -337,6 +357,18 @@ body {
 
   .wb-column {
     border: 0;
+    border-radius: 0;
+  }
+
+  /* One column again, scrolled by the page: the heading goes back to riding
+     under the board chrome as the rows pass beneath it. */
+  .wb-columns .wb-shead {
+    position: sticky;
+    top: 67px;
+    border-radius: 0;
+  }
+
+  .wb-column > .wb-sec:last-child {
     border-radius: 0;
   }
 

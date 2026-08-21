@@ -110,6 +110,27 @@ assert.match(
   /@media \(min-width: 900px\)[\s\S]*grid-template-columns/,
   "desktop Atlas uses multiple columns",
 );
+
+/**
+ * A column must not become its own sticky scrollport. `.wb-shead` was written to
+ * stick under the page chrome at 67px; put it inside a clipped column and it is
+ * pushed 67px down that column instead, which strands the first matter above the
+ * heading and hides another one behind it.
+ */
+const columnRule = skin.slice(
+  skin.indexOf(".wb-column {"),
+  skin.indexOf("}", skin.indexOf(".wb-column {")),
+);
+assert.doesNotMatch(
+  columnRule,
+  /overflow:\s*(hidden|clip|auto|scroll)/,
+  "a clipped column re-anchors the sticky section heading inside it",
+);
+assert.match(
+  skin,
+  /\.wb-columns \.wb-shead \{[^}]*position:\s*static/,
+  "inside a column the heading is the card's own header, not a floating rail",
+);
 for (const cls of ["atlas-heading", "tabular", "seer-display"]) {
   assert.match(
     skin,
