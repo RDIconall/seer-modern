@@ -50,3 +50,6 @@ next-env.d.ts
 
 # Seer v2 local test Postgres data dirs
 .data-v2/
+
+# git worktrees
+.worktrees/

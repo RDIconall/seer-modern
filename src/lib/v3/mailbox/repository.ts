@@ -38,6 +38,7 @@ type MailboxRowDb = {
   recipient_display: string | null;
   decision_id: string | null;
   home: string | null;
+  proposed_home: string | null;
   owner: string | null;
   veto_reasons: string[] | null;
   delete_rank: number;
@@ -81,6 +82,10 @@ const EPOCH_ISO = "1970-01-01T00:00:00.000Z";
 
 function mapRow(row: MailboxRowDb): MailboxRow {
   const disposition = dispositionFromHome(row.home);
+  // Absent proposed_home stays null — do not invent `pending` for a missing
+  // proposal. Triage may read this for likely-action presentation only.
+  const proposedDisposition =
+    row.proposed_home == null ? null : dispositionFromHome(row.proposed_home);
   // Token only on delete — the command bus refuses deletes without one, so a
   // bulk action in the inbox can never touch vetoed or undecided mail.
   const deleteToken =
@@ -101,6 +106,7 @@ function mapRow(row: MailboxRowDb): MailboxRow {
     dueDate: isoDate(row.due_date),
     matterTitle: row.matter_title,
     disposition,
+    proposedDisposition,
     deleteRank: row.delete_rank,
     deleteToken,
     category: row.function_name,
@@ -123,6 +129,7 @@ const MAILBOX_SELECT = `select c.id as conversation_id,
             lm.attachment_names,
             d.id as decision_id,
             d.home,
+            d.proposed_home,
             d.summary as decision_summary,
             d.owner,
             d.veto_reasons,

@@ -145,7 +145,20 @@ try {
   assert.equal(inbox.rows[0].priority, 80);
   assert.equal(inbox.rows[0].dueDate, "2026-08-15");
   assert.equal(inbox.rows[0].matterTitle, "Deal Alpha");
+  assert.equal(inbox.rows[0].disposition, "matter");
+  assert.equal(inbox.rows[0].proposedDisposition, "matter");
   assert.ok(!inbox.rows.some((r) => r.subject === "Deleted thread"));
+
+  const undecided = inbox.rows.find((r) => r.subject === "Older inbox thread");
+  assert.ok(undecided, "vetoed older thread is in the inbox view");
+  assert.equal(undecided.disposition, "undecided");
+  assert.equal(
+    undecided.proposedDisposition,
+    "delete",
+    "proposed_home reaches the client as proposedDisposition",
+  );
+  assert.deepEqual(undecided.vetoReasons, ["personal_greeting"]);
+  assert.equal(undecided.deleteToken, null, "undecided durable home mints no delete token");
 
   const page = await getMailboxView(accountId, "inbox", 1);
   assert.equal(page.rows.length, 1);
