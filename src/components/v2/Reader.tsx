@@ -13,6 +13,12 @@ import {
 } from "@/lib/v3/reader/thread-shape";
 import { MailReader } from "@/components/mail/MailReader";
 import { ConversationActions } from "./ConversationActions";
+import {
+  Archive,
+  Forward,
+  ReplyAll,
+  Trash2,
+} from "lucide-react";
 
 /** Build a v3 attachment download URL for a provider message attachment. */
 export function attachmentUrl(providerMessageId: string, attachmentId: string): string {
@@ -58,19 +64,25 @@ export function Reader({
   conversation,
   ownEmail,
   onReply,
+  onReplyAll,
+  onForward,
   onArchive,
   onDelete,
   onMove,
   replySlot,
+  replying = false,
 }: {
   provider: ProviderKind;
   conversation: Conversation;
   ownEmail?: string | null;
   onReply: () => void;
+  onReplyAll: () => void;
+  onForward: () => void;
   onArchive: () => void;
   onDelete: () => void;
   onMove?: (destinationId: string) => void;
   replySlot?: React.ReactNode;
+  replying?: boolean;
 }) {
   const nativeUrl = nativeUrlFor(provider, conversation.providerConversationId);
   const ownDomain = (ownEmail ?? "").split("@")[1] ?? "";
@@ -214,6 +226,9 @@ export function Reader({
                   aria-expanded={isOpen}
                   onClick={() => toggle(key)}
                 >
+                  <span className="reader-turn-avatar" aria-hidden>
+                    {(lane.who.trim()[0] || "?").toUpperCase()}
+                  </span>
                   <span className={`reader-turn-who${lane.isYou ? " reader-turn-you" : ""}`}>
                     {lane.who}
                   </span>
@@ -222,6 +237,12 @@ export function Reader({
                 </button>
                 {isOpen && (
                   <div className="reader-turn-body">
+                    <p className="reader-turn-to">
+                      To{" "}
+                      {lane.message.to
+                        .map((recipient) => recipient.name || recipient.email)
+                        .join(", ") || "you"}
+                    </p>
                     <MailReader
                       html={
                         lane.quotedCount === 0
@@ -244,6 +265,28 @@ export function Reader({
           );
         })}
       </div>
+
+      {!replying ? (
+        <div
+          className="mobile-reader-actions"
+          role="toolbar"
+          aria-label="Message actions"
+        >
+          <button type="button" onClick={onReplyAll}>
+            <ReplyAll aria-hidden />
+            <span>Reply all</span>
+          </button>
+          <button type="button" aria-label="Archive" onClick={onArchive}>
+            <Archive aria-hidden />
+          </button>
+          <button type="button" aria-label="Delete" onClick={onDelete}>
+            <Trash2 aria-hidden />
+          </button>
+          <button type="button" aria-label="Forward" onClick={onForward}>
+            <Forward aria-hidden />
+          </button>
+        </div>
+      ) : null}
 
     </article>
   );

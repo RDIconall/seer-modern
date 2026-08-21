@@ -15,7 +15,9 @@ const FRAME_STYLE = `
   html, body { margin: 0; padding: 0; background: transparent; color: inherit; }
   body { overflow-wrap: anywhere; font: 14px/1.55 system-ui, sans-serif; }
   img, video, svg, canvas { max-width: 100%; height: auto; }
-  table { max-width: 100%; }
+  /* A wide report table must not shrink the entire message — Outlook keeps the
+     prose readable and lets only the table become a horizontal viewport. */
+  table { display: block; max-width: 100%; overflow-x: auto; }
   pre { white-space: pre-wrap; }
   a { color: #4263eb; }
 `;

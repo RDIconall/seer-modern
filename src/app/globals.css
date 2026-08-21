@@ -882,6 +882,21 @@ body {
   border-bottom: 1px solid var(--border);
 }
 
+.mail-toolbar-search {
+  min-width: 0;
+  flex: 1;
+}
+
+.mail-mobile-title,
+.mail-mobile-search-toggle {
+  display: none;
+}
+
+.mobile-mail-list,
+.mobile-mail-row {
+  display: none;
+}
+
 .mail-toolbar-status {
   min-width: 62px;
   color: var(--muted);
@@ -2251,6 +2266,77 @@ body {
   .mail-toolbar {
     min-height: 64px;
     padding: 12px 14px;
+    border-bottom: 0;
+    background: #3474bd;
+    color: white;
+  }
+
+  .mail-toolbar-mark {
+    display: none;
+  }
+
+  .mail-mobile-title {
+    display: flex;
+    align-items: center;
+    min-width: 0;
+    gap: 8px;
+    flex: 1;
+    font-size: 23px;
+  }
+
+  .mail-mobile-title svg {
+    width: 28px;
+    height: 28px;
+    padding: 5px;
+    border-radius: 50%;
+    background: white;
+    color: #3474bd;
+  }
+
+  .mail-mobile-title strong {
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+
+  .mail-mobile-search-toggle {
+    display: grid;
+    width: 40px;
+    height: 40px;
+    flex: none;
+    place-items: center;
+    border: 0;
+    padding: 0;
+    background: transparent;
+    color: white;
+  }
+
+  .mail-mobile-search-toggle svg {
+    width: 25px;
+    height: 25px;
+  }
+
+  .mail-toolbar-search {
+    display: none;
+    flex: 1;
+  }
+
+  .mail-toolbar-search[data-mobile-open="true"] {
+    display: block;
+  }
+
+  .mail-toolbar-search[data-mobile-open="true"] + .mail-mobile-search-toggle {
+    margin-left: -8px;
+  }
+
+  .mail-toolbar:has(.mail-toolbar-search[data-mobile-open="true"]) .mail-mobile-title {
+    display: none;
+  }
+
+  .mail-toolbar-search .mail-search form {
+    min-height: 40px;
+    border: 0;
+    background: white;
   }
 
   .mail-toolbar-status {
@@ -2268,6 +2354,146 @@ body {
 
   .mail-content {
     overflow: visible;
+  }
+
+  .mobile-mail-list {
+    display: block;
+    padding-bottom: calc(74px + var(--safe-bottom));
+    background: var(--card);
+  }
+
+  .mobile-mail-row {
+    position: relative;
+    display: block;
+    overflow: hidden;
+    border-bottom: 1px solid color-mix(in srgb, var(--border) 72%, transparent);
+    background: var(--card);
+  }
+
+  .mobile-mail-reveal {
+    position: absolute;
+    inset-block: 0;
+    display: flex;
+    width: 132px;
+    align-items: center;
+    justify-content: center;
+    gap: 6px;
+    color: white;
+    font-size: 12px;
+    font-weight: 700;
+  }
+
+  .mobile-mail-reveal svg {
+    width: 18px;
+    height: 18px;
+  }
+
+  .mobile-mail-reveal-archive {
+    left: 0;
+    background: #2f8f6b;
+  }
+
+  .mobile-mail-reveal-delete {
+    right: 0;
+    background: #c53f3f;
+  }
+
+  .mobile-mail-row-button {
+    position: relative;
+    z-index: 1;
+    display: grid;
+    width: 100%;
+    min-width: 0;
+    gap: 1px;
+    border: 0;
+    padding: 7px 16px 8px 20px;
+    background: var(--card);
+    color: var(--fg);
+    font: inherit;
+    text-align: left;
+    touch-action: pan-y;
+    transition: transform 160ms ease;
+  }
+
+  .mobile-mail-row[data-dragging="true"] .mobile-mail-row-button {
+    transition: none;
+  }
+
+  .mobile-mail-row[data-current="true"] .mobile-mail-row-button {
+    background: var(--row-active);
+    box-shadow: inset 3px 0 0 #3474bd;
+  }
+
+  .mobile-mail-row-top {
+    display: flex;
+    min-width: 0;
+    align-items: baseline;
+    gap: 8px;
+  }
+
+  .mobile-mail-row-top strong {
+    overflow: hidden;
+    flex: 1;
+    color: var(--fg-strong);
+    font-size: 15px;
+    font-weight: 500;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+
+  .mobile-mail-row[data-unread="true"] .mobile-mail-row-top strong,
+  .mobile-mail-row[data-unread="true"] .mobile-mail-row-subject {
+    font-weight: 750;
+  }
+
+  .mobile-mail-row-top time {
+    flex: none;
+    color: var(--muted);
+    font-size: 12px;
+  }
+
+  .mobile-mail-row-subject,
+  .mobile-mail-row-preview {
+    overflow: hidden;
+    padding-right: 42px;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+
+  .mobile-mail-row-subject {
+    color: var(--muted);
+    font-size: 13px;
+  }
+
+  .mobile-mail-row-preview {
+    color: var(--nav-muted);
+    font-size: 12px;
+  }
+
+  .mobile-mail-row-meta {
+    position: absolute;
+    right: 14px;
+    bottom: 8px;
+    z-index: 2;
+    display: flex;
+    align-items: center;
+    gap: 5px;
+    color: var(--muted);
+    font-size: 10px;
+    pointer-events: none;
+  }
+
+  .mobile-mail-row-attachment svg {
+    width: 15px;
+    height: 15px;
+  }
+
+  .mobile-mail-row-count {
+    min-width: 18px;
+    border: 1px solid var(--border);
+    border-radius: 3px;
+    padding: 0 3px;
+    text-align: center;
   }
 
   .mail-workspace {
@@ -2364,9 +2590,20 @@ body {
   .mail-reader-header {
     position: sticky;
     top: 0;
-    z-index: 2;
-    padding-bottom: 8px;
-    background: var(--bg);
+    z-index: 10;
+    min-height: calc(54px + var(--safe-top));
+    padding: var(--safe-top) 16px 0;
+    border-bottom: 1px solid var(--border);
+    background: var(--card);
+  }
+
+  .mail-reader-status {
+    display: none;
+  }
+
+  .mail-reader-back {
+    color: var(--muted);
+    font-size: 13px;
   }
 
   .mail-compose {
@@ -2477,13 +2714,7 @@ body {
     background: var(--brand-cta);
   }
 
-  .mail-toolbar-mark {
-    display: block;
-  }
 }
-
-/* Atlas matter detail — a right drawer on desktop, a safe full-screen
- * transition on phones. The board stays readable behind it on wide screens. */@media (max-width: 700px) {}
 
 /* --------------------------------------------------------------------
    Triage as a deck

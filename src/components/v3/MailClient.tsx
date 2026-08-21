@@ -1,6 +1,7 @@
 "use client";
 
 import * as React from "react";
+import { Home, Search as SearchIcon, X as CloseIcon } from "lucide-react";
 import {
   useCallback,
   useEffect,
@@ -29,6 +30,7 @@ import { Settings } from "./Settings";
 import { TriageCards } from "./TriageCards";
 import { TriageList } from "./TriageList";
 import { TriageTable } from "./TriageTable";
+import { MobileMailboxList } from "./MobileMailboxList";
 import { fetchSearch, SearchBox, type SearchResult } from "./SearchBox";
 import { SearchRequestGuard } from "./search-request";
 import type { ReaderComposeIntent } from "@/components/v2/Reader";
@@ -234,6 +236,7 @@ export function MailClient({
   const [searchRows, setSearchRows] = useState<SearchResult[] | null>(null);
   const [notice, setNotice] = useState<{ message: string; error: boolean; outboxId?: string } | null>(null);
   const [paletteOpen, setPaletteOpen] = useState(false);
+  const [mobileSearchOpen, setMobileSearchOpen] = useState(false);
   const [triageView, setTriageView] = useState<"table" | "piles">("table");
   const [hashReady, setHashReady] = useState(false);
   const restoredSearchRef = useRef<string | null>(null);
@@ -446,6 +449,27 @@ export function MailClient({
           conversationId: conversation.conversationId,
         });
       }
+    },
+    [inbox],
+  );
+
+  const archiveAtlasConversation = useCallback(
+    (conversation: ConversationRow) => {
+      void inbox.dispatch({
+        type: "archive",
+        conversationId: conversation.conversationId,
+      });
+    },
+    [inbox],
+  );
+
+  const deleteAtlasConversation = useCallback(
+    (conversation: ConversationRow) => {
+      void inbox.dispatch({
+        type: "delete",
+        conversationId: conversation.conversationId,
+        byUser: true,
+      });
     },
     [inbox],
   );
@@ -712,7 +736,15 @@ export function MailClient({
   const folderContent = searchRows ? (
     <SearchResults rows={searchRows} onOpen={openSearchResult} />
   ) : activeMailbox && section === "triage" ? (
-    isMobile || (triageView === "piles" && !conversationId) ? (
+    isMobile ? (
+      <MobileMailboxList
+        view={activeMailbox}
+        triage
+        currentConversationId={conversationId}
+        onOpen={openRow}
+        onCommands={runCommands}
+      />
+    ) : triageView === "piles" && !conversationId ? (
       <div className="triage-pile-shell">
         {!isMobile ? (
           <div className="triage-view-toggle triage-pile-toggle" role="group" aria-label="Triage view">
@@ -752,6 +784,13 @@ export function MailClient({
       }}
       onOpen={openRow}
       onExit={() => setSection("triage")}
+    />
+  ) : activeMailbox && isMobile && section === "inbox" ? (
+    <MobileMailboxList
+      view={activeMailbox}
+      currentConversationId={conversationId}
+      onOpen={openRow}
+      onCommands={runCommands}
     />
   ) : activeMailbox ? (
     <FolderList
@@ -793,6 +832,8 @@ export function MailClient({
           onReorderMatters={reorderMatters}
           onMoveMatter={moveMatter}
           currentConversationId={conversationId}
+          onArchiveConversation={archiveAtlasConversation}
+          onDeleteConversation={deleteAtlasConversation}
         />
         {!conversationId ? <WorthReading view={inbox.view} /> : null}
       </>
@@ -851,12 +892,33 @@ export function MailClient({
           {/* The rail carries the mark on desktop; on a phone the rail is gone,
               so the toolbar is the only place the app can say whose it is. */}
           <SeerMark size={24} className="mail-toolbar-mark" />
-          <SearchBox
-            initialQuery={query}
-            onSearch={search}
-            onClear={clearSearch}
-            requestGuard={searchGuard.current}
-          />
+          <div className="mail-mobile-title">
+            <Home aria-hidden />
+            <strong>
+              {section === "atlas"
+                ? "Atlas"
+                : section[0].toUpperCase() + section.slice(1)}
+            </strong>
+          </div>
+          <div
+            className="mail-toolbar-search"
+            data-mobile-open={mobileSearchOpen ? "true" : "false"}
+          >
+            <SearchBox
+              initialQuery={query}
+              onSearch={search}
+              onClear={clearSearch}
+              requestGuard={searchGuard.current}
+            />
+          </div>
+          <button
+            type="button"
+            className="mail-mobile-search-toggle"
+            aria-label={mobileSearchOpen ? "Close search" : "Search mail"}
+            onClick={() => setMobileSearchOpen((open) => !open)}
+          >
+            {mobileSearchOpen ? <CloseIcon aria-hidden /> : <SearchIcon aria-hidden />}
+          </button>
           <span className="mail-toolbar-status" aria-live="polite">
             {mailbox.refreshing ? "Syncing…" : ""}
           </span>

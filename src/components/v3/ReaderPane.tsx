@@ -176,6 +176,8 @@ export function ReaderPane({
         conversation={data.conversation}
         ownEmail={data.ownEmail}
         onReply={() => onCompose({ mode: "reply" })}
+        onReplyAll={() => onCompose({ mode: "replyAll" })}
+        onForward={() => onCompose({ mode: "forward" })}
         onArchive={() => void runArchive()}
         onDelete={() => void runDelete()}
         onMove={(destinationId) => void runMove(destinationId)}
@@ -193,6 +195,7 @@ export function ReaderPane({
             onSent={onSent}
           />
         }
+        replying={Boolean(inlineIntent)}
       />
     </section>
   );

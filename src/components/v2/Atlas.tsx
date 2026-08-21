@@ -9,6 +9,7 @@ import type {
   MatterCard,
 } from "@/lib/v2/view/types";
 import { reorderMatterSections } from "@/lib/v2/view/matter-order";
+import { MobileMailRow } from "@/components/v3/MobileMailRow";
 
 export type MatterMove = {
   matterId: string;
@@ -138,6 +139,8 @@ export function Atlas({
   onReorderMatters,
   onMoveMatter,
   currentConversationId,
+  onArchiveConversation,
+  onDeleteConversation,
 }: {
   view: InboxView;
   onArchiveMatter?: (matter: MatterCard) => void | Promise<unknown>;
@@ -150,6 +153,8 @@ export function Atlas({
   ) => void | Promise<unknown>;
   onMoveMatter?: (move: MatterMove) => void | Promise<unknown>;
   currentConversationId?: string | null;
+  onArchiveConversation?: (conversation: ConversationRow) => void;
+  onDeleteConversation?: (conversation: ConversationRow) => void;
 }) {
   // Only "mine" narrows the board, and only one matter stands open: the board
   // answers "what is the state of the business", and two open answers is a list.
@@ -384,6 +389,8 @@ export function Atlas({
                     onForward={onForwardMatter ? () => onForwardMatter(matter) : undefined}
                     currentConversationId={currentConversationId}
                     onOpenConversation={onOpenConversation}
+                    onArchiveConversation={onArchiveConversation}
+                    onDeleteConversation={onDeleteConversation}
                     onDragStart={() =>
                       setDragged({
                         matterId: matter.matterId,
@@ -472,6 +479,8 @@ function BoardMatter({
   onForward,
   currentConversationId,
   onOpenConversation,
+  onArchiveConversation,
+  onDeleteConversation,
   onDragStart,
   onDragEnd,
   onDropBefore,
@@ -488,6 +497,8 @@ function BoardMatter({
   onForward?: () => void;
   currentConversationId?: string | null;
   onOpenConversation?: (conversation: ConversationRow) => void;
+  onArchiveConversation?: (conversation: ConversationRow) => void;
+  onDeleteConversation?: (conversation: ConversationRow) => void;
   onDragStart: () => void;
   onDragEnd: () => void;
   onDropBefore: () => void;
@@ -587,28 +598,44 @@ function BoardMatter({
                 every other message in Seer is read — in the reading pane. */}
             <div className="wb-mail" aria-label="Mail on this matter">
               {matter.conversations.map((conversation) => (
-                <button
-                  key={conversation.conversationId}
-                  type="button"
-                  className="wb-mail-row"
-                  data-current={
-                    conversation.conversationId === currentConversationId
-                      ? "true"
-                      : "false"
-                  }
-                  onClick={() => onOpenConversation?.(conversation)}
-                >
-                  <span className="wb-mail-top">
-                    <strong>{conversation.from || "Unknown sender"}</strong>
-                    <time className="tabular">{mailDate(conversation.at)}</time>
-                  </span>
-                  <span className="wb-mail-subject">
-                    {conversation.subject || "(no subject)"}
-                  </span>
-                  {conversation.summary ? (
-                    <span className="wb-mail-summary">{conversation.summary}</span>
-                  ) : null}
-                </button>
+                <React.Fragment key={conversation.conversationId}>
+                  <MobileMailRow
+                    model={{
+                      id: conversation.conversationId,
+                      from: conversation.from,
+                      subject: conversation.subject,
+                      preview: conversation.summary,
+                      when: mailDate(conversation.at),
+                    }}
+                    current={
+                      conversation.conversationId === currentConversationId
+                    }
+                    onOpen={() => onOpenConversation?.(conversation)}
+                    onArchive={() => onArchiveConversation?.(conversation)}
+                    onDelete={() => onDeleteConversation?.(conversation)}
+                  />
+                  <button
+                    type="button"
+                    className="wb-mail-row"
+                    data-current={
+                      conversation.conversationId === currentConversationId
+                        ? "true"
+                        : "false"
+                    }
+                    onClick={() => onOpenConversation?.(conversation)}
+                  >
+                    <span className="wb-mail-top">
+                      <strong>{conversation.from || "Unknown sender"}</strong>
+                      <time className="tabular">{mailDate(conversation.at)}</time>
+                    </span>
+                    <span className="wb-mail-subject">
+                      {conversation.subject || "(no subject)"}
+                    </span>
+                    {conversation.summary ? (
+                      <span className="wb-mail-summary">{conversation.summary}</span>
+                    ) : null}
+                  </button>
+                </React.Fragment>
               ))}
             </div>
           </div>
