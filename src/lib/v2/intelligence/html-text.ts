@@ -7,7 +7,13 @@
  * hold this to: what you would see if you pasted the email into a chat.
  */
 
-const BLOCK_LEVEL = /<\/?(p|div|tr|li|h[1-6]|blockquote|table|section|article)\b[^>]*>/gi;
+/**
+ * Every element that ends a line when a person reads the mail. Table cells and
+ * list wrappers belong here: Outlook lays paragraphs out in tables, and without
+ * `td` every row of a weekly report fuses into one sentence.
+ */
+const BLOCK_LEVEL =
+  /<\/?(p|div|tr|td|th|li|ul|ol|dl|dt|dd|h[1-6]|blockquote|table|thead|tbody|tfoot|section|article|header|footer|pre|hr|figure|figcaption)\b[^>]*>/gi;
 
 const ENTITIES: Record<string, string> = {
   amp: "&",

@@ -7,6 +7,7 @@
  * sixth turn the same paragraph is on the screen six times.
  */
 import assert from "node:assert/strict";
+import { readFileSync } from "node:fs";
 import {
   conversationFiles,
   freshBody,
@@ -98,6 +99,7 @@ assert.equal(stripQuoted("New text\n-----Original Message-----\nFrom: A\nold").t
 {
   const body = freshBody(msg({ bodyText: "> only quoted", snippet: "only quoted" }));
   assert.equal(body.text, "only quoted");
+  assert.equal(body.html, null);
 }
 
 // --- internal vs external ----------------------------------------------------
@@ -185,6 +187,43 @@ assert.equal(yourTurn.who, "You");
 assert.equal(yourTurn.body, "Priya — we are costing it now.", "the trunk carries new text only");
 assert.equal(yourTurn.quotedCount, 1);
 assert.equal(yourTurn.peek, "Priya — we are costing it now.");
+assert.equal(yourTurn.bodyHtml, null, "plain-text bodies leave bodyHtml null");
+assert.equal(branch.turns[0].html, null);
+assert.equal(branch.turns[1].html, null);
+
+// HTML bodies keep their structure on both lanes, and the quote count comes
+// from the markup markers Outlook/Gmail actually write.
+{
+  const htmlThread = conv([
+    msg({
+      bodyText: null,
+      bodyHtml:
+        `<div>Two extra visits — can you reprice?</div>` +
+        `<div id="divRplyFwdMsg">From: earlier</div><div>old</div>`,
+      sentAt: "2026-08-04T09:00:00.000Z",
+    }),
+    msg({
+      from: { email: OWN, name: "Conall Arora" },
+      to: [{ email: "lara@rditrials.com", name: "Lara Bennett" }],
+      isOutgoing: true,
+      bodyText: null,
+      bodyHtml: `<p>Lara — <b>please</b> reprice.</p><ul><li>weeks 12</li><li>weeks 20</li></ul>`,
+      sentAt: "2026-08-04T10:00:00.000Z",
+    }),
+  ]);
+  const shaped = shapeThread(htmlThread, OWN_DOMAIN, OWN);
+  const trunk = shaped[0] as Turn;
+  assert.ok(trunk.bodyHtml, "trunk turns carry sanitised HTML");
+  assert.match(trunk.bodyHtml!, /Two extra visits/);
+  assert.doesNotMatch(trunk.bodyHtml!, /divRplyFwdMsg|old/);
+  assert.equal(trunk.quotedCount, 1, "HTML quote markers drive the hidden count");
+
+  const internal = shaped[1] as Branch;
+  assert.ok(internal.turns[0].html, "branch turns carry sanitised HTML");
+  assert.match(internal.turns[0].html!, /<b>please<\/b>/);
+  assert.match(internal.turns[0].html!, /<ul>/);
+  assert.match(internal.turns[0].html!, /<li>weeks 12<\/li>/);
+}
 
 // --- files, once -------------------------------------------------------------
 
@@ -293,6 +332,20 @@ assert.equal(people.find((p) => p.email === "lara@rditrials.com")?.org, "interna
 
   // Quoted history is counted, not re-read.
   assert.match(html, /quoted message/, "the reader says how much history is hidden");
+  assert.match(html, /seer-message-text/, "plain-text bodies still use the pre-wrap path");
+
+  // Branch bodies render through MessageHtml (branches start closed, so the
+  // wrapper is not in the initial SSR — assert the source contract instead).
+  const readerSrc = readFileSync(
+    new URL("../src/components/v2/Reader.tsx", import.meta.url),
+    "utf8",
+  );
+  assert.match(
+    readerSrc,
+    /reader-branch-text[\s\S]*MessageHtml/,
+    "internal turns render through MessageHtml, not a bare <p>",
+  );
+  assert.match(readerSrc, /html=\{lane\.bodyHtml\}/, "trunk turns pass real HTML when present");
 
   // Who is waiting, and who is on it.
   assert.match(html, /has had no reply/);

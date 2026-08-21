@@ -186,7 +186,9 @@ export function Reader({
                           <b>{turn.who}</b>
                           <em className="tabular">{shortDate(turn.message.sentAt)}</em>
                         </div>
-                        <p className="reader-branch-text">{turn.text}</p>
+                        <div className="reader-branch-text">
+                          <MessageHtml html={turn.html} text={turn.text} />
+                        </div>
                       </div>
                     ))}
                   </div>
@@ -213,7 +215,7 @@ export function Reader({
               </button>
               {isOpen && (
                 <div className="reader-turn-body">
-                  <MessageHtml html={null} text={lane.body} />
+                  <MessageHtml html={lane.bodyHtml} text={lane.body} />
                   {lane.quotedCount > 0 && (
                     <p className="reader-stripped tabular">
                       {lane.quotedCount} quoted message

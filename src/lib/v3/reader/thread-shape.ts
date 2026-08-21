@@ -1,5 +1,6 @@
 import type { Address, Conversation, Message } from "@/lib/v2/providers/types";
 import { readableBody } from "@/lib/v2/intelligence/html-text";
+import { readableHtml } from "@/lib/v3/reader/email-html";
 
 /**
  * The shape of a conversation, which is not the list of messages it is stored
@@ -36,11 +37,19 @@ function isQuoteBoundary(line: string): boolean {
   return QUOTE_MARKERS.some((marker) => marker.test(line));
 }
 
-export type StrippedBody = {
+export type StrippedText = {
   /** Only what this sender newly wrote. */
   text: string;
   /** How many earlier messages were quoted underneath it. */
   quotedCount: number;
+};
+
+export type StrippedBody = StrippedText & {
+  /**
+   * The same new text as HTML, structure kept and theme-safe. Null when the
+   * message had no usable HTML body — the reader then falls back to `text`.
+   */
+  html: string | null;
 };
 
 /**
@@ -50,7 +59,7 @@ export type StrippedBody = {
  * tells the reader how much history is under the fold, which is the thing they
  * would otherwise scroll to check.
  */
-export function stripQuoted(body: string): StrippedBody {
+export function stripQuoted(body: string): StrippedText {
   const lines = body.replace(/\r\n/g, "\n").split("\n");
   const fresh: string[] = [];
   let quotedCount = 0;
@@ -91,12 +100,18 @@ export function stripQuoted(body: string): StrippedBody {
 /** The readable, newly-written body of one message. */
 export function freshBody(message: Message): StrippedBody {
   const stripped = stripQuoted(readableBody(message));
+  const htmlPart = readableHtml(message.bodyHtml);
+  // Prefer the HTML quote count when a body was HTML: Outlook and Gmail mark
+  // quote boundaries in markup that the plain-text heuristics miss.
+  const quotedCount = message.bodyHtml ? htmlPart.quotedCount : stripped.quotedCount;
   // A message that is nothing but a quote still said something by existing —
   // fall back to the snippet rather than rendering an empty turn.
-  if (!stripped.text) {
-    return { text: message.snippet?.trim() ?? "", quotedCount: stripped.quotedCount };
-  }
-  return stripped;
+  const text = stripped.text || (message.snippet?.trim() ?? "");
+  return {
+    text,
+    html: htmlPart.html || null,
+    quotedCount,
+  };
 }
 
 const domainOf = (email: string | null | undefined) =>
@@ -125,6 +140,7 @@ export type Turn = {
   isYou: boolean;
   peek: string;
   body: string;
+  bodyHtml: string | null;
   quotedCount: number;
 };
 
@@ -138,6 +154,7 @@ export type Branch = {
     who: string;
     isYou: boolean;
     text: string;
+    html: string | null;
   }[];
 };
 
@@ -170,7 +187,13 @@ export function shapeThread(
     if (isInternal(message, ownDomain)) {
       const previous = lanes[lanes.length - 1];
       const stripped = freshBody(message);
-      const turn = { message, who, isYou: isYou(message), text: stripped.text };
+      const turn = {
+        message,
+        who,
+        isYou: isYou(message),
+        text: stripped.text,
+        html: stripped.html,
+      };
       if (previous && previous.kind === "branch") {
         previous.turns.push(turn);
         continue;
@@ -194,6 +217,7 @@ export function shapeThread(
       isYou: isYou(message),
       peek: peekOf(stripped.text),
       body: stripped.text,
+      bodyHtml: stripped.html,
       quotedCount: stripped.quotedCount,
     });
   }

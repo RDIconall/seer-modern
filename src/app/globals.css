@@ -497,11 +497,136 @@ body {
 
 .seer-message-body {
   overflow-x: auto;
+  max-width: 100%;
+  color: var(--fg);
+  font-size: var(--t-body, 14px);
+  line-height: var(--lh-body, 1.5);
+  word-break: break-word;
+  overflow-wrap: anywhere;
+}
+
+.seer-message-body > :first-child {
+  margin-top: 0;
+}
+
+.seer-message-body > :last-child {
+  margin-bottom: 0;
+}
+
+.seer-message-body p {
+  margin: 0 0 0.75em;
+}
+
+/* Outlook lays paragraphs in sibling divs with no <p>/<br>. Space those without
+   stacking margin on every nested wrapper. */
+.seer-message-body div {
+  margin: 0;
+}
+
+.seer-message-body div + div {
+  margin-top: 0.65em;
+}
+
+.seer-message-body h1,
+.seer-message-body h2,
+.seer-message-body h3,
+.seer-message-body h4,
+.seer-message-body h5,
+.seer-message-body h6 {
+  margin: 1em 0 0.4em;
+  color: var(--fg-strong);
+  font-weight: 600;
+  line-height: 1.3;
+}
+
+.seer-message-body h1 { font-size: 1.35em; }
+.seer-message-body h2 { font-size: 1.2em; }
+.seer-message-body h3 { font-size: 1.1em; }
+
+.seer-message-body ul,
+.seer-message-body ol {
+  margin: 0 0 0.75em;
+  padding-left: 1.4em;
+}
+
+.seer-message-body ul {
+  list-style: disc;
+}
+
+.seer-message-body ol {
+  list-style: decimal;
+}
+
+.seer-message-body li {
+  margin: 0.2em 0;
+}
+
+.seer-message-body li > ul,
+.seer-message-body li > ol {
+  margin-bottom: 0;
+}
+
+.seer-message-body blockquote {
+  margin: 0.75em 0;
+  padding: 0.15em 0 0.15em 0.9em;
+  border-left: 3px solid var(--border);
+  color: var(--nav-muted);
+}
+
+.seer-message-body pre {
+  margin: 0.75em 0;
+  padding: 0.6em 0.75em;
+  overflow-x: auto;
+  background: var(--row-hover);
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  white-space: pre-wrap;
+  word-break: break-word;
+}
+
+.seer-message-body code {
+  font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  font-size: 0.92em;
+}
+
+.seer-message-body table {
+  border-collapse: collapse;
+  margin: 0.75em 0;
+  max-width: 100%;
+}
+
+.seer-message-body td,
+.seer-message-body th {
+  border: 1px solid var(--border);
+  padding: 0.35em 0.6em;
+  vertical-align: top;
+}
+
+.seer-message-body th {
+  color: var(--fg-strong);
+  font-weight: 600;
+  background: var(--row-hover);
+}
+
+.seer-message-body a {
+  color: var(--brand-strong);
+  text-decoration: underline;
+  text-underline-offset: 2px;
+}
+
+.seer-message-body a:hover {
+  color: var(--fg-strong);
 }
 
 .seer-message-body img {
   max-width: 100%;
   height: auto;
+}
+
+.seer-message-body hr {
+  border: none;
+  border-top: 1px solid var(--border);
+  margin: 1em 0;
 }
 
 .seer-message-text {

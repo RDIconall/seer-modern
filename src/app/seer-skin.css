@@ -729,6 +729,18 @@ body {
   font-size: var(--t-body);
   line-height: var(--lh-body);
   color: var(--fg);
+  /* Branch bodies used to be a bare <p>, which collapsed every newline into
+     a space. They now wrap MessageHtml so both HTML structure and plain-text
+     pre-wrap survive. */
+  white-space: normal;
+  word-break: break-word;
+  overflow-wrap: anywhere;
+}
+.reader-branch-text .seer-message-body,
+.reader-branch-text .seer-message-text {
+  font-size: inherit;
+  line-height: inherit;
+  color: inherit;
 }
 
 /* Participants, and the people who quietly stopped being on it. */
