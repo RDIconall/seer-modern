@@ -10,7 +10,11 @@ import { startTestDb } from "./v2-testdb.mts";
 import { upsertUser, upsertAccount } from "../src/lib/v2/db/accounts.ts";
 import { executeCommand } from "../src/lib/v2/commands/execute.ts";
 import { getCorpusConversation } from "../src/lib/v3/reader/repository.ts";
-import { verifyMessageOwnership, resolveAttachmentMeta } from "../src/lib/v3/attachments/repository.ts";
+import {
+  findProviderAttachmentId,
+  resolveAttachmentMeta,
+  verifyMessageOwnership,
+} from "../src/lib/v3/attachments/repository.ts";
 import { FakeProvider } from "../src/lib/v2/providers/fake.ts";
 import { asConversationId, type AccountId } from "../src/lib/v2/db/types.ts";
 import type { Message } from "../src/lib/v2/providers/types.ts";
@@ -134,6 +138,29 @@ try {
   const meta = resolveAttachmentMeta(owned!, "m-mid-0");
   assert.equal(meta.filename, "brief.pdf");
   assert.equal(meta.index, 0);
+  assert.equal(
+    findProviderAttachmentId(
+      {
+        providerConversationId: "p-thread",
+        subject: "Thread subject",
+        lastMessageAt: "2026-08-10T10:00:00Z",
+        messages: [
+          fakeMsg("m-mid", "2026-08-09T10:00:00Z", [
+            {
+              id: "provider-attachment-id",
+              filename: "brief.pdf",
+              mimeType: "application/pdf",
+              sizeBytes: 123,
+            },
+          ]),
+        ],
+      },
+      "m-mid",
+      meta,
+    ),
+    "provider-attachment-id",
+    "synthetic corpus ids resolve to the provider's opaque attachment id",
+  );
 
   // Forward command executes synchronously through the provider.
   const provider = new FakeProvider({
@@ -193,6 +220,20 @@ try {
   assert.match(readerSrc, /\/api\/v3\/messages\//);
   assert.match(readerSrc, /dispatchCommand|useReaderCommands/);
   assert.match(readerSrc, /corpusConversationId/);
+  const readerStyles = readFileSync(
+    path.join(HERE, "../src/app/seer-skin.css"),
+    "utf8",
+  );
+  const mobileReaderStyles = readerStyles.slice(
+    readerStyles.indexOf("@media (max-width: 700px)"),
+    readerStyles.indexOf(".reader-stripped"),
+  );
+  assert.doesNotMatch(
+    mobileReaderStyles,
+    /\.reader-files\s*\{[^}]*display:\s*none/,
+    "mobile readers must not hide attachments",
+  );
+  assert.match(mobileReaderStyles, /\.reader-files\s*\{[^}]*padding:/);
   const readerPaneSrc = readFileSync(
     path.join(HERE, "../src/components/v3/ReaderPane.tsx"),
     "utf8",

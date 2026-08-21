@@ -1,5 +1,6 @@
 import { db } from "@/lib/v2/db/pool";
 import type { AccountId } from "@/lib/v2/db/types";
+import type { Conversation } from "@/lib/v2/providers/types";
 
 export type OwnedMessage = {
   providerMessageId: string;
@@ -55,4 +56,19 @@ export function resolveAttachmentMeta(
     filename: index >= 0 ? message.attachmentNames[index]! : attachmentId,
     index: index >= 0 ? index : 0,
   };
+}
+
+/** Map a corpus filename/index back to the provider's opaque attachment id. */
+export function findProviderAttachmentId(
+  conversation: Conversation,
+  providerMessageId: string,
+  meta: { filename: string; index: number },
+): string | null {
+  const message = conversation.messages.find(
+    (item) => item.providerMessageId === providerMessageId,
+  );
+  const attachment =
+    message?.attachments[meta.index] ??
+    message?.attachments.find((item) => item.filename === meta.filename);
+  return attachment?.id || null;
 }

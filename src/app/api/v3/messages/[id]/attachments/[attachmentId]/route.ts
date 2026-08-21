@@ -2,6 +2,7 @@ import { NextResponse } from "next/server";
 import { getActiveV2Account } from "@/lib/v2/session";
 import { providerFor } from "@/lib/v2/providers/provider";
 import {
+  findProviderAttachmentId,
   resolveAttachmentMeta,
   verifyMessageOwnership,
 } from "@/lib/v3/attachments/repository";
@@ -32,7 +33,34 @@ export async function GET(
   const meta = resolveAttachmentMeta(owned, attachmentId);
   try {
     const provider = await providerFor(account);
-    const content = await provider.getAttachment(providerMessageId, attachmentId);
+    let providerAttachmentId = attachmentId;
+
+    // The corpus historically stored attachment names only, so the reader
+    // emits a stable synthetic id (`messageId-index`). Resolve that id against
+    // a fresh provider thread before asking for bytes; passing the synthetic
+    // value to Graph/Gmail can never work.
+    if (attachmentId.startsWith(`${providerMessageId}-`)) {
+      const conversation = await provider.getConversation(
+        owned.providerConversationId,
+      );
+      const resolvedId = findProviderAttachmentId(
+        conversation,
+        providerMessageId,
+        meta,
+      );
+      if (!resolvedId) {
+        return NextResponse.json(
+          { error: "attachment not found" },
+          { status: 404 },
+        );
+      }
+      providerAttachmentId = resolvedId;
+    }
+
+    const content = await provider.getAttachment(
+      providerMessageId,
+      providerAttachmentId,
+    );
     const headers = attachmentResponseHeaders(
       content.mimeType,
       content.filename || meta.filename,

@@ -941,9 +941,12 @@ body {
 
   .reader-sub,
   .reader-ball,
-  .seer-reader > .seer-actions,
-  .reader-files {
+  .seer-reader > .seer-actions {
     display: none;
+  }
+
+  .reader-files {
+    padding: 10px 18px 4px;
   }
 
   .reader-lane {
