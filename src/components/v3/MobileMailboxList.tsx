@@ -80,7 +80,6 @@ export function MobileMailboxList({
         when: mobileTime(row.timestamp),
         isUnread: row.isUnread,
         attachmentCount: row.attachments.length,
-        badge: triage ? row.category ?? undefined : undefined,
       }}
       current={row.conversationId === currentConversationId}
       onOpen={() => onOpen(row)}

@@ -46,6 +46,11 @@ const folder = readFileSync(
 assert.match(folder, /<MobileMailRow/);
 assert.match(folder, /type: "archive"/);
 assert.match(folder, /type: "delete"/);
+assert.doesNotMatch(
+  folder,
+  /badge:\s*triage/,
+  "action-grouped Triage must not overlay a second category label on rows",
+);
 
 const client = readFileSync(
   new URL("../src/components/v3/MailClient.tsx", import.meta.url),

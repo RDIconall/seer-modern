@@ -74,9 +74,15 @@ assert.match(html, /class="wb-own tabular/, "a matter says who holds it");
 assert.match(html, /class="wb-foot tabular"/, "the board closes with the accounting");
 assert.match(html, /Accounted \d+ of \d+/);
 
-// One matter open at a time, and the expansion carries the next action.
-assert.match(atlasSource, /openMatterId/, "the board is an accordion, not a tree");
-assert.match(atlasSource, /wb-next/);
+// A matter line opens the latest real email directly. Atlas is the index, not
+// another detail screen between the user and their mail.
+assert.doesNotMatch(atlasSource, /openMatterId/);
+assert.match(
+  atlasSource,
+  /latestConversation\(matter\)[\s\S]{0,160}onOpenConversation/,
+  "clicking a matter must hand its latest corpus conversation to the reader",
+);
+assert.match(atlasSource, /Open latest email for/);
 
 /**
  * Archiving strikes the row and keeps its place, holding an undo inline. A

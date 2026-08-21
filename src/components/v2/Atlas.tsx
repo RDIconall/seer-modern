@@ -156,10 +156,9 @@ export function Atlas({
   onArchiveConversation?: (conversation: ConversationRow) => void;
   onDeleteConversation?: (conversation: ConversationRow) => void;
 }) {
-  // Only "mine" narrows the board, and only one matter stands open: the board
-  // answers "what is the state of the business", and two open answers is a list.
+  // Only "mine" narrows the board. A matter row opens its latest real email in
+  // the shared reader; Atlas is an index of work, not a second detail view.
   const [mineOnly, setMineOnly] = useState(false);
-  const [openMatterId, setOpenMatterId] = useState<string | null>(null);
   const [openRolls, setOpenRolls] = useState<ReadonlySet<string>>(new Set());
   const [archived, setArchived] = useState<ReadonlySet<string>>(new Set());
   const [undoable, setUndoable] = useState<ReadonlySet<string>>(new Set());
@@ -222,7 +221,6 @@ export function Atlas({
   );
 
   const archive = (matter: MatterCard) => {
-    setOpenMatterId(null);
     setArchived((prev) => new Set(prev).add(matter.matterId));
     setUndoable((prev) => new Set(prev).add(matter.matterId));
     void onArchiveMatter?.(matter);
@@ -372,17 +370,16 @@ export function Atlas({
                     key={matter.matterId}
                     matter={matter}
                     now={now}
-                    open={openMatterId === matter.matterId}
+                    open={false}
                     archived={archived.has(matter.matterId)}
                     current={matter.conversations.some(
                       (conversation) =>
                         conversation.conversationId === currentConversationId,
                     )}
-                    onToggle={() =>
-                      setOpenMatterId((current) =>
-                        current === matter.matterId ? null : matter.matterId,
-                      )
-                    }
+                    onToggle={() => {
+                      const conversation = latestConversation(matter);
+                      if (conversation) onOpenConversation?.(conversation);
+                    }}
                     onArchive={() => archive(matter)}
                     onUndo={() => undo(matter)}
                     onReply={onReplyMatter ? () => onReplyMatter(matter) : undefined}
@@ -543,7 +540,7 @@ function BoardMatter({
       <button
         type="button"
         className="wb-mhead"
-        aria-expanded={archived ? undefined : open}
+        aria-label={`Open latest email for ${matter.shortTitle}`}
         onClick={archived ? undefined : onToggle}
         disabled={archived}
       >
