@@ -1,5 +1,5 @@
 /*
- * Seer — mobile shell at /m
+ * Seer — app shell, installable from the desktop route and /m alike
  *
  * This worker used to pin the app to an old build, which is a worse failure
  * than having no worker at all: every deploy looked like it had not happened.
@@ -25,6 +25,7 @@
 const CACHE = "seer-mobile-v3";
 const PRECACHE = [
   "/manifest.webmanifest",
+  "/manifest.mobile.webmanifest",
   "/seer-eye.png",
   "/icons/icon-192.png",
   "/icons/icon-512.png",

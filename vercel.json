@@ -19,6 +19,12 @@
       "headers": [
         { "key": "Content-Type", "value": "application/manifest+json" }
       ]
+    },
+    {
+      "source": "/manifest.mobile.webmanifest",
+      "headers": [
+        { "key": "Content-Type", "value": "application/manifest+json" }
+      ]
     }
   ]
 }

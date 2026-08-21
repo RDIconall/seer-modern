@@ -8,7 +8,7 @@ export const metadata: Metadata = {
     statusBarStyle: "default",
     title: "Seer",
   },
-  manifest: "/manifest.webmanifest",
+  manifest: "/manifest.mobile.webmanifest",
 };
 
 export const viewport: Viewport = {

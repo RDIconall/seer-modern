@@ -1,10 +1,9 @@
 "use client";
 
 import { useEffect } from "react";
-import { usePathname } from "next/navigation";
 
 /**
- * Register the service worker on the mobile app route, and — the part that
+ * Register the service worker for the whole app, and — the part that
  * matters — make an installed app notice that it has been redeployed.
  *
  * An installed iOS app resumed from the background often does not navigate at
@@ -13,13 +12,14 @@ import { usePathname } from "next/navigation";
  * left the app running a build from days earlier with no sign anything was
  * wrong. Checking for an update whenever the app comes back to the foreground
  * is what closes that gap.
+ *
+ * The scope is the whole origin because a browser only offers to install an app
+ * whose worker covers the page you are standing on, and Seer is now installable
+ * from the desktop route as well as the phone one.
  */
 export function PwaRegister() {
-  const pathname = usePathname();
-
   useEffect(() => {
     if (!("serviceWorker" in navigator)) return;
-    if (!pathname?.startsWith("/m")) return;
 
     let reloading = false;
     // A worker taking control means the code on disk is not the code running.
@@ -48,10 +48,20 @@ export function PwaRegister() {
         );
 
         registration = await navigator.serviceWorker.register("/sw.js", {
-          scope: "/m",
+          scope: "/",
           updateViaCache: "none",
         });
         await registration.update();
+
+        // Phones that installed Seer before this had a worker scoped to /m.
+        // Leaving it registered means two workers claiming the mobile route.
+        const existing = await navigator.serviceWorker.getRegistrations();
+        await Promise.all(
+          existing
+            .filter((item) => new URL(item.scope).pathname !== "/")
+            .map((item) => item.unregister()),
+        );
+
         navigator.serviceWorker.addEventListener(
           "controllerchange",
           onControllerChange,
@@ -72,7 +82,7 @@ export function PwaRegister() {
       );
       document.removeEventListener("visibilitychange", checkForUpdate);
     };
-  }, [pathname]);
+  }, []);
 
   return null;
 }

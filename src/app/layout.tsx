@@ -39,6 +39,12 @@ export const metadata: Metadata = {
   title: "Seer",
   description: "Fewer decisions — fly through email with your copilot",
   applicationName: "Seer",
+  manifest: "/manifest.webmanifest",
+  appleWebApp: {
+    capable: true,
+    statusBarStyle: "default",
+    title: "Seer",
+  },
   icons: {
     icon: [
       { url: "/favicon.png", sizes: "32x32", type: "image/png" },

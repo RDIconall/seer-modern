@@ -1386,6 +1386,23 @@ body {
   gap: 10px;
 }
 
+.mail-empty-account {
+  display: grid;
+  justify-items: center;
+  gap: 12px;
+  text-align: center;
+}
+
+.mail-empty-account button {
+  border: 1px solid var(--border);
+  border-radius: 999px;
+  padding: 7px 16px;
+  background: var(--card);
+  color: var(--fg-strong);
+  font-size: 13px;
+  font-weight: 600;
+}
+
 .mail-reader-error p {
   margin: 0;
   color: var(--accent);

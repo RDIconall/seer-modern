@@ -7,9 +7,8 @@ import {
 import { getActiveAccountId } from "../store/accounts";
 
 /**
- * Resolve the signed-in user's active v2 mail account, gated by the cutover
- * allowlist. Returns null when the user is not on the v2 path, so callers fall
- * back to the legacy experience during migration.
+ * Resolve the signed-in user's active v2 mail account. Returns null when the
+ * user is not on the v2 path, so callers fall back to the legacy experience.
  */
 
 function allowlist(): Set<string> {
@@ -21,9 +20,15 @@ function allowlist(): Set<string> {
   );
 }
 
+/**
+ * Every signed-in account is on the v3 client. Naming accounts in
+ * SEER_V2_ACCOUNT_ALLOWLIST narrows it back down to those accounts, which is
+ * the only remaining way to hold someone on the legacy app.
+ */
 export function isV2Enabled(email: string | null | undefined): boolean {
   if (!email) return false;
   const list = allowlist();
+  if (list.size === 0) return true;
   return list.has(email.toLowerCase());
 }
 

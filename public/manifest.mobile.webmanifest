@@ -2,18 +2,15 @@
   "name": "Seer",
   "short_name": "Seer",
   "description": "Fewer decisions — fly through email with your copilot",
-  "start_url": "/",
-  "scope": "/",
-  "id": "/",
+  "start_url": "/m",
+  "scope": "/m",
+  "id": "/m",
   "display": "standalone",
+  "orientation": "portrait-primary",
   "background_color": "#F1F3F5",
   "theme_color": "#0B7F74",
   "lang": "en",
   "categories": ["productivity", "utilities"],
-  "shortcuts": [
-    { "name": "Inbox", "url": "/#inbox" },
-    { "name": "Triage", "url": "/#triage" }
-  ],
   "icons": [
     {
       "src": "/icons/icon-192.png",

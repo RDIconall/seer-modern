@@ -626,7 +626,20 @@ export function MailClient({
     />
   ) : (
     <section className="mail-folder-layout mail-reader-loading" aria-label="Loading mailbox">
-      <p>{mailbox.error ? `Couldn’t load mail: ${mailbox.error}` : "Reading your mail…"}</p>
+      {mailbox.error === "no active account" ? (
+        <div className="mail-empty-account">
+          <p>No mailbox is connected to Seer yet.</p>
+          <button
+            type="button"
+            className="mail-focus-ring"
+            onClick={() => setSection("settings")}
+          >
+            Connect an account
+          </button>
+        </div>
+      ) : (
+        <p>{mailbox.error ? `Couldn’t load mail: ${mailbox.error}` : "Reading your mail…"}</p>
+      )}
     </section>
   );
 
