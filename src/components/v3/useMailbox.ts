@@ -16,6 +16,15 @@ import {
 } from "./mailbox-state";
 
 const CACHE_VERSION = 3;
+
+/**
+ * A folder is a scroll, so a page of it is a page. Triage is a work queue, and
+ * a page of a work queue is a lie: the piles count what was fetched, not what
+ * is there, so clearing a batch only pulls the next slice in and the same pile
+ * appears again at the same size. The whole queue is one read instead.
+ */
+const TRIAGE_LIMIT = 200;
+const FOLDER_LIMIT = 50;
 const mailboxCache = new Map<string, MailboxView>();
 const bodyCache = new Map<string, unknown>();
 
@@ -174,8 +183,9 @@ export function useMailbox(
       }
       const activeAccountId = accountJson.active.id;
       setAccountId(activeAccountId);
+      const limit = sort === "triage" ? TRIAGE_LIMIT : FOLDER_LIMIT;
       const response = await fetchFresh(
-        `/api/v3/mailbox?folder=${encodeURIComponent(folder)}&sort=${encodeURIComponent(sort)}&limit=50`,
+        `/api/v3/mailbox?folder=${encodeURIComponent(folder)}&sort=${encodeURIComponent(sort)}&limit=${limit}`,
       );
       if (!response.ok) throw new Error(`mailbox ${response.status}`);
       const json = (await response.json()) as { view: MailboxView };
@@ -283,6 +293,17 @@ export function useMailbox(
           // One rejected row must not abandon the rest of the batch.
           firstFailure ??= cause;
         }
+      }
+
+      // A mutation is queued, not sent, and the queue is otherwise only drained
+      // on the five-minute cron: mail the user cleared could sit in Outlook for
+      // half an hour. Kick the queue once per batch and do not wait on it — the
+      // rows are already gone from the list either way, and the cron still
+      // covers a request that never lands.
+      if (results.some((result) => result.outboxId)) {
+        void fetch("/api/v3/outbox/drain", { method: "POST", keepalive: true }).catch(
+          () => {},
+        );
       }
 
       await reload();
