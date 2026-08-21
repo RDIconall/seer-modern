@@ -28,6 +28,7 @@ import type {
 type DecisionRow = {
   conversation_id: string;
   provider_conversation_id: string;
+  latest_message_id: string | null;
   subject: string;
   from_email: string | null;
   from_display: string | null;
@@ -84,6 +85,11 @@ export async function buildInboxView(
             (select m.from_email from seer.messages m
               where m.conversation_id = c.id
               order by m.sent_at desc nulls last limit 1) as from_email,
+            -- Outlook's deep link resolves a message, not a thread, so the
+            -- newest one on the conversation is what "Open in Outlook" needs.
+            (select m.provider_message_id from seer.messages m
+              where m.conversation_id = c.id
+              order by m.sent_at desc nulls last limit 1) as latest_message_id,
             -- We wrote the most recent message and nobody has come back. That
             -- is outreach awaiting a reply, not work that has stalled: nothing
             -- is required of anyone here but the person who has not answered.
@@ -192,7 +198,9 @@ export async function buildInboxView(
     category: r.function_name ?? UNFILED,
     counterparty: counterpartyLabel(r.from_email, ownDomain),
     weSpokeLast: r.we_spoke_last ?? false,
-    nativeUrl: nativeUrlFor(provider, r.provider_conversation_id),
+    nativeUrl: nativeUrlFor(provider, r.provider_conversation_id, {
+      messageId: r.latest_message_id,
+    }),
   });
 
   const yieldsByConversation = new Map<string, YieldRow[]>();
