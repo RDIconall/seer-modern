@@ -969,6 +969,10 @@ body {
   border-bottom: 1px solid var(--border);
 }
 
+.compact-mail-list .mobile-mail-reveal {
+  display: none;
+}
+
 .compact-mail-list .mobile-mail-row:last-child {
   border-bottom: 0;
 }
@@ -2585,6 +2589,10 @@ body {
     color: white;
     font-size: 12px;
     font-weight: 700;
+  }
+
+  .compact-mail-list .mobile-mail-reveal {
+    display: flex;
   }
 
   .mobile-mail-reveal svg {
