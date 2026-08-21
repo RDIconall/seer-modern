@@ -380,6 +380,17 @@ export function useMailbox(
         }
       }
 
+      // A mutation is queued, not sent, and the queue is otherwise only drained
+      // on the five-minute cron: mail the user cleared could sit in Outlook for
+      // half an hour. Kick the queue once per batch and do not wait on it — the
+      // rows are already gone from the list either way, and the cron still
+      // covers a request that never lands.
+      if (results.some((result) => result.outboxId)) {
+        void fetch("/api/v3/outbox/drain", { method: "POST", keepalive: true }).catch(
+          () => {},
+        );
+      }
+
       await reload();
       return results;
     },

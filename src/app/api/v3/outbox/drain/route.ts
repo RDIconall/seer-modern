@@ -2,6 +2,8 @@ import { NextResponse } from "next/server";
 import { listAllAccounts } from "@/lib/v2/db/list-accounts";
 import { providerFor } from "@/lib/v2/providers/provider";
 import { drainOutbox } from "@/lib/v3/outbox/drain";
+import { getActiveV2Account } from "@/lib/v2/session";
+import { originAllowed } from "@/lib/security/origin";
 import type { AccountId } from "@/lib/v2/db/types";
 
 export const maxDuration = 300;
@@ -46,4 +48,43 @@ export async function GET(request: Request) {
   }
 
   return NextResponse.json({ ok: true, report });
+}
+
+/**
+ * Drain the signed-in user's own queue, now.
+ *
+ * The cron is a backstop, not the mechanism: on the five-minute tick a batch of
+ * deletes trickles out to the provider long after the user watched the rows
+ * leave the screen, and mail they cleared is still sitting in Outlook. The
+ * client calls this once per batch so the queue empties while they are still
+ * looking at it. It is the user's own account only, so it needs their session
+ * rather than the cron secret.
+ */
+export async function POST(request: Request) {
+  if (
+    !originAllowed({
+      origin: request.headers.get("origin"),
+      requestOrigin: new URL(request.url).origin,
+      allowedOrigin: process.env.SEER_ALLOWED_ORIGIN,
+      production: process.env.NODE_ENV === "production",
+    })
+  ) {
+    return NextResponse.json({ error: "invalid request origin" }, { status: 403 });
+  }
+
+  const account = await getActiveV2Account();
+  if (!account) {
+    return NextResponse.json({ error: "no active v2 account" }, { status: 404 });
+  }
+
+  try {
+    const provider = await providerFor(account);
+    const report = await drainOutbox(account.id, provider);
+    return NextResponse.json({ ok: true, report });
+  } catch (e) {
+    return NextResponse.json(
+      { ok: false, error: e instanceof Error ? e.message.slice(0, 160) : "drain failed" },
+      { status: 503 },
+    );
+  }
 }
