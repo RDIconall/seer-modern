@@ -9,7 +9,7 @@ import {
   useState,
   useSyncExternalStore,
 } from "react";
-import { Atlas } from "@/components/v2/Atlas";
+import { Atlas, type MatterMove } from "@/components/v2/Atlas";
 import { WorthReading } from "@/components/v2/WorthReading";
 import type { ConversationRow, InboxView, MatterCard } from "@/lib/v2/view/types";
 import type { Command, CommandResult } from "@/lib/v2/commands/types";
@@ -28,6 +28,7 @@ import { SeerMark } from "./SeerMark";
 import { Settings } from "./Settings";
 import { TriageCards } from "./TriageCards";
 import { TriageList } from "./TriageList";
+import { TriageTable } from "./TriageTable";
 import { fetchSearch, SearchBox, type SearchResult } from "./SearchBox";
 import { SearchRequestGuard } from "./search-request";
 import type { ReaderComposeIntent } from "@/components/v2/Reader";
@@ -39,6 +40,7 @@ import {
   parseMailHash,
 } from "./mail-client-state";
 import { CommandPalette, type PaletteAction } from "./CommandPalette";
+import { reorderMatterSections } from "@/lib/v2/view/matter-order";
 
 type PreviewReader = {
   conversation: Conversation;
@@ -232,11 +234,22 @@ export function MailClient({
   const [searchRows, setSearchRows] = useState<SearchResult[] | null>(null);
   const [notice, setNotice] = useState<{ message: string; error: boolean; outboxId?: string } | null>(null);
   const [paletteOpen, setPaletteOpen] = useState(false);
+  const [triageView, setTriageView] = useState<"table" | "piles">("table");
   const [hashReady, setHashReady] = useState(false);
   const restoredSearchRef = useRef<string | null>(null);
   const searchGuard = useRef(new SearchRequestGuard());
   const hashAppliedRef = useRef(false);
   const isMobile = useIsMobile();
+
+  useEffect(() => {
+    const saved = window.localStorage.getItem("seer.v3.triage.view");
+    if (saved === "table" || saved === "piles") setTriageView(saved);
+  }, []);
+
+  const chooseTriageView = (next: "table" | "piles") => {
+    setTriageView(next);
+    window.localStorage.setItem("seer.v3.triage.view", next);
+  };
   const hashSnapshot = useSyncExternalStore(
     subscribeHash,
     getHashSnapshot,
@@ -404,6 +417,57 @@ export function MailClient({
           conversationId: conversation.conversationId,
         });
       }
+    },
+    [inbox],
+  );
+
+  const reorderMatters = useCallback(
+    async (section: string, matterIds: string[]) => {
+      await inbox.dispatch(
+        { type: "reorderMatters", section, matterIds },
+        (view) => ({
+          ...view,
+          sections: view.sections.map((item) =>
+            item.name === section
+              ? {
+                  ...item,
+                  matters: matterIds
+                    .map((id) =>
+                      item.matters.find((matter) => matter.matterId === id),
+                    )
+                    .filter((matter): matter is MatterCard => Boolean(matter)),
+                }
+              : item,
+          ),
+        }),
+      );
+    },
+    [inbox],
+  );
+
+  const moveMatter = useCallback(
+    async (move: MatterMove) => {
+      await inbox.dispatch(
+        {
+          type: "moveMatter",
+          matterId: move.matterId,
+          fromSection: move.fromSection,
+          toSection: move.toSection,
+          sourceMatterIds: move.sourceMatterIds,
+          targetMatterIds: move.targetMatterIds,
+        },
+        (view) => ({
+          ...view,
+          sections: reorderMatterSections(view.sections, {
+            matterId: move.matterId,
+            targetSection: move.toSection,
+            beforeMatterId:
+              move.targetMatterIds[
+                move.targetMatterIds.indexOf(move.matterId) + 1
+              ] ?? null,
+          }).sections,
+        }),
+      );
     },
     [inbox],
   );
@@ -618,11 +682,36 @@ export function MailClient({
   const folderContent = searchRows ? (
     <SearchResults rows={searchRows} onOpen={openSearchResult} />
   ) : activeMailbox && section === "triage" ? (
-    <TriageList
-      rows={activeMailbox.rows}
-      onCommands={runCommands}
-      onOpen={openRow}
-    />
+    isMobile || triageView === "piles" ? (
+      <div className="triage-pile-shell">
+        {!isMobile ? (
+          <div className="triage-view-toggle triage-pile-toggle" role="group" aria-label="Triage view">
+            <button type="button" aria-pressed="false" onClick={() => chooseTriageView("table")}>
+              Table
+            </button>
+            <button type="button" aria-pressed="true">
+              Piles
+            </button>
+            <button type="button" onClick={() => setSection("cards")}>
+              Cards
+            </button>
+          </div>
+        ) : null}
+        <TriageList
+          rows={activeMailbox.rows}
+          onCommands={runCommands}
+          onOpen={openRow}
+        />
+      </div>
+    ) : (
+      <TriageTable
+        view={activeMailbox}
+        onCommands={runCommands}
+        onOpen={openRow}
+        onPiles={() => chooseTriageView("piles")}
+        onCards={() => setSection("cards")}
+      />
+    )
   ) : activeMailbox && dealing ? (
     <TriageCards
       rows={activeMailbox.rows}
@@ -693,6 +782,8 @@ export function MailClient({
           onReplyMatter={(matter) => startMatterCompose(matter, "reply")}
           onForwardMatter={(matter) => startMatterCompose(matter, "forward")}
           onOpenConversation={openAtlasConversation}
+          onReorderMatters={reorderMatters}
+          onMoveMatter={moveMatter}
         />
         <WorthReading view={inbox.view} />
       </>

@@ -6,6 +6,8 @@ import { counterpartyOf } from "../intelligence/matter-key";
 import { UNFILED } from "../intelligence/functions";
 import { personName } from "./person-name";
 import { signDecisionToken } from "./token";
+import { loadMatterOrder } from "@/lib/store/matter-order";
+import { applyMatterOrder } from "./matter-order";
 import type {
   AtlasSection,
   ConversationRow,
@@ -164,13 +166,14 @@ export async function buildInboxView(
     [accountId],
   );
 
-  const [account, rows, yieldRows, matters, registry, coverage] = await Promise.all([
+  const [account, rows, yieldRows, matters, registry, coverage, matterOrder] = await Promise.all([
     accountQuery,
     rowsQuery,
     yieldRowsQuery,
     mattersQuery,
     registryQuery,
     buildCoverage(accountId),
+    loadMatterOrder(String(accountId)),
   ]);
 
   const ownDomain = (account.rows[0]?.email.split("@")[1] ?? "").toLowerCase();
@@ -259,7 +262,10 @@ export async function buildInboxView(
     .filter((matter): matter is MatterCard => matter !== null);
 
   const functions = registry.rows.map((r) => r.name);
-  const sections = groupIntoSections(atlas, functions);
+  const sections = applyMatterOrder(
+    groupIntoSections(atlas, functions),
+    matterOrder,
+  );
 
   const worthReading: YieldRow[] = yieldRows.rows
     .filter((y) => y.kind === "worth_reading")

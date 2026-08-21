@@ -2,12 +2,21 @@
 
 import * as React from "react";
 import { useEffect, useMemo, useRef, useState } from "react";
-import { X } from "lucide-react";
+import { GripVertical, X } from "lucide-react";
 import type {
   ConversationRow,
   InboxView,
   MatterCard,
 } from "@/lib/v2/view/types";
+import { reorderMatterSections } from "@/lib/v2/view/matter-order";
+
+export type MatterMove = {
+  matterId: string;
+  fromSection: string;
+  toSection: string;
+  sourceMatterIds: string[];
+  targetMatterIds: string[];
+};
 
 /**
  * ATLAS — the whiteboard.
@@ -102,12 +111,19 @@ export function Atlas({
   onReplyMatter,
   onForwardMatter,
   onOpenConversation,
+  onReorderMatters,
+  onMoveMatter,
 }: {
   view: InboxView;
   onArchiveMatter?: (matter: MatterCard) => void | Promise<unknown>;
   onReplyMatter?: (matter: MatterCard) => void;
   onForwardMatter?: (matter: MatterCard) => void;
   onOpenConversation?: (conversation: ConversationRow) => void;
+  onReorderMatters?: (
+    section: string,
+    matterIds: string[],
+  ) => void | Promise<unknown>;
+  onMoveMatter?: (move: MatterMove) => void | Promise<unknown>;
 }) {
   const [selectedMatterId, setSelectedMatterId] = useState<string | null>(null);
   // Only "mine" narrows the board, and only one matter stands open: the board
@@ -118,7 +134,17 @@ export function Atlas({
   const [archived, setArchived] = useState<ReadonlySet<string>>(new Set());
   const [undoable, setUndoable] = useState<ReadonlySet<string>>(new Set());
   const undoTimers = useRef(new Map<string, ReturnType<typeof setTimeout>>());
-  const sections = view.sections;
+  const [boardSections, setBoardSections] = useState(view.sections);
+  const [dragged, setDragged] = useState<{
+    matterId: string;
+    fromSection: string;
+  } | null>(null);
+
+  useEffect(() => {
+    setBoardSections(view.sections);
+  }, [view.sections]);
+
+  const sections = boardSections;
 
   useEffect(() => {
     const timers = undoTimers.current;
@@ -201,6 +227,39 @@ export function Atlas({
     });
   };
 
+  const dropMatter = (
+    targetSection: string,
+    beforeMatterId?: string | null,
+  ) => {
+    if (!dragged) return;
+    if (beforeMatterId === dragged.matterId) {
+      setDragged(null);
+      return;
+    }
+    const result = reorderMatterSections(boardSections, {
+      matterId: dragged.matterId,
+      targetSection,
+      beforeMatterId,
+    });
+    setDragged(null);
+    if (result.sections === boardSections) return;
+    setBoardSections(result.sections);
+    if (result.sourceSection === result.targetSection) {
+      void onReorderMatters?.(
+        result.targetSection,
+        result.targetMatterIds,
+      );
+    } else {
+      void onMoveMatter?.({
+        matterId: dragged.matterId,
+        fromSection: result.sourceSection,
+        toSection: result.targetSection,
+        sourceMatterIds: result.sourceMatterIds,
+        targetMatterIds: result.targetMatterIds,
+      });
+    }
+  };
+
   if (sections.length === 0) {
     return (
       <section className="wb-empty" aria-label="Atlas — the whiteboard">
@@ -246,14 +305,23 @@ export function Atlas({
       {shown === 0 ? (
         <p className="wb-empty">Nothing is yours right now.</p>
       ) : (
-        shaped.map((section) => {
-          if (section.matters.length === 0 && section.parked.length === 0) return null;
-          const sectionStale = section.matters.filter((matter) =>
-            isStalled(matter, now),
-          ).length;
-          const rollOpen = openRolls.has(section.name);
-          return (
-            <div key={section.name}>
+        <div className="wb-columns">
+          {shaped.map((section) => {
+            if (section.matters.length === 0 && section.parked.length === 0) return null;
+            const sectionStale = section.matters.filter((matter) =>
+              isStalled(matter, now),
+            ).length;
+            const rollOpen = openRolls.has(section.name);
+            return (
+              <div
+                key={section.name}
+                className="wb-column"
+                onDragOver={(event) => event.preventDefault()}
+                onDrop={(event) => {
+                  event.preventDefault();
+                  dropMatter(section.name);
+                }}
+              >
               <div className="wb-shead">
                 <span className="wb-sname atlas-heading">{sectionLabel(section.name)}</span>
                 <span className="wb-scount tabular">
@@ -285,6 +353,14 @@ export function Atlas({
                     onReply={onReplyMatter ? () => onReplyMatter(matter) : undefined}
                     onForward={onForwardMatter ? () => onForwardMatter(matter) : undefined}
                     onOpenMatter={() => setSelectedMatterId(matter.matterId)}
+                    onDragStart={() =>
+                      setDragged({
+                        matterId: matter.matterId,
+                        fromSection: section.name,
+                      })
+                    }
+                    onDragEnd={() => setDragged(null)}
+                    onDropBefore={() => dropMatter(section.name, matter.matterId)}
                   />
                 ))}
                 {section.parked.length > 0 && (
@@ -324,9 +400,10 @@ export function Atlas({
                   </div>
                 )}
               </div>
-            </div>
-          );
-        })
+              </div>
+            );
+          })}
+        </div>
       )}
 
       <p className="wb-foot tabular">
@@ -367,6 +444,9 @@ function BoardMatter({
   onReply,
   onForward,
   onOpenMatter,
+  onDragStart,
+  onDragEnd,
+  onDropBefore,
 }: {
   matter: MatterCard;
   now: number;
@@ -378,6 +458,9 @@ function BoardMatter({
   onReply?: () => void;
   onForward?: () => void;
   onOpenMatter: () => void;
+  onDragStart: () => void;
+  onDragEnd: () => void;
+  onDropBefore: () => void;
 }) {
   const age = daysSinceMoved(matter, now);
   const stalled = isStalled(matter, now);
@@ -389,7 +472,30 @@ function BoardMatter({
       className={`wb-m${open ? " wb-m-open" : ""}${archived ? " wb-m-gone" : ""}${
         yours ? " wb-m-yours" : ""
       }`}
+      onDragOver={(event) => {
+        event.preventDefault();
+        event.stopPropagation();
+      }}
+      onDrop={(event) => {
+        event.preventDefault();
+        event.stopPropagation();
+        onDropBefore();
+      }}
     >
+      <button
+        type="button"
+        className="wb-drag"
+        draggable={!archived}
+        aria-label={`Drag ${matter.shortTitle}`}
+        onDragStart={(event) => {
+          event.dataTransfer.effectAllowed = "move";
+          event.dataTransfer.setData("text/plain", matter.matterId);
+          onDragStart();
+        }}
+        onDragEnd={onDragEnd}
+      >
+        <GripVertical aria-hidden />
+      </button>
       {/* One line, three columns: what it is, who has it, how long it has sat.
           A chevron and a second line of prose per row is what turned a board of
           a hundred matters into eleven screens of scrolling. */}

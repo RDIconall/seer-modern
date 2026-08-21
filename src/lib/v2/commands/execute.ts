@@ -17,6 +17,11 @@ import {
   saveReceipt,
 } from "./repository";
 import type { Command, CommandResult } from "./types";
+import { db } from "../db/pool";
+import {
+  saveMatterOrder,
+  saveMatterOrders,
+} from "@/lib/store/matter-order";
 
 /**
  * Execute one command. Ownership and idempotency are checked first. A delete is
@@ -113,6 +118,28 @@ async function rejectCorpusId(
   return null;
 }
 
+async function validMatterOrder(
+  accountId: AccountId,
+  section: string,
+  requested: string[],
+): Promise<string[]> {
+  const candidates = [...new Set(requested)].filter((id) =>
+    /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(
+      id,
+    ),
+  );
+  if (candidates.length === 0) return [];
+  const rows = await db().query<{ id: string }>(
+    `select id from seer.matters
+      where account_id = $1
+        and coalesce(function_name, 'unfiled') = $2
+        and id = any($3::uuid[])`,
+    [accountId, section, candidates],
+  );
+  const valid = new Set(rows.rows.map((row) => row.id));
+  return candidates.filter((id) => valid.has(id));
+}
+
 async function run(
   ctx: CommandContext,
   command: Command,
@@ -173,6 +200,64 @@ async function run(
           receipt.failed.length > 0
             ? `Could not move ${receipt.failed.length} message(s)`
             : undefined,
+      };
+    }
+
+    case "reorderMatters": {
+      const matterIds = await validMatterOrder(
+        ctx.accountId,
+        command.section,
+        command.matterIds,
+      );
+      await saveMatterOrder(String(ctx.accountId), command.section, matterIds);
+      return { ok: true, replayed: false, processed: matterIds };
+    }
+
+    case "moveMatter": {
+      if (command.fromSection === command.toSection) {
+        const matterIds = await validMatterOrder(
+          ctx.accountId,
+          command.toSection,
+          command.targetMatterIds,
+        );
+        await saveMatterOrder(
+          String(ctx.accountId),
+          command.toSection,
+          matterIds,
+        );
+        return {
+          ok: true,
+          replayed: false,
+          processed: [command.matterId],
+        };
+      }
+      const moved = await db().query(
+        `update seer.matters
+            set function_name = $3, function_source = 'user', updated_at = now()
+          where id = $1 and account_id = $2`,
+        [command.matterId, ctx.accountId, command.toSection],
+      );
+      if ((moved.rowCount ?? 0) === 0) return fail("matter not found");
+      const [sourceMatterIds, targetMatterIds] = await Promise.all([
+        validMatterOrder(
+          ctx.accountId,
+          command.fromSection,
+          command.sourceMatterIds,
+        ),
+        validMatterOrder(
+          ctx.accountId,
+          command.toSection,
+          command.targetMatterIds,
+        ),
+      ]);
+      await saveMatterOrders(String(ctx.accountId), {
+        [command.fromSection]: sourceMatterIds,
+        [command.toSection]: targetMatterIds,
+      });
+      return {
+        ok: true,
+        replayed: false,
+        processed: [command.matterId],
       };
     }
 

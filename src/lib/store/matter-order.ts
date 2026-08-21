@@ -29,3 +29,16 @@ export async function saveMatterOrder(
   await kvSet(keyFor(accountEmail), order);
   return order;
 }
+
+/** Save a cross-column move as one document write so neither column wins a race. */
+export async function saveMatterOrders(
+  accountEmail: string,
+  updates: MatterOrder,
+): Promise<MatterOrder> {
+  const order = await loadMatterOrder(accountEmail);
+  for (const [section, orderedIds] of Object.entries(updates)) {
+    order[section] = [...new Set(orderedIds)];
+  }
+  await kvSet(keyFor(accountEmail), order);
+  return order;
+}

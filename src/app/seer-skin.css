@@ -144,9 +144,26 @@ body {
 
 .wb {
   --wb-hair: #e6e8e4;
-  max-width: 560px;
+  width: 100%;
+  max-width: 1680px;
   margin-inline: auto;
   padding-bottom: 24px;
+}
+
+.wb-columns {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr);
+  gap: 14px;
+  padding: 14px;
+  align-items: start;
+}
+
+.wb-column {
+  min-width: 0;
+  overflow: hidden;
+  border: 1px solid var(--border);
+  border-radius: 9px;
+  background: var(--card);
 }
 
 /* Two rows of chrome, both sticky: the account of the board and the filter
@@ -248,6 +265,7 @@ body {
  * turned a hundred matters into eleven screens of scrolling.
  */
 .wb-m {
+  position: relative;
   border-bottom: 1px solid var(--wb-hair);
 }
 .wb-m-yours .wb-mhead {
@@ -262,10 +280,73 @@ body {
   align-items: center;
   gap: 8px;
   height: 36px;
-  padding: 0 14px;
+  padding: 0 14px 0 34px;
   text-align: left;
   font: inherit;
   cursor: pointer;
+}
+
+.wb-drag {
+  position: absolute;
+  top: 7px;
+  left: 7px;
+  z-index: 2;
+  display: grid;
+  width: 22px;
+  height: 22px;
+  place-items: center;
+  border: 0;
+  border-radius: 5px;
+  padding: 0;
+  background: transparent;
+  color: var(--nav-muted);
+  cursor: grab;
+}
+
+.wb-drag:active {
+  cursor: grabbing;
+}
+
+.wb-drag:hover {
+  background: var(--row-hover);
+  color: var(--fg-strong);
+}
+
+.wb-drag svg {
+  width: 14px;
+  height: 14px;
+}
+
+@media (min-width: 900px) {
+  .wb-columns {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+}
+
+@media (min-width: 1400px) {
+  .wb-columns {
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+  }
+}
+
+@media (max-width: 700px) {
+  .wb-columns {
+    display: block;
+    padding: 0;
+  }
+
+  .wb-column {
+    border: 0;
+    border-radius: 0;
+  }
+
+  .wb-drag {
+    display: none;
+  }
+
+  .wb-mhead {
+    padding-left: 14px;
+  }
 }
 .wb-mhead:active {
   background: var(--row-hover);

@@ -2913,6 +2913,182 @@ body {
   margin-top: 20px;
 }
 
+/* Desktop triage is an operating table; the pile/swipe surface remains the
+   touch-first view. */
+.triage-table-shell {
+  min-width: 0;
+  padding: 18px 20px 28px;
+}
+
+.triage-table-head {
+  display: flex;
+  align-items: flex-end;
+  justify-content: space-between;
+  gap: 16px;
+  margin-bottom: 14px;
+}
+
+.triage-pile-shell {
+  min-width: 0;
+}
+
+.triage-pile-toggle {
+  justify-content: flex-end;
+  max-width: 560px;
+  margin: 14px auto 0;
+  padding-inline: 18px;
+}
+
+.triage-table-head h1 {
+  margin: 0;
+  font-size: 22px;
+}
+
+.triage-table-head p {
+  margin: 3px 0 0;
+  color: var(--muted);
+  font-size: 12px;
+}
+
+.triage-view-toggle,
+.triage-table-bulk {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.triage-view-toggle button,
+.triage-table-bulk button,
+.triage-table-row-actions button {
+  border: 1px solid var(--border);
+  border-radius: 7px;
+  padding: 5px 9px;
+  background: var(--card);
+  color: var(--fg);
+  font: inherit;
+  font-size: 12px;
+  font-weight: 650;
+}
+
+.triage-view-toggle button[aria-pressed="true"] {
+  border-color: var(--accent);
+  color: var(--accent);
+}
+
+.triage-table-bulk {
+  min-height: 38px;
+  border: 1px solid var(--border);
+  border-bottom: 0;
+  padding: 6px 10px;
+  background: var(--row-active);
+  font-size: 12px;
+}
+
+.triage-table-bulk strong {
+  margin-right: auto;
+}
+
+.triage-table-scroll {
+  overflow: auto;
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  background: var(--card);
+}
+
+.triage-table {
+  width: 100%;
+  min-width: 860px;
+  border-collapse: collapse;
+  table-layout: fixed;
+  font-size: 12px;
+}
+
+.triage-table-check { width: 38px; }
+.triage-table-from { width: 17%; }
+.triage-table-subject { width: 25%; }
+.triage-table-read { width: auto; }
+.triage-table-when { width: 76px; }
+.triage-table-actions { width: 210px; }
+
+.triage-table th,
+.triage-table td {
+  border-bottom: 1px solid var(--border);
+  padding: 9px 10px;
+  text-align: left;
+  vertical-align: top;
+}
+
+.triage-table thead th {
+  position: sticky;
+  top: 0;
+  z-index: 2;
+  background: var(--bg);
+  color: var(--muted);
+  font-size: 11px;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+}
+
+.triage-table tbody tr:not(.triage-table-group) {
+  cursor: pointer;
+}
+
+.triage-table tbody tr:not(.triage-table-group):hover {
+  background: var(--row-hover);
+}
+
+.triage-table-group th {
+  padding-block: 6px;
+  background: var(--row-active);
+  color: var(--muted);
+  font-size: 11px;
+  letter-spacing: 0.05em;
+  text-transform: uppercase;
+}
+
+.triage-table-group span {
+  margin-left: 5px;
+  color: var(--nav-muted);
+}
+
+.triage-table td {
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.triage-table td strong {
+  display: block;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.triage-table-unread td {
+  background: color-mix(in srgb, var(--accent) 4%, transparent);
+}
+
+.triage-table-files {
+  display: block;
+  margin-top: 3px;
+  color: var(--muted);
+  font-size: 11px;
+}
+
+.triage-table-row-actions {
+  white-space: nowrap;
+}
+
+.triage-table-row-actions button {
+  margin-right: 4px;
+  padding: 4px 7px;
+}
+
+@media (max-width: 700px) {
+  .triage-table-shell {
+    display: none;
+  }
+}
+
 .tri-r {
   position: relative;
   overflow: hidden;

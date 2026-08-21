@@ -35,6 +35,15 @@ export type Command =
       providerConversationId: string;
       destinationId: string;
     }
+  | { type: "reorderMatters"; section: string; matterIds: string[] }
+  | {
+      type: "moveMatter";
+      matterId: string;
+      fromSection: string;
+      toSection: string;
+      sourceMatterIds: string[];
+      targetMatterIds: string[];
+    }
   | { type: "correctConversation"; conversationId: string; home: Home; note?: string }
   | { type: "teachSender"; email: string; instruction: "vip" | "always_delete" | "never_delete" }
   | {

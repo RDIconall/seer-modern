@@ -91,6 +91,10 @@ assert.match(
 // A matter is one line: title, owner, age. No prose rides on a board row.
 assert.match(atlasSource, /wb-age/);
 assert.doesNotMatch(atlasSource, /<Chevron/, "a chevron per row is what made the board scroll");
+assert.match(atlasSource, /draggable=/, "desktop matters can be dragged");
+assert.match(atlasSource, /onDrop/, "columns accept reordered matters");
+assert.match(atlasSource, /onReorderMatters/);
+assert.match(atlasSource, /onMoveMatter/);
 
 /**
  * The skin has to be worn, not just shipped. seer-skin.css defined the display
@@ -100,6 +104,12 @@ assert.doesNotMatch(atlasSource, /<Chevron/, "a chevron per row is what made the
  * indistinguishable from a rule that was never written.
  */
 const skin = await fs.readFile(path.join(root, "src/app/seer-skin.css"), "utf8");
+assert.match(skin, /\.wb-columns/);
+assert.match(
+  skin,
+  /@media \(min-width: 900px\)[\s\S]*grid-template-columns/,
+  "desktop Atlas uses multiple columns",
+);
 for (const cls of ["atlas-heading", "tabular", "seer-display"]) {
   assert.match(
     skin,
