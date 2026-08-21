@@ -113,6 +113,7 @@ export function Atlas({
   onOpenConversation,
   onReorderMatters,
   onMoveMatter,
+  currentConversationId,
 }: {
   view: InboxView;
   onArchiveMatter?: (matter: MatterCard) => void | Promise<unknown>;
@@ -124,6 +125,7 @@ export function Atlas({
     matterIds: string[],
   ) => void | Promise<unknown>;
   onMoveMatter?: (move: MatterMove) => void | Promise<unknown>;
+  currentConversationId?: string | null;
 }) {
   const [selectedMatterId, setSelectedMatterId] = useState<string | null>(null);
   // Only "mine" narrows the board, and only one matter stands open: the board
@@ -343,6 +345,10 @@ export function Atlas({
                     now={now}
                     open={openMatterId === matter.matterId}
                     archived={archived.has(matter.matterId)}
+                    current={matter.conversations.some(
+                      (conversation) =>
+                        conversation.conversationId === currentConversationId,
+                    )}
                     onToggle={() =>
                       setOpenMatterId((current) =>
                         current === matter.matterId ? null : matter.matterId,
@@ -418,7 +424,10 @@ export function Atlas({
             <MatterDetail
               matter={matter}
               onClose={() => setSelectedMatterId(null)}
-              onOpenConversation={onOpenConversation}
+              onOpenConversation={(conversation) => {
+                setSelectedMatterId(null);
+                onOpenConversation?.(conversation);
+              }}
             />
           ) : null;
         })()}
@@ -438,6 +447,7 @@ function BoardMatter({
   now,
   open,
   archived,
+  current,
   onToggle,
   onArchive,
   onUndo,
@@ -452,6 +462,7 @@ function BoardMatter({
   now: number;
   open: boolean;
   archived: boolean;
+  current: boolean;
   onToggle: () => void;
   onArchive: () => void;
   onUndo: () => void;
@@ -471,7 +482,7 @@ function BoardMatter({
     <div
       className={`wb-m${open ? " wb-m-open" : ""}${archived ? " wb-m-gone" : ""}${
         yours ? " wb-m-yours" : ""
-      }`}
+      }${current ? " wb-m-current" : ""}`}
       onDragOver={(event) => {
         event.preventDefault();
         event.stopPropagation();

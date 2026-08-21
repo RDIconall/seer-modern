@@ -2162,7 +2162,7 @@ body {
 @media (min-width: 701px) {
   .mail-client[data-reader-open="true"] .mail-workspace {
     display: grid;
-    grid-template-columns: minmax(320px, 0.9fr) minmax(420px, 1.1fr);
+    grid-template-columns: minmax(300px, 36%) minmax(480px, 1fr);
     overflow: hidden;
   }
 
@@ -2178,6 +2178,10 @@ body {
 
   .mail-client[data-reader-open="true"] .mail-reader-pane .mail-reader {
     overflow: auto;
+  }
+
+  .mail-client[data-reader-open="true"] .triage-table-compact {
+    display: block;
   }
 }
 
@@ -2918,6 +2922,112 @@ body {
 .triage-table-shell {
   min-width: 0;
   padding: 18px 20px 28px;
+}
+
+.triage-table-compact {
+  display: none;
+  min-width: 0;
+  padding-bottom: 30px;
+}
+
+.triage-table-compact > header {
+  position: sticky;
+  top: 0;
+  z-index: 5;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  border-bottom: 1px solid var(--border);
+  padding: 14px 14px 10px;
+  background: var(--bg);
+}
+
+.triage-table-compact > header h1 {
+  margin: 0;
+  font-size: 18px;
+}
+
+.triage-table-compact > header span {
+  color: var(--muted);
+  font-size: 11px;
+}
+
+.triage-compact-group h2 {
+  position: sticky;
+  top: 46px;
+  z-index: 4;
+  margin: 0;
+  border-bottom: 1px solid var(--border);
+  padding: 6px 12px;
+  background: var(--row-active);
+  color: var(--muted);
+  font-size: 10px;
+  letter-spacing: 0.05em;
+  text-transform: uppercase;
+}
+
+.triage-compact-group h2 span {
+  margin-left: 4px;
+  color: var(--nav-muted);
+}
+
+.triage-compact-row {
+  display: grid;
+  width: 100%;
+  gap: 2px;
+  border: 0;
+  border-bottom: 1px solid var(--border);
+  padding: 9px 12px 10px;
+  background: var(--card);
+  color: var(--fg);
+  text-align: left;
+}
+
+.triage-compact-row:hover,
+.triage-compact-row[data-current="true"] {
+  background: var(--row-active);
+}
+
+.triage-compact-row[data-current="true"] {
+  box-shadow: inset 3px 0 0 var(--accent);
+}
+
+.triage-compact-top {
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+  min-width: 0;
+}
+
+.triage-compact-top strong {
+  overflow: hidden;
+  flex: 1;
+  font-size: 12px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.triage-compact-top time {
+  flex: none;
+  color: var(--muted);
+  font-size: 10px;
+}
+
+.triage-compact-subject,
+.triage-compact-read {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.triage-compact-subject {
+  font-size: 12px;
+  font-weight: 650;
+}
+
+.triage-compact-read {
+  color: var(--muted);
+  font-size: 11px;
 }
 
 .triage-table-head {

@@ -291,6 +291,10 @@ body {
 .wb-m-yours .wb-mhead {
   box-shadow: inset 2px 0 0 var(--brand);
 }
+.wb-m-current .wb-mhead {
+  background: var(--row-active);
+  box-shadow: inset 3px 0 0 var(--brand);
+}
 .wb-mhead {
   width: 100%;
   appearance: none;
@@ -346,6 +350,53 @@ body {
 @media (min-width: 1400px) {
   .wb-columns {
     grid-template-columns: repeat(3, minmax(0, 1fr));
+  }
+}
+
+/* Outlook-style master/detail: when a conversation is open, Atlas becomes the
+   compact master pane on the left and the reader owns the remaining width. */
+@media (min-width: 701px) {
+  .mail-client[data-reader-open="true"] .mail-atlas-workspace .wb-top {
+    position: sticky;
+    top: 0;
+    padding: 13px 12px 9px;
+  }
+
+  .mail-client[data-reader-open="true"] .mail-atlas-workspace .wb-title {
+    font-size: 18px;
+  }
+
+  .mail-client[data-reader-open="true"] .mail-atlas-workspace .wb-ledger {
+    font-size: 10px;
+  }
+
+  .mail-client[data-reader-open="true"] .mail-atlas-workspace .wb-seg {
+    top: 40px;
+    padding-inline: 12px;
+  }
+
+  .mail-client[data-reader-open="true"] .mail-atlas-workspace .wb-columns {
+    display: block;
+    padding: 0;
+  }
+
+  .mail-client[data-reader-open="true"] .mail-atlas-workspace .wb-column {
+    border: 0;
+    border-radius: 0;
+  }
+
+  .mail-client[data-reader-open="true"] .mail-atlas-workspace .wb-columns .wb-shead {
+    position: sticky;
+    top: 67px;
+    border-radius: 0;
+  }
+
+  .mail-client[data-reader-open="true"] .mail-atlas-workspace .wb-column > .wb-sec:last-child {
+    border-radius: 0;
+  }
+
+  .mail-client[data-reader-open="true"] .mail-atlas-workspace .wb-foot {
+    display: none;
   }
 }
 

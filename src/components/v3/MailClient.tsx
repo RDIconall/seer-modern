@@ -682,7 +682,7 @@ export function MailClient({
   const folderContent = searchRows ? (
     <SearchResults rows={searchRows} onOpen={openSearchResult} />
   ) : activeMailbox && section === "triage" ? (
-    isMobile || triageView === "piles" ? (
+    isMobile || (triageView === "piles" && !conversationId) ? (
       <div className="triage-pile-shell">
         {!isMobile ? (
           <div className="triage-view-toggle triage-pile-toggle" role="group" aria-label="Triage view">
@@ -710,6 +710,8 @@ export function MailClient({
         onOpen={openRow}
         onPiles={() => chooseTriageView("piles")}
         onCards={() => setSection("cards")}
+        compact={Boolean(conversationId)}
+        currentConversationId={conversationId}
       />
     )
   ) : activeMailbox && dealing ? (
@@ -749,15 +751,39 @@ export function MailClient({
     </section>
   );
 
-  const content = isFolder(section) || triaging ? (
-    <div className="mail-workspace">
+  const atlasContent =
+    inbox.view ? (
+      <>
+        <Atlas
+          view={inbox.view}
+          onArchiveMatter={archiveMatter}
+          onReplyMatter={(matter) => startMatterCompose(matter, "reply")}
+          onForwardMatter={(matter) => startMatterCompose(matter, "forward")}
+          onOpenConversation={openAtlasConversation}
+          onReorderMatters={reorderMatters}
+          onMoveMatter={moveMatter}
+          currentConversationId={conversationId}
+        />
+        {!conversationId ? <WorthReading view={inbox.view} /> : null}
+      </>
+    ) : (
+      <p className="mail-empty">{inbox.error ?? "Reading Atlas…"}</p>
+    );
+
+  const masterDetail = isFolder(section) || triaging || section === "atlas";
+  const content = masterDetail ? (
+    <div
+      className={`mail-workspace${
+        section === "atlas" ? " mail-atlas-workspace" : ""
+      }`}
+    >
       <div
         className="mail-folder-pane"
-        aria-label={`${section} mail`}
+        aria-label={section === "atlas" ? "Atlas matters" : `${section} mail`}
         aria-hidden={mobileModalOpen ? true : undefined}
         inert={mobileModalOpen ? true : undefined}
       >
-        {folderContent}
+        {section === "atlas" ? atlasContent : folderContent}
       </div>
       {readerContent && (
         <div
@@ -769,27 +795,8 @@ export function MailClient({
         </div>
       )}
     </div>
-  ) : conversationId ? (
-    readerContent
   ) : searchRows ? (
     <SearchResults rows={searchRows} onOpen={openSearchResult} />
-  ) : section === "atlas" ? (
-    inbox.view ? (
-      <>
-        <Atlas
-          view={inbox.view}
-          onArchiveMatter={archiveMatter}
-          onReplyMatter={(matter) => startMatterCompose(matter, "reply")}
-          onForwardMatter={(matter) => startMatterCompose(matter, "forward")}
-          onOpenConversation={openAtlasConversation}
-          onReorderMatters={reorderMatters}
-          onMoveMatter={moveMatter}
-        />
-        <WorthReading view={inbox.view} />
-      </>
-    ) : (
-      <p className="mail-empty">{inbox.error ?? "Reading Atlas…"}</p>
-    )
   ) : (
     <Settings mobile={mobile} />
   );

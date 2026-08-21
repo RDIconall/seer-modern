@@ -18,12 +18,16 @@ export function TriageTable({
   onOpen,
   onPiles,
   onCards,
+  compact = false,
+  currentConversationId,
 }: {
   view: MailboxView;
   onCommands: (commands: Command[]) => Promise<unknown>;
   onOpen: (row: MailboxRow) => void;
   onPiles: () => void;
   onCards?: () => void;
+  compact?: boolean;
+  currentConversationId?: string | null;
 }) {
   const [selected, setSelected] = useState<ReadonlySet<string>>(new Set());
   const groups = useMemo(() => {
@@ -54,6 +58,51 @@ export function TriageTable({
     await onCommands(commands);
     setSelected(new Set());
   };
+
+  if (compact) {
+    return (
+      <section
+        className="triage-table-compact"
+        aria-label="Triage conversations"
+      >
+        <header>
+          <h1>Triage</h1>
+          <span className="tabular">{view.total}</span>
+        </header>
+        {groups.map(([category, rows]) => (
+          <div key={category} className="triage-compact-group">
+            <h2>
+              {category} <span>{rows.length}</span>
+            </h2>
+            {rows.map((row) => (
+              <button
+                key={row.conversationId}
+                type="button"
+                className="triage-compact-row"
+                data-current={
+                  row.conversationId === currentConversationId
+                    ? "true"
+                    : "false"
+                }
+                onClick={() => onOpen(row)}
+              >
+                <span className="triage-compact-top">
+                  <strong>{row.senderDisplayName || "Unknown sender"}</strong>
+                  <time className="tabular">{when(row.timestamp)}</time>
+                </span>
+                <span className="triage-compact-subject">
+                  {row.subject || "(no subject)"}
+                </span>
+                <span className="triage-compact-read">
+                  {row.decisionSummary || row.snippet}
+                </span>
+              </button>
+            ))}
+          </div>
+        ))}
+      </section>
+    );
+  }
 
   return (
     <section className="triage-table-shell" aria-labelledby="triage-table-title">
