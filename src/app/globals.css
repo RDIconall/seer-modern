@@ -1465,6 +1465,59 @@ body {
   gap: 10px;
 }
 
+/* The client-fault boundary. It has to stand on its own: whatever failed may
+   be the very screen that would have framed it. */
+.seer-fault {
+  display: grid;
+  min-height: 100dvh;
+  place-content: center;
+  justify-items: center;
+  gap: 10px;
+  padding: 24px;
+  text-align: center;
+}
+
+.seer-fault h1 {
+  margin: 0;
+  color: var(--fg-strong);
+  font-size: 20px;
+}
+
+.seer-fault-message {
+  margin: 0;
+  max-width: 34rem;
+  color: var(--muted);
+}
+
+.seer-fault-digest {
+  margin: 0;
+  color: var(--nav-muted);
+  font-size: 12px;
+}
+
+.seer-fault-actions {
+  display: flex;
+  gap: 8px;
+  margin-top: 6px;
+}
+
+.seer-fault-actions button:not(.mail-action) {
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  padding: 7px 14px;
+  background: var(--card);
+  color: var(--fg);
+  font: inherit;
+  font-size: 13px;
+}
+
+.seer-fault-note {
+  margin: 4px 0 0;
+  max-width: 30rem;
+  color: var(--nav-muted);
+  font-size: 12px;
+}
+
 .mail-empty-account {
   display: grid;
   justify-items: center;

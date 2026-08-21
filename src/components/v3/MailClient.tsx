@@ -241,14 +241,24 @@ export function MailClient({
   const hashAppliedRef = useRef(false);
   const isMobile = useIsMobile();
 
+  // A browser with site data blocked throws on the property access itself, so
+  // remembering a view preference must never be able to take the client down.
   useEffect(() => {
-    const saved = window.localStorage.getItem("seer.v3.triage.view");
-    if (saved === "table" || saved === "piles") setTriageView(saved);
+    try {
+      const saved = window.localStorage.getItem("seer.v3.triage.view");
+      if (saved === "table" || saved === "piles") setTriageView(saved);
+    } catch {
+      /* no stored preference is available */
+    }
   }, []);
 
   const chooseTriageView = (next: "table" | "piles") => {
     setTriageView(next);
-    window.localStorage.setItem("seer.v3.triage.view", next);
+    try {
+      window.localStorage.setItem("seer.v3.triage.view", next);
+    } catch {
+      /* the choice still holds for this session */
+    }
   };
   const hashSnapshot = useSyncExternalStore(
     subscribeHash,
