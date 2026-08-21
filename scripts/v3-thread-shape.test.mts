@@ -225,6 +225,27 @@ assert.equal(branch.turns[1].html, null);
   assert.match(internal.turns[0].html!, /<li>weeks 12<\/li>/);
 }
 
+// A mail whose whole body sits inside layout blockquotes still reads. Zoho
+// nests one per send, and treating the tag as a quote left the reader with a
+// greeting and a count of history that was never there.
+{
+  const zoho = msg({
+    bodyText: null,
+    bodyHtml:
+      `<div>Hi Conall,<br></div>` +
+      `<blockquote id="blockquote_zmail" style="margin:0px">` +
+      `<blockquote id="x_890740167blockquote_zmail" style="margin:0px">` +
+      `<div>We built a platform where you can showcase your services.</div>` +
+      `<div>Regards,<br>Joseph</div>` +
+      `</blockquote></blockquote>`,
+    snippet: "Hi Conall,",
+  });
+  const body = freshBody(zoho);
+  assert.match(body.html!, /showcase your services/, "the mail is not cut to its greeting");
+  assert.match(body.text, /showcase your services/, "the peek text agrees with the body");
+  assert.equal(body.quotedCount, 0, "layout indentation is not quoted history");
+}
+
 // --- files, once -------------------------------------------------------------
 
 const withFiles = conv([

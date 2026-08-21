@@ -115,6 +115,61 @@ import {
   assert.equal(readable.quotedCount, 0);
 }
 
+// A blockquote is only history when a client SAID it was quoting. Zoho wraps
+// every send in `blockquote_zmail`, once per send: cutting on the tag alone
+// left "Hi Conall," on the screen and called the rest seven hidden messages.
+{
+  const zoho =
+    `<div class="zmail_extra"><div>Hi Conall,<br></div>` +
+    `<blockquote id="blockquote_zmail" style="margin:0px"><div>` +
+    `<blockquote id="x_890740167blockquote_zmail" style="margin:0px"><div>` +
+    `<blockquote id="x_1780677492blockquote_zmail" style="margin:0px"><div>` +
+    `How are you? We're excited to introduce a platform where clinical ` +
+    `research service providers can showcase their services.` +
+    `</div></blockquote></div></blockquote></div></blockquote></div>`;
+  const stripped = stripQuotedHtml(zoho);
+  assert.match(stripped.html, /Hi Conall/);
+  assert.match(stripped.html, /excited to introduce a platform/, "the mail itself survives");
+  assert.equal(stripped.quotedCount, 0, "layout indentation is not quoted history");
+
+  const readable = readableHtml(zoho);
+  assert.match(readable.html, /excited to introduce a platform/);
+  assert.equal(readable.quotedCount, 0);
+}
+
+// An announced quote still folds, blockquote or not.
+{
+  const announced =
+    `<div>Numbers attached.</div>` +
+    `<div>On Fri, 8 Aug 2026 at 10:57, Priya Vance wrote:</div>` +
+    `<blockquote style="margin:0"><div>Can you reprice this?</div></blockquote>`;
+  const stripped = stripQuotedHtml(announced);
+  assert.match(stripped.html, /Numbers attached/);
+  assert.doesNotMatch(stripped.html, /Can you reprice/);
+  assert.equal(stripped.quotedCount, 1);
+}
+
+// An Outlook header block above a blockquote announces it just as well.
+{
+  const header =
+    `<div>Agreed.</div>` +
+    `<div>From: Priya Vance<br>Sent: Friday 8 August<br>To: Conall</div>` +
+    `<blockquote><div>The original ask.</div></blockquote>`;
+  const stripped = stripQuotedHtml(header);
+  assert.match(stripped.html, /Agreed/);
+  assert.doesNotMatch(stripped.html, /The original ask/);
+  assert.equal(stripped.quotedCount, 1);
+}
+
+// A `type="cite"` blockquote says so itself, with nothing above it.
+{
+  const cited = `<div>Fine by me.</div><blockquote type="cite"><p>Older mail.</p></blockquote>`;
+  const stripped = stripQuotedHtml(cited);
+  assert.match(stripped.html, /Fine by me/);
+  assert.doesNotMatch(stripped.html, /Older mail/);
+  assert.equal(stripped.quotedCount, 1);
+}
+
 // Empty / null bodies stay empty.
 assert.deepEqual(readableHtml(null), { html: "", quotedCount: 0 });
 assert.deepEqual(readableHtml("   "), { html: "", quotedCount: 0 });

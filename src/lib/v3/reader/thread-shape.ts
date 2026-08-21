@@ -1,5 +1,5 @@
 import type { Address, Conversation, Message } from "@/lib/v2/providers/types";
-import { readableBody } from "@/lib/v2/intelligence/html-text";
+import { htmlToText, readableBody } from "@/lib/v2/intelligence/html-text";
 import { readableHtml } from "@/lib/v3/reader/email-html";
 
 /**
@@ -104,9 +104,14 @@ export function freshBody(message: Message): StrippedBody {
   // Prefer the HTML quote count when a body was HTML: Outlook and Gmail mark
   // quote boundaries in markup that the plain-text heuristics miss.
   const quotedCount = message.bodyHtml ? htmlPart.quotedCount : stripped.quotedCount;
+  // When the body was HTML, the markup is where the boundary really is, so the
+  // text comes from the already-stripped markup. Otherwise the one-line peek
+  // and the rendered body can disagree — the peek cut by a "From:" line in a
+  // signature that the rendered body still shows in full.
+  const fromHtml = htmlPart.html ? htmlToText(htmlPart.html).trim() : "";
   // A message that is nothing but a quote still said something by existing —
   // fall back to the snippet rather than rendering an empty turn.
-  const text = stripped.text || (message.snippet?.trim() ?? "");
+  const text = fromHtml || stripped.text || (message.snippet?.trim() ?? "");
   return {
     text,
     html: htmlPart.html || null,

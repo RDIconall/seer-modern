@@ -151,27 +151,76 @@ export function sanitizeStructuralHtml(html: string): string {
 }
 
 /**
- * Where the quoted history starts, in the shapes the two clients write it.
- * Outlook opens with an `appendonsend` anchor or a `divRplyFwdMsg` header
- * block; Gmail uses `gmail_quote`; everything else eventually reaches a
- * blockquote or an "Original Message" divider.
+ * Where the quoted history starts, in the shapes the clients write it. Outlook
+ * opens with an `appendonsend` anchor or a `divRplyFwdMsg` header block; Gmail,
+ * Thunderbird and Yahoo each name their own wrapper; and any client may write
+ * an "Original Message" divider.
  */
 const QUOTE_OPENERS: RegExp[] = [
   /<div[^>]*id=["']?appendonsend["']?/i,
   /<div[^>]*id=["']?divRplyFwdMsg["']?/i,
   /<div[^>]*class=["'][^"']*gmail_quote/i,
-  /<blockquote/i,
-  /-{2,}\s*Original Message\s*-{2,}/i,
   /<div[^>]*class=["'][^"']*moz-cite-prefix/i,
+  /<div[^>]*(?:id|class)=["'][^"']*yahoo_quoted/i,
+  /<blockquote[^>]*type=["']?cite/i,
+  /<blockquote[^>]*class=["'][^"']*(?:gmail_quote|moz-cite|yahoo_quoted)/i,
+  /-{2,}\s*Original Message\s*-{2,}/i,
+];
+
+/** Every blockquote, so each can be judged on what stands above it. */
+const ANY_BLOCKQUOTE = /<blockquote\b/gi;
+
+/**
+ * The line a mail client writes directly above the message it is quoting.
+ *
+ * A bare <blockquote> is NOT evidence of quoting. Zoho wraps an entire outbound
+ * mail in `<blockquote id="blockquote_zmail">`, nested once per send, and
+ * plenty of newsletters indent a pull quote the same way. Cutting on the tag
+ * alone deleted the whole message and reported it as history that was never
+ * there. So a blockquote only closes the fresh body when a client announced the
+ * quote above it: an attribution line, or an Outlook-style header block.
+ */
+const ATTRIBUTIONS: RegExp[] = [
+  /\bwrote:\s*$/i,
+  /\bsaid:\s*$/i,
+  /-{2,}\s*original message\s*-{2,}\s*$/i,
+  /\bbegin forwarded message:\s*$/i,
+  /\bfrom:[\s\S]{0,300}?\b(?:sent|date|to):[\s\S]{0,300}$/i,
 ];
 
 /** Markers that each open one more quoted message, for the hidden count. */
 const QUOTE_COUNTERS: RegExp[] = [
   /<div[^>]*id=["']?divRplyFwdMsg["']?/gi,
-  /<blockquote/gi,
-  /-{2,}\s*Original Message\s*-{2,}/gi,
   /<div[^>]*class=["'][^"']*gmail_quote/gi,
+  /<blockquote[^>]*type=["']?cite/gi,
+  /-{2,}\s*Original Message\s*-{2,}/gi,
+  /\bwrote:/gi,
 ];
+
+/** The last of the text a reader would see before `index`, tags removed. */
+function textBefore(html: string, index: number): string {
+  return html
+    .slice(Math.max(0, index - 600), index)
+    .replace(/<[^>]*>/g, " ")
+    .replace(/&nbsp;/gi, " ")
+    .replace(/&[a-z#0-9]+;/gi, " ")
+    .replace(/\s+/g, " ")
+    .trimEnd()
+    .slice(-300);
+}
+
+/** The first blockquote a client actually announced as a quote, if any. */
+function announcedBlockquote(html: string): number {
+  ANY_BLOCKQUOTE.lastIndex = 0;
+  let match: RegExpExecArray | null;
+  while ((match = ANY_BLOCKQUOTE.exec(html)) !== null) {
+    const preceding = textBefore(html, match.index);
+    if (ATTRIBUTIONS.some((attribution) => attribution.test(preceding))) {
+      return match.index;
+    }
+  }
+  return -1;
+}
 
 /** Does this fragment still say anything once the tags are gone? */
 function hasVisibleText(html: string): boolean {
@@ -194,7 +243,7 @@ export type StrippedHtml = { html: string; quotedCount: number };
 export function stripQuotedHtml(html: string): StrippedHtml {
   if (!html) return { html: "", quotedCount: 0 };
 
-  let cut = -1;
+  let cut = announcedBlockquote(html);
   for (const opener of QUOTE_OPENERS) {
     const found = html.search(opener);
     if (found >= 0 && (cut === -1 || found < cut)) cut = found;
@@ -203,8 +252,11 @@ export function stripQuotedHtml(html: string): StrippedHtml {
 
   const head = html.slice(0, cut);
   const tail = html.slice(cut);
+  // The deepest single marker, not the sum of all of them: Gmail writes both a
+  // wrapper and an "On … wrote:" line for one quoted message, and adding those
+  // together says two where the reader can see one.
   const quotedCount = QUOTE_COUNTERS.reduce(
-    (total, counter) => total + (tail.match(counter)?.length ?? 0),
+    (deepest, counter) => Math.max(deepest, tail.match(counter)?.length ?? 0),
     0,
   );
 
