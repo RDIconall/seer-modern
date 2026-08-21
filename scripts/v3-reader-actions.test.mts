@@ -72,4 +72,28 @@ assert.doesNotMatch(reader, /reader-chip/);
 assert.doesNotMatch(reader, /On this/);
 assert.doesNotMatch(reader, /reader-foot/, "the counting footer is gone");
 
+const focusedReader = renderToString(
+  createElement(Reader, {
+    provider: "microsoft",
+    conversation: ssrConversation,
+    focusMessageId: "preview-m-1",
+    ownEmail: "you@example.com",
+    onReply: noop,
+    onReplyAll: noop,
+    onForward: noop,
+    onArchive: noop,
+    onDelete: noop,
+  }),
+);
+assert.match(
+  focusedReader,
+  /data-message-id="preview-m-1"[\s\S]*?aria-expanded="true"/,
+  "opening a mailbox row expands the concrete message represented by it",
+);
+assert.match(
+  focusedReader,
+  /data-message-id="preview-m-2"[\s\S]*?aria-expanded="false"/,
+  "focusing an older message does not silently open the newest one instead",
+);
+
 console.log("v3-reader-actions: OK");
