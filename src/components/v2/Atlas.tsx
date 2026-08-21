@@ -2,7 +2,7 @@
 
 import * as React from "react";
 import { useEffect, useMemo, useRef, useState } from "react";
-import { GripVertical, X } from "lucide-react";
+import { GripVertical } from "lucide-react";
 import type {
   ConversationRow,
   InboxView,
@@ -45,6 +45,30 @@ export type MatterMove = {
 function sectionLabel(name: string): string {
   return name === "unfiled" ? "unfiled" : name;
 }
+
+/** The thread a matter is currently living on: its most recent conversation. */
+function latestConversation(matter: MatterCard): ConversationRow | null {
+  let latest: ConversationRow | null = null;
+  let latestAt = -1;
+  for (const conversation of matter.conversations) {
+    const at = conversation.at ? Date.parse(conversation.at) : NaN;
+    const rank = Number.isNaN(at) ? 0 : at;
+    if (rank >= latestAt) {
+      latestAt = rank;
+      latest = conversation;
+    }
+  }
+  return latest;
+}
+
+const mailDate = (iso: string) => {
+  const at = Date.parse(iso);
+  if (Number.isNaN(at)) return "";
+  return new Date(at).toLocaleDateString(undefined, {
+    month: "short",
+    day: "numeric",
+  });
+};
 
 /** A matter has not moved since its most recent conversation did. */
 function daysSinceMoved(matter: MatterCard, now: number): number {
@@ -127,7 +151,6 @@ export function Atlas({
   onMoveMatter?: (move: MatterMove) => void | Promise<unknown>;
   currentConversationId?: string | null;
 }) {
-  const [selectedMatterId, setSelectedMatterId] = useState<string | null>(null);
   // Only "mine" narrows the board, and only one matter stands open: the board
   // answers "what is the state of the business", and two open answers is a list.
   const [mineOnly, setMineOnly] = useState(false);
@@ -283,7 +306,8 @@ export function Atlas({
           so the board does not repeat either — the mockup draws them here only
           because it has no toolbar of its own. */}
       <header className="wb-top">
-        <span className="wb-title">Whiteboard</span>
+        {/* One display headline per screen, and on the board this is it. */}
+        <span className="wb-title seer-display">Whiteboard</span>
         <span className="wb-ledger tabular">
           {yours} yours · {live.length - yours} out
           {stalled > 0 ? (
@@ -358,7 +382,8 @@ export function Atlas({
                     onUndo={() => undo(matter)}
                     onReply={onReplyMatter ? () => onReplyMatter(matter) : undefined}
                     onForward={onForwardMatter ? () => onForwardMatter(matter) : undefined}
-                    onOpenMatter={() => setSelectedMatterId(matter.matterId)}
+                    currentConversationId={currentConversationId}
+                    onOpenConversation={onOpenConversation}
                     onDragStart={() =>
                       setDragged({
                         matterId: matter.matterId,
@@ -390,17 +415,23 @@ export function Atlas({
                     </button>
                     {rollOpen && (
                       <div className="wb-rlist">
-                        {section.parked.map((matter) => (
-                          <button
-                            key={matter.matterId}
-                            type="button"
-                            className="wb-rrow"
-                            onClick={() => setSelectedMatterId(matter.matterId)}
-                          >
-                            <span>{matter.shortTitle}</span>
-                            <span className="tabular">{daysSinceMoved(matter, now)}d</span>
-                          </button>
-                        ))}
+                        {section.parked.map((matter) => {
+                          const latest = latestConversation(matter);
+                          return (
+                            <button
+                              key={matter.matterId}
+                              type="button"
+                              className="wb-rrow"
+                              disabled={!latest}
+                              onClick={() =>
+                                latest && onOpenConversation?.(latest)
+                              }
+                            >
+                              <span>{matter.shortTitle}</span>
+                              <span className="tabular">{daysSinceMoved(matter, now)}d</span>
+                            </button>
+                          );
+                        })}
                       </div>
                     )}
                   </div>
@@ -417,20 +448,6 @@ export function Atlas({
         {`\nAccounted ${view.coverage.read} of ${view.coverage.providerTotal}`}
       </p>
 
-      {selectedMatterId &&
-        (() => {
-          const matter = view.atlas.find((item) => item.matterId === selectedMatterId);
-          return matter ? (
-            <MatterDetail
-              matter={matter}
-              onClose={() => setSelectedMatterId(null)}
-              onOpenConversation={(conversation) => {
-                setSelectedMatterId(null);
-                onOpenConversation?.(conversation);
-              }}
-            />
-          ) : null;
-        })()}
     </section>
   );
 }
@@ -453,7 +470,8 @@ function BoardMatter({
   onUndo,
   onReply,
   onForward,
-  onOpenMatter,
+  currentConversationId,
+  onOpenConversation,
   onDragStart,
   onDragEnd,
   onDropBefore,
@@ -468,7 +486,8 @@ function BoardMatter({
   onUndo: () => void;
   onReply?: () => void;
   onForward?: () => void;
-  onOpenMatter: () => void;
+  currentConversationId?: string | null;
+  onOpenConversation?: (conversation: ConversationRow) => void;
   onDragStart: () => void;
   onDragEnd: () => void;
   onDropBefore: () => void;
@@ -562,9 +581,35 @@ function BoardMatter({
               <button type="button" className="wb-btn" onClick={onArchive}>
                 Archive
               </button>
-              <button type="button" className="wb-btn" onClick={onOpenMatter}>
-                Open
-              </button>
+            </div>
+
+            {/* The matter is its mail. One row per conversation, read the way
+                every other message in Seer is read — in the reading pane. */}
+            <div className="wb-mail" aria-label="Mail on this matter">
+              {matter.conversations.map((conversation) => (
+                <button
+                  key={conversation.conversationId}
+                  type="button"
+                  className="wb-mail-row"
+                  data-current={
+                    conversation.conversationId === currentConversationId
+                      ? "true"
+                      : "false"
+                  }
+                  onClick={() => onOpenConversation?.(conversation)}
+                >
+                  <span className="wb-mail-top">
+                    <strong>{conversation.from || "Unknown sender"}</strong>
+                    <time className="tabular">{mailDate(conversation.at)}</time>
+                  </span>
+                  <span className="wb-mail-subject">
+                    {conversation.subject || "(no subject)"}
+                  </span>
+                  {conversation.summary ? (
+                    <span className="wb-mail-summary">{conversation.summary}</span>
+                  ) : null}
+                </button>
+              ))}
             </div>
           </div>
         )
@@ -573,108 +618,4 @@ function BoardMatter({
   );
 }
 
-function MatterDetail({
-  matter,
-  onClose,
-  onOpenConversation,
-}: {
-  matter: MatterCard;
-  onClose: () => void;
-  onOpenConversation?: (conversation: ConversationRow) => void;
-}) {
-  const closeRef = useRef<HTMLButtonElement>(null);
-  const previousFocus = useRef<HTMLElement | null>(null);
-
-  useEffect(() => {
-    previousFocus.current =
-      document.activeElement instanceof HTMLElement ? document.activeElement : null;
-    closeRef.current?.focus();
-    const onKeyDown = (event: KeyboardEvent) => {
-      if (event.key === "Escape") onClose();
-    };
-    document.addEventListener("keydown", onKeyDown);
-    return () => {
-      document.removeEventListener("keydown", onKeyDown);
-      previousFocus.current?.focus();
-    };
-  }, [onClose]);
-
-  return (
-    <div className="atlas-detail-backdrop" role="presentation">
-      <aside
-        className="atlas-detail"
-        role="dialog"
-        aria-modal="true"
-        aria-labelledby="atlas-detail-title"
-        tabIndex={-1}
-      >
-        <header className="atlas-detail-header">
-          <div>
-            <p className="atlas-detail-kicker atlas-heading">{matter.section}</p>
-            <h2 id="atlas-detail-title" className="seer-display">
-              {matter.shortTitle}
-            </h2>
-          </div>
-          <button
-            ref={closeRef}
-            type="button"
-            className="mail-close mail-focus-ring"
-            onClick={onClose}
-            aria-label="Close matter detail"
-          >
-            <X aria-hidden />
-          </button>
-        </header>
-
-        <p className="atlas-detail-summary">{matter.summary || "Current matter activity."}</p>
-        <dl className="atlas-detail-action">
-          <div>
-            <dt>Next action</dt>
-            <dd>{matter.nextAction || "Review the latest conversation."}</dd>
-          </div>
-          <div>
-            <dt>Owner</dt>
-            <dd>{matter.owner}</dd>
-          </div>
-          {matter.dueDate ? (
-            <div>
-              <dt>Due</dt>
-              <dd>{matter.dueDate}</dd>
-            </div>
-          ) : null}
-        </dl>
-
-        <section aria-labelledby="atlas-conversations-title">
-          <h3 id="atlas-conversations-title">Conversations</h3>
-          <ul className="atlas-detail-conversations">
-            {matter.conversations.map((conversation) => (
-              <li key={conversation.conversationId}>
-                <button
-                  type="button"
-                  onClick={() => onOpenConversation?.(conversation)}
-                  className="atlas-detail-conversation mail-focus-ring"
-                >
-                  <span className="atlas-detail-conversation-topline">
-                    <strong>{conversation.subject || "(no subject)"}</strong>
-                    <time dateTime={conversation.at}>
-                      {conversation.at
-                        ? new Date(conversation.at).toLocaleDateString()
-                        : ""}
-                    </time>
-                  </span>
-                  <span className="atlas-detail-conversation-sender">
-                    {conversation.from}
-                  </span>
-                  <span className="atlas-detail-conversation-summary">
-                    {conversation.summary || "No summary available."}
-                  </span>
-                </button>
-              </li>
-            ))}
-          </ul>
-        </section>
-      </aside>
-    </div>
-  );
-}
 

@@ -458,6 +458,79 @@ body {
   color: var(--nav-muted);
 }
 
+/* The expansion says only what the title cannot, and then hands over to the
+   mail: one row per conversation, opened in the reading pane like any other
+   message rather than in a panel of the board's own. */
+.wb-mail {
+  display: grid;
+  gap: 1px;
+  margin-top: 10px;
+  overflow: hidden;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: var(--border);
+}
+
+.wb-mail-row {
+  display: grid;
+  gap: 2px;
+  border: 0;
+  padding: 8px 10px 9px;
+  background: var(--card);
+  color: var(--fg);
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+
+.wb-mail-row:hover,
+.wb-mail-row[data-current="true"] {
+  background: var(--row-hover);
+}
+
+.wb-mail-row[data-current="true"] {
+  box-shadow: inset 3px 0 0 var(--brand);
+}
+
+.wb-mail-top {
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+  min-width: 0;
+}
+
+.wb-mail-top strong {
+  overflow: hidden;
+  flex: 1;
+  color: var(--fg-strong);
+  font-size: var(--t-small);
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.wb-mail-top time {
+  flex: none;
+  color: var(--nav-muted);
+  font-size: 10px;
+}
+
+.wb-mail-subject,
+.wb-mail-summary {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.wb-mail-subject {
+  font-size: var(--t-small);
+  font-weight: 500;
+}
+
+.wb-mail-summary {
+  color: var(--muted);
+  font-size: 11px;
+}
+
 /* The expansion says only what the title cannot. */
 .wb-body {
   padding: 0 20px 15px 39px;

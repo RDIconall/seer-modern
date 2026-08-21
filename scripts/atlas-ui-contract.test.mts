@@ -17,11 +17,24 @@ const mailClientSource = await fs.readFile(
 );
 const styles = await fs.readFile(path.join(root, "src/app/globals.css"), "utf8");
 
-assert.match(atlasSource, /MatterDetail/, "Atlas must render an accessible detail panel");
+/**
+ * A matter opens as mail. The bespoke detail panel restated the row and then
+ * made you click a third time to reach the thing you came for; the mail itself
+ * is the view, and it belongs in the reading pane like every other message.
+ */
+assert.doesNotMatch(
+  atlasSource,
+  /MatterDetail/,
+  "the matter panel is replaced by the ordinary reading pane",
+);
+assert.doesNotMatch(atlasSource, /aria-modal/, "opening a matter is not a modal");
+assert.doesNotMatch(atlasSource, /atlas-detail/);
+assert.match(
+  atlasSource,
+  /wb-mail/,
+  "an open matter lists its conversations as mail rows",
+);
 assert.match(atlasSource, /onOpenConversation/, "Atlas must accept an in-app conversation callback");
-assert.match(atlasSource, /aria-modal="true"/);
-assert.match(atlasSource, /role="dialog"/);
-assert.match(atlasSource, /Escape|keydown/);
 assert.match(atlasSource, /shortTitle/);
 assert.match(atlasSource, /nextAction/);
 assert.match(atlasSource, /Conversation.*button|button[\s\S]*conversation/i);
@@ -32,8 +45,11 @@ assert.doesNotMatch(
 );
 assert.match(mailClientSource, /onOpenConversation/);
 assert.match(mailClientSource, /setConversationId/);
-assert.match(styles, /atlas-detail/);
-assert.match(styles, /@media \(max-width: 700px\)[\s\S]*atlas-detail/);
+assert.doesNotMatch(
+  styles,
+  /atlas-detail/,
+  "the detail panel's rules go with the panel",
+);
 
 const html = renderToString(
   createElement(Atlas, {
@@ -42,6 +58,7 @@ const html = renderToString(
   } as never),
 );
 assert.match(html, /Whiteboard/);
+assert.doesNotMatch(html, /role="dialog"/, "the board opens no dialog of its own");
 
 /**
  * The whiteboard, as specified: a ledger of the account in numbers, an All/Mine
