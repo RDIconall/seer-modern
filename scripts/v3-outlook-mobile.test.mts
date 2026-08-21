@@ -60,6 +60,21 @@ const atlas = readFileSync(
 );
 assert.match(atlas, /<MobileMailRow/);
 
+const styles = readFileSync(
+  new URL("../src/app/globals.css", import.meta.url),
+  "utf8",
+);
+assert.match(
+  styles,
+  /\.compact-mail-list \.mobile-mail-reveal\s*\{\s*display: none;/,
+  "swipe tracks stay hidden in the desktop compact list",
+);
+assert.match(
+  styles,
+  /@media \(max-width: 700px\)[\s\S]*\.compact-mail-list \.mobile-mail-reveal\s*\{\s*display: flex;/,
+  "mobile restores the swipe tracks behind each row",
+);
+
 const reader = readFileSync(
   new URL("../src/components/v2/Reader.tsx", import.meta.url),
   "utf8",
