@@ -39,6 +39,14 @@ export type Attachment = {
   sizeBytes: number;
 };
 
+export type OutboundAttachment = {
+  filename: string;
+  mimeType: string;
+  /** Standard base64 without a data-URL prefix. */
+  contentBase64: string;
+  sizeBytes: number;
+};
+
 export type Message = {
   providerMessageId: string;
   from: Address;
@@ -92,6 +100,7 @@ export type SendCommand = {
   bcc?: Address[];
   subject: string;
   bodyHtml: string;
+  attachments?: OutboundAttachment[];
 };
 
 export type ReplyCommand = {
@@ -118,6 +127,19 @@ export type AttachmentContent = {
   filename: string;
 };
 
+export type ProviderFolder = {
+  id: string;
+  name: string;
+  system: boolean;
+};
+
+export type MoveReceipt = {
+  conversationId: string;
+  destinationId: string;
+  processed: string[];
+  failed: string[];
+};
+
 /**
  * The one contract Gmail and Outlook both satisfy. Every method is
  * conversation-complete and honest about partial failure. Folder mutations are
@@ -139,6 +161,12 @@ export interface MailProvider {
   reply(command: ReplyCommand, idempotencyKey: string): Promise<SendReceipt>;
   forward(command: ForwardCommand, idempotencyKey: string): Promise<SendReceipt>;
   getAttachment(messageId: string, attachmentId: string): Promise<AttachmentContent>;
+  listFolders(): Promise<ProviderFolder[]>;
+  moveConversation(
+    id: string,
+    destinationId: string,
+    idempotencyKey: string,
+  ): Promise<MoveReceipt>;
   mutateConversation(
     id: string,
     action: MutationAction,

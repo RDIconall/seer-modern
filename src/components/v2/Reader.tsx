@@ -63,6 +63,7 @@ export function Reader({
   onForward,
   onArchive,
   onDelete,
+  onMove,
 }: {
   provider: ProviderKind;
   conversation: Conversation;
@@ -72,6 +73,7 @@ export function Reader({
   onForward: () => void;
   onArchive: () => void;
   onDelete: () => void;
+  onMove?: (destinationId: string) => void;
 }) {
   const nativeUrl = nativeUrlFor(provider, conversation.providerConversationId);
   const ownDomain = (ownEmail ?? "").split("@")[1] ?? "";
@@ -137,6 +139,7 @@ export function Reader({
         onForward={onForward}
         onArchive={onArchive}
         onDelete={onDelete}
+        onMove={onMove}
       />
 
       {files.length > 0 && (

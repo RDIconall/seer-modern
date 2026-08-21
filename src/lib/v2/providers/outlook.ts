@@ -15,6 +15,8 @@ import type {
   Message,
   MutationAction,
   MutationReceipt,
+  MoveReceipt,
+  ProviderFolder,
   ProviderKind,
   ReplyCommand,
   SearchResult,
@@ -24,6 +26,7 @@ import type {
   SyncFolder,
   SyncPage,
 } from "./types";
+import { compileOutlookSearch, parseMailSearch } from "@/lib/v3/search/parser";
 import { SyncDeadlineError, assertSyncBudget } from "./types";
 
 /**
@@ -242,9 +245,10 @@ export class OutlookProvider implements MailProvider {
   }
 
   async search(query: string, cursor?: string | null): Promise<SearchResult> {
+    const providerQuery = compileOutlookSearch(parseMailSearch(query));
     const url =
       cursor ??
-      `${API}/messages?$search=${encodeURIComponent(`"${query}"`)}&$top=${this.pageSize}&$select=id,conversationId,subject,from,toRecipients,ccRecipients,receivedDateTime,bodyPreview,body,isRead`;
+      `${API}/messages?$search=${encodeURIComponent(`"${providerQuery}"`)}&$top=${this.pageSize}&$select=id,conversationId,subject,from,toRecipients,ccRecipients,receivedDateTime,bodyPreview,body,isRead`;
     const page: { value?: GraphMessage[]; "@odata.nextLink"?: string } =
       await this.get(url);
     const byConversation = new Map<string, GraphMessage[]>();
@@ -270,6 +274,12 @@ export class OutlookProvider implements MailProvider {
         toRecipients: command.to.map((a) => ({ emailAddress: { address: a.email } })),
         ccRecipients: (command.cc ?? []).map((a) => ({
           emailAddress: { address: a.email },
+        })),
+        attachments: (command.attachments ?? []).map((attachment) => ({
+          "@odata.type": "#microsoft.graph.fileAttachment",
+          name: attachment.filename,
+          contentType: attachment.mimeType,
+          contentBytes: attachment.contentBase64,
         })),
       },
     });
@@ -333,6 +343,39 @@ export class OutlookProvider implements MailProvider {
       mimeType: resolved.contentType ?? "application/octet-stream",
       filename: resolved.name ?? "attachment",
     };
+  }
+
+  async listFolders(): Promise<ProviderFolder[]> {
+    const response = await this.get<{
+      value?: { id: string; displayName: string; wellKnownName?: string }[];
+    }>(`${API}/mailFolders?$top=100&$select=id,displayName`);
+    return (response.value ?? []).map((folder) => ({
+      id: folder.id,
+      name: folder.displayName,
+      system: ["Inbox", "Sent Items", "Deleted Items", "Archive"].includes(
+        folder.displayName,
+      ),
+    }));
+  }
+
+  async moveConversation(
+    id: string,
+    destinationId: string,
+    _key: string,
+  ): Promise<MoveReceipt> {
+    void _key;
+    const messages = await this.conversationMessages(id);
+    const processed: string[] = [];
+    const failed: string[] = [];
+    for (const message of messages) {
+      try {
+        await this.post(`/messages/${message.id}/move`, { destinationId });
+        processed.push(message.id);
+      } catch {
+        failed.push(message.id);
+      }
+    }
+    return { conversationId: id, destinationId, processed, failed };
   }
 
   async mutateConversation(

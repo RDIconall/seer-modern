@@ -6,6 +6,8 @@ import type {
   Message,
   MutationAction,
   MutationReceipt,
+  MoveReceipt,
+  ProviderFolder,
   ProviderKind,
   ReplyCommand,
   SearchResult,
@@ -42,7 +44,7 @@ export class FakeProvider implements MailProvider {
   readonly kind: ProviderKind = "google";
   private convos: StoredConversation[];
   private pageSize: number;
-  private idempotency = new Map<string, SendReceipt | MutationReceipt>();
+  private idempotency = new Map<string, SendReceipt | MutationReceipt | MoveReceipt>();
   private sentCounter = 0;
 
   constructor(seed: FakeSeed) {
@@ -90,6 +92,43 @@ export class FakeProvider implements MailProvider {
     const c = this.convos.find((x) => x.providerConversationId === id);
     if (!c) throw new Error(`conversation ${id} not found`);
     return this.live(c);
+  }
+
+  async listFolders(): Promise<ProviderFolder[]> {
+    return [
+      { id: "inbox", name: "Inbox", system: true },
+      { id: "sent", name: "Sent", system: true },
+      { id: "trash", name: "Trash", system: true },
+      { id: "archive", name: "Archive", system: true },
+    ];
+  }
+
+  async moveConversation(
+    id: string,
+    destinationId: string,
+    key: string,
+  ): Promise<MoveReceipt> {
+    const existing = this.idempotency.get(key);
+    if (existing && "destinationId" in existing) return existing as MoveReceipt;
+    const c = this.convos.find((item) => item.providerConversationId === id);
+    if (!c) throw new Error(`conversation ${id} not found`);
+    const processed: string[] = [];
+    const failed: string[] = [];
+    for (const message of c.messages) {
+      if (message.failMutation) failed.push(message.providerMessageId);
+      else {
+        message.folder = destinationId as Folder;
+        processed.push(message.providerMessageId);
+      }
+    }
+    const receipt = {
+      conversationId: id,
+      destinationId,
+      processed,
+      failed,
+    };
+    this.idempotency.set(key, receipt);
+    return receipt;
   }
 
   async search(query: string, cursor?: string | null): Promise<SearchResult> {

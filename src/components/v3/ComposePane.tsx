@@ -2,7 +2,7 @@
 
 import * as React from "react";
 import { useEffect, useId, useState } from "react";
-import { ChevronDown, ChevronRight, X } from "lucide-react";
+import { ChevronDown, ChevronRight, Paperclip, Sparkles, Trash2, X } from "lucide-react";
 import { MessageHtml } from "@/components/v2/MessageHtml";
 import type { ReaderComposeIntent } from "@/components/v2/Reader";
 import type { CommandResult } from "@/lib/v2/commands/types";
@@ -21,6 +21,22 @@ import {
 } from "./compose-command";
 import { RecipientInput } from "./RecipientInput";
 import type { Recipient } from "./recipient-state";
+import { RichComposer, type RichComposerValue } from "./RichComposer";
+import {
+  draftStorageKey,
+  parseStoredDraft,
+  type StoredDraft,
+} from "@/lib/v3/compose/draft";
+
+type ComposeAttachment = {
+  filename: string;
+  mimeType: string;
+  contentBase64: string;
+  sizeBytes: number;
+};
+
+const EMPTY_RICH: RichComposerValue = { html: "", text: "" };
+const MAX_ATTACHMENT_BYTES = 3_000_000;
 
 function modeFromIntent(intent?: ReaderComposeIntent | { mode: "send" }): ComposeMode {
   return intent?.mode ?? "send";
@@ -85,8 +101,11 @@ export function ComposePane({
 
   const [recipients, setRecipients] = useState<Recipient[]>([]);
   const [subject, setSubject] = useState("");
-  const [body, setBody] = useState("");
+  const [body, setBody] = useState<RichComposerValue>(EMPTY_RICH);
+  const [attachments, setAttachments] = useState<ComposeAttachment[]>([]);
   const [sending, setSending] = useState(false);
+  const [drafting, setDrafting] = useState(false);
+  const [draftSaved, setDraftSaved] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [conversation, setConversation] = useState<Conversation | null>(preview ?? null);
   const [provider, setProvider] = useState<ProviderKind | null>(previewProvider ?? null);
@@ -100,6 +119,35 @@ export function ComposePane({
   const subjectHintId = useId();
   const toInputId = useId();
   const bodyId = useId();
+  const fileId = useId();
+  const draftKey = draftStorageKey(accountId, mode, providerConversationId);
+
+  useEffect(() => {
+    const saved = parseStoredDraft(window.localStorage.getItem(draftKey));
+    if (!saved) return;
+    setRecipients(
+      saved.recipients.map((email) => ({ email, displayName: email })),
+    );
+    setSubject(saved.subject);
+    setBody({ html: saved.bodyHtml, text: saved.bodyText });
+    setDraftSaved("Draft restored");
+  }, [draftKey]);
+
+  useEffect(() => {
+    if (!body.text && !subject && recipients.length === 0) return;
+    const timer = window.setTimeout(() => {
+      const stored: StoredDraft = {
+        recipients: recipients.map((recipient) => recipient.email),
+        subject,
+        bodyHtml: body.html,
+        bodyText: body.text,
+        savedAt: new Date().toISOString(),
+      };
+      window.localStorage.setItem(draftKey, JSON.stringify(stored));
+      setDraftSaved("Draft saved");
+    }, 500);
+    return () => window.clearTimeout(timer);
+  }, [body, draftKey, recipients, subject]);
 
   useEffect(() => {
     if (preview) {
@@ -155,9 +203,58 @@ export function ComposePane({
   const canSend = canSendCompose({
     mode,
     recipientCount: recipients.length,
-    body,
+    body: body.text,
     sending,
   });
+
+  async function addAttachments(files: FileList | null) {
+    if (!files) return;
+    setError(null);
+    for (const file of Array.from(files)) {
+      if (file.size > MAX_ATTACHMENT_BYTES) {
+        setError(`${file.name} is larger than 3 MB.`);
+        continue;
+      }
+      const bytes = new Uint8Array(await file.arrayBuffer());
+      let binary = "";
+      for (const byte of bytes) binary += String.fromCharCode(byte);
+      setAttachments((current) => [
+        ...current,
+        {
+          filename: file.name,
+          mimeType: file.type || "application/octet-stream",
+          contentBase64: window.btoa(binary),
+          sizeBytes: file.size,
+        },
+      ]);
+    }
+  }
+
+  async function draftWithAi() {
+    const messageId = conversation?.messages.at(-1)?.providerMessageId;
+    if (!messageId || drafting) return;
+    setDrafting(true);
+    setError(null);
+    try {
+      const response = await fetch("/api/assist/draft", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ id: messageId }),
+      });
+      const json = (await response.json()) as { body?: string; error?: string };
+      if (!response.ok || !json.body) throw new Error(json.error ?? "Draft failed");
+      const html = `<p>${json.body
+        .replaceAll("&", "&amp;")
+        .replaceAll("<", "&lt;")
+        .replaceAll(">", "&gt;")
+        .replace(/\n/g, "<br>")}</p>`;
+      setBody({ html, text: json.body });
+    } catch (cause) {
+      setError(cause instanceof Error ? cause.message : "Draft failed");
+    } finally {
+      setDrafting(false);
+    }
+  }
 
   async function submit(event: React.FormEvent) {
     event.preventDefault();
@@ -165,7 +262,7 @@ export function ComposePane({
     setSending(true);
     setError(null);
     try {
-      const bodyHtml = `<p>${body.replace(/\n/g, "<br/>")}</p>`;
+      const bodyHtml = body.html || "<p></p>";
       const to = recipients.map((r) => r.email);
       let result: CommandResult;
       if (mode === "send") {
@@ -174,6 +271,7 @@ export function ComposePane({
           to,
           subject: subjectValue,
           bodyHtml,
+          attachments,
         });
       } else if (mode === "forward") {
         if (!providerConversationId) throw new Error("conversation required");
@@ -192,6 +290,7 @@ export function ComposePane({
           bodyHtml,
         });
       }
+      window.localStorage.removeItem(draftKey);
       onSent(result);
     } catch (cause) {
       setError(cause instanceof Error ? cause.message : "Could not send");
@@ -265,16 +364,55 @@ export function ComposePane({
           </p>
         )}
 
-        <label className="mail-compose-body-label" htmlFor={bodyId}>
+        <div className="mail-compose-body-label" id={bodyId}>
           Message
-        </label>
-        <textarea
-          id={bodyId}
-          className="mail-compose-body mail-focus-ring"
-          value={body}
-          onChange={(event) => setBody(event.target.value)}
-          rows={8}
-        />
+        </div>
+        <RichComposer value={body} onChange={setBody} />
+        <div className="mail-compose-extras">
+          <input
+            id={fileId}
+            className="sr-only"
+            type="file"
+            multiple
+            onChange={(event) => void addAttachments(event.target.files)}
+          />
+          {mode === "send" ? (
+            <label htmlFor={fileId} className="mail-compose-extra mail-focus-ring">
+              <Paperclip aria-hidden />
+              Add attachment
+            </label>
+          ) : null}
+          {showQuote ? (
+            <button
+              type="button"
+              className="mail-compose-extra mail-focus-ring"
+              disabled={drafting || !conversation}
+              onClick={() => void draftWithAi()}
+            >
+              <Sparkles aria-hidden />
+              {drafting ? "Drafting…" : "Draft with AI"}
+            </button>
+          ) : null}
+          {draftSaved ? <span className="mail-compose-saved">{draftSaved}</span> : null}
+        </div>
+        {attachments.length > 0 ? (
+          <ul className="mail-compose-attachments" aria-label="Attachments">
+            {attachments.map((attachment, index) => (
+              <li key={`${attachment.filename}:${index}`}>
+                <span>{attachment.filename}</span>
+                <button
+                  type="button"
+                  aria-label={`Remove ${attachment.filename}`}
+                  onClick={() =>
+                    setAttachments((current) => current.filter((_, item) => item !== index))
+                  }
+                >
+                  <Trash2 aria-hidden />
+                </button>
+              </li>
+            ))}
+          </ul>
+        ) : null}
 
         {showQuote && (
           <section className="mail-compose-quote" aria-label="Quoted conversation">

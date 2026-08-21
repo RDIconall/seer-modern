@@ -38,6 +38,7 @@ import {
   modalBackgroundState,
   parseMailHash,
 } from "./mail-client-state";
+import { CommandPalette, type PaletteAction } from "./CommandPalette";
 
 type PreviewReader = {
   conversation: Conversation;
@@ -226,6 +227,7 @@ export function MailClient({
   const [query, setQuery] = useState("");
   const [searchRows, setSearchRows] = useState<SearchResult[] | null>(null);
   const [notice, setNotice] = useState<{ message: string; error: boolean; outboxId?: string } | null>(null);
+  const [paletteOpen, setPaletteOpen] = useState(false);
   const [hashReady, setHashReady] = useState(false);
   const restoredSearchRef = useRef<string | null>(null);
   const searchGuard = useRef(new SearchRequestGuard());
@@ -413,6 +415,112 @@ export function MailClient({
       throw cause;
     }
   };
+
+  const paletteActions: PaletteAction[] = [
+    { id: "inbox", label: "Go to inbox", hint: "G I", run: () => navigate("inbox") },
+    { id: "triage", label: "Go to triage", hint: "G T", run: () => navigate("triage") },
+    { id: "sent", label: "Go to sent", hint: "G S", run: () => navigate("sent") },
+    { id: "trash", label: "Go to trash", hint: "G D", run: () => navigate("trash") },
+    { id: "compose", label: "Compose", hint: "C", run: () => setCompose({ mode: "send" }) },
+    {
+      id: "search",
+      label: "Search mail",
+      hint: "/",
+      run: () => document.getElementById("mail-search-input")?.focus(),
+    },
+  ];
+
+  const goPrefix = useRef(false);
+  useEffect(() => {
+    const onKeyDown = (event: KeyboardEvent) => {
+      const target = event.target as HTMLElement | null;
+      if (
+        target?.matches("input, textarea, select") ||
+        target?.isContentEditable ||
+        compose
+      ) {
+        return;
+      }
+      const key = event.key.toLowerCase();
+      if ((event.metaKey || event.ctrlKey) && key === "k") {
+        event.preventDefault();
+        setPaletteOpen(true);
+        return;
+      }
+      if (key === "/") {
+        event.preventDefault();
+        document.getElementById("mail-search-input")?.focus();
+        return;
+      }
+      if (key === "escape") {
+        setPaletteOpen(false);
+        if (conversationId) setConversationId(null);
+        return;
+      }
+      if (goPrefix.current) {
+        goPrefix.current = false;
+        const destination: Partial<Record<string, MailSection>> = {
+          i: "inbox",
+          t: "triage",
+          s: "sent",
+          d: "trash",
+          a: "atlas",
+        };
+        const next = destination[key];
+        if (next) {
+          event.preventDefault();
+          navigate(next);
+        }
+        return;
+      }
+      if (key === "g") {
+        goPrefix.current = true;
+        window.setTimeout(() => {
+          goPrefix.current = false;
+        }, 1000);
+        return;
+      }
+      if (key === "c") {
+        event.preventDefault();
+        setCompose({ mode: "send" });
+        return;
+      }
+      if (conversationId && (key === "r" || key === "a" || key === "f")) {
+        event.preventDefault();
+        setCompose({
+          mode:
+            key === "r" ? "reply" : key === "a" ? "replyAll" : "forward",
+        });
+        return;
+      }
+      if (conversationId && key === "e") {
+        event.preventDefault();
+        void runCommands([{ type: "archive", conversationId }]).then(() => {
+          setConversationId(null);
+        });
+        return;
+      }
+      if ((key === "j" || key === "k") && activeMailbox?.rows.length) {
+        event.preventDefault();
+        const current = activeMailbox.rows.findIndex(
+          (row) => row.conversationId === conversationId,
+        );
+        const delta = key === "j" ? 1 : -1;
+        const nextIndex =
+          current < 0
+            ? key === "j"
+              ? 0
+              : activeMailbox.rows.length - 1
+            : Math.min(
+                activeMailbox.rows.length - 1,
+                Math.max(0, current + delta),
+              );
+        openRow(activeMailbox.rows[nextIndex]);
+      }
+    };
+    window.addEventListener("keydown", onKeyDown);
+    return () => window.removeEventListener("keydown", onKeyDown);
+  });
 
   const undo = async () => {
     if (!notice?.outboxId) return;
@@ -610,6 +718,11 @@ export function MailClient({
           onSent={noticeResult}
         />
       )}
+      <CommandPalette
+        open={paletteOpen}
+        actions={paletteActions}
+        onClose={() => setPaletteOpen(false)}
+      />
       {notice && (
         <div className={notice.error ? "mail-toast mail-toast-error" : "mail-toast"} role={notice.error ? "alert" : "status"}>
           <span>{notice.message}</span>

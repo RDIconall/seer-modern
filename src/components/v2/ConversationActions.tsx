@@ -1,6 +1,7 @@
 "use client";
 
 import * as React from "react";
+import { useState } from "react";
 import type { ProviderKind } from "@/lib/v2/providers/types";
 import { supportedActions, providerLabel, NATIVE_ONLY } from "@/lib/v2/client/actions";
 
@@ -17,6 +18,7 @@ export function ConversationActions({
   onForward,
   onArchive,
   onDelete,
+  onMove,
 }: {
   provider: ProviderKind;
   nativeUrl: string;
@@ -25,8 +27,21 @@ export function ConversationActions({
   onForward: () => void;
   onArchive: () => void;
   onDelete: () => void;
+  onMove?: (destinationId: string) => void;
 }) {
   const actions = supportedActions(provider);
+  const [folders, setFolders] = useState<{ id: string; name: string }[] | null>(
+    null,
+  );
+  const loadFolders = async () => {
+    if (folders) return;
+    const response = await fetch("/api/v3/folders");
+    if (!response.ok) return;
+    const json = (await response.json()) as {
+      folders?: { id: string; name: string }[];
+    };
+    setFolders(json.folders ?? []);
+  };
   return (
     <div className="seer-actions" role="toolbar" aria-label="Conversation actions">
       {actions.includes("reply") && (
@@ -54,6 +69,26 @@ export function ConversationActions({
           Delete
         </button>
       )}
+      {onMove ? (
+        <label className="seer-move">
+          <span className="sr-only">Move conversation</span>
+          <select
+            aria-label="Move conversation"
+            value=""
+            onFocus={() => void loadFolders()}
+            onChange={(event) => {
+              if (event.target.value) onMove(event.target.value);
+            }}
+          >
+            <option value="">Move to…</option>
+            {(folders ?? []).map((folder) => (
+              <option key={folder.id} value={folder.id}>
+                {folder.name}
+              </option>
+            ))}
+          </select>
+        </label>
+      ) : null}
       <a href={nativeUrl} target="_blank" rel="noopener noreferrer">
         Open in {providerLabel(provider)}
       </a>

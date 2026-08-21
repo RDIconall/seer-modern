@@ -99,6 +99,21 @@ export function ReaderPane({
     }
   };
 
+  const runMove = async (destinationId: string) => {
+    if (!data) return;
+    try {
+      await commands.dispatchCommand({
+        type: "move",
+        providerConversationId: data.conversation.providerConversationId,
+        destinationId,
+      });
+      onNotice("Conversation moved.");
+      onCommandComplete?.();
+    } catch (cause) {
+      onNotice(cause instanceof Error ? cause.message : "Move failed", true);
+    }
+  };
+
   if (loading) {
     return (
       <section
@@ -155,6 +170,7 @@ export function ReaderPane({
         onForward={() => onCompose({ mode: "forward" })}
         onArchive={() => void runArchive()}
         onDelete={() => void runDelete()}
+        onMove={(destinationId) => void runMove(destinationId)}
       />
     </section>
   );

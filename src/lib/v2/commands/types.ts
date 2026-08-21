@@ -30,9 +30,25 @@ export type Command =
   | { type: "archive"; conversationId: string }
   | { type: "restore"; conversationId: string }
   | { type: "markUnread"; conversationId: string }
+  | {
+      type: "move";
+      providerConversationId: string;
+      destinationId: string;
+    }
   | { type: "correctConversation"; conversationId: string; home: Home; note?: string }
   | { type: "teachSender"; email: string; instruction: "vip" | "always_delete" | "never_delete" }
-  | { type: "send"; to: string[]; subject: string; bodyHtml: string }
+  | {
+      type: "send";
+      to: string[];
+      subject: string;
+      bodyHtml: string;
+      attachments?: {
+        filename: string;
+        mimeType: string;
+        contentBase64: string;
+        sizeBytes: number;
+      }[];
+    }
   | { type: "reply"; providerConversationId: string; all: boolean; bodyHtml: string }
   | { type: "forward"; providerConversationId: string; to: string[]; bodyHtml: string };
 

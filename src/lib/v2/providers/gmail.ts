@@ -15,6 +15,8 @@ import type {
   Message,
   MutationAction,
   MutationReceipt,
+  MoveReceipt,
+  ProviderFolder,
   ProviderKind,
   ReplyCommand,
   SearchResult,
@@ -24,6 +26,7 @@ import type {
   SyncFolder,
   SyncPage,
 } from "./types";
+import { compileGmailSearch, parseMailSearch } from "@/lib/v3/search/parser";
 import { assertSyncBudget } from "./types";
 
 /**
@@ -223,8 +226,9 @@ export class GmailProvider implements MailProvider {
   }
 
   async search(query: string, cursor?: string | null): Promise<SearchResult> {
+    const providerQuery = compileGmailSearch(parseMailSearch(query));
     const list = await this.get<{ threads?: { id: string }[]; nextPageToken?: string }>(
-      `/threads?q=${encodeURIComponent(query)}&maxResults=${this.pageSize}` +
+      `/threads?q=${encodeURIComponent(providerQuery)}&maxResults=${this.pageSize}` +
         (cursor ? `&pageToken=${encodeURIComponent(cursor)}` : ""),
     );
     const conversations = await Promise.all(
@@ -233,14 +237,49 @@ export class GmailProvider implements MailProvider {
     return { conversations, nextCursor: list.nextPageToken ?? null };
   }
 
-  private encodeRaw(headersLines: string[], html: string): string {
-    const mime = [
-      ...headersLines,
-      "MIME-Version: 1.0",
-      'Content-Type: text/html; charset="UTF-8"',
-      "",
-      html,
-    ].join("\r\n");
+  private encodeRaw(
+    headersLines: string[],
+    html: string,
+    attachments: SendCommand["attachments"] = [],
+  ): string {
+    const safeAttachments = attachments ?? [];
+    const boundary = `seer_${crypto.randomUUID().replaceAll("-", "")}`;
+    const mime =
+      safeAttachments.length === 0
+        ? [
+            ...headersLines,
+            "MIME-Version: 1.0",
+            'Content-Type: text/html; charset="UTF-8"',
+            "",
+            html,
+          ].join("\r\n")
+        : [
+            ...headersLines,
+            "MIME-Version: 1.0",
+            `Content-Type: multipart/mixed; boundary="${boundary}"`,
+            "",
+            `--${boundary}`,
+            'Content-Type: text/html; charset="UTF-8"',
+            "Content-Transfer-Encoding: 8bit",
+            "",
+            html,
+            ...safeAttachments.flatMap((attachment) => {
+              const filename = attachment.filename.replace(/[\r\n"]/g, "_");
+              const base64 = attachment.contentBase64
+                .replace(/\s/g, "")
+                .match(/.{1,76}/g)
+                ?.join("\r\n") ?? "";
+              return [
+                `--${boundary}`,
+                `Content-Type: ${attachment.mimeType || "application/octet-stream"}; name="${filename}"`,
+                "Content-Transfer-Encoding: base64",
+                `Content-Disposition: attachment; filename="${filename}"`,
+                "",
+                base64,
+              ];
+            }),
+            `--${boundary}--`,
+          ].join("\r\n");
     return Buffer.from(mime, "utf8")
       .toString("base64")
       .replace(/\+/g, "-")
@@ -257,6 +296,7 @@ export class GmailProvider implements MailProvider {
         `Subject: ${command.subject}`,
       ].filter(Boolean),
       command.bodyHtml,
+      command.attachments,
     );
     const r = await this.post<{ id: string; threadId: string }>("/messages/send", {
       raw,
@@ -331,6 +371,39 @@ export class GmailProvider implements MailProvider {
       body: Buffer.from(padded, "base64"),
       mimeType: resolved.mimeType || "application/octet-stream",
       filename: resolved.filename,
+    };
+  }
+
+  async listFolders(): Promise<ProviderFolder[]> {
+    const response = await this.get<{
+      labels?: { id: string; name: string; type?: string }[];
+    }>("/labels");
+    return (response.labels ?? [])
+      .filter((label) => !["CHAT", "CATEGORY_FORUMS"].includes(label.id))
+      .map((label) => ({
+        id: label.id,
+        name: label.name,
+        system: label.type === "system",
+      }));
+  }
+
+  async moveConversation(
+    id: string,
+    destinationId: string,
+    _key: string,
+  ): Promise<MoveReceipt> {
+    void _key;
+    const thread = await this.get<GmailThread>(`/threads/${id}?format=minimal`);
+    const processed = (thread.messages ?? []).map((message) => message.id);
+    await this.post(`/threads/${id}/modify`, {
+      addLabelIds: [destinationId],
+      removeLabelIds: ["INBOX", "TRASH"],
+    });
+    return {
+      conversationId: id,
+      destinationId,
+      processed,
+      failed: [],
     };
   }
 

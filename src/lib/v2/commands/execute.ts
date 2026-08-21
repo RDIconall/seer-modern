@@ -155,6 +155,26 @@ async function run(
       return enqueueMutation(ctx, "restore", command.conversationId, idempotencyKey);
     case "markUnread":
       return enqueueMutation(ctx, "markUnread", command.conversationId, idempotencyKey);
+    case "move": {
+      if (!ctx.provider) return fail("provider unavailable");
+      const rejected = await rejectCorpusId(ctx, command.providerConversationId);
+      if (rejected) return rejected;
+      const receipt = await ctx.provider.moveConversation(
+        command.providerConversationId,
+        command.destinationId,
+        idempotencyKey,
+      );
+      return {
+        ok: receipt.failed.length === 0,
+        replayed: false,
+        processed: receipt.processed,
+        failed: receipt.failed,
+        error:
+          receipt.failed.length > 0
+            ? `Could not move ${receipt.failed.length} message(s)`
+            : undefined,
+      };
+    }
 
     case "correctConversation": {
       // A user correction is law: it supersedes the model's decision and is not
@@ -216,6 +236,7 @@ async function run(
           to: command.to.map((email) => ({ email })),
           subject: command.subject,
           bodyHtml: command.bodyHtml,
+          attachments: command.attachments,
         },
         idempotencyKey,
       );
