@@ -1,6 +1,7 @@
 import assert from "node:assert/strict";
 import { createElement } from "react";
 import { renderToString } from "react-dom/server";
+import { readFileSync } from "node:fs";
 import { MailClient } from "../src/components/v3/MailClient.tsx";
 import { v3Preview } from "../src/app/dev/preview/v3-sample.ts";
 
@@ -46,5 +47,24 @@ assert.match(atlas, /mail-workspace mail-atlas-workspace/);
 assert.match(atlas, /aria-label="Atlas — the whiteboard"/);
 assert.match(atlas, /mail-reader-pane/);
 assert.match(atlas, /Reading RMS Amendment/);
+
+const clientSource = readFileSync(
+  new URL("../src/components/v3/MailClient.tsx", import.meta.url),
+  "utf8",
+);
+assert.match(
+  clientSource,
+  /<ReaderPane[\s\S]*key=\{conversationId\}/,
+  "changing rows must remount the reader instead of showing stale conversation state",
+);
+const folderPane = clientSource.slice(
+  clientSource.indexOf('className="mail-folder-pane"'),
+  clientSource.indexOf(">", clientSource.indexOf('className="mail-folder-pane"')),
+);
+assert.doesNotMatch(
+  folderPane,
+  /aria-hidden/,
+  "mobile CSS and inert hide the source pane; aria-hidden on its focused row is invalid",
+);
 
 console.log("v3-master-detail: OK");

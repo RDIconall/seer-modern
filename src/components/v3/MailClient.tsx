@@ -348,9 +348,28 @@ export function MailClient({
   }, []);
 
   const activeMailbox = mailbox.view;
+  const previewProviderConversationId = useMemo(() => {
+    if (!preview || !conversationId) return null;
+    const mailboxRows = Object.values(preview.mailbox).flatMap(
+      (view) => view.rows,
+    );
+    const triageRows = preview.triageInbox?.rows ?? [];
+    const atlasRows = preview.inboxView.atlas.flatMap(
+      (matter) => matter.conversations,
+    );
+    return [...mailboxRows, ...triageRows, ...atlasRows].find(
+      (row) => row.conversationId === conversationId,
+    )?.providerConversationId;
+  }, [conversationId, preview]);
   const readerPreview = useMemo(
-    () => (preview && conversationId ? preview.reader : undefined),
-    [conversationId, preview],
+    () =>
+      preview &&
+      conversationId &&
+      previewProviderConversationId ===
+        preview.reader.conversation.providerConversationId
+        ? preview.reader
+        : undefined,
+    [conversationId, preview, previewProviderConversationId],
   );
 
   const navigate = (next: MailSection) => {
@@ -657,6 +676,7 @@ export function MailClient({
 
   const readerContent = conversationId ? (
     <ReaderPane
+      key={conversationId}
       conversationId={conversationId}
       onBack={() => {
         setConversationId(null);
@@ -780,7 +800,6 @@ export function MailClient({
       <div
         className="mail-folder-pane"
         aria-label={section === "atlas" ? "Atlas matters" : `${section} mail`}
-        aria-hidden={mobileModalOpen ? true : undefined}
         inert={mobileModalOpen ? true : undefined}
       >
         {section === "atlas" ? atlasContent : folderContent}
