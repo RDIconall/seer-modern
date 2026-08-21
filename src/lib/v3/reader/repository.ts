@@ -52,30 +52,33 @@ export async function getCorpusConversation(
   );
 
   const providerConversationId = c.rows[0].provider_conversation_id;
+  const messages = msgs.rows.map((m) => ({
+    providerMessageId: m.provider_message_id,
+    from: { email: m.from_email ?? "", name: m.from_name ?? undefined },
+    to: (m.to_emails ?? []).map((email) => ({ email })),
+    cc: (m.cc_emails ?? []).map((email) => ({ email })),
+    sentAt: m.sent_at ?? "",
+    snippet: m.snippet ?? "",
+    bodyHtml: m.body_html,
+    bodyText: m.body_text,
+    isUnread: m.is_unread,
+    isOutgoing: m.is_outgoing,
+    attachments: (m.attachment_names ?? []).map((filename, i) => ({
+      id: `${m.provider_message_id}-${i}`,
+      filename,
+      mimeType: "",
+      sizeBytes: 0,
+    })),
+  }));
   return {
     conversation: {
       providerConversationId,
       subject: c.rows[0].subject ?? "",
       lastMessageAt: c.rows[0].last_message_at ?? "",
-      messages: msgs.rows.map((m) => ({
-        providerMessageId: m.provider_message_id,
-        from: { email: m.from_email ?? "", name: m.from_name ?? undefined },
-        to: (m.to_emails ?? []).map((email) => ({ email })),
-        cc: (m.cc_emails ?? []).map((email) => ({ email })),
-        sentAt: m.sent_at ?? "",
-        snippet: m.snippet ?? "",
-        bodyHtml: m.body_html,
-        bodyText: m.body_text,
-        isUnread: m.is_unread,
-        isOutgoing: m.is_outgoing,
-        attachments: (m.attachment_names ?? []).map((filename, i) => ({
-          id: `${m.provider_message_id}-${i}`,
-          filename,
-          mimeType: "",
-          sizeBytes: 0,
-        })),
-      })),
+      messages,
     },
-    nativeUrl: nativeUrlFor(provider, providerConversationId),
+    nativeUrl: nativeUrlFor(provider, providerConversationId, {
+      messageId: messages[messages.length - 1]?.providerMessageId,
+    }),
   };
 }

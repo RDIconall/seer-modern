@@ -113,6 +113,15 @@ try {
     view!.nativeUrl.includes("p-thread"),
     "native URL must target provider conversation",
   );
+
+  // Outlook resolves a message, not a thread: hand it the newest one on the
+  // conversation or the link lands on "might have been moved or deleted".
+  const outlookView = await getCorpusConversation(accountId, corpusId, "microsoft");
+  assert.ok(outlookView!.nativeUrl.includes("m-new"), "Outlook links to the newest message");
+  assert.ok(
+    !outlookView!.nativeUrl.includes("p-thread"),
+    "the conversation id is not what Outlook resolves",
+  );
   assert.equal(view!.conversation.messages[1].attachments[0].filename, "brief.pdf");
   assert.match(
     view!.conversation.messages[1].attachments[0].id,
