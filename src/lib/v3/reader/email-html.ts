@@ -267,11 +267,25 @@ export function stripQuotedHtml(html: string): StrippedHtml {
   return { html: head, quotedCount: Math.max(1, quotedCount) };
 }
 
+/**
+ * Turn the blockquotes that survived the fold into plain blocks.
+ *
+ * Whatever is left in the fresh body is a blockquote no client announced as a
+ * quote: Zoho's per-send wrapper, a template's indent. Rendered as quotes they
+ * come out dimmed and pushed right once per level, and seven levels deep on a
+ * phone is the message greyed out against the edge of the screen.
+ */
+function unwrapLayoutBlockquotes(html: string): string {
+  return html
+    .replace(/<blockquote\b[^>]*>/gi, "<div>")
+    .replace(/<\/blockquote\s*>/gi, "</div>");
+}
+
 /** The readable body of one message: new text only, structure kept, theme safe. */
 export function readableHtml(html: string | null | undefined): StrippedHtml {
   if (!html) return { html: "", quotedCount: 0 };
   const stripped = stripQuotedHtml(html);
-  const safe = sanitizeStructuralHtml(stripped.html);
+  const safe = sanitizeStructuralHtml(unwrapLayoutBlockquotes(stripped.html));
   if (!hasVisibleText(safe)) return { html: "", quotedCount: stripped.quotedCount };
   return { html: safe, quotedCount: stripped.quotedCount };
 }
