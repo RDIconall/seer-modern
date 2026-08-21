@@ -7,7 +7,6 @@ import type { ProviderKind } from "@/lib/v2/providers/types";
 import { nativeUrlFor } from "@/lib/v2/providers/native-url";
 import {
   conversationFiles,
-  participants,
   shapeThread,
   summariseThread,
   type Turn,
@@ -59,8 +58,6 @@ export function Reader({
   conversation,
   ownEmail,
   onReply,
-  onReplyAll,
-  onForward,
   onArchive,
   onDelete,
   onMove,
@@ -70,8 +67,6 @@ export function Reader({
   conversation: Conversation;
   ownEmail?: string | null;
   onReply: () => void;
-  onReplyAll: () => void;
-  onForward: () => void;
   onArchive: () => void;
   onDelete: () => void;
   onMove?: (destinationId: string) => void;
@@ -84,10 +79,6 @@ export function Reader({
     [conversation, ownDomain, ownEmail],
   );
   const files = useMemo(() => conversationFiles(conversation), [conversation]);
-  const people = useMemo(
-    () => participants(conversation, ownDomain, ownEmail),
-    [conversation, ownDomain, ownEmail],
-  );
   const summary = useMemo(
     () => summariseThread(conversation, ownDomain, ownEmail),
     [conversation, ownDomain, ownEmail],
@@ -107,8 +98,6 @@ export function Reader({
       else next.add(key);
       return next;
     });
-
-  const dropped = people.filter((person) => person.droppedOff);
 
   return (
     <article className="seer-reader">
@@ -136,9 +125,6 @@ export function Reader({
       <ConversationActions
         provider={provider}
         nativeUrl={nativeUrl}
-        onReply={onReply}
-        onReplyAll={onReplyAll}
-        onForward={onForward}
         onArchive={onArchive}
         onDelete={onDelete}
         onMove={onMove}
@@ -259,35 +245,6 @@ export function Reader({
         })}
       </div>
 
-      <section className="reader-people">
-        <h2 className="atlas-heading">On this</h2>
-        <div className="reader-chips">
-          {people.map((person) => (
-            <span
-              key={person.email}
-              className={`reader-chip${person.droppedOff ? " reader-chip-out" : ""}`}
-            >
-              {person.name}
-              {person.org ? <em className="tabular">{person.org}</em> : null}
-            </span>
-          ))}
-        </div>
-        {dropped.length > 0 && (
-          <p className="reader-people-note">
-            {dropped.map((person) => person.name).join(", ")}
-            {dropped.length === 1 ? " was" : " were"} on this earlier and{" "}
-            {dropped.length === 1 ? "has" : "have"} not been on it since.
-          </p>
-        )}
-      </section>
-
-      <p className="reader-foot tabular">
-        {summary.external} with {conversation.messages[0]?.from.name ?? "them"} ·{" "}
-        {summary.internal} internal
-        {summary.daysUnanswered !== null
-          ? ` · ${summary.daysUnanswered} days since they were answered`
-          : ""}
-      </p>
     </article>
   );
 }

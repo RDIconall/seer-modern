@@ -294,9 +294,9 @@ assert.equal(people.find((p) => p.email === "lara@rditrials.com")?.org, "interna
   // Quoted history is counted, not re-read.
   assert.match(html, /quoted message/, "the reader says how much history is hidden");
 
-  // Who is waiting, and who is on it.
+  // Who is waiting still leads the reader; the participants footer does not.
   assert.match(html, /has had no reply/);
-  assert.match(html, /reader-chip/);
+  assert.doesNotMatch(html, /reader-chip/);
 }
 
 console.log("v3-thread-shape: OK");

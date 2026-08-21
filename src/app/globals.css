@@ -459,9 +459,83 @@ body {
   border-bottom: 1px solid var(--border);
 }
 
-.seer-native-note {
-  font-size: 12px;
+.seer-more {
+  position: relative;
+  margin-left: auto;
+}
+
+.seer-more-toggle {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.seer-more-toggle svg {
+  width: 15px;
+  height: 15px;
+}
+
+.seer-more-menu {
+  position: absolute;
+  top: calc(100% + 6px);
+  right: 0;
+  z-index: 30;
+  display: grid;
+  gap: 2px;
+  min-width: 208px;
+  max-height: 60vh;
+  overflow-y: auto;
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  padding: 6px;
+  background: var(--card);
+  box-shadow: 0 12px 32px rgb(0 0 0 / 0.16);
+}
+
+.seer-more-menu button,
+.seer-more-menu a {
+  display: block;
+  width: 100%;
+  border: 0;
+  border-radius: 7px;
+  padding: 8px 10px;
+  background: transparent;
+  color: var(--fg-strong);
+  font: inherit;
+  font-size: 13px;
+  font-weight: 600;
+  text-align: left;
+  text-decoration: none;
+}
+
+.seer-more-menu button:hover,
+.seer-more-menu a:hover {
+  background: var(--row-hover);
+}
+
+.seer-more-group {
+  display: grid;
+  gap: 2px;
+  border-bottom: 1px solid var(--border);
+  padding-bottom: 6px;
+  margin-bottom: 4px;
+}
+
+.seer-more-heading,
+.seer-more-empty {
+  margin: 2px 0 4px;
+  padding: 0 10px;
   color: var(--muted);
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+}
+
+.seer-more-empty {
+  font-weight: 500;
+  letter-spacing: 0;
+  text-transform: none;
 }
 
 .seer-thread {
