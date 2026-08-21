@@ -147,6 +147,15 @@ try {
   assert.equal(inbox.rows[0].matterTitle, "Deal Alpha");
   assert.ok(!inbox.rows.some((r) => r.subject === "Deleted thread"));
 
+  const triage = await getMailboxView(accountId, "inbox", 10, undefined, "triage");
+  assert.equal(triage.total, 1, "mail already promoted to Atlas is not counted in Triage");
+  assert.equal(triage.rows.length, 1);
+  assert.equal(triage.rows[0].subject, "Older inbox thread");
+  assert.ok(
+    !triage.rows.some((row) => row.matterTitle),
+    "Atlas matters must not be duplicated in the action queue",
+  );
+
   const page = await getMailboxView(accountId, "inbox", 1);
   assert.equal(page.rows.length, 1);
   assert.ok(page.nextCursor, "limit+1 pagination must expose nextCursor");

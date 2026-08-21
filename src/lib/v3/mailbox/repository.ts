@@ -170,14 +170,29 @@ export async function getMailboxView(
 ): Promise<MailboxView> {
   const bounded = Math.max(1, Math.min(200, limit));
   const cursor = decodeMailboxCursor(before, sort);
-  const totalRow = await db().query<{ n: number }>(
-    `select count(*)::int as n
-       from seer.conversations c
-      where c.account_id = $1
-        and c.is_deleted = false
-        and c.folders @> array[$2]::text[]`,
-    [accountId, folder],
-  );
+  const totalRow =
+    sort === "triage"
+      ? await db().query<{ n: number }>(
+          `select count(*)::int as n
+             from seer.conversations c
+             left join seer.conversation_decisions d
+               on d.conversation_id = c.id
+              and d.account_id = c.account_id
+              and d.is_current
+            where c.account_id = $1
+              and c.is_deleted = false
+              and c.folders @> array[$2]::text[]
+              and coalesce(d.home, 'pending') <> 'matter'`,
+          [accountId, folder],
+        )
+      : await db().query<{ n: number }>(
+          `select count(*)::int as n
+             from seer.conversations c
+            where c.account_id = $1
+              and c.is_deleted = false
+              and c.folders @> array[$2]::text[]`,
+          [accountId, folder],
+        );
 
   // The ledger's count, over the whole folder — undecided mail is what still
   // needs the user, and it sorts below the fold, so a page-local tally is blind
@@ -200,6 +215,7 @@ export async function getMailboxView(
     sort === "triage"
       ? await db().query<MailboxRowDb>(
           `${MAILBOX_SELECT}
+        and coalesce(d.home, 'pending') <> 'matter'
         and (
           $3::int is null
           or (
