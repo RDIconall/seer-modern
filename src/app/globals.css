@@ -570,13 +570,18 @@ body {
 }
 
 .seer-message-body {
-  overflow-x: auto;
+  max-width: 100%;
 }
 
+/*
+ * The frame reports its own height, so it grows with the message and the page
+ * does the scrolling. The min-height only covers the first paint, and the moment
+ * a height arrives it is overridden inline.
+ */
 .seer-message-frame {
   display: block;
   width: 100%;
-  min-height: 22rem;
+  min-height: 3rem;
   border: 0;
   background: transparent;
 }
