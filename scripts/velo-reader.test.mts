@@ -32,4 +32,28 @@ assert.match(component, /srcDoc=/);
 assert.match(component, /Show remote images/);
 assert.doesNotMatch(component, /dangerouslySetInnerHTML/);
 
+const shared = readFileSync(
+  new URL("../src/components/mail/MailReader.tsx", import.meta.url),
+  "utf8",
+);
+assert.match(shared, /MessageHtml/);
+
+for (const file of [
+  "../src/components/inbox/DesktopMailApp.tsx",
+  "../src/components/inbox/MobileMailApp.tsx",
+]) {
+  const source = readFileSync(new URL(file, import.meta.url), "utf8");
+  assert.match(source, /LegacyThread/);
+  assert.doesNotMatch(source, /dangerouslySetInnerHTML/);
+}
+
+const thread = readFileSync(
+  new URL("../src/components/v2/Reader.tsx", import.meta.url),
+  "utf8",
+);
+assert.match(
+  thread,
+  /lane\.quotedCount === 0[\s\S]*lane\.message\.bodyHtml/,
+);
+
 console.log("velo-reader: OK");

@@ -517,6 +517,64 @@ body {
   font-size: 0.75rem;
 }
 
+.legacy-thread {
+  display: grid;
+  gap: 8px;
+}
+
+.legacy-thread-turn {
+  overflow: hidden;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: var(--card);
+}
+
+.legacy-thread-turn summary {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 10px 12px;
+  cursor: pointer;
+  list-style: none;
+}
+
+.legacy-thread-turn summary::-webkit-details-marker {
+  display: none;
+}
+
+.legacy-thread-turn summary span {
+  overflow: hidden;
+  font-weight: 650;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.legacy-thread-turn summary time {
+  flex: none;
+  color: var(--muted);
+  font-size: 11px;
+}
+
+.legacy-thread-body {
+  border-top: 1px solid var(--border);
+  padding: 12px;
+}
+
+.legacy-thread-files {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin-top: 10px;
+}
+
+.legacy-thread-files a {
+  border: 1px solid var(--border);
+  border-radius: 999px;
+  padding: 4px 9px;
+  font-size: 12px;
+}
+
 .seer-message-text {
   white-space: pre-wrap;
   word-break: break-word;

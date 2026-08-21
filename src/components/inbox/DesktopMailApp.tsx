@@ -1,6 +1,6 @@
 "use client";
 
-import { sanitizeEmailHtml } from "@/lib/inbox/sanitize";
+import { LegacyThread } from "@/components/mail/LegacyThread";
 import {
   Archive,
   Map,
@@ -223,7 +223,6 @@ export function DesktopMailApp() {
     );
   }
 
-  const safeHtml = reader?.htmlBody ? sanitizeEmailHtml(reader.htmlBody) : "";
   const listTitle = query ? "Search results" : FOLDER_LABEL[tab];
 
   return (
@@ -405,18 +404,7 @@ export function DesktopMailApp() {
                 </div>
               ) : null}
               <div className="flex-1 overflow-auto px-5 py-4">
-                {reader.htmlBody ? (
-                  <div
-                    className="prose prose-sm max-w-none dark:prose-invert"
-                    dangerouslySetInnerHTML={{
-                      __html: sanitizeEmailHtml(reader.htmlBody),
-                    }}
-                  />
-                ) : (
-                  <pre className="whitespace-pre-wrap text-[14px]">
-                    {reader.textBody}
-                  </pre>
-                )}
+                <LegacyThread reader={reader} />
               </div>
             </aside>
           ) : null}
@@ -766,16 +754,7 @@ export function DesktopMailApp() {
                   </div>
 
                   <div className="px-6 pb-5 pt-3">
-                    {safeHtml ? (
-                      <div
-                        className="prose prose-sm max-w-none text-[var(--fg)] dark:prose-invert"
-                        dangerouslySetInnerHTML={{ __html: safeHtml }}
-                      />
-                    ) : (
-                      <pre className="whitespace-pre-wrap text-[14px] leading-relaxed">
-                        {reader.textBody || reader.subject}
-                      </pre>
-                    )}
+                    <LegacyThread reader={reader} />
                   </div>
                 </>
               )}

@@ -4,6 +4,7 @@ import type {
   MailMessageListItem,
   SendMailInput,
 } from "@/lib/mail/types";
+import { compileGmailSearch, parseMailSearch } from "@/lib/v3/search/parser";
 
 export type {
   MailFolder,
@@ -293,7 +294,9 @@ export async function searchGmail(
   q: string,
   maxResults = 40,
 ): Promise<MailMessageListItem[]> {
-  const query = encodeURIComponent(q.trim());
+  const query = encodeURIComponent(
+    compileGmailSearch(parseMailSearch(q.trim())),
+  );
   if (!query) return [];
   const list = (await gmailFetch(
     accessToken,
@@ -390,6 +393,22 @@ export async function getGmailMessage(
     ccEmail: header("Cc"),
     messageIdHeader: header("Message-ID") || header("Message-Id"),
   };
+}
+
+export async function getGmailThreadMessages(
+  accessToken: string,
+  threadId: string,
+): Promise<MailMessageDetail[]> {
+  const thread = (await gmailFetch(
+    accessToken,
+    `/users/me/threads/${threadId}?format=minimal`,
+  )) as { messages?: { id: string }[] };
+  const messages = await Promise.all(
+    (thread.messages ?? []).map((message) =>
+      getGmailMessage(accessToken, message.id),
+    ),
+  );
+  return messages.sort((a, b) => a.receivedAt.localeCompare(b.receivedAt));
 }
 
 function buildMime(input: SendMailInput): string {

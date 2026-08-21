@@ -4,6 +4,7 @@ import type {
   MailMessageListItem,
   SendMailInput,
 } from "@/lib/mail/types";
+import { compileOutlookSearch, parseMailSearch } from "@/lib/v3/search/parser";
 
 /**
  * Graph throttles bursts with 429 + Retry-After. One throttled call
@@ -176,7 +177,10 @@ export async function searchGraph(
   maxResults = 40,
   folder?: MailFolder,
 ): Promise<MailMessageListItem[]> {
-  const term = q.trim().replace(/"/g, "");
+  const term = compileOutlookSearch(parseMailSearch(q.trim())).replace(
+    /"/g,
+    "",
+  );
   if (!term) return [];
   const path = folder ? folderPath(folder) : "/me/messages";
   const url = new URL(`https://graph.microsoft.com/v1.0${path}`);
@@ -252,6 +256,23 @@ export async function getGraphMessage(
     messageIdHeader: m.internetMessageId ?? "",
     attachments,
   };
+}
+
+export async function getGraphConversationMessages(
+  accessToken: string,
+  conversationId: string,
+): Promise<MailMessageDetail[]> {
+  const safeId = conversationId.replaceAll("'", "''");
+  const page = (await graphFetch(
+    accessToken,
+    `/me/messages?$filter=conversationId eq '${safeId}'&$select=id&$top=100`,
+  )) as { value?: { id: string }[] };
+  const messages = await Promise.all(
+    (page.value ?? []).map((message) =>
+      getGraphMessage(accessToken, message.id),
+    ),
+  );
+  return messages.sort((a, b) => a.receivedAt.localeCompare(b.receivedAt));
 }
 
 /** Raw attachment bytes (fileAttachment contentBytes). */

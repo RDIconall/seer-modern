@@ -11,11 +11,16 @@ import { loadActionMemory } from "@/lib/store/action-memory";
 import { loadRepliedThreads } from "@/lib/store/replied-threads";
 import {
   getGmailMessage,
+  getGmailThreadMessages,
   getGmailThreadLast,
   listGmailFolder,
   searchGmail,
 } from "@/lib/mail/gmail";
-import { getGraphMessage, listGraphFolder } from "@/lib/mail/graph";
+import {
+  getGraphConversationMessages,
+  getGraphMessage,
+  listGraphFolder,
+} from "@/lib/mail/graph";
 import { makeGmailLabelStore } from "@/lib/mail/seer-labels";
 import { requireMailSession } from "@/lib/mail/session";
 import { getSenderOverride } from "@/lib/store/senders";
@@ -85,6 +90,13 @@ export async function GET(
       session.provider === "google"
         ? await getGmailMessage(session.accessToken, id)
         : await getGraphMessage(session.accessToken, id);
+    const thread =
+      session.provider === "google"
+        ? await getGmailThreadMessages(session.accessToken, message.threadId)
+        : await getGraphConversationMessages(
+            session.accessToken,
+            message.threadId,
+          );
 
     const [history, personal, actionMemory, labels, replied] =
       await Promise.all([
@@ -216,6 +228,11 @@ export async function GET(
 
     return NextResponse.json({
       message: displayMessage,
+      thread: thread.map((turn) =>
+        turn.fromEmail.toLowerCase() === session.email.toLowerCase()
+          ? { ...turn, fromName: "You" }
+          : turn,
+      ),
       guide,
       classification,
       keyActions,

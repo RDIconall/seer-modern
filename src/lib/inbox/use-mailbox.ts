@@ -110,6 +110,15 @@ type ReaderPayload = {
     messageIdHeader?: string;
     receivedAt?: string;
   };
+  thread?: Array<{
+    id: string;
+    htmlBody: string;
+    textBody: string;
+    fromName: string;
+    fromEmail: string;
+    receivedAt?: string;
+    attachments?: NonNullable<ReaderMessage["attachments"]>;
+  }>;
   guide?: ReaderMessage["guide"];
   keyActions?: ReaderMessage["keyActions"];
   calendarEvent?: ReaderMessage["calendarEvent"];
@@ -1051,6 +1060,7 @@ export function useMailbox(initialTab: ViewTab = "inbox") {
     attachments: (json.message.attachments ?? undefined) as
       | ReaderMessage["attachments"]
       | undefined,
+    thread: json.thread,
   });
 
   const fetchMessage = useCallback(

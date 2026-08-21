@@ -1,6 +1,6 @@
 "use client";
 
-import { sanitizeEmailHtml } from "@/lib/inbox/sanitize";
+import { LegacyThread } from "@/components/mail/LegacyThread";
 import {
   Archive,
   Map,
@@ -255,9 +255,6 @@ export function MobileMailApp() {
     // sweep the conversation turn that's still awaiting a reply.
     const readerThreadId =
       g?.debug?.ruleId === "thread-sibling" ? undefined : reader?.threadId;
-    const safeHtml = reader?.htmlBody
-      ? sanitizeEmailHtml(reader.htmlBody)
-      : "";
     return (
       <div className="app-shell fixed inset-0 z-50 flex flex-col bg-[var(--bg)]">
         {delegateFor ? (
@@ -374,15 +371,8 @@ export function MobileMailApp() {
           <div className="px-4 pb-4 pt-3">
             {!reader ? (
               <p className="text-[14px] text-[var(--muted)]">Loading…</p>
-            ) : safeHtml ? (
-              <div
-                className="prose prose-sm max-w-none text-[var(--fg)] dark:prose-invert"
-                dangerouslySetInnerHTML={{ __html: safeHtml }}
-              />
             ) : (
-              <pre className="whitespace-pre-wrap text-[14px] leading-relaxed">
-                {reader.textBody || reader.subject}
-              </pre>
+              <LegacyThread reader={reader} />
             )}
           </div>
         </div>

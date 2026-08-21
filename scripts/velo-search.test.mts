@@ -27,4 +27,15 @@ assert.equal(
 assert.doesNotThrow(() => parseMailSearch("invoice"));
 assert.equal(parseMailSearch("from:").text, "from:");
 
+for (const file of [
+  "../src/lib/mail/gmail.ts",
+  "../src/lib/mail/graph.ts",
+]) {
+  const source = (await import("node:fs")).readFileSync(
+    new URL(file, import.meta.url),
+    "utf8",
+  );
+  assert.match(source, /parseMailSearch/);
+}
+
 console.log("velo-search: OK");

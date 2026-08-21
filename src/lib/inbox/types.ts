@@ -264,6 +264,21 @@ export type ReaderMessage = {
     mimeType: string;
     size: number;
   }[];
+  /** Complete provider conversation, oldest first. */
+  thread?: {
+    id: string;
+    htmlBody: string;
+    textBody: string;
+    fromName: string;
+    fromEmail: string;
+    receivedAt?: string;
+    attachments?: {
+      id: string;
+      filename: string;
+      mimeType: string;
+      size: number;
+    }[];
+  }[];
 };
 
 /** Marketing subjects drag emoji into tasks and titles — strip them. */

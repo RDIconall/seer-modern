@@ -12,7 +12,7 @@ import {
   summariseThread,
   type Turn,
 } from "@/lib/v3/reader/thread-shape";
-import { MessageHtml } from "./MessageHtml";
+import { MailReader } from "@/components/mail/MailReader";
 import { ConversationActions } from "./ConversationActions";
 
 /** Build a v3 attachment download URL for a provider message attachment. */
@@ -189,7 +189,18 @@ export function Reader({
                           <b>{turn.who}</b>
                           <em className="tabular">{shortDate(turn.message.sentAt)}</em>
                         </div>
-                        <p className="reader-branch-text">{turn.text}</p>
+                        <MailReader
+                          className="reader-branch-text"
+                          html={
+                            turn.message.bodyHtml &&
+                            !/(?:gmail_quote|blockquote|Original Message)/i.test(
+                              turn.message.bodyHtml,
+                            )
+                              ? turn.message.bodyHtml
+                              : null
+                          }
+                          text={turn.text}
+                        />
                       </div>
                     ))}
                   </div>
@@ -216,7 +227,14 @@ export function Reader({
               </button>
               {isOpen && (
                 <div className="reader-turn-body">
-                  <MessageHtml html={null} text={lane.body} />
+                  <MailReader
+                    html={
+                      lane.quotedCount === 0
+                        ? lane.message.bodyHtml
+                        : null
+                    }
+                    text={lane.body}
+                  />
                   {lane.quotedCount > 0 && (
                     <p className="reader-stripped tabular">
                       {lane.quotedCount} quoted message
