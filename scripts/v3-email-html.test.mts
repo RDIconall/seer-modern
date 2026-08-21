@@ -135,6 +135,11 @@ import {
   const readable = readableHtml(zoho);
   assert.match(readable.html, /excited to introduce a platform/);
   assert.equal(readable.quotedCount, 0);
+  assert.doesNotMatch(
+    readable.html,
+    /<blockquote/i,
+    "a wrapper nobody announced is not rendered as a quote",
+  );
 }
 
 // An announced quote still folds, blockquote or not.

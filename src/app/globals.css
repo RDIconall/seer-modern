@@ -573,6 +573,14 @@ body {
   color: var(--nav-muted);
 }
 
+/* One quote reads as a quote. Six nested ones — which is what a thread that has
+   been round the houses arrives as — read as a wall pushed off the screen. */
+.seer-message-body blockquote blockquote {
+  margin: 0;
+  padding: 0;
+  border-left: none;
+}
+
 .seer-message-body pre {
   margin: 0.75em 0;
   padding: 0.6em 0.75em;
