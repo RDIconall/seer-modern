@@ -38,7 +38,7 @@ export async function POST(request: Request) {
     return NextResponse.json({ error: "no active v2 account" }, { status: 404 });
   }
 
-  let body: { command?: Command; idempotencyKey?: string };
+  let body: { command?: Command; idempotencyKey?: string; withView?: boolean };
   try {
     body = (await request.json()) as typeof body;
   } catch {
@@ -73,6 +73,13 @@ export async function POST(request: Request) {
     body.command,
     body.idempotencyKey,
   );
+
+  // The projections are only for the whiteboard, which patches itself from the
+  // response. Building both on every command charged a bulk action two full
+  // rebuilds of the inbox per row — fifty deletes meant a hundred projections
+  // nobody read, and the batch crawled while they were built.
+  if (!body.withView) return NextResponse.json({ result });
+
   const view = await buildInboxView(account.id, account.provider);
   const mailbox = await getMailboxView(
     account.id,
