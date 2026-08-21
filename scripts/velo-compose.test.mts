@@ -39,4 +39,12 @@ const rich = readFileSync(
 assert.match(rich, /@tiptap\/react/);
 assert.match(rich, /StarterKit/);
 
+const legacy = readFileSync(
+  new URL("../src/components/inbox/ComposePanel.tsx", import.meta.url),
+  "utf8",
+);
+assert.match(legacy, /RichComposer/);
+assert.match(legacy, /localStorage/);
+assert.match(legacy, /Add attachment/);
+
 console.log("velo-compose: OK");

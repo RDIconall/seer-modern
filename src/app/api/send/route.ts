@@ -70,6 +70,12 @@ export async function POST(request: Request) {
       replyToId?: string;
       /** Delegation: the forward hands it off, the original leaves the inbox */
       archiveOriginal?: boolean;
+      attachments?: {
+        filename: string;
+        mimeType: string;
+        contentBase64: string;
+        sizeBytes: number;
+      }[];
     };
 
     const mode: Mode = body.mode ?? "compose";
@@ -77,6 +83,22 @@ export async function POST(request: Request) {
     const html = body.html?.trim() || undefined;
     const toList = addressList(body.to);
     const ccList = addressList(body.cc) || undefined;
+    const attachments = body.attachments ?? [];
+    if (
+      attachments.length > 5 ||
+      attachments.some(
+        (attachment) =>
+          !attachment.filename ||
+          attachment.sizeBytes < 0 ||
+          attachment.sizeBytes > 3_000_000 ||
+          !/^[A-Za-z0-9+/]*={0,2}$/.test(attachment.contentBase64),
+      )
+    ) {
+      return NextResponse.json(
+        { error: "Invalid attachment" },
+        { status: 400 },
+      );
+    }
     // A forward's body IS the original message — a note on top is
     // optional. Compose/reply with nothing to say is still an error.
     if (!text && mode !== "forward") {
@@ -94,6 +116,7 @@ export async function POST(request: Request) {
           subject: body.subject?.trim() || "(no subject)",
           body: text,
           html,
+          attachments,
         });
         return NextResponse.json({ ok: true, ...sent });
       }
@@ -129,6 +152,7 @@ export async function POST(request: Request) {
           html: html
             ? `${html}<br><br>${quotedHtml(`${forwardHeader}${originalText}`)}`
             : undefined,
+          attachments,
         });
         if (body.archiveOriginal) {
           await gmailAction(
@@ -180,6 +204,7 @@ export async function POST(request: Request) {
         html: html
           ? `${html}<br><br>${quotedHtml(attribution)}<blockquote style="margin:0 0 0 0.8ex;border-left:2px solid #ccc;padding-left:1ex">${quotedHtml(originalText)}</blockquote>`
           : undefined,
+        attachments,
         threadId: original.threadId,
         inReplyTo: original.messageIdHeader || undefined,
         references: original.messageIdHeader || undefined,
@@ -240,6 +265,7 @@ export async function POST(request: Request) {
         subject: ensureFwd(body.subject?.trim() || original.subject),
         body: quoted,
         html: html ? `${html}<br><br>${quotedHtml(forwarded)}` : undefined,
+        attachments,
       });
       if (body.archiveOriginal) {
         await graphAction(
@@ -260,6 +286,7 @@ export async function POST(request: Request) {
       subject: body.subject?.trim() || "(no subject)",
       body: text,
       html,
+      attachments,
     });
     return NextResponse.json({ ok: true });
   } catch (e) {

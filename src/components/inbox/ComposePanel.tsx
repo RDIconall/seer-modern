@@ -1,8 +1,16 @@
 "use client";
 
-import { ChevronLeft, Send } from "lucide-react";
+import { ChevronLeft, Paperclip, Send, Trash2 } from "lucide-react";
 import { useEffect, useRef, useState } from "react";
-import { RichText, type RichValue } from "@/components/inbox/RichText";
+import {
+  RichComposer,
+  type RichComposerValue,
+} from "@/components/v3/RichComposer";
+import {
+  draftStorageKey,
+  parseStoredDraft,
+  type StoredDraft,
+} from "@/lib/v3/compose/draft";
 
 type Contact = { name?: string; email: string };
 
@@ -148,12 +156,73 @@ export function ComposePanel({
   const [to, setTo] = useState(draft.to);
   const [cc, setCc] = useState(draft.cc);
   const [subject, setSubject] = useState(draft.subject);
-  const [rich, setRich] = useState<RichValue>({
+  const [rich, setRich] = useState<RichComposerValue>({
     html: textToHtml(draft.body),
     text: draft.body,
   });
+  const [attachments, setAttachments] = useState<
+    {
+      filename: string;
+      mimeType: string;
+      contentBase64: string;
+      sizeBytes: number;
+    }[]
+  >([]);
   const [sending, setSending] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const storageKey = draftStorageKey(
+    "legacy",
+    draft.mode,
+    draft.replyToId,
+  );
+
+  useEffect(() => {
+    const saved = parseStoredDraft(window.localStorage.getItem(storageKey));
+    if (!saved) return;
+    setTo(saved.recipients.join(", "));
+    setSubject(saved.subject);
+    setRich({ html: saved.bodyHtml, text: saved.bodyText });
+  }, [storageKey]);
+
+  useEffect(() => {
+    if (!to && !subject && !rich.text) return;
+    const timer = window.setTimeout(() => {
+      const saved: StoredDraft = {
+        recipients: to
+          .split(/[,;]/)
+          .map((email) => email.trim())
+          .filter(Boolean),
+        subject,
+        bodyHtml: rich.html,
+        bodyText: rich.text,
+        savedAt: new Date().toISOString(),
+      };
+      window.localStorage.setItem(storageKey, JSON.stringify(saved));
+    }, 500);
+    return () => window.clearTimeout(timer);
+  }, [rich, storageKey, subject, to]);
+
+  async function addAttachments(files: FileList | null) {
+    if (!files) return;
+    for (const file of Array.from(files)) {
+      if (file.size > 3_000_000) {
+        setError(`${file.name} is larger than 3 MB.`);
+        continue;
+      }
+      const bytes = new Uint8Array(await file.arrayBuffer());
+      let binary = "";
+      for (const byte of bytes) binary += String.fromCharCode(byte);
+      setAttachments((current) => [
+        ...current,
+        {
+          filename: file.name,
+          mimeType: file.type || "application/octet-stream",
+          contentBase64: window.btoa(binary),
+          sizeBytes: file.size,
+        },
+      ]);
+    }
+  }
 
   const title =
     draft.mode === "compose"
@@ -178,6 +247,7 @@ export function ComposePanel({
           subject,
           body: rich.text,
           html: rich.html || undefined,
+          attachments,
           replyToId: draft.replyToId,
           archiveOriginal: draft.archiveOriginal,
         }),
@@ -205,6 +275,7 @@ export function ComposePanel({
         );
       }
       if (!res.ok) throw new Error(json.error ?? "Send failed");
+      window.localStorage.removeItem(storageKey);
       onSent();
     } catch (e) {
       setError(e instanceof Error ? e.message : "Send failed");
@@ -254,11 +325,9 @@ export function ComposePanel({
           />
         </label>
         <div className="mt-3 flex min-h-0 flex-1 flex-col">
-          <RichText
+          <RichComposer
             value={rich}
             onChange={setRich}
-            autoFocus
-            minHeight={320}
             placeholder={
               draft.mode === "forward"
                 ? "Add a note (optional)"
@@ -268,6 +337,40 @@ export function ComposePanel({
             }
           />
         </div>
+        {draft.mode === "compose" ? (
+          <div className="mail-compose-extras">
+            <label className="mail-compose-extra mail-focus-ring">
+              <Paperclip aria-hidden />
+              Add attachment
+              <input
+                className="sr-only"
+                type="file"
+                multiple
+                onChange={(event) => void addAttachments(event.target.files)}
+              />
+            </label>
+          </div>
+        ) : null}
+        {attachments.length ? (
+          <ul className="mail-compose-attachments" aria-label="Attachments">
+            {attachments.map((attachment, index) => (
+              <li key={`${attachment.filename}:${index}`}>
+                <span>{attachment.filename}</span>
+                <button
+                  type="button"
+                  aria-label={`Remove ${attachment.filename}`}
+                  onClick={() =>
+                    setAttachments((current) =>
+                      current.filter((_, item) => item !== index),
+                    )
+                  }
+                >
+                  <Trash2 aria-hidden />
+                </button>
+              </li>
+            ))}
+          </ul>
+        ) : null}
         {draft.mode !== "compose" ? (
           <p className="mb-2 text-[12px] text-[var(--muted)]">
             {draft.mode === "forward"

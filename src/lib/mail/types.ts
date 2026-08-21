@@ -48,4 +48,10 @@ export type SendMailInput = {
   threadId?: string;
   inReplyTo?: string;
   references?: string;
+  attachments?: {
+    filename: string;
+    mimeType: string;
+    contentBase64: string;
+    sizeBytes: number;
+  }[];
 };

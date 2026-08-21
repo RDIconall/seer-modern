@@ -316,6 +316,12 @@ export async function sendGraphMessage(
         ...(input.cc?.trim()
           ? { ccRecipients: parseAddresses(input.cc) }
           : {}),
+        attachments: (input.attachments ?? []).map((attachment) => ({
+          "@odata.type": "#microsoft.graph.fileAttachment",
+          name: attachment.filename,
+          contentType: attachment.mimeType,
+          contentBytes: attachment.contentBase64,
+        })),
       },
       saveToSentItems: true,
     }),

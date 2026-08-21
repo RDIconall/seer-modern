@@ -420,6 +420,54 @@ function buildMime(input: SendMailInput): string {
     ...(input.inReplyTo ? [`In-Reply-To: ${input.inReplyTo}`] : []),
     ...(input.references ? [`References: ${input.references}`] : []),
   ];
+  const attachments = input.attachments ?? [];
+  if (attachments.length > 0) {
+    const mixed = `seer-mixed-${Date.now().toString(36)}`;
+    const alternative = `seer-alt-${Date.now().toString(36)}`;
+    const bodyPart = input.html
+      ? [
+          `Content-Type: multipart/alternative; boundary="${alternative}"`,
+          "",
+          `--${alternative}`,
+          'Content-Type: text/plain; charset="UTF-8"',
+          "",
+          input.body,
+          "",
+          `--${alternative}`,
+          'Content-Type: text/html; charset="UTF-8"',
+          "",
+          input.html,
+          "",
+          `--${alternative}--`,
+        ]
+      : [
+          'Content-Type: text/plain; charset="UTF-8"',
+          "",
+          input.body,
+        ];
+    return [
+      ...head,
+      `Content-Type: multipart/mixed; boundary="${mixed}"`,
+      "",
+      `--${mixed}`,
+      ...bodyPart,
+      ...attachments.flatMap((attachment) => {
+        const filename = attachment.filename.replace(/[\r\n"]/g, "_");
+        const mimeType = /^[\w.+-]+\/[\w.+-]+$/.test(attachment.mimeType)
+          ? attachment.mimeType
+          : "application/octet-stream";
+        return [
+          `--${mixed}`,
+          `Content-Type: ${mimeType}; name="${filename}"`,
+          "Content-Transfer-Encoding: base64",
+          `Content-Disposition: attachment; filename="${filename}"`,
+          "",
+          attachment.contentBase64.replace(/\s/g, ""),
+        ];
+      }),
+      `--${mixed}--`,
+    ].join("\r\n");
+  }
 
   if (!input.html) {
     return [

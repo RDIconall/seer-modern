@@ -128,6 +128,28 @@ await check("a rich send is multipart, text first, HTML second", async () => {
   );
 });
 
+await check("Gmail sends compose attachments as multipart/mixed", async () => {
+  const calls = stubFetch(200, JSON.stringify({ id: "m1", threadId: "t1" }));
+  await sendGmailMessage("token", {
+    to: "someone@example.com",
+    subject: "Files",
+    body: "Attached",
+    html: "<p>Attached</p>",
+    attachments: [
+      {
+        filename: "report.txt",
+        mimeType: "text/plain",
+        contentBase64: Buffer.from("hello").toString("base64"),
+        sizeBytes: 5,
+      },
+    ],
+  });
+  const mime = sentMime(calls);
+  assert.match(mime, /Content-Type: multipart\/mixed/);
+  assert.match(mime, /filename="report\.txt"/);
+  assert.match(mime, /aGVsbG8=/);
+});
+
 await check("Graph sends HTML when it is given, Text when it is not", async () => {
   let calls = stubFetch(202, "");
   await sendGraphMessage("token", {
@@ -151,6 +173,28 @@ await check("Graph sends HTML when it is given, Text when it is not", async () =
   payload = JSON.parse(calls.at(-1)?.body ?? "{}");
   assert.equal(payload.message?.body?.contentType, "Text");
   assert.equal(payload.message?.body?.content, "- one");
+});
+
+await check("Graph includes file attachments on compose", async () => {
+  const calls = stubFetch(202, "");
+  await sendGraphMessage("token", {
+    to: "someone@example.com",
+    subject: "Files",
+    body: "Attached",
+    attachments: [
+      {
+        filename: "report.txt",
+        mimeType: "text/plain",
+        contentBase64: "aGVsbG8=",
+        sizeBytes: 5,
+      },
+    ],
+  });
+  const payload = JSON.parse(calls.at(-1)?.body ?? "{}") as {
+    message?: { attachments?: { name?: string; contentBytes?: string }[] };
+  };
+  assert.equal(payload.message?.attachments?.[0]?.name, "report.txt");
+  assert.equal(payload.message?.attachments?.[0]?.contentBytes, "aGVsbG8=");
 });
 
 if (failures) {
