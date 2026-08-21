@@ -8,6 +8,7 @@
 import assert from "node:assert/strict";
 import {
   dayLabel,
+  likelyDisposition,
   timeLabel,
   triagePiles,
   verbFor,
@@ -16,7 +17,7 @@ import {
 import { promises as fs } from "node:fs";
 import { createElement } from "react";
 import { renderToString } from "react-dom/server";
-import { TriageList } from "../src/components/v3/TriageList.tsx";
+import { dismissesLocally, TriageList } from "../src/components/v3/TriageList.tsx";
 import type { MailboxRow } from "../src/lib/v3/mailbox/types.ts";
 
 const row = (over: Partial<MailboxRow>): MailboxRow => ({
@@ -49,7 +50,7 @@ assert.equal(verbFor(row({ disposition: "matter" })), "keep");
 assert.equal(verbFor(row({ disposition: "undecided" })), "keep");
 assert.equal(verbFor(row({ disposition: "pending" })), "keep");
 
-// Owing a reply outranks everything but a clearance to delete: burying a reply
+// Owing a reply outranks everything but a likely delete: burying a reply
 // you owe under "keep" is how it goes unsent for a fortnight.
 assert.equal(verbFor(row({ disposition: "matter", owner: "you" })), "answer");
 assert.equal(verbFor(row({ disposition: "record", owner: "you" })), "answer");
@@ -61,6 +62,50 @@ assert.equal(verbFor(row({ disposition: "delete", owner: "you" })), "delete");
 // Work with someone else is not yours to answer.
 assert.equal(verbFor(row({ disposition: "matter", owner: "them" })), "keep");
 assert.equal(verbFor(row({ disposition: "matter", owner: "team" })), "keep");
+
+// Proposed home drives likely action when durable home was vetoed to undecided.
+{
+  const vetoedDelete = row({
+    disposition: "undecided",
+    proposedDisposition: "delete",
+    owner: "nobody",
+    deleteToken: null,
+    vetoReasons: ["live_matter"],
+  });
+  assert.equal(verbFor(vetoedDelete), "delete");
+  assert.equal(likelyDisposition(vetoedDelete), "delete");
+  // Grouping must not mint safety state or rewrite the durable decision.
+  assert.equal(vetoedDelete.disposition, "undecided");
+  assert.equal(vetoedDelete.deleteToken, null);
+  assert.deepEqual(vetoedDelete.vetoReasons, ["live_matter"]);
+}
+
+assert.equal(
+  verbFor(row({ disposition: "undecided", proposedDisposition: "record" })),
+  "file",
+);
+assert.equal(
+  verbFor(
+    row({
+      disposition: "undecided",
+      proposedDisposition: "delete",
+      owner: "you",
+    }),
+  ),
+  "delete",
+  "likely delete still outranks owing a reply",
+);
+assert.equal(
+  verbFor(
+    row({
+      disposition: "undecided",
+      proposedDisposition: "record",
+      owner: "you",
+    }),
+  ),
+  "answer",
+  "owner you still makes non-delete mail Answer",
+);
 
 // --- days, as a person reads them ---------------------------------------------
 
@@ -83,6 +128,13 @@ assert.equal(timeLabel("2026-08-14T09:04:00.000Z", now), "");
     row({ conversationId: "f1", disposition: "record", timestamp: "2026-08-17T08:00:00.000Z" }),
     row({ conversationId: "a1", disposition: "matter", owner: "you", timestamp: "2026-08-17T07:00:00.000Z" }),
     row({ conversationId: "k1", disposition: "matter", timestamp: "2026-08-17T06:00:00.000Z" }),
+    row({
+      conversationId: "vd",
+      disposition: "undecided",
+      proposedDisposition: "delete",
+      vetoReasons: ["live_matter"],
+      timestamp: "2026-08-17T05:00:00.000Z",
+    }),
   ];
   const piles = triagePiles(rows, new Set(), now);
 
@@ -96,22 +148,24 @@ assert.equal(timeLabel("2026-08-14T09:04:00.000Z", now), "");
     ["Delete", "Archive", "Answer", "Atlas"],
   );
 
-  // Days sit inside a pile, newest first.
+  // Days sit inside a pile, newest first. Vetoed-proposed deletes join Delete.
   const del = piles[0];
-  assert.equal(del.count, 2);
+  assert.equal(del.count, 3);
   assert.deepEqual(del.days.map((d) => d.day), ["Today", "Yesterday"]);
-  assert.deepEqual(del.days[0].rows.map((r) => r.conversationId), ["d1"]);
+  assert.deepEqual(
+    del.days[0].rows.map((r) => r.conversationId),
+    ["d1", "vd"],
+  );
 
-  // A settled row leaves the piles entirely.
+  // A dismissed row leaves the piles entirely.
   const after = triagePiles(rows, new Set(["d1"]), now);
-  assert.equal(after[0].count, 1);
-  assert.deepEqual(after[0].days.map((d) => d.day), ["Yesterday"]);
+  assert.equal(after[0].count, 2);
 
   // An empty pile is not drawn at all.
   const onlyKeep = triagePiles([row({ conversationId: "k", disposition: "matter" })], new Set(), now);
   assert.deepEqual(onlyKeep.map((p) => p.verb), ["keep"]);
 
-  // Settling everything leaves nothing to draw, which is what "clear" means.
+  // Dismissing everything leaves nothing to draw, which is what "clear" means.
   assert.deepEqual(triagePiles(rows, new Set(rows.map((r) => r.conversationId)), now), []);
 }
 
@@ -144,6 +198,9 @@ assert.equal(timeLabel("2026-08-14T09:04:00.000Z", now), "");
 
   // A row that owes a reply says so rather than leaving it to be inferred.
   assert.match(html, /You owe a reply/);
+
+  // No local Deleted/Archived undo strip — mailbox/outbox notice owns that.
+  assert.doesNotMatch(html, /tri-settled/);
 }
 
 /**
@@ -161,5 +218,34 @@ assert.match(source, /event\.metaKey \|\| event\.ctrlKey/, "multi-click selects 
 assert.match(source, /event\.key\.toLowerCase\(\) === "j"/, "J/K keyboard navigation");
 assert.match(source, /onWheel/, "desktop trackpad gestures use the swipe rail");
 assert.match(source, /bulkAct\("delete"\)/, "selected rows can be deleted together");
+
+// Delete/Archive must not enter local dismissed state; Atlas must.
+assert.equal(dismissesLocally("atlas"), true);
+assert.equal(dismissesLocally("delete"), false);
+assert.equal(dismissesLocally("archive"), false);
+assert.match(source, /dismissesLocally\(action\)/, "Atlas alone updates local dismissed ids");
+assert.match(
+  source,
+  /void onCommands\(picked\.map\(\(row\) => commandFor\(row, action\)\)\)/,
+  "one command batch is sent per settle",
+);
+assert.doesNotMatch(source, /tri-settled/, "no duplicate local undo strip");
+assert.doesNotMatch(
+  source,
+  /type: "restore"/,
+  "provider undo lives on the mailbox/outbox notice, not TriageList",
+);
+
+const verbSource = await fs.readFile("src/lib/v3/mailbox/triage-verb.ts", "utf8");
+assert.match(
+  verbSource,
+  /Presentation only/,
+  "grouping comments state this does not mint delete tokens",
+);
+assert.match(
+  verbSource,
+  /does not bypass automated deletion safety/,
+  "grouping does not weaken automated deletion safety",
+);
 
 console.log("v3-triage-verb: OK");

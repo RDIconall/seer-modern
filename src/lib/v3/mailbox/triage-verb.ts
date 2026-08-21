@@ -1,3 +1,4 @@
+import type { Disposition } from "./triage-rank";
 import type { MailboxRow } from "./types";
 
 /**
@@ -37,16 +38,35 @@ export const VERB_HINT: Record<TriageVerb, string> = {
 };
 
 /**
+ * Likely user action for triage presentation.
+ *
+ * Prefer `proposedDisposition` when the decision recorded one: a safety veto
+ * can leave durable `home` as undecided while the model still believed delete
+ * (or record). Grouping by that proposal puts the row where the user is most
+ * likely to act.
+ *
+ * Presentation only. Reading the proposal does not mint a delete token, does
+ * not change durable home, and does not bypass automated deletion safety —
+ * row-level delete still goes `{ byUser: true }`, and pile sweeps still need a
+ * signed token on durable delete.
+ */
+export function likelyDisposition(row: MailboxRow): Disposition {
+  return row.proposedDisposition ?? row.disposition;
+}
+
+/**
  * Which pile a conversation is in.
  *
- * Owing a reply outranks everything except a clearance to delete: a thread the
- * user owes a move on is work whatever else Seer decided about it, and burying
- * it under "keep" is how a reply goes unsent for a fortnight.
+ * Likely delete outranks everything, including a veto that parked durable home
+ * at undecided. Owing a reply outranks every non-delete likelihood: a thread
+ * the user owes a move on is work, and burying it under "keep" is how a reply
+ * goes unsent for a fortnight.
  */
 export function verbFor(row: MailboxRow): TriageVerb {
-  if (row.disposition === "delete") return "delete";
+  const likely = likelyDisposition(row);
+  if (likely === "delete") return "delete";
   if (row.owner === "you") return "answer";
-  if (row.disposition === "record") return "file";
+  if (likely === "record") return "file";
   return "keep";
 }
 
@@ -90,17 +110,17 @@ export type TriagePile = { verb: TriageVerb; label: string; count: number; days:
 
 /**
  * Shape the mailbox into piles, each broken into days, newest first. Rows the
- * user has already settled are gone from here — they live in the strip at the
- * bottom until the undo window closes.
+ * caller has already dismissed (Atlas only — Delete/Archive leave via the
+ * mailbox optimistic removal) are gone from here.
  */
 export function triagePiles(
   rows: MailboxRow[],
-  settled: ReadonlySet<string>,
+  dismissed: ReadonlySet<string>,
   now = Date.now(),
 ): TriagePile[] {
   const byVerb = new Map<TriageVerb, MailboxRow[]>();
   for (const row of rows) {
-    if (settled.has(row.conversationId)) continue;
+    if (dismissed.has(row.conversationId)) continue;
     const verb = verbFor(row);
     const list = byVerb.get(verb) ?? [];
     list.push(row);

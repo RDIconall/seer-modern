@@ -25,6 +25,12 @@ export type MailboxRow = {
   /** What Seer's current decision says this is. Server-set; never re-derived. */
   disposition: Disposition;
   /**
+   * What the model wanted before safety vetoes. Present when a current decision
+   * recorded a `proposed_home`; absent/null when there is none. Triage may use
+   * this to present likely user action — it does not mint a delete token.
+   */
+  proposedDisposition?: Disposition | null;
+  /**
    * Who owes the next move. Triage needs it to tell "answer this" apart from
    * "keep this": a conversation the user owes a reply on is work, not filing,
    * whatever pile its disposition would otherwise put it in.

@@ -36,13 +36,16 @@ import {
  * anything not deleted and not filed is live work, so Keep makes it a matter on
  * Atlas. That is the whole claim of the screen — triage is the mouth of Atlas,
  * not a bin with a bin next to it.
+ *
+ * Delete and Archive rely on the mailbox's optimistic removal in
+ * `dispatchMany` / `applyMailboxCommands`. Atlas (`correctConversation`) does
+ * not remove the row there, so this list keeps a small local dismissed-ID set
+ * for Atlas only — no second undo strip for provider mutations.
  */
 
 /** Right past this files; a longer left pull deletes. */
 const NEAR = 78;
 const FAR = 176;
-
-type Settled = { row: MailboxRow; what: string };
 
 type TriageAction = "atlas" | "archive" | "delete";
 
@@ -62,8 +65,10 @@ const commandFor = (row: MailboxRow, action: TriageAction): Command =>
           byUser: true,
         };
 
-const settledLabel = (action: TriageAction): string =>
-  action === "atlas" ? "Atlas" : action === "archive" ? "Archived" : "Deleted";
+/** Atlas leaves the work queue locally; Delete/Archive do not. */
+export function dismissesLocally(action: TriageAction): boolean {
+  return action === "atlas";
+}
 
 function tableDate(timestamp: string): string {
   const day = dayLabel(timestamp);
@@ -80,12 +85,12 @@ export function TriageList({
   onCommands: (commands: Command[]) => Promise<unknown>;
   onOpen: (row: MailboxRow) => void;
 }) {
-  const [settled, setSettled] = useState<Settled[]>([]);
-  const settledIds = useMemo(
-    () => new Set(settled.map((s) => s.row.conversationId)),
-    [settled],
+  // Only Atlas needs local suppression — Delete/Archive are removed once by
+  // mailbox `dispatchMany` optimistic apply before network I/O.
+  const [dismissedIds, setDismissedIds] = useState<ReadonlySet<string>>(
+    () => new Set(),
   );
-  const piles = useMemo(() => triagePiles(rows, settledIds), [rows, settledIds]);
+  const piles = useMemo(() => triagePiles(rows, dismissedIds), [rows, dismissedIds]);
   const orderedRows = useMemo(
     () => piles.flatMap((pile) => pile.days.flatMap((day) => day.rows)),
     [piles],
@@ -123,13 +128,17 @@ export function TriageList({
   const settleRows = useCallback(
     (picked: MailboxRow[], action: TriageAction) => {
       if (picked.length === 0) return;
-      const what = settledLabel(action);
-      setSettled((prev) => [
-        ...prev,
-        ...picked.map((row) => ({ row, what })),
-      ]);
+      if (dismissesLocally(action)) {
+        setDismissedIds((prev) => {
+          const next = new Set(prev);
+          for (const row of picked) next.add(row.conversationId);
+          return next;
+        });
+      }
       dispatchSelection({ kind: "clear" });
       setSelectMode(false);
+      // One batch — mailbox applies optimistic removal (when any) once, then
+      // posts and reloads once. Do not mirror Delete/Archive into local settle.
       void onCommands(picked.map((row) => commandFor(row, action)));
     },
     [onCommands],
@@ -221,19 +230,6 @@ export function TriageList({
     onOpen(row);
   };
 
-  const undo = (row: MailboxRow) => {
-    const entry = settled.find((s) => s.row.conversationId === row.conversationId);
-    setSettled((prev) => prev.filter((s) => s.row.conversationId !== row.conversationId));
-    if (!entry) return;
-    // Deleting and filing both moved the mail, so putting it back is a restore.
-    // Keeping it only changed Seer's mind, and there is nothing to fetch back.
-    if (entry.what === "Deleted" || entry.what === "Archived") {
-      void onCommands([{ type: "restore", conversationId: row.conversationId }]);
-    }
-  };
-
-  const counted = (what: string) => settled.filter((s) => s.what === what).length;
-
   return (
     <section
       ref={sectionRef}
@@ -286,8 +282,6 @@ export function TriageList({
       {piles.length === 0 ? (
         <div className="tri-end">
           <b>Clear</b>
-          {counted("Deleted")} deleted · {counted("Archived")} archived ·{" "}
-          {counted("Answered")} answered · {counted("Atlas")} to Atlas
         </div>
       ) : (
         piles.map((pile) => (
@@ -340,21 +334,6 @@ export function TriageList({
             ))}
           </div>
         ))
-      )}
-
-      {settled.length > 0 && (
-        <div className="tri-set tri-settled">
-          {settled.map((entry) => (
-            <div key={entry.row.conversationId} className="tri-was tabular">
-              <span>
-                {entry.what} · {entry.row.senderDisplayName || "Unknown sender"}
-              </span>
-              <button type="button" onClick={() => undo(entry.row)}>
-                Undo
-              </button>
-            </div>
-          ))}
-        </div>
       )}
     </section>
   );
