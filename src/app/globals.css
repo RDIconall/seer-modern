@@ -2622,6 +2622,34 @@ body {
   font-weight: 400;
   color: var(--muted);
 }
+.tri-g-tail {
+  display: inline-flex;
+  align-items: baseline;
+  gap: 12px;
+}
+/* Take the pile, not the row and not the screen. */
+.tri-pile-select {
+  appearance: none;
+  border: 0;
+  border-radius: 7px;
+  background: none;
+  padding: 3px 7px;
+  font: inherit;
+  font-size: 11px;
+  color: var(--brand-strong);
+  cursor: pointer;
+}
+.tri-pile-select:hover {
+  background: var(--row-hover);
+}
+.tri-pile-select[aria-pressed="true"] {
+  color: var(--nav-muted);
+}
+.tri-selected-count {
+  color: var(--fg-strong);
+  font-size: 12px;
+  white-space: nowrap;
+}
 
 .tri-table-head,
 .tri-in {
@@ -2881,6 +2909,12 @@ body {
   }
   .tri-g small {
     display: none;
+  }
+  /* The phone has no row checkboxes until selecting starts, so the pile's own
+     control is how a pile is taken there. Give it a thumb-sized target. */
+  .tri-pile-select {
+    padding: 5px 9px;
+    font-size: 12px;
   }
   .tri-day {
     padding: 11px 20px 4px;

@@ -125,6 +125,17 @@ export function TriageList({
   );
   const selecting = selectMode || selected.size > 0;
 
+  /**
+   * Take the whole pile. Clearing a pile is the job — sixty-odd newsletters is
+   * not sixty-odd decisions — and ticking them one at a time, or ticking every
+   * pile at once and untangling the live work again, are both the long way
+   * round. Selecting a pile leaves every other pile exactly as it was.
+   */
+  const selectPile = useCallback((ids: string[], checked: boolean) => {
+    dispatchSelection({ kind: "group", ids, checked });
+    if (checked) setSelectMode(true);
+  }, []);
+
   const settleRows = useCallback(
     (picked: MailboxRow[], action: TriageAction) => {
       if (picked.length === 0) return;
@@ -249,10 +260,15 @@ export function TriageList({
                 setSelectMode(event.target.checked);
               }}
             />
-            <span>
-              {selected.size > 0 ? `${selected.size} selected` : "Select all"}
-            </span>
+            <span>Select all</span>
           </label>
+          {/* The count carries on its own so the phone, which has no room for
+              the select-all label, still says how much is about to move. */}
+          {selected.size > 0 && (
+            <span className="tri-selected-count tabular">
+              {selected.size} selected
+            </span>
+          )}
           <div className="tri-bulk-actions">
             <button type="button" disabled={selected.size === 0} onClick={() => bulkAct("delete")}>
               Delete
@@ -284,14 +300,30 @@ export function TriageList({
           <b>Clear</b>
         </div>
       ) : (
-        piles.map((pile) => (
+        piles.map((pile) => {
+          const pileIds = pile.days.flatMap((day) =>
+            day.rows.map((row) => row.conversationId),
+          );
+          const pileSelected = pileIds.filter((id) => selected.has(id)).length;
+          const wholePile = pileSelected === pileIds.length;
+          return (
           <div key={pile.verb} className="tri-pile" data-verb={pile.verb}>
             <h2 className="tri-g">
               <span>
                 {pile.label}
                 <em className="tabular">{pile.count}</em>
               </span>
-              <small>{VERB_HINT[pile.verb]}</small>
+              <span className="tri-g-tail">
+                <small>{VERB_HINT[pile.verb]}</small>
+                <button
+                  type="button"
+                  className="tri-pile-select"
+                  aria-pressed={wholePile}
+                  onClick={() => selectPile(pileIds, !wholePile)}
+                >
+                  {wholePile ? "Clear" : `Select all ${pile.count}`}
+                </button>
+              </span>
             </h2>
             <div className="tri-table-head" aria-hidden>
               <span />
@@ -333,7 +365,8 @@ export function TriageList({
               </div>
             ))}
           </div>
-        ))
+          );
+        })
       )}
     </section>
   );

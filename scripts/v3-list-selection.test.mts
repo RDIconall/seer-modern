@@ -78,6 +78,25 @@ assert.deepEqual(
   sorted(run(group, { kind: "group", ids: ["b", "c"], checked: false })),
   [],
 );
+// Taking one pile must leave the others exactly as they were: the whole point
+// of a per-pile select-all is clearing the newsletters without disturbing the
+// live work sitting in the pile below it.
+{
+  const deletePile = ["a", "b"];
+  const keepPile = ["d", "e"];
+  const both = run(
+    EMPTY_SELECTION,
+    { kind: "group", ids: keepPile, checked: true },
+    { kind: "group", ids: deletePile, checked: true },
+  );
+  assert.deepEqual(sorted(both), ["a", "b", "d", "e"]);
+  assert.deepEqual(
+    sorted(run(both, { kind: "group", ids: deletePile, checked: false })),
+    keepPile,
+    "clearing one pile must not clear another",
+  );
+}
+
 assert.deepEqual(sorted(run(EMPTY_SELECTION, { kind: "all", checked: true })), ids);
 assert.deepEqual(
   sorted(run(run(EMPTY_SELECTION, { kind: "all", checked: true }), {

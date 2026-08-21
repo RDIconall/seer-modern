@@ -176,6 +176,7 @@ assert.equal(timeLabel("2026-08-14T09:04:00.000Z", now), "");
     createElement(TriageList, {
       rows: [
         row({ conversationId: "d", disposition: "delete", deleteToken: "t", senderDisplayName: "LinkedIn" }),
+        row({ conversationId: "d2", disposition: "delete", deleteToken: "t", senderDisplayName: "Eventbrite" }),
         row({ conversationId: "f", disposition: "record", senderDisplayName: "DocuSign" }),
         row({ conversationId: "a", disposition: "matter", owner: "you", senderDisplayName: "Vincent" }),
         row({ conversationId: "k", disposition: "matter", senderDisplayName: "Marta" }),
@@ -201,6 +202,14 @@ assert.equal(timeLabel("2026-08-14T09:04:00.000Z", now), "");
 
   // No local Deleted/Archived undo strip — mailbox/outbox notice owns that.
   assert.doesNotMatch(html, /tri-settled/);
+
+  // A pile can be taken whole, and says how many that is. Clearing a pile is
+  // the job; ticking sixty newsletters one at a time is not.
+  assert.deepEqual(
+    [...html.matchAll(/class="tri-pile-select"[^>]*>([^<]*)</g)].map((m) => m[1]),
+    ["Select all 2", "Select all 1", "Select all 1", "Select all 1"],
+    "every pile offers its own select-all, counted",
+  );
 }
 
 /**
@@ -218,6 +227,12 @@ assert.match(source, /event\.metaKey \|\| event\.ctrlKey/, "multi-click selects 
 assert.match(source, /event\.key\.toLowerCase\(\) === "j"/, "J/K keyboard navigation");
 assert.match(source, /onWheel/, "desktop trackpad gestures use the swipe rail");
 assert.match(source, /bulkAct\("delete"\)/, "selected rows can be deleted together");
+assert.match(source, /kind: "group", ids, checked/, "a pile is selected as a pile");
+assert.match(
+  source,
+  /selectPile\(pileIds, !wholePile\)/,
+  "the pile control takes the whole pile and gives it back",
+);
 
 // Delete/Archive must not enter local dismissed state; Atlas must.
 assert.equal(dismissesLocally("atlas"), true);
