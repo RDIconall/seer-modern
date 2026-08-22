@@ -25,9 +25,9 @@ import {
  * The list makes you decide what to look at before you decide what to do, and
  * over four hundred rows that first decision is the expensive one. A deck takes
  * it away: the next card is simply the next card, and a verdict costs one
- * gesture. Swipe right to keep it, left to clear it — and "clear" is archive
- * unless the server authorized a delete, so the fast gesture can never reach
- * further than the button would.
+ * gesture. Swipe right to put it on Atlas, left to clear it — and "clear" is
+ * archive unless the server authorized a delete, so the fast gesture can never
+ * reach further than the button would.
  */
 
 const COMMIT_PX = 120;
@@ -98,14 +98,14 @@ export function TriageCards({
     horizontal.current = null;
     setDragging(false);
     if (!armed) return setDragX(0);
-    if (dx > COMMIT_PX) return commit("keep");
+    if (dx > COMMIT_PX) return commit("matter");
     if (dx < -COMMIT_PX) return commit("delete");
     setDragX(0);
   };
 
   useEffect(() => {
     const onKey = (event: KeyboardEvent) => {
-      if (event.key === "ArrowRight") commit("keep");
+      if (event.key === "ArrowRight") commit("matter");
       else if (event.key === "ArrowLeft") commit("delete");
       else if (event.key === "e") commit("archive");
       else if (event.key === "Escape") onExit();
@@ -182,7 +182,7 @@ export function TriageCards({
             {destructive ? "Delete" : "Archive"}
           </span>
           <span className="deck-verdict deck-verdict-keep" data-on={keeping}>
-            Keep
+            Atlas
           </span>
           <button type="button" className="deck-open" onClick={() => onOpen(card)}>
             <CardFace row={card} />
@@ -200,7 +200,7 @@ export function TriageCards({
         <DeckAction label="Archive" onClick={() => commit("archive")}>
           <Archive aria-hidden />
         </DeckAction>
-        <DeckAction label="Keep" primary onClick={() => commit("keep")}>
+        <DeckAction label="Atlas" primary onClick={() => commit("matter")}>
           <Check aria-hidden />
         </DeckAction>
         <DeckAction

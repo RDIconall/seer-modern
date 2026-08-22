@@ -15,7 +15,7 @@ import { commandFor } from "@/components/v2/triage-command";
  * to be tested on its own.
  */
 
-export type DeckVerdict = "keep" | "archive" | "delete";
+export type DeckVerdict = "matter" | "archive" | "delete";
 
 export type DeckState = {
   /** The rows still to be decided, in order. */
@@ -47,12 +47,23 @@ export const isFinished = (state: DeckState): boolean =>
  * for deletion carries no token, and `commandFor` turns the request into an
  * archive. A gesture must not be able to reach further than a button would —
  * swiping is faster, and speed is exactly why it must not escalate.
+ *
+ * "matter" is the third destination, and it has to send something: a verdict
+ * that wrote nothing left the conversation in the inbox to be triaged again
+ * tomorrow, which is the opposite of deciding.
  */
 export function commandForVerdict(
   row: MailboxRow,
   verdict: DeckVerdict,
 ): Command | null {
-  if (verdict === "keep") return null;
+  if (verdict === "matter") {
+    return {
+      type: "correctConversation",
+      conversationId: row.conversationId,
+      home: "matter",
+      note: "made a matter in triage",
+    };
+  }
   return commandFor(row, verdict === "delete" ? "trash" : "archive");
 }
 

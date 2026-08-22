@@ -964,6 +964,62 @@ body {
   font-style: normal;
 }
 
+/* Why the pile exists, said once above the rows instead of on each of them. */
+.compact-mail-group > h2 small {
+  overflow: hidden;
+  flex: 1;
+  color: var(--nav-muted);
+  font-size: 10px;
+  letter-spacing: 0;
+  text-overflow: ellipsis;
+  text-transform: none;
+  white-space: nowrap;
+}
+
+.compact-mail-group > h2 button {
+  flex: none;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  padding: 3px 8px;
+  background: var(--card);
+  color: var(--fg);
+  font: inherit;
+  font-size: 10px;
+  font-weight: 650;
+  letter-spacing: 0;
+  text-transform: none;
+}
+
+/* The three destinations, in words. A swipe is not discoverable, and a row
+   that cannot be placed is a row that comes back tomorrow. */
+.mobile-mail-row-actions {
+  display: flex;
+  gap: 6px;
+  padding: 0 12px 9px;
+  background: var(--card);
+}
+
+.mobile-mail-row-actions button {
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  padding: 4px 10px;
+  background: var(--bg);
+  color: var(--fg);
+  font: inherit;
+  font-size: 11px;
+  font-weight: 650;
+  cursor: pointer;
+}
+
+.mobile-mail-row-actions button:first-child {
+  border-color: var(--brand-line, var(--brand));
+  color: var(--brand-strong);
+}
+
+.mobile-mail-row-actions button:hover {
+  background: var(--row-hover);
+}
+
 .compact-mail-list .mobile-mail-row {
   display: block;
   border-bottom: 1px solid var(--border);
@@ -2404,10 +2460,6 @@ body {
     overflow: auto;
   }
 
-  .mail-client[data-reader-open="true"] .triage-table-compact {
-    display: block;
-  }
-
   .mail-client[data-reader-open="true"] .compact-mail-list {
     padding: 0 0 30px;
   }
@@ -2568,6 +2620,21 @@ body {
     z-index: 3;
     border-bottom: 1px solid var(--border);
     padding: 6px 16px 5px;
+  }
+
+  /* On a phone the pile heading keeps its name, count and sweep; the sentence
+     explaining the pile is the first thing to go when the line is 390px. */
+  .compact-mail-group > h2 small {
+    display: none;
+  }
+
+  .mobile-mail-row-actions {
+    padding: 0 16px 10px 20px;
+  }
+
+  .mobile-mail-row-actions button {
+    min-height: 32px;
+    padding: 5px 12px;
   }
 
   .mobile-mail-row {
@@ -3225,471 +3292,3 @@ body {
   min-height: 32px;
 }
 
-/* --------------------------------------------------------------------
-   Triage — four verbs, and the mail's own days inside them
-
-   The piles are named after what the user is about to do, not after what
-   Seer concluded. A row leaves in one of four directions and only one
-   ends on the board: anything not deleted and not filed is live work, so
-   Keep makes it a matter. Triage is the mouth of Atlas.
-   -------------------------------------------------------------------- */
-
-.tri {
-  max-width: 560px;
-  margin-inline: auto;
-  padding-bottom: 24px;
-}
-
-/* Seer's grouping: quiet, stated once, with the count set small beside it. */
-.tri-g {
-  margin: 0;
-  padding: 22px 20px 5px;
-  font-size: 13px;
-  font-weight: 500;
-  letter-spacing: -0.01em;
-  color: var(--fg-strong);
-}
-.tri-g em {
-  margin-left: 7px;
-  font-style: normal;
-  font-weight: 400;
-  color: var(--nav-muted);
-}
-
-/* The mail's own days, inside Seer's grouping. */
-.tri-day {
-  padding: 11px 20px 4px;
-  letter-spacing: 0.09em;
-  text-transform: uppercase;
-  color: var(--nav-muted);
-  background: var(--bg);
-}
-
-.tri-set {
-  background: var(--card);
-  border-block: 1px solid var(--border);
-}
-.tri-settled {
-  margin-top: 20px;
-}
-
-/* Desktop triage is an operating table; the pile/swipe surface remains the
-   touch-first view. */
-.triage-table-shell {
-  min-width: 0;
-  padding: 18px 20px 28px;
-}
-
-.triage-table-compact {
-  display: none;
-  min-width: 0;
-  padding-bottom: 30px;
-}
-
-.triage-table-compact > header {
-  position: sticky;
-  top: 0;
-  z-index: 5;
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  border-bottom: 1px solid var(--border);
-  padding: 14px 14px 10px;
-  background: var(--bg);
-}
-
-.triage-table-compact > header h1 {
-  margin: 0;
-  font-size: 18px;
-}
-
-.triage-table-compact > header span {
-  color: var(--muted);
-  font-size: 11px;
-}
-
-.triage-compact-group h2 {
-  position: sticky;
-  top: 46px;
-  z-index: 4;
-  margin: 0;
-  border-bottom: 1px solid var(--border);
-  padding: 6px 12px;
-  background: var(--row-active);
-  color: var(--muted);
-  font-size: 10px;
-  letter-spacing: 0.05em;
-  text-transform: uppercase;
-}
-
-.triage-compact-group h2 span {
-  margin-left: 4px;
-  color: var(--nav-muted);
-}
-
-.triage-compact-row {
-  display: grid;
-  width: 100%;
-  gap: 2px;
-  border: 0;
-  border-bottom: 1px solid var(--border);
-  padding: 9px 12px 10px;
-  background: var(--card);
-  color: var(--fg);
-  text-align: left;
-}
-
-.triage-compact-row:hover,
-.triage-compact-row[data-current="true"] {
-  background: var(--row-active);
-}
-
-.triage-compact-row[data-current="true"] {
-  box-shadow: inset 3px 0 0 var(--accent);
-}
-
-.triage-compact-top {
-  display: flex;
-  align-items: baseline;
-  gap: 8px;
-  min-width: 0;
-}
-
-.triage-compact-top strong {
-  overflow: hidden;
-  flex: 1;
-  font-size: 12px;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-
-.triage-compact-top time {
-  flex: none;
-  color: var(--muted);
-  font-size: 10px;
-}
-
-.triage-compact-subject,
-.triage-compact-read {
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-
-.triage-compact-subject {
-  font-size: 12px;
-  font-weight: 650;
-}
-
-.triage-compact-read {
-  color: var(--muted);
-  font-size: 11px;
-}
-
-.triage-table-head {
-  display: flex;
-  align-items: flex-end;
-  justify-content: space-between;
-  gap: 16px;
-  margin-bottom: 14px;
-}
-
-.triage-pile-shell {
-  min-width: 0;
-}
-
-.triage-pile-toggle {
-  justify-content: flex-end;
-  max-width: 560px;
-  margin: 14px auto 0;
-  padding-inline: 18px;
-}
-
-.triage-table-head h1 {
-  margin: 0;
-  font-size: 22px;
-}
-
-.triage-table-head p {
-  margin: 3px 0 0;
-  color: var(--muted);
-  font-size: 12px;
-}
-
-.triage-view-toggle,
-.triage-table-bulk {
-  display: flex;
-  align-items: center;
-  gap: 6px;
-}
-
-.triage-view-toggle button,
-.triage-table-bulk button,
-.triage-table-row-actions button {
-  border: 1px solid var(--border);
-  border-radius: 7px;
-  padding: 5px 9px;
-  background: var(--card);
-  color: var(--fg);
-  font: inherit;
-  font-size: 12px;
-  font-weight: 650;
-}
-
-.triage-view-toggle button[aria-pressed="true"] {
-  border-color: var(--accent);
-  color: var(--accent);
-}
-
-.triage-table-bulk {
-  min-height: 38px;
-  border: 1px solid var(--border);
-  border-bottom: 0;
-  padding: 6px 10px;
-  background: var(--row-active);
-  font-size: 12px;
-}
-
-.triage-table-bulk strong {
-  margin-right: auto;
-}
-
-.triage-table-scroll {
-  overflow: auto;
-  border: 1px solid var(--border);
-  border-radius: 10px;
-  background: var(--card);
-}
-
-.triage-table {
-  width: 100%;
-  min-width: 860px;
-  border-collapse: collapse;
-  table-layout: fixed;
-  font-size: 12px;
-}
-
-.triage-table-check { width: 38px; }
-.triage-table-from { width: 17%; }
-.triage-table-subject { width: 25%; }
-.triage-table-read { width: auto; }
-.triage-table-when { width: 76px; }
-.triage-table-actions { width: 210px; }
-
-.triage-table th,
-.triage-table td {
-  border-bottom: 1px solid var(--border);
-  padding: 9px 10px;
-  text-align: left;
-  vertical-align: top;
-}
-
-.triage-table thead th {
-  position: sticky;
-  top: 0;
-  z-index: 2;
-  background: var(--bg);
-  color: var(--muted);
-  font-size: 11px;
-  letter-spacing: 0.04em;
-  text-transform: uppercase;
-}
-
-.triage-table tbody tr:not(.triage-table-group) {
-  cursor: pointer;
-}
-
-.triage-table tbody tr:not(.triage-table-group):hover {
-  background: var(--row-hover);
-}
-
-.triage-table-group th {
-  padding-block: 6px;
-  background: var(--row-active);
-  color: var(--muted);
-  font-size: 11px;
-  letter-spacing: 0.05em;
-  text-transform: uppercase;
-}
-
-.triage-table-group span {
-  margin-left: 5px;
-  color: var(--nav-muted);
-}
-
-.triage-table td {
-  overflow: hidden;
-  text-overflow: ellipsis;
-}
-
-.triage-table td strong {
-  display: block;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-
-.triage-table-unread td {
-  background: color-mix(in srgb, var(--accent) 4%, transparent);
-}
-
-.triage-table-files {
-  display: block;
-  margin-top: 3px;
-  color: var(--muted);
-  font-size: 11px;
-}
-
-.triage-table-row-actions {
-  white-space: nowrap;
-}
-
-.triage-table-row-actions button {
-  margin-right: 4px;
-  padding: 4px 7px;
-}
-
-@media (max-width: 700px) {
-  .triage-table-shell {
-    display: none;
-  }
-}
-
-.tri-r {
-  position: relative;
-  overflow: hidden;
-  border-top: 1px solid var(--row-active);
-}
-.tri-r:first-child {
-  border-top: 0;
-}
-
-/* Both destinations named on the track the row slides along. */
-.tri-rev {
-  position: absolute;
-  inset: 0;
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  padding: 0 20px;
-  letter-spacing: 0.1em;
-}
-.tri-r[data-far="true"] .tri-rev {
-  background: var(--danger-soft);
-}
-.tri-rev-keep {
-  color: var(--brand-strong);
-}
-.tri-rev-drop {
-  color: var(--muted);
-}
-.tri-r[data-far="true"] .tri-rev-drop {
-  color: var(--danger);
-}
-
-.tri-in {
-  position: relative;
-  background: var(--card);
-  padding: 11px 20px 12px;
-  touch-action: pan-y;
-  cursor: pointer;
-}
-.tri-l1 {
-  display: flex;
-  align-items: baseline;
-  gap: 9px;
-}
-.tri-dot {
-  flex: none;
-  align-self: center;
-  width: 6px;
-  height: 6px;
-  border-radius: 50%;
-  background: var(--brand);
-}
-.tri-from {
-  flex: 1;
-  min-width: 0;
-  font-size: 15px;
-  font-weight: 500;
-  letter-spacing: -0.01em;
-  color: var(--fg-strong);
-  white-space: nowrap;
-  overflow: hidden;
-  text-overflow: ellipsis;
-}
-.tri-from.tri-read {
-  font-weight: 400;
-  color: var(--fg);
-}
-.tri-when {
-  flex: none;
-  color: var(--nav-muted);
-}
-.tri-subj {
-  margin-top: 2px;
-  font-size: 14.5px;
-  line-height: 1.35;
-  color: var(--fg-strong);
-  white-space: nowrap;
-  overflow: hidden;
-  text-overflow: ellipsis;
-}
-.tri-subj.tri-read {
-  color: var(--fg);
-}
-.tri-snip {
-  margin-top: 2px;
-  font-size: 13px;
-  line-height: 1.4;
-  color: var(--nav-muted);
-  white-space: nowrap;
-  overflow: hidden;
-  text-overflow: ellipsis;
-}
-.tri-clip {
-  margin-top: 5px;
-  color: var(--muted);
-}
-
-/* What was settled, and the way back, until the screen is left. */
-.tri-was {
-  display: flex;
-  align-items: center;
-  gap: 12px;
-  padding: 10px 20px 11px;
-  border-top: 1px solid var(--row-active);
-  background: var(--card);
-  color: var(--nav-muted);
-}
-.tri-was span {
-  flex: 1;
-  min-width: 0;
-  white-space: nowrap;
-  overflow: hidden;
-  text-overflow: ellipsis;
-}
-.tri-was button {
-  appearance: none;
-  background: none;
-  border: 0;
-  font: inherit;
-  font-size: 13px;
-  color: var(--brand-strong);
-  cursor: pointer;
-  min-height: 32px;
-}
-
-.tri-end {
-  padding: 34px 20px 10px;
-  color: var(--muted);
-  line-height: 1.8;
-}
-.tri-end b {
-  display: block;
-  margin-bottom: 6px;
-  font-size: 17px;
-  font-weight: 500;
-  letter-spacing: -0.01em;
-  color: var(--brand-strong);
-}

@@ -60,7 +60,7 @@ const row = (id: string, deleteToken: string | null = null): MailboxRow => ({
   assert.equal(after.decided, 1);
   assert.equal(isFinished(after), false);
 
-  const end = decide(decide(after, "keep"), "delete");
+  const end = decide(decide(after, "matter"), "delete");
   assert.equal(isFinished(end), true);
   assert.equal(currentCard(end), null);
   assert.equal(end.decided, 3);
@@ -91,9 +91,20 @@ const row = (id: string, deleteToken: string | null = null): MailboxRow => ({
     conversationId: "a",
   });
 
-  // Keeping a card is not a command at all — nothing is sent.
-  assert.equal(commandForVerdict(authorized, "keep"), null);
-  assert.equal(commandForVerdict(refused, "keep"), null);
+  // The third destination has to write something: a verdict that sent no
+  // command left the conversation in the inbox to be triaged again tomorrow.
+  assert.deepEqual(commandForVerdict(authorized, "matter"), {
+    type: "correctConversation",
+    conversationId: "a",
+    home: "matter",
+    note: "made a matter in triage",
+  });
+  assert.deepEqual(commandForVerdict(refused, "matter"), {
+    type: "correctConversation",
+    conversationId: "b",
+    home: "matter",
+    note: "made a matter in triage",
+  });
 }
 
 // --- taking it back ----------------------------------------------------------
@@ -131,7 +142,7 @@ const row = (id: string, deleteToken: string | null = null): MailboxRow => ({
 
 // A card already decided is not dealt again when the server still lists it.
 {
-  const deck = decide(deckFrom([row("a"), row("b")]), "keep");
+  const deck = decide(deckFrom([row("a"), row("b")]), "matter");
   const merged = reconcile(deck, [row("a"), row("b")]);
   assert.equal(currentCard(merged)?.conversationId, "b");
 }
@@ -159,7 +170,7 @@ const row = (id: string, deleteToken: string | null = null): MailboxRow => ({
 
   // The verdict is named on the card before the gesture commits.
   assert.match(html, /deck-verdict-clear[^>]*>Delete</, "an authorized card offers Delete");
-  assert.match(html, /deck-verdict-keep/);
+  assert.match(html, /deck-verdict-keep[^>]*>Atlas</, "the third destination is named");
 
   // And on a card the safety layer refused, the same gesture says Archive.
   const heldHtml = render([refused]);

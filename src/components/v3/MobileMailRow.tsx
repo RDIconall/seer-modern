@@ -37,12 +37,15 @@ export function MobileMailRow({
   onOpen,
   onArchive,
   onDelete,
+  actions,
 }: {
   model: MobileMailRowModel;
   current?: boolean;
   onOpen: () => void;
   onArchive: () => void;
   onDelete: () => void;
+  /** Where this row can go, named in words. A swipe is not discoverable. */
+  actions?: { label: string; run: () => void }[];
 }) {
   const [offset, setOffset] = useState(0);
   const [dragging, setDragging] = useState(false);
@@ -143,6 +146,19 @@ export function MobileMailRow({
           ) : null}
         </span>
       </button>
+      {actions && actions.length > 0 ? (
+        <div className="mobile-mail-row-actions" role="group" aria-label={`Place ${model.subject || "conversation"}`}>
+          {actions.map((action) => (
+            <button
+              key={action.label}
+              type="button"
+              onClick={action.run}
+            >
+              {action.label}
+            </button>
+          ))}
+        </div>
+      ) : null}
     </div>
   );
 }

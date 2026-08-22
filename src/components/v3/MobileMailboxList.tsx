@@ -23,6 +23,30 @@ const mobileTime = (iso: string) => {
   });
 };
 
+/**
+ * Triage sends a conversation to Atlas, to the archive, or to the bin. Making
+ * it a matter is a correction to Seer's reading, and a correction is law: the
+ * conversation appears on the whiteboard and stops being asked about.
+ */
+const matterCommand = (row: MailboxRow): Command => ({
+  type: "correctConversation",
+  conversationId: row.conversationId,
+  home: "matter",
+  note: "made a matter in triage",
+});
+
+const archiveCommand = (row: MailboxRow): Command => ({
+  type: "archive",
+  conversationId: row.conversationId,
+});
+
+/** The user is looking straight at this row, so their delete is their own call. */
+const deleteCommand = (row: MailboxRow): Command => ({
+  type: "delete",
+  conversationId: row.conversationId,
+  byUser: true,
+});
+
 export function MobileMailboxList({
   view,
   triage = false,
@@ -60,11 +84,21 @@ export function MobileMailboxList({
         ? triagePiles(rows, new Set()).map((pile) => ({
             key: pile.verb,
             label: pile.label,
+            hint: pile.hint,
             rows: pile.days.flatMap((day) => day.rows),
           }))
-        : [{ key: view.folder, label: "", rows }],
+        : [{ key: view.folder, label: "", hint: "", rows }],
     [rows, triage, view.folder],
   );
+
+  const sweep = (groupRows: MailboxRow[], command: (row: MailboxRow) => Command) => {
+    setHidden((current) => {
+      const next = new Set(current);
+      for (const row of groupRows) next.add(row.conversationId);
+      return next;
+    });
+    void onCommands(groupRows.map(command));
+  };
 
   const renderRow = (row: MailboxRow) => (
     <MobileMailRow
@@ -83,18 +117,16 @@ export function MobileMailboxList({
       }}
       current={row.conversationId === currentConversationId}
       onOpen={() => onOpen(row)}
-      onArchive={() =>
-        void act(row, {
-          type: "archive",
-          conversationId: row.conversationId,
-        })
-      }
-      onDelete={() =>
-        void act(row, {
-          type: "delete",
-          conversationId: row.conversationId,
-          byUser: true,
-        })
+      onArchive={() => void act(row, archiveCommand(row))}
+      onDelete={() => void act(row, deleteCommand(row))}
+      actions={
+        triage
+          ? [
+              { label: "Atlas", run: () => void act(row, matterCommand(row)) },
+              { label: "Archive", run: () => void act(row, archiveCommand(row)) },
+              { label: "Delete", run: () => void act(row, deleteCommand(row)) },
+            ]
+          : undefined
       }
     />
   );
@@ -109,7 +141,7 @@ export function MobileMailboxList({
           <h1>{triage ? "Triage" : "Inbox"}</h1>
           <span className="tabular">
             {triage
-              ? `${view.needsYou} need you · ${view.total - view.needsYou} sorted`
+              ? `${rows.length} to place · Atlas, archive or bin`
               : `${view.total} conversations`}
           </span>
         </div>
@@ -120,7 +152,9 @@ export function MobileMailboxList({
         ) : null}
       </header>
       {rows.length === 0 ? (
-        <p className="mail-empty">Nothing here yet.</p>
+        <p className="mail-empty">
+          {triage ? "Inbox placed. Nothing left to triage." : "Nothing here yet."}
+        </p>
       ) : (
         groups.map((group) => (
           <div key={group.key} className="compact-mail-group">
@@ -128,6 +162,20 @@ export function MobileMailboxList({
               <h2>
                 <span>{group.label}</span>
                 <em className="tabular">{group.rows.length}</em>
+                <small>{group.hint}</small>
+                {group.key === "delete" || group.key === "archive" ? (
+                  <button
+                    type="button"
+                    onClick={() =>
+                      sweep(
+                        group.rows,
+                        group.key === "delete" ? deleteCommand : archiveCommand,
+                      )
+                    }
+                  >
+                    {group.key === "delete" ? "Delete all" : "Archive all"}
+                  </button>
+                ) : null}
               </h2>
             ) : null}
             {group.rows.map(renderRow)}

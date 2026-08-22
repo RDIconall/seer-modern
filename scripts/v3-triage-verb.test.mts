@@ -1,9 +1,10 @@
 /**
- * Gate: triage is four verbs, and the days belong to the mail.
+ * Gate: triage has three destinations, and every row leaves by one of them.
  *
- * The piles are named after what the user is about to do, not after what Seer
- * concluded. Anything not deleted and not filed is live work, so Keep is the
- * door onto the whiteboard — triage is the mouth of Atlas.
+ * A conversation becomes a matter on Atlas, is archived for the record, or is
+ * deleted. The old verbs — File, Answer, Keep — all described mail that was
+ * still in the inbox afterwards, which is how a triage screen ended a session
+ * with the rows it started with.
  */
 import assert from "node:assert/strict";
 import {
@@ -11,13 +12,14 @@ import {
   timeLabel,
   triagePiles,
   verbFor,
+  VERB_LABEL,
   VERB_ORDER,
 } from "../src/lib/v3/mailbox/triage-verb.ts";
 import { promises as fs } from "node:fs";
 import { createElement } from "react";
 import { renderToString } from "react-dom/server";
-import { TriageList } from "../src/components/v3/TriageList.tsx";
-import type { MailboxRow } from "../src/lib/v3/mailbox/types.ts";
+import { MobileMailboxList } from "../src/components/v3/MobileMailboxList.tsx";
+import type { MailboxRow, MailboxView } from "../src/lib/v3/mailbox/types.ts";
 
 const row = (over: Partial<MailboxRow>): MailboxRow => ({
   conversationId: "c",
@@ -41,26 +43,25 @@ const row = (over: Partial<MailboxRow>): MailboxRow => ({
   ...over,
 });
 
-// --- which pile ---------------------------------------------------------------
+// --- which destination --------------------------------------------------------
+
+assert.deepEqual(VERB_ORDER, ["delete", "archive", "matter"]);
+assert.deepEqual(Object.values(VERB_LABEL), ["Delete", "Archive", "Atlas"]);
 
 assert.equal(verbFor(row({ disposition: "delete", deleteToken: "t" })), "delete");
-assert.equal(verbFor(row({ disposition: "record" })), "file");
-assert.equal(verbFor(row({ disposition: "matter" })), "keep");
-assert.equal(verbFor(row({ disposition: "undecided" })), "keep");
-assert.equal(verbFor(row({ disposition: "pending" })), "keep");
+assert.equal(verbFor(row({ disposition: "record" })), "archive");
 
-// Owing a reply outranks everything but a clearance to delete: burying a reply
-// you owe under "keep" is how it goes unsent for a fortnight.
-assert.equal(verbFor(row({ disposition: "matter", owner: "you" })), "answer");
-assert.equal(verbFor(row({ disposition: "record", owner: "you" })), "answer");
-assert.equal(verbFor(row({ disposition: "undecided", owner: "you" })), "answer");
+// Everything else is live work, whoever owes the next move. Mail Seer has not
+// finished reading is a decision the user still owes, and the board is where
+// they owe it — not a fourth pile that means "still in the inbox".
+assert.equal(verbFor(row({ disposition: "matter" })), "matter");
+assert.equal(verbFor(row({ disposition: "undecided" })), "matter");
+assert.equal(verbFor(row({ disposition: "pending" })), "matter");
+assert.equal(verbFor(row({ disposition: "matter", owner: "you" })), "matter");
+assert.equal(verbFor(row({ disposition: "undecided", owner: "them" })), "matter");
 
-// A clearance to delete still wins, because that pile is the one being emptied.
+// A clearance to delete still wins: that pile is the one being emptied.
 assert.equal(verbFor(row({ disposition: "delete", owner: "you" })), "delete");
-
-// Work with someone else is not yours to answer.
-assert.equal(verbFor(row({ disposition: "matter", owner: "them" })), "keep");
-assert.equal(verbFor(row({ disposition: "matter", owner: "team" })), "keep");
 
 // --- days, as a person reads them ---------------------------------------------
 
@@ -70,7 +71,6 @@ assert.equal(dayLabel("2026-08-16T16:22:00.000Z", now), "Yesterday");
 assert.match(dayLabel("2026-08-14T10:00:00.000Z", now), /Aug/, "older mail keeps its date");
 assert.equal(dayLabel("not a date", now), "Earlier");
 
-// A clock time is only meaningful for today.
 assert.ok(timeLabel("2026-08-17T09:04:00.000Z", now).length > 0);
 assert.equal(timeLabel("2026-08-14T09:04:00.000Z", now), "");
 
@@ -82,19 +82,13 @@ assert.equal(timeLabel("2026-08-14T09:04:00.000Z", now), "");
     row({ conversationId: "d2", disposition: "delete", deleteToken: "t", timestamp: "2026-08-16T09:00:00.000Z" }),
     row({ conversationId: "f1", disposition: "record", timestamp: "2026-08-17T08:00:00.000Z" }),
     row({ conversationId: "a1", disposition: "matter", owner: "you", timestamp: "2026-08-17T07:00:00.000Z" }),
-    row({ conversationId: "k1", disposition: "matter", timestamp: "2026-08-17T06:00:00.000Z" }),
+    row({ conversationId: "k1", disposition: "undecided", timestamp: "2026-08-17T06:00:00.000Z" }),
   ];
   const piles = triagePiles(rows, new Set(), now);
 
-  assert.deepEqual(
-    piles.map((p) => p.verb),
-    VERB_ORDER,
-    "the piles come in the order the work is done",
-  );
-  assert.deepEqual(
-    piles.map((p) => p.label),
-    ["Delete", "File", "Answer", "Keep"],
-  );
+  assert.deepEqual(piles.map((p) => p.verb), VERB_ORDER);
+  assert.deepEqual(piles.map((p) => p.label), ["Delete", "Archive", "Atlas"]);
+  assert.equal(piles[2].count, 2, "live work of every owner lands on the board");
 
   // Days sit inside a pile, newest first.
   const del = piles[0];
@@ -105,11 +99,12 @@ assert.equal(timeLabel("2026-08-14T09:04:00.000Z", now), "");
   // A settled row leaves the piles entirely.
   const after = triagePiles(rows, new Set(["d1"]), now);
   assert.equal(after[0].count, 1);
-  assert.deepEqual(after[0].days.map((d) => d.day), ["Yesterday"]);
 
   // An empty pile is not drawn at all.
-  const onlyKeep = triagePiles([row({ conversationId: "k", disposition: "matter" })], new Set(), now);
-  assert.deepEqual(onlyKeep.map((p) => p.verb), ["keep"]);
+  assert.deepEqual(
+    triagePiles([row({ conversationId: "k", disposition: "matter" })], new Set(), now).map((p) => p.verb),
+    ["matter"],
+  );
 
   // Settling everything leaves nothing to draw, which is what "clear" means.
   assert.deepEqual(triagePiles(rows, new Set(rows.map((r) => r.conversationId)), now), []);
@@ -118,43 +113,60 @@ assert.equal(timeLabel("2026-08-14T09:04:00.000Z", now), "");
 // --- the screen ---------------------------------------------------------------
 
 {
+  const rows = [
+    row({ conversationId: "d", disposition: "delete", deleteToken: "t", senderDisplayName: "LinkedIn" }),
+    row({ conversationId: "f", disposition: "record", senderDisplayName: "DocuSign" }),
+    row({ conversationId: "k", disposition: "undecided", senderDisplayName: "Marta" }),
+  ];
+  const view: MailboxView = {
+    accountId: "a",
+    folder: "inbox",
+    sort: "triage",
+    rows,
+    total: rows.length,
+    needsYou: 1,
+    nextCursor: null,
+  };
   const html = renderToString(
-    createElement(TriageList, {
-      rows: [
-        row({ conversationId: "d", disposition: "delete", deleteToken: "t", senderDisplayName: "LinkedIn" }),
-        row({ conversationId: "f", disposition: "record", senderDisplayName: "DocuSign" }),
-        row({ conversationId: "a", disposition: "matter", owner: "you", senderDisplayName: "Vincent" }),
-        row({ conversationId: "k", disposition: "matter", senderDisplayName: "Marta" }),
-      ],
-      onCommands: async () => {},
+    createElement(MobileMailboxList, {
+      view,
+      triage: true,
       onOpen() {},
+      onCommands: async () => [],
     } as never),
   ).replace(/<!--[\s\S]*?-->/g, "");
 
   assert.deepEqual(
-    [...html.matchAll(/class="tri-g">([^<]*)<em/g)].map((m) => m[1]),
-    ["Delete", "File", "Answer", "Keep"],
-    "the screen is four verbs, in the order the work is done",
+    [...html.matchAll(/<h2><span>([^<]*)<\/span>/g)].map((m) => m[1]),
+    ["Delete", "Archive", "Atlas"],
+    "the screen is the three places mail can go",
   );
-  assert.match(html, /class="tri-day tabular"/, "the mail keeps its own days inside");
+  for (const gone of ["File", "Answer", "Keep"]) {
+    assert.doesNotMatch(html, new RegExp(`<h2><span>${gone}</span>`));
+  }
 
-  // Both destinations are named on the track before the pull commits.
-  assert.match(html, />ATLAS</);
-  assert.match(html, />ARCHIVE</);
+  // Every row can be placed without a gesture, and Atlas is one of the choices.
+  const rowActions = [...html.matchAll(/mobile-mail-row-actions[\s\S]*?<\/div>/g)];
+  assert.equal(rowActions.length, rows.length, "every triage row can be placed");
+  for (const match of rowActions) {
+    for (const label of ["Atlas", "Archive", "Delete"]) {
+      assert.match(match[0], new RegExp(`>${label}<`));
+    }
+  }
 
-  // A row that owes a reply says so rather than leaving it to be inferred.
-  assert.match(html, /You owe a reply/);
+  // A pile with one obvious outcome can be emptied in one press.
+  assert.match(html, />Delete all</);
+  assert.match(html, />Archive all</);
 }
 
 /**
- * Keeping is the door onto the whiteboard. Anything not deleted and not filed
- * is live work, so Keep records a correction to matter — and a correction is
- * law, so it is not second-guessed by the safety layer.
+ * Placing a conversation on Atlas is a correction to Seer's reading, and a
+ * correction is law: it is recorded, not merely displayed differently.
  */
-const source = await fs.readFile("src/components/v3/TriageList.tsx", "utf8");
-assert.match(source, /type: "correctConversation"/, "Keep corrects the decision");
-assert.match(source, /home: "matter"/, "Keep puts the conversation on Atlas");
+const source = await fs.readFile("src/components/v3/MobileMailboxList.tsx", "utf8");
+assert.match(source, /type: "correctConversation"/);
+assert.match(source, /home: "matter"/);
 assert.match(source, /byUser: true/, "deleting from triage is the user's own call");
-assert.match(source, /type: "archive"/, "filing archives");
+assert.match(source, /type: "archive"/);
 
 console.log("v3-triage-verb: OK");

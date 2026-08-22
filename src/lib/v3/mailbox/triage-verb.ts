@@ -1,41 +1,46 @@
 import type { MailboxRow } from "./types";
 
 /**
- * Triage in four verbs.
+ * Triage has three destinations, and every conversation leaves by one of them:
+ * it becomes a matter on Atlas, it is archived for the record, or it is
+ * deleted. That is the whole point of the screen — an inbox is emptied by
+ * deciding where things go, not by relabelling them.
  *
- * The piles used to be named after what Seer had concluded — "filed for the
- * record", "needs a look" — which is Seer talking about itself. These are named
- * after what the user is about to do, because that is the only thing they are
- * deciding: delete it, file it, answer it, or keep it.
- *
- * Keep is the interesting one. Anything not deleted and not filed is live work,
- * so keeping it puts it on the whiteboard as a matter. Triage is therefore the
- * mouth of Atlas: mail leaves here in one of four directions and only one of
- * them ends on the board.
+ * The piles this file produces are named after the destination, not after a
+ * verb describing the user's mood about the mail. "File", "Answer" and "Keep"
+ * all meant "still in the inbox afterwards", which is how a triage screen ends
+ * a session with the same rows it started with.
  */
-export type TriageVerb = "delete" | "file" | "answer" | "keep";
+export type TriageVerb = "delete" | "archive" | "matter";
 
-export const VERB_ORDER: TriageVerb[] = ["delete", "file", "answer", "keep"];
+export const VERB_ORDER: TriageVerb[] = ["delete", "archive", "matter"];
 
 export const VERB_LABEL: Record<TriageVerb, string> = {
   delete: "Delete",
-  file: "File",
-  answer: "Answer",
-  keep: "Keep",
+  archive: "Archive",
+  matter: "Atlas",
+};
+
+/** What each pile is for, said once above the rows rather than on each of them. */
+export const VERB_HINT: Record<TriageVerb, string> = {
+  delete: "Nothing here is worth keeping.",
+  archive: "Worth keeping, but nothing is being asked of you.",
+  matter: "Live work — these belong on the whiteboard.",
 };
 
 /**
- * Which pile a conversation is in.
+ * Where a conversation is headed.
  *
- * Owing a reply outranks everything except a clearance to delete: a thread the
- * user owes a move on is work whatever else Seer decided about it, and burying
- * it under "keep" is how a reply goes unsent for a fortnight.
+ * Only two dispositions have a destination of their own: Seer cleared it for
+ * deletion, or it is a record. Everything else is live work and belongs on
+ * Atlas, including mail Seer has not finished reading — an undecided
+ * conversation is a decision the user still owes, and the board is where they
+ * owe it.
  */
 export function verbFor(row: MailboxRow): TriageVerb {
   if (row.disposition === "delete") return "delete";
-  if (row.owner === "you") return "answer";
-  if (row.disposition === "record") return "file";
-  return "keep";
+  if (row.disposition === "record") return "archive";
+  return "matter";
 }
 
 /**
@@ -74,12 +79,17 @@ export function timeLabel(timestamp: string, now = Date.now()): string {
 }
 
 export type TriageDay = { day: string; rows: MailboxRow[] };
-export type TriagePile = { verb: TriageVerb; label: string; count: number; days: TriageDay[] };
+export type TriagePile = {
+  verb: TriageVerb;
+  label: string;
+  hint: string;
+  count: number;
+  days: TriageDay[];
+};
 
 /**
  * Shape the mailbox into piles, each broken into days, newest first. Rows the
- * user has already settled are gone from here — they live in the strip at the
- * bottom until the undo window closes.
+ * user has already settled are gone from here — they have left the inbox.
  */
 export function triagePiles(
   rows: MailboxRow[],
@@ -109,7 +119,13 @@ export function triagePiles(
       if (last && last.day === day) last.rows.push(row);
       else days.push({ day, rows: [row] });
     }
-    piles.push({ verb, label: VERB_LABEL[verb], count: list.length, days });
+    piles.push({
+      verb,
+      label: VERB_LABEL[verb],
+      hint: VERB_HINT[verb],
+      count: list.length,
+      days,
+    });
   }
   return piles;
 }
