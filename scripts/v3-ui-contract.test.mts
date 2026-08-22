@@ -75,7 +75,11 @@ assert.match(mailbox, /stale|cache/i);
 assert.match(mailbox, /prefetch/i);
 assert.match(mailbox, /adjacent|rows/i);
 assert.match(mailbox, /viewForFolder|folder !==/);
-assert.match(mailbox, /setView\(null\)/, "failed folder loads must clear prior rows");
+assert.match(
+  mailbox,
+  /view: null,[\s\S]{0,200}error: cause instanceof Error/,
+  "failed folder loads must clear prior rows",
+);
 assert.match(mailbox, /\/api\/v3\/mailbox/);
 assert.match(mailbox, /sort=/);
 assert.match(mailbox, /json\.view\.sort !== sort/);

@@ -146,40 +146,63 @@ export function useMailbox(
       (accountId ? readCache(accountId, folder, sort) : null),
     [accountId, folder, options.initialView, sort],
   );
-  const [view, setView] = useState<MailboxView | null>(initial);
-  const [loading, setLoading] = useState(!initial);
-  const [refreshing, setRefreshing] = useState(Boolean(initial));
-  const [error, setError] = useState<string | null>(null);
+  /**
+   * What a fetch produced, tagged with the scope it was produced for.
+   *
+   * This used to be four pieces of state re-assigned by an effect whenever the
+   * seed view changed. That effect assigns on every run, so a scope that
+   * alternates — and the section does alternate for a beat while the URL hash
+   * is applied — put the client in an update loop React ends with "Maximum
+   * update depth exceeded", which the error boundary turned into a blank page.
+   *
+   * Nothing is mirrored now. A result belongs to one scope, and a result from
+   * another scope simply is not this list's result, so switching folders shows
+   * the seed again without a single assignment.
+   */
+  type Loaded = {
+    scope: string;
+    view: MailboxView | null;
+    loading: boolean;
+    refreshing: boolean;
+    error: string | null;
+  };
+
+  const scope = `${accountId ?? ""}:${folder}:${sort}`;
+  const [loaded, setLoaded] = useState<Loaded | null>(null);
   const viewRef = useRef<MailboxView | null>(initial);
 
-  /**
-   * Reset to the cached view when the SCOPE changes — a different account,
-   * folder, or sort order. Scope is compared by value, not by the identity of
-   * the seed view.
-   *
-   * Keying this on `initial` instead was an infinite render loop: the effect
-   * assigns state on every run, so any render that produced a new seed object
-   * scheduled another render, which produced another seed. React caught it as
-   * "Maximum update depth exceeded" and the error boundary swallowed the whole
-   * client — which is what a blank app with a "client-side exception" was.
-   */
-  const scope = `${accountId ?? ""}:${folder}:${sort}`;
-  const appliedScope = useRef<string | null>(null);
+  const current: Loaded =
+    loaded && loaded.scope === scope
+      ? loaded
+      : {
+          scope,
+          view: initial,
+          loading: !initial,
+          refreshing: Boolean(!options.disabled && initial),
+          error: null,
+        };
+  const { view, loading, refreshing, error } = current;
+  viewRef.current = view;
 
-  useEffect(() => {
-    if (appliedScope.current === scope) return;
-    appliedScope.current = scope;
-    viewRef.current = initial;
-    setView(initial);
-    setLoading(!initial);
-    setRefreshing(Boolean(!options.disabled && initial));
-    setError(null);
-  }, [initial, options.disabled, scope]);
+  /** Record a result only against the scope it was fetched for. */
+  const settle = useCallback(
+    (next: Omit<Loaded, "scope">, forScope: string) =>
+      setLoaded((previous) =>
+        previous && previous.scope === forScope && previous.view === next.view &&
+        previous.loading === next.loading &&
+        previous.refreshing === next.refreshing &&
+        previous.error === next.error
+          ? previous
+          : { scope: forScope, ...next },
+      ),
+    [],
+  );
 
   const reload = useCallback(async () => {
     if (options.disabled) return;
-    setRefreshing(true);
-    setLoading(true);
+    // The scope this fetch belongs to. A folder switch mid-flight must not let
+    // the older response land on the newer list.
+    const forScope = `${accountId ?? ""}:${folder}:${sort}`;
     try {
       const accountResponse = await fetchFresh("/api/v3/accounts");
       const accountJson = (await accountResponse.json()) as {
@@ -204,17 +227,23 @@ export function useMailbox(
       }
       writeCache(json.view);
       viewRef.current = json.view;
-      setView(json.view);
-      setError(null);
+      settle(
+        { view: json.view, loading: false, refreshing: false, error: null },
+        `${activeAccountId}:${folder}:${sort}`,
+      );
     } catch (cause) {
       viewRef.current = null;
-      setView(null);
-      setError(cause instanceof Error ? cause.message : "failed to load mailbox");
-    } finally {
-      setLoading(false);
-      setRefreshing(false);
+      settle(
+        {
+          view: null,
+          loading: false,
+          refreshing: false,
+          error: cause instanceof Error ? cause.message : "failed to load mailbox",
+        },
+        forScope,
+      );
     }
-  }, [folder, options.disabled, sort]);
+  }, [accountId, folder, options.disabled, settle, sort]);
 
   useEffect(() => {
     void reload();
@@ -230,8 +259,7 @@ export function useMailbox(
       clearMailboxCaches();
       setAccountId(null);
       viewRef.current = null;
-      setView(null);
-      setLoading(true);
+      setLoaded(null);
       void reload();
     };
     window.addEventListener(ACCOUNT_CHANGED_EVENT, onAccountChanged);
@@ -286,7 +314,10 @@ export function useMailbox(
         const optimistic = applyMailboxCommands(previous, commands);
         if (optimistic !== previous) {
           viewRef.current = optimistic;
-          setView(optimistic);
+          settle(
+            { view: optimistic, loading: false, refreshing: true, error: null },
+            `${accountId ?? ""}:${folder}:${sort}`,
+          );
         }
       }
 
@@ -305,7 +336,7 @@ export function useMailbox(
       if (results.length === 0 && firstFailure) throw firstFailure;
       return results;
     },
-    [reload],
+    [accountId, folder, reload, settle, sort],
   );
 
   const dispatch = useCallback(

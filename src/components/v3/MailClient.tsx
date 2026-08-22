@@ -82,20 +82,31 @@ function getServerHashSnapshot(): string {
   return "";
 }
 
-function writeHash(
+function buildHash(
   section: MailSection,
   conversation: string | null,
   query: string,
-): void {
-  if (typeof window === "undefined") return;
+): string {
   const params = new URLSearchParams();
   // The section says whether this is the inbox or triage, so there is no
   // separate sort to remember.
   params.set("section", section);
   if (conversation) params.set("conversation", conversation);
   if (query) params.set("q", query);
-  window.history.replaceState(null, "", `#${params.toString()}`);
+  return `#${params.toString()}`;
+}
+
+function writeHash(
+  section: MailSection,
+  conversation: string | null,
+  query: string,
+): string {
+  const next = buildHash(section, conversation, query);
+  if (typeof window === "undefined") return next;
+  if (window.location.hash === next) return next;
+  window.history.replaceState(null, "", next);
   window.dispatchEvent(new Event("hashchange"));
+  return next;
 }
 
 const MOBILE_QUERY = "(max-width: 700px)";
@@ -238,6 +249,8 @@ export function MailClient({
   const [mobileSearchOpen, setMobileSearchOpen] = useState(false);
   const [hashReady, setHashReady] = useState(false);
   const restoredSearchRef = useRef<string | null>(null);
+  /** The last hash this client wrote, so it does not read its own writing. */
+  const selfWrittenHash = useRef<string | null>(null);
   const searchGuard = useRef(new SearchRequestGuard());
   const hashAppliedRef = useRef(false);
   const isMobile = useIsMobile();
@@ -302,7 +315,18 @@ export function MailClient({
     }
   }, []);
 
+  /**
+   * The URL and this component both hold the same state, and each effect below
+   * acts a render behind the other: the reader applies the hash, the writer
+   * then writes the state it still had, and the reader applies that back. The
+   * two chased each other between "inbox" and "triage" until React gave up with
+   * "Maximum update depth exceeded" and the error boundary blanked the client.
+   *
+   * A hash this client wrote is therefore not news. Only a hash from outside —
+   * a first load, a pasted link, the back button — is applied.
+   */
   useEffect(() => {
+    if (hashSnapshot && hashSnapshot === selfWrittenHash.current) return;
     if (hashSection) setSection(hashSection);
     if (hashConversation) {
       hashAppliedRef.current = true;
@@ -321,7 +345,8 @@ export function MailClient({
   ]);
 
   useEffect(() => {
-    if (hashReady) writeHash(section, conversationId, query);
+    if (!hashReady) return;
+    selfWrittenHash.current = writeHash(section, conversationId, query);
   }, [conversationId, hashReady, query, section]);
 
   useEffect(() => {
