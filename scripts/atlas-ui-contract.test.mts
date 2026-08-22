@@ -118,8 +118,13 @@ assert.match(
 // A matter is one line: title, owner, age. No prose rides on a board row.
 assert.match(atlasSource, /wb-age/);
 assert.doesNotMatch(atlasSource, /<Chevron/, "a chevron per row is what made the board scroll");
-assert.match(atlasSource, /draggable=/, "desktop matters can be dragged");
-assert.match(atlasSource, /onDrop/, "columns accept reordered matters");
+assert.doesNotMatch(
+  atlasSource,
+  /draggable=/,
+  "one pointer path handles mouse, touch and pen; native drag forks behavior",
+);
+assert.match(atlasSource, /onPointerDown/, "matter handles start pointer dragging");
+assert.match(atlasSource, /onPointerUp/, "matter handles commit pointer dragging");
 assert.match(atlasSource, /onReorderMatters/);
 assert.match(atlasSource, /onMoveMatter/);
 

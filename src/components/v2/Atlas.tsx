@@ -185,10 +185,22 @@ export function Atlas({
   const [undoable, setUndoable] = useState<ReadonlySet<string>>(new Set());
   const undoTimers = useRef(new Map<string, ReturnType<typeof setTimeout>>());
   const [boardSections, setBoardSections] = useState(view.sections);
-  const [dragged, setDragged] = useState<{
+  type DraggedMatter = {
     matterId: string;
     fromSection: string;
-  } | null>(null);
+  };
+  const [dragged, setDragged] = useState<DraggedMatter | null>(null);
+  // Pointer-up can arrive before React has committed the render caused by
+  // pointer-down. The ref is the drag transaction; state is only its paint.
+  const draggedRef = useRef<DraggedMatter | null>(null);
+  const beginDrag = (next: DraggedMatter) => {
+    draggedRef.current = next;
+    setDragged(next);
+  };
+  const endDrag = () => {
+    draggedRef.current = null;
+    setDragged(null);
+  };
 
   useEffect(() => {
     setBoardSections(view.sections);
@@ -280,17 +292,18 @@ export function Atlas({
     targetSection: string,
     beforeMatterId?: string | null,
   ) => {
-    if (!dragged) return;
-    if (beforeMatterId === dragged.matterId) {
-      setDragged(null);
+    const active = draggedRef.current;
+    if (!active) return;
+    if (beforeMatterId === active.matterId) {
+      endDrag();
       return;
     }
     const result = reorderMatterSections(boardSections, {
-      matterId: dragged.matterId,
+      matterId: active.matterId,
       targetSection,
       beforeMatterId,
     });
-    setDragged(null);
+    endDrag();
     if (result.sections === boardSections) return;
     setBoardSections(result.sections);
     if (result.sourceSection === result.targetSection) {
@@ -300,7 +313,7 @@ export function Atlas({
       );
     } else {
       void onMoveMatter?.({
-        matterId: dragged.matterId,
+        matterId: active.matterId,
         fromSection: result.sourceSection,
         toSection: result.targetSection,
         sourceMatterIds: result.sourceMatterIds,
@@ -367,11 +380,6 @@ export function Atlas({
                 key={section.name}
                 className="wb-column"
                 data-atlas-section={section.name}
-                onDragOver={(event) => event.preventDefault()}
-                onDrop={(event) => {
-                  event.preventDefault();
-                  dropMatter(section.name);
-                }}
               >
               <div className="wb-shead">
                 <span className="wb-sname atlas-heading">{sectionLabel(section.name)}</span>
@@ -412,13 +420,12 @@ export function Atlas({
                     onArchiveConversation={onArchiveConversation}
                     onDeleteConversation={onDeleteConversation}
                     onDragStart={() =>
-                      setDragged({
+                      beginDrag({
                         matterId: matter.matterId,
                         fromSection: section.name,
                       })
                     }
-                    onDragEnd={() => setDragged(null)}
-                    onDropBefore={() => dropMatter(section.name, matter.matterId)}
+                    onDragEnd={endDrag}
                     onTouchDrop={(target) =>
                       dropMatter(target.section, target.beforeMatterId)
                     }
@@ -507,7 +514,6 @@ function BoardMatter({
   onDeleteConversation,
   onDragStart,
   onDragEnd,
-  onDropBefore,
   onTouchDrop,
 }: {
   matter: MatterCard;
@@ -527,7 +533,6 @@ function BoardMatter({
   onDeleteConversation?: (conversation: ConversationRow) => void;
   onDragStart: () => void;
   onDragEnd: () => void;
-  onDropBefore: () => void;
   onTouchDrop: (target: AtlasDropTarget) => void;
 }) {
   const age = daysSinceMoved(matter, now);
@@ -543,36 +548,20 @@ function BoardMatter({
       data-atlas-matter={matter.matterId}
       data-atlas-section={matter.section}
       data-dragging={dragging ? "true" : undefined}
-      onDragOver={(event) => {
-        event.preventDefault();
-        event.stopPropagation();
-      }}
-      onDrop={(event) => {
-        event.preventDefault();
-        event.stopPropagation();
-        onDropBefore();
-      }}
     >
       <button
         type="button"
         className="wb-drag"
-        draggable={!archived}
         aria-label={`Drag ${matter.shortTitle}`}
-        onDragStart={(event) => {
-          event.dataTransfer.effectAllowed = "move";
-          event.dataTransfer.setData("text/plain", matter.matterId);
-          onDragStart();
-        }}
-        onDragEnd={onDragEnd}
         onPointerDown={(event) => {
-          if (event.pointerType === "mouse" || archived) return;
+          if (archived) return;
           event.preventDefault();
           event.stopPropagation();
           event.currentTarget.setPointerCapture(event.pointerId);
           onDragStart();
         }}
         onPointerUp={(event) => {
-          if (event.pointerType === "mouse" || archived) return;
+          if (archived) return;
           const target = atlasDropTarget(
             document.elementFromPoint(event.clientX, event.clientY),
           );
