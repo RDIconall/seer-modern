@@ -58,6 +58,21 @@ export async function findByIdempotencyKey(
   return row ? mapRow(row) : null;
 }
 
+/** Account-scoped status for one optimistic provider mutation. */
+export async function findOutboxById(
+  accountId: AccountId,
+  outboxId: string,
+): Promise<OutboxItem | null> {
+  const result = await db().query<OutboxRow>(
+    `select id, account_id, command, idempotency_key, status, attempts,
+            last_error, reconcile_needed, next_attempt_at, created_at, updated_at
+       from seer.outbox
+      where account_id = $1 and id = $2`,
+    [accountId, outboxId],
+  );
+  return result.rows[0] ? mapRow(result.rows[0]) : null;
+}
+
 /**
  * Apply an optimistic corpus patch and enqueue the provider command in one
  * transaction. Concurrent callers with the same idempotency key get the

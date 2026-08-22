@@ -81,7 +81,10 @@ export function MobileMailboxList({
   const act = async (row: MailboxRow, command: Command) => {
     setHidden((current) => new Set(current).add(row.conversationId));
     try {
-      await onCommands([command]);
+      const [result] = await onCommands([command]);
+      if (!result?.ok) {
+        throw new Error(result?.error ?? "action was not queued");
+      }
     } catch {
       setHidden((current) => {
         const next = new Set(current);
@@ -105,13 +108,26 @@ export function MobileMailboxList({
     [rows, triage, view.folder],
   );
 
-  const sweep = (groupRows: MailboxRow[], command: (row: MailboxRow) => Command) => {
+  const sweep = async (
+    groupRows: MailboxRow[],
+    command: (row: MailboxRow) => Command,
+  ) => {
     setHidden((current) => {
       const next = new Set(current);
       for (const row of groupRows) next.add(row.conversationId);
       return next;
     });
-    void onCommands(groupRows.map(command));
+    const results = await onCommands(groupRows.map(command));
+    const failedIds = groupRows
+      .filter((_, index) => !results[index]?.ok)
+      .map((row) => row.conversationId);
+    if (failedIds.length > 0) {
+      setHidden((current) => {
+        const next = new Set(current);
+        for (const id of failedIds) next.delete(id);
+        return next;
+      });
+    }
   };
 
   const openMatterPicker = async (row: MailboxRow) => {
@@ -168,6 +184,9 @@ export function MobileMailboxList({
       onOpen={() => onOpen(row)}
       onArchive={() => void act(row, archiveCommand(row))}
       onDelete={() => void act(row, deleteCommand(row))}
+      onAtlas={
+        triage ? () => void act(row, matterCommand(row)) : undefined
+      }
       onLongPress={triage ? () => void openMatterPicker(row) : undefined}
       actions={
         triage
@@ -217,7 +236,7 @@ export function MobileMailboxList({
                   <button
                     type="button"
                     onClick={() =>
-                      sweep(
+                      void sweep(
                         group.rows,
                         group.key === "delete" ? deleteCommand : archiveCommand,
                       )

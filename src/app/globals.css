@@ -2856,6 +2856,10 @@ body {
     background: #c53f3f;
   }
 
+  .mobile-mail-row[data-long-atlas="true"] .mobile-mail-reveal-delete {
+    background: var(--brand-cta);
+  }
+
   .mobile-mail-row-button {
     position: relative;
     z-index: 1;

@@ -322,18 +322,23 @@ export function useMailbox(
       }
 
       const results: CommandResult[] = [];
-      let firstFailure: unknown = null;
       for (const command of commands) {
         try {
           results.push(await postCommand(command));
         } catch (cause) {
-          // One rejected row must not abandon the rest of the batch.
-          firstFailure ??= cause;
+          // Preserve one result per command. Returning only successes made a
+          // partial batch impossible to reconcile with the rows the user saw:
+          // the UI knew that "one failed" but not which one to restore.
+          results.push({
+            ok: false,
+            replayed: false,
+            error:
+              cause instanceof Error ? cause.message : "action was not queued",
+          });
         }
       }
 
       await reload();
-      if (results.length === 0 && firstFailure) throw firstFailure;
       return results;
     },
     [accountId, folder, reload, settle, sort],

@@ -11,6 +11,10 @@ assert.equal(mobileSwipeAction(87), null);
 assert.equal(mobileSwipeAction(88), "delete");
 assert.equal(mobileSwipeAction(-87), null);
 assert.equal(mobileSwipeAction(-88), "archive");
+assert.equal(mobileSwipeAction(175, true), "delete");
+assert.equal(mobileSwipeAction(176, true), "atlas");
+assert.equal(mobileSwipeAction(220), "delete", "Inbox never gains an Atlas swipe");
+assert.equal(mobileSwipeAction(-220, true), "archive");
 
 const html = renderToString(
   createElement(MobileMailRow, {
@@ -47,6 +51,7 @@ assert.match(folder, /<MobileMailRow/);
 assert.match(folder, /type: "archive"/);
 assert.match(folder, /type: "delete"/);
 assert.match(folder, /onLongPress/);
+assert.match(folder, /onAtlas/);
 assert.match(folder, /matter-picker/);
 assert.match(folder, /Let Seer place it/);
 assert.match(folder, /createMatter: true/);

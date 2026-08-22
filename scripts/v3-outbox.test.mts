@@ -8,6 +8,7 @@ import { upsertUser, upsertAccount } from "../src/lib/v2/db/accounts.ts";
 import {
   enqueueOptimistic,
   cancelPending,
+  findOutboxById,
 } from "../src/lib/v3/outbox/repository.ts";
 import {
   applyOptimistic,
@@ -140,6 +141,11 @@ try {
     accountId,
     { type: "archive", conversationId: atomicId },
     "atomic-key",
+  );
+  assert.equal(
+    (await findOutboxById(accountId, item.id))?.status,
+    "pending",
+    "the UI can track a queued action through provider confirmation",
   );
   assert.equal(item.status, "pending");
   assert.deepEqual(item.command.previous.folders.sort(), ["inbox"]);

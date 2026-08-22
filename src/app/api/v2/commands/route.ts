@@ -1,4 +1,4 @@
-import { NextResponse } from "next/server";
+import { after, NextResponse } from "next/server";
 import { getActiveV2Account } from "@/lib/v2/session";
 import { providerFor } from "@/lib/v2/providers/provider";
 import { executeCommand } from "@/lib/v2/commands/execute";
@@ -7,6 +7,7 @@ import { parseMailboxLimit } from "@/lib/v3/mailbox/limit";
 import { getMailboxView } from "@/lib/v3/mailbox/repository";
 import { originAllowed } from "@/lib/security/origin";
 import type { Command } from "@/lib/v2/commands/types";
+import { drainOutbox } from "@/lib/v3/outbox/drain";
 
 export const dynamic = "force-dynamic";
 export const maxDuration = 60;
@@ -73,6 +74,20 @@ export async function POST(request: Request) {
     body.command,
     body.idempotencyKey,
   );
+  // Do not make a swipe wait for the five-minute worker. The optimistic patch
+  // is already durable, so provider delivery belongs after the response; the
+  // status endpoint lets the client report confirmation, retry, or failure.
+  if (result.outboxId) {
+    after(async () => {
+      try {
+        const provider = await providerFor(account);
+        await drainOutbox(account.id, provider);
+      } catch {
+        // The row remains pending. The normal worker will retry it and the
+        // status toast continues to say queued rather than inventing failure.
+      }
+    });
+  }
   const view = await buildInboxView(account.id, account.provider);
   const mailbox = await getMailboxView(
     account.id,

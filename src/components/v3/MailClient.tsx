@@ -41,6 +41,7 @@ import {
 } from "./mail-client-state";
 import { CommandPalette, type PaletteAction } from "./CommandPalette";
 import { reorderMatterSections } from "@/lib/v2/view/matter-order";
+import { fetchFresh } from "@/lib/v3/net/fetch";
 
 type PreviewReader = {
   conversation: Conversation;
@@ -194,39 +195,99 @@ function pastTense(command: Command): string {
       return "Deleted";
     case "markUnread":
       return "Marked unread";
+    case "correctConversation":
+      return command.home === "matter" ? "Added to Atlas" : "Updated";
     default:
       return "Updated";
   }
 }
+
+function actionName(command: Command): string {
+  switch (command.type) {
+    case "archive":
+      return "Archive";
+    case "restore":
+      return "Restore";
+    case "delete":
+      return "Delete";
+    case "markUnread":
+      return "Mark unread";
+    case "correctConversation":
+      return command.home === "matter" ? "Add to Atlas" : "Update";
+    default:
+      return "Action";
+  }
+}
+
+type ActionNotice = {
+  message: string;
+  error: boolean;
+  /** A single pending action can still be undone. */
+  outboxId?: string;
+  /** Every queued action is tracked through provider confirmation. */
+  outboxIds?: string[];
+  actionLabel?: string;
+};
 
 /**
  * Undo is offered for a single command only: the outbox undoes one queued
  * mutation by id, so promising it over a batch would silently restore one row
  * of fifty.
  */
-function noticeForCommands(
+export function noticeForCommands(
   commands: Command[],
   results: CommandResult[],
-): { message: string; error: boolean; outboxId?: string } {
+): ActionNotice {
   const label = pastTense(commands[0]);
-  if (commands.length === 1) {
-    const outboxId = results[0]?.outboxId;
-    return outboxId
-      ? {
-          message: `${label} instantly. Undo before the provider catches up.`,
-          error: false,
-          outboxId,
-        }
-      : { message: `${label}.`, error: false };
-  }
-  const failed = commands.length - results.length;
-  if (failed > 0) {
+  const action = actionName(commands[0]);
+  const successful = results.filter((result) => result.ok);
+  const failed = results.filter((result) => !result.ok);
+  const outboxIds = successful
+    .map((result) => result.outboxId)
+    .filter((id): id is string => Boolean(id));
+
+  if (commands.length === 1 && failed[0]) {
     return {
-      message: `${label} ${results.length} of ${commands.length}. ${failed} failed.`,
+      message: `${action} was not queued. The message is back in the list. ${
+        failed[0].error ?? "Please try again."
+      }`,
       error: true,
     };
   }
-  return { message: `${label} ${results.length} conversations.`, error: false };
+
+  if (outboxIds.length > 0) {
+    const failedText =
+      failed.length > 0
+        ? ` ${failed.length} not queued and restored.`
+        : "";
+    return {
+      message:
+        commands.length === 1
+          ? `${label} in Seer. Waiting for provider confirmation…`
+          : `${outboxIds.length} queued.${failedText} Waiting for provider confirmation…`,
+      error: failed.length > 0,
+      outboxId:
+        commands.length === 1 && outboxIds.length === 1
+          ? outboxIds[0]
+          : undefined,
+      outboxIds,
+      actionLabel: label,
+    };
+  }
+
+  if (failed.length > 0) {
+    return {
+      message: `${successful.length} completed. ${failed.length} failed and restored.`,
+      error: true,
+    };
+  }
+  return {
+    message:
+      commands.length === 1
+        ? `${label}.`
+        : `${successful.length} conversations updated.`,
+    error: false,
+  };
 }
 
 export function MailClient({
@@ -244,7 +305,7 @@ export function MailClient({
   );
   const [query, setQuery] = useState("");
   const [searchRows, setSearchRows] = useState<SearchResult[] | null>(null);
-  const [notice, setNotice] = useState<{ message: string; error: boolean; outboxId?: string } | null>(null);
+  const [notice, setNotice] = useState<ActionNotice | null>(null);
   const [paletteOpen, setPaletteOpen] = useState(false);
   const [mobileSearchOpen, setMobileSearchOpen] = useState(false);
   const [hashReady, setHashReady] = useState(false);
@@ -293,6 +354,7 @@ export function MailClient({
     disabled: Boolean(preview),
     sort: mailboxSort,
   });
+  const reloadMailbox = mailbox.reload;
   // Only Atlas reads this projection, and it is the heaviest response the app
   // has — every inbox conversation, every matter, every yield. Fetching it
   // while the user is in a mail folder cost a few hundred kB on load and again
@@ -301,6 +363,112 @@ export function MailClient({
     preview?.inboxView,
     Boolean(preview) || section !== "atlas",
   );
+
+  /**
+   * Optimistic actions are not provider confirmation. Track every queued row
+   * until the provider says done, failed, or keeps retrying, so a disappearing
+   * row never asks the user to guess whether Outlook/Gmail actually changed.
+   */
+  const trackedOutboxIds = notice?.outboxIds;
+  const trackedActionLabel = notice?.actionLabel;
+  useEffect(() => {
+    if (!trackedOutboxIds?.length) return;
+    let active = true;
+    let checks = 0;
+    let timer: ReturnType<typeof setTimeout> | null = null;
+
+    const check = async () => {
+      checks += 1;
+      try {
+        const states = await Promise.all(
+          trackedOutboxIds.map(async (id) => {
+            const response = await fetchFresh(
+              `/api/v3/outbox/${encodeURIComponent(id)}/status`,
+            );
+            if (!response.ok) throw new Error(`status ${response.status}`);
+            return (await response.json()) as {
+              status: "pending" | "inflight" | "done" | "failed" | "cancelled";
+              attempts: number;
+              lastError: string | null;
+              reconcileNeeded: boolean;
+            };
+          }),
+        );
+        if (!active) return;
+        const done = states.filter((state) => state.status === "done").length;
+        const failed = states.filter((state) => state.status === "failed");
+        const cancelled = states.filter(
+          (state) => state.status === "cancelled",
+        ).length;
+        const waiting = states.length - done - failed.length - cancelled;
+
+        if (failed.length > 0) {
+          const providerReason = failed.find((state) => state.lastError)
+            ?.lastError;
+          setNotice({
+            message: `${done} confirmed. ${failed.length} failed at the provider and the mailbox was refreshed.${
+              providerReason ? ` ${providerReason}` : ""
+            }`,
+            error: true,
+          });
+          void reloadMailbox();
+          return;
+        }
+        if (waiting === 0) {
+          setNotice({
+            message:
+              cancelled > 0
+                ? `${cancelled} action${cancelled === 1 ? "" : "s"} undone.`
+                : `${trackedActionLabel ?? "Action"} confirmed by the provider.`,
+            error: false,
+          });
+          return;
+        }
+
+        const retrying = states.filter(
+          (state) =>
+            (state.status === "pending" || state.status === "inflight") &&
+            state.attempts > 0,
+        );
+        if (retrying.length > 0) {
+          const reason = retrying.find((state) => state.lastError)?.lastError;
+          setNotice((current) =>
+            current
+              ? {
+                  ...current,
+                  message: `${done} confirmed. ${waiting} still queued and retrying${
+                    reason ? `: ${reason}` : "."
+                  }`,
+                  error: false,
+                }
+              : current,
+          );
+        }
+        if (checks >= 20) {
+          setNotice((current) =>
+            current
+              ? {
+                  ...current,
+                  message: `${done} confirmed. ${waiting} still queued; Seer will keep retrying in the background.`,
+                  error: false,
+                }
+              : current,
+          );
+          return;
+        }
+      } catch {
+        // A status request failing must not turn a successfully queued action
+        // into a false provider failure. Try again while the toast remains.
+      }
+      if (active) timer = setTimeout(() => void check(), 1_500);
+    };
+
+    timer = setTimeout(() => void check(), 900);
+    return () => {
+      active = false;
+      if (timer) clearTimeout(timer);
+    };
+  }, [reloadMailbox, trackedActionLabel, trackedOutboxIds]);
 
   const restoreSearch = useCallback(async (value: string) => {
     if (restoredSearchRef.current === value) return;
@@ -546,7 +714,10 @@ export function MailClient({
       return results;
     } catch (cause) {
       setNotice({
-        message: cause instanceof Error ? `Provider action failed: ${cause.message}` : "Provider action failed",
+        message:
+          cause instanceof Error
+            ? `Action status could not be determined. The list has been refreshed: ${cause.message}`
+            : "Action status could not be determined. The list has been refreshed.",
         error: true,
       });
       throw cause;

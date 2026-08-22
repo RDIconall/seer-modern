@@ -2,7 +2,7 @@
 
 import * as React from "react";
 import { useEffect, useRef, useState } from "react";
-import { Archive, Paperclip, Trash2 } from "lucide-react";
+import { Archive, LayoutGrid, Paperclip, Trash2 } from "lucide-react";
 
 export type MobileMailRowModel = {
   id: string;
@@ -17,13 +17,16 @@ export type MobileMailRowModel = {
 };
 
 const SWIPE_THRESHOLD = 88;
+const ATLAS_SWIPE_THRESHOLD = 176;
 const DIRECTION_LOCK = 1.35;
 const LONG_PRESS_MS = 520;
 const LONG_PRESS_SLOP = 10;
 
 export function mobileSwipeAction(
   offset: number,
-): "archive" | "delete" | null {
+  allowAtlas = false,
+): "archive" | "delete" | "atlas" | null {
+  if (allowAtlas && offset >= ATLAS_SWIPE_THRESHOLD) return "atlas";
   if (offset >= SWIPE_THRESHOLD) return "delete";
   if (offset <= -SWIPE_THRESHOLD) return "archive";
   return null;
@@ -41,6 +44,7 @@ export function MobileMailRow({
   onDelete,
   actions,
   onLongPress,
+  onAtlas,
 }: {
   model: MobileMailRowModel;
   current?: boolean;
@@ -50,6 +54,8 @@ export function MobileMailRow({
   /** Where this row can go, named in words. A swipe is not discoverable. */
   actions?: { label: string; run: () => void }[];
   onLongPress?: () => void;
+  /** Triage only: a deliberate far-right pull sends the row to Atlas. */
+  onAtlas?: () => void;
 }) {
   const [offset, setOffset] = useState(0);
   const [dragging, setDragging] = useState(false);
@@ -81,14 +87,26 @@ export function MobileMailRow({
       data-unread={model.isUnread ? "true" : "false"}
       data-current={current ? "true" : "false"}
       data-dragging={dragging ? "true" : "false"}
+      data-long-atlas={
+        onAtlas && offset >= ATLAS_SWIPE_THRESHOLD ? "true" : undefined
+      }
     >
       {/* The swipe track wraps only the row face. Left as a child of the row
           itself, the reveals are sized to the whole row and paint their red and
           green over the buttons underneath. */}
       <div className="mobile-mail-row-track">
       <div className="mobile-mail-reveal mobile-mail-reveal-delete">
-        <Trash2 aria-hidden />
-        <span>Delete</span>
+        {onAtlas && offset >= ATLAS_SWIPE_THRESHOLD ? (
+          <>
+            <LayoutGrid aria-hidden />
+            <span>Atlas</span>
+          </>
+        ) : (
+          <>
+            <Trash2 aria-hidden />
+            <span>Delete</span>
+          </>
+        )}
       </div>
       <div className="mobile-mail-reveal mobile-mail-reveal-archive">
         <Archive aria-hidden />
@@ -135,7 +153,7 @@ export function MobileMailRow({
           }
           if (!horizontal.current) return;
           moved.current = true;
-          const next = Math.max(-132, Math.min(132, dx));
+          const next = Math.max(-220, Math.min(220, dx));
           offsetRef.current = next;
           setOffset(next);
         }}
@@ -146,12 +164,14 @@ export function MobileMailRow({
             reset();
             return;
           }
-          const kind = mobileSwipeAction(offsetRef.current);
+          const kind = mobileSwipeAction(offsetRef.current, Boolean(onAtlas));
           const action =
             kind === "archive"
               ? onArchive
               : kind === "delete"
                 ? onDelete
+                : kind === "atlas"
+                  ? onAtlas
                 : null;
           reset();
           if (action) action();
