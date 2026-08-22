@@ -32,8 +32,8 @@ assert.match(triage, /mail-workspace/);
 assert.match(triage, /mail-folder-pane/);
 assert.match(triage, /mail-reader-pane/);
 assert.match(triage, /compact-mail-list/);
-for (const action of ["Delete", "File", "Answer", "Keep"]) {
-  assert.match(triage, new RegExp(`>${action}<`));
+for (const destination of ["Atlas", "Archive", "Delete"]) {
+  assert.match(triage, new RegExp(`>${destination}<`));
 }
 assert.match(triage, /Reading RMS Amendment/);
 
