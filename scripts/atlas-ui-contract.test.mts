@@ -3,7 +3,10 @@ import { promises as fs } from "node:fs";
 import path from "node:path";
 import { createElement } from "react";
 import { renderToString } from "react-dom/server";
-import { Atlas } from "../src/components/v2/Atlas.tsx";
+import {
+  Atlas,
+  atlasDropTarget,
+} from "../src/components/v2/Atlas.tsx";
 import { sampleView } from "../src/app/dev/preview/sample.ts";
 
 const root = process.cwd();
@@ -16,6 +19,7 @@ const mailClientSource = await fs.readFile(
   "utf8",
 );
 const styles = await fs.readFile(path.join(root, "src/app/globals.css"), "utf8");
+const skin = await fs.readFile(path.join(root, "src/app/seer-skin.css"), "utf8");
 
 /**
  * A matter opens as mail. The bespoke detail panel restated the row and then
@@ -120,13 +124,46 @@ assert.match(atlasSource, /onReorderMatters/);
 assert.match(atlasSource, /onMoveMatter/);
 
 /**
+ * Mouse drag already used native HTML drag events. Touch has no reliable native
+ * drag on iOS, so the handle hit-tests the row/section under the pointer and
+ * sends the result through the same persisted reorder path.
+ */
+assert.match(atlasSource, /onPointerDown/);
+assert.match(atlasSource, /document\.elementFromPoint/);
+assert.match(atlasSource, /data-atlas-matter/);
+assert.match(atlasSource, /data-atlas-section/);
+assert.match(atlasSource, /onTouchDrop/);
+assert.doesNotMatch(
+  skin,
+  /@media \(max-width: 700px\)[\s\S]*?\.wb-drag\s*\{[^}]*display:\s*none/,
+  "the drag handle must remain available on touch screens",
+);
+
+const targetElement = {
+  closest(selector: string) {
+    if (selector === "[data-atlas-matter]") {
+      return {
+        dataset: {
+          atlasMatter: "matter-2",
+          atlasSection: "sales",
+        },
+      };
+    }
+    return null;
+  },
+} as unknown as Element;
+assert.deepEqual(atlasDropTarget(targetElement), {
+  section: "sales",
+  beforeMatterId: "matter-2",
+});
+
+/**
  * The skin has to be worn, not just shipped. seer-skin.css defined the display
  * face, the tabular numerals and the Atlas density rules, and for a while
  * nothing referenced any of them: the board rendered in raw pixel sizes while
  * the design system sat unused in a stylesheet. A rule no element claims is
  * indistinguishable from a rule that was never written.
  */
-const skin = await fs.readFile(path.join(root, "src/app/seer-skin.css"), "utf8");
 assert.match(skin, /\.wb-columns/);
 assert.match(
   skin,

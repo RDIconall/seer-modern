@@ -19,6 +19,27 @@ export type MatterMove = {
   targetMatterIds: string[];
 };
 
+export type AtlasDropTarget = {
+  section: string;
+  beforeMatterId: string | null;
+};
+
+/**
+ * Resolve the row/section under a touch pointer. Native HTML drag events work
+ * with a mouse but not reliably on iOS, so touch drag uses hit testing and then
+ * hands the result to the exact same persisted reorder command.
+ */
+export function atlasDropTarget(element: Element | null): AtlasDropTarget | null {
+  const matter = element?.closest<HTMLElement>("[data-atlas-matter]");
+  const column = element?.closest<HTMLElement>("[data-atlas-section]");
+  const section = matter?.dataset.atlasSection ?? column?.dataset.atlasSection;
+  if (!section) return null;
+  return {
+    section,
+    beforeMatterId: matter?.dataset.atlasMatter ?? null,
+  };
+}
+
 /**
  * ATLAS — the whiteboard.
  *
@@ -345,6 +366,7 @@ export function Atlas({
               <div
                 key={section.name}
                 className="wb-column"
+                data-atlas-section={section.name}
                 onDragOver={(event) => event.preventDefault()}
                 onDrop={(event) => {
                   event.preventDefault();
@@ -376,6 +398,7 @@ export function Atlas({
                       (conversation) =>
                         conversation.conversationId === currentConversationId,
                     )}
+                    dragging={dragged?.matterId === matter.matterId}
                     onToggle={() => {
                       const conversation = latestConversation(matter);
                       if (conversation) onOpenConversation?.(conversation);
@@ -396,6 +419,9 @@ export function Atlas({
                     }
                     onDragEnd={() => setDragged(null)}
                     onDropBefore={() => dropMatter(section.name, matter.matterId)}
+                    onTouchDrop={(target) =>
+                      dropMatter(target.section, target.beforeMatterId)
+                    }
                   />
                 ))}
                 {section.parked.length > 0 && (
@@ -469,6 +495,7 @@ function BoardMatter({
   open,
   archived,
   current,
+  dragging,
   onToggle,
   onArchive,
   onUndo,
@@ -481,12 +508,14 @@ function BoardMatter({
   onDragStart,
   onDragEnd,
   onDropBefore,
+  onTouchDrop,
 }: {
   matter: MatterCard;
   now: number;
   open: boolean;
   archived: boolean;
   current: boolean;
+  dragging: boolean;
   onToggle: () => void;
   onArchive: () => void;
   onUndo: () => void;
@@ -499,6 +528,7 @@ function BoardMatter({
   onDragStart: () => void;
   onDragEnd: () => void;
   onDropBefore: () => void;
+  onTouchDrop: (target: AtlasDropTarget) => void;
 }) {
   const age = daysSinceMoved(matter, now);
   const stalled = isStalled(matter, now);
@@ -510,6 +540,9 @@ function BoardMatter({
       className={`wb-m${open ? " wb-m-open" : ""}${archived ? " wb-m-gone" : ""}${
         yours ? " wb-m-yours" : ""
       }${current ? " wb-m-current" : ""}`}
+      data-atlas-matter={matter.matterId}
+      data-atlas-section={matter.section}
+      data-dragging={dragging ? "true" : undefined}
       onDragOver={(event) => {
         event.preventDefault();
         event.stopPropagation();
@@ -531,6 +564,22 @@ function BoardMatter({
           onDragStart();
         }}
         onDragEnd={onDragEnd}
+        onPointerDown={(event) => {
+          if (event.pointerType === "mouse" || archived) return;
+          event.preventDefault();
+          event.stopPropagation();
+          event.currentTarget.setPointerCapture(event.pointerId);
+          onDragStart();
+        }}
+        onPointerUp={(event) => {
+          if (event.pointerType === "mouse" || archived) return;
+          const target = atlasDropTarget(
+            document.elementFromPoint(event.clientX, event.clientY),
+          );
+          if (target) onTouchDrop(target);
+          else onDragEnd();
+        }}
+        onPointerCancel={onDragEnd}
       >
         <GripVertical aria-hidden />
       </button>

@@ -295,6 +295,12 @@ body {
   background: var(--row-active);
   box-shadow: inset 3px 0 0 var(--brand);
 }
+.wb-m[data-dragging="true"] {
+  z-index: 4;
+  background: var(--brand-soft);
+  box-shadow: inset 3px 0 0 var(--brand);
+  opacity: 0.72;
+}
 .wb-mhead {
   width: 100%;
   appearance: none;
@@ -325,6 +331,7 @@ body {
   background: transparent;
   color: var(--nav-muted);
   cursor: grab;
+  touch-action: none;
 }
 
 .wb-drag:active {
@@ -424,11 +431,15 @@ body {
   }
 
   .wb-drag {
-    display: none;
+    top: 0;
+    left: 0;
+    width: 34px;
+    height: 36px;
+    border-radius: 0;
   }
 
   .wb-mhead {
-    padding-left: 14px;
+    padding-left: 34px;
   }
 
   .wb-body {
