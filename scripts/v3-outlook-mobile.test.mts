@@ -46,6 +46,10 @@ const folder = readFileSync(
 assert.match(folder, /<MobileMailRow/);
 assert.match(folder, /type: "archive"/);
 assert.match(folder, /type: "delete"/);
+assert.match(folder, /onLongPress/);
+assert.match(folder, /matter-picker/);
+assert.match(folder, /Let Seer place it/);
+assert.match(folder, /createMatter: true/);
 assert.doesNotMatch(
   folder,
   /badge:\s*triage/,
@@ -73,6 +77,17 @@ assert.match(
   styles,
   /\.compact-mail-list \.mobile-mail-reveal\s*\{\s*display: none;/,
   "swipe tracks stay hidden in the desktop compact list",
+);
+const mobileStyles = styles.slice(styles.indexOf("@media (max-width: 700px)"));
+assert.match(
+  mobileStyles,
+  /\.mobile-mail-row-actions\s*\{\s*display:\s*none;/,
+  "mobile Triage uses swipe and hold, not visible action buttons",
+);
+assert.match(
+  mobileStyles,
+  /\.compact-mail-group > h2 button\s*\{\s*display:\s*none;/,
+  "mobile pile sweeps stay out of the Outlook-style list chrome",
 );
 assert.match(
   styles,

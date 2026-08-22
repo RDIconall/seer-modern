@@ -1,7 +1,7 @@
 "use client";
 
 import * as React from "react";
-import { useRef, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { Archive, Paperclip, Trash2 } from "lucide-react";
 
 export type MobileMailRowModel = {
@@ -18,6 +18,8 @@ export type MobileMailRowModel = {
 
 const SWIPE_THRESHOLD = 88;
 const DIRECTION_LOCK = 1.35;
+const LONG_PRESS_MS = 520;
+const LONG_PRESS_SLOP = 10;
 
 export function mobileSwipeAction(
   offset: number,
@@ -38,6 +40,7 @@ export function MobileMailRow({
   onArchive,
   onDelete,
   actions,
+  onLongPress,
 }: {
   model: MobileMailRowModel;
   current?: boolean;
@@ -46,6 +49,7 @@ export function MobileMailRow({
   onDelete: () => void;
   /** Where this row can go, named in words. A swipe is not discoverable. */
   actions?: { label: string; run: () => void }[];
+  onLongPress?: () => void;
 }) {
   const [offset, setOffset] = useState(0);
   const [dragging, setDragging] = useState(false);
@@ -53,6 +57,15 @@ export function MobileMailRow({
   const horizontal = useRef<boolean | null>(null);
   const moved = useRef(false);
   const offsetRef = useRef(0);
+  const longPressTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const longPressFired = useRef(false);
+
+  const cancelLongPress = () => {
+    if (longPressTimer.current) clearTimeout(longPressTimer.current);
+    longPressTimer.current = null;
+  };
+
+  useEffect(() => cancelLongPress, []);
 
   const reset = () => {
     start.current = null;
@@ -95,12 +108,28 @@ export function MobileMailRow({
           start.current = { x: event.clientX, y: event.clientY };
           horizontal.current = null;
           moved.current = false;
+          longPressFired.current = false;
+          cancelLongPress();
+          if (onLongPress) {
+            longPressTimer.current = setTimeout(() => {
+              longPressFired.current = true;
+              // Suppress the click synthesized after pointer-up.
+              moved.current = true;
+              setDragging(false);
+              onLongPress();
+            }, LONG_PRESS_MS);
+          }
           setDragging(true);
         }}
         onPointerMove={(event) => {
           if (!start.current) return;
           const dx = event.clientX - start.current.x;
           const dy = event.clientY - start.current.y;
+          if (
+            Math.max(Math.abs(dx), Math.abs(dy)) > LONG_PRESS_SLOP
+          ) {
+            cancelLongPress();
+          }
           if (horizontal.current === null && Math.max(Math.abs(dx), Math.abs(dy)) > 8) {
             horizontal.current = Math.abs(dx) > Math.abs(dy) * DIRECTION_LOCK;
           }
@@ -111,6 +140,12 @@ export function MobileMailRow({
           setOffset(next);
         }}
         onPointerUp={() => {
+          cancelLongPress();
+          if (longPressFired.current) {
+            longPressFired.current = false;
+            reset();
+            return;
+          }
           const kind = mobileSwipeAction(offsetRef.current);
           const action =
             kind === "archive"
@@ -121,7 +156,10 @@ export function MobileMailRow({
           reset();
           if (action) action();
         }}
-        onPointerCancel={reset}
+        onPointerCancel={() => {
+          cancelLongPress();
+          reset();
+        }}
       >
         <span className="mobile-mail-row-top">
           <strong>{model.from || "Unknown sender"}</strong>

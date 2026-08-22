@@ -1020,6 +1020,180 @@ body {
   background: var(--row-hover);
 }
 
+.matter-picker-backdrop {
+  position: fixed;
+  inset: 0;
+  z-index: 80;
+  display: grid;
+  align-items: end;
+  background: rgb(0 0 0 / 0.28);
+}
+
+.matter-picker {
+  width: min(100%, 520px);
+  max-height: min(78dvh, 680px);
+  margin-inline: auto;
+  overflow-y: auto;
+  border-radius: 18px 18px 0 0;
+  padding: 14px 16px calc(18px + var(--safe-bottom));
+  background: var(--card);
+  box-shadow: 0 -12px 36px rgb(0 0 0 / 0.18);
+}
+
+.matter-picker > header {
+  display: flex;
+  align-items: flex-start;
+  gap: 12px;
+  margin-bottom: 12px;
+}
+
+.matter-picker > header div {
+  min-width: 0;
+  flex: 1;
+}
+
+.matter-picker h2,
+.matter-picker p {
+  margin: 0;
+}
+
+.matter-picker h2 {
+  color: var(--fg-strong);
+  font-size: 18px;
+}
+
+.matter-picker > header p {
+  overflow: hidden;
+  margin-top: 2px;
+  color: var(--muted);
+  font-size: 12px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.matter-picker > header button {
+  display: grid;
+  width: 36px;
+  height: 36px;
+  place-items: center;
+  border: 0;
+  border-radius: 50%;
+  background: var(--row-hover);
+  color: var(--muted);
+}
+
+.matter-picker > header svg {
+  width: 18px;
+  height: 18px;
+}
+
+.matter-picker-ai {
+  display: flex;
+  width: 100%;
+  align-items: center;
+  gap: 11px;
+  border: 1px solid var(--brand-line);
+  border-radius: 10px;
+  padding: 11px 12px;
+  background: var(--brand-soft);
+  color: var(--fg);
+  text-align: left;
+}
+
+.matter-picker-ai > svg {
+  width: 21px;
+  height: 21px;
+  flex: none;
+  color: var(--brand-strong);
+}
+
+.matter-picker-ai span,
+.matter-picker-list button {
+  display: grid;
+  gap: 1px;
+}
+
+.matter-picker-ai strong,
+.matter-picker-list span {
+  color: var(--fg-strong);
+  font-size: 13px;
+}
+
+.matter-picker-ai small,
+.matter-picker-list small,
+.matter-picker-status {
+  color: var(--muted);
+  font-size: 11px;
+}
+
+.matter-picker-status {
+  padding: 13px 2px 4px;
+}
+
+.matter-picker-list {
+  display: grid;
+  margin-top: 10px;
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  overflow: hidden;
+}
+
+.matter-picker-list button {
+  border: 0;
+  border-bottom: 1px solid var(--border);
+  padding: 9px 11px;
+  background: var(--card);
+  text-align: left;
+}
+
+.matter-picker-list button:last-child {
+  border-bottom: 0;
+}
+
+.matter-picker-list button[data-related="true"] {
+  box-shadow: inset 3px 0 0 var(--brand);
+  background: var(--brand-soft);
+}
+
+.matter-picker-new {
+  margin-top: 14px;
+}
+
+.matter-picker-new label {
+  display: block;
+  margin-bottom: 5px;
+  color: var(--muted);
+  font-size: 11px;
+  font-weight: 650;
+  text-transform: uppercase;
+}
+
+.matter-picker-new > div {
+  display: flex;
+  gap: 7px;
+}
+
+.matter-picker-new input {
+  min-width: 0;
+  flex: 1;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  padding: 8px 10px;
+  background: var(--bg);
+  color: var(--fg-strong);
+  font: inherit;
+}
+
+.matter-picker-new button {
+  border: 0;
+  border-radius: 8px;
+  padding: 8px 13px;
+  background: var(--brand-cta);
+  color: var(--on-brand);
+  font: inherit;
+  font-weight: 700;
+}
+
 .compact-mail-list .mobile-mail-row {
   display: block;
   border-bottom: 1px solid var(--border);
@@ -2628,13 +2802,12 @@ body {
     display: none;
   }
 
-  .mobile-mail-row-actions {
-    padding: 0 16px 10px 20px;
+  .compact-mail-group > h2 button {
+    display: none;
   }
 
-  .mobile-mail-row-actions button {
-    min-height: 32px;
-    padding: 5px 12px;
+  .mobile-mail-row-actions {
+    display: none;
   }
 
   .mobile-mail-row {

@@ -121,6 +121,58 @@ try {
   const now = await currentDecision(accountId, cKeep);
   assert.equal(now?.home, "matter");
   assert.equal(now?.modelVersion, "user-correction");
+  assert.ok(now?.matterId, "making a matter must put it on a real Atlas concern");
+  assert.equal(corrected.detail?.matterId, now?.matterId);
+  const autoLink = await db.pool.query(
+    `select 1 from seer.matter_conversations
+      where matter_id = $1 and conversation_id = $2`,
+    [now?.matterId, cKeep],
+  );
+  assert.equal(autoLink.rowCount, 1, "Seer's relation sweep records the link");
+
+  // A long-press can put mail on an exact existing matter.
+  const exactConversation = await addConversation(
+    db.pool,
+    accountId,
+    "pc-exact-matter",
+  );
+  const exact = await executeCommand(
+    ctx,
+    {
+      type: "correctConversation",
+      conversationId: exactConversation,
+      home: "matter",
+      matterId: now?.matterId,
+      note: "added to an existing matter",
+    },
+    "key-exact-matter",
+  );
+  assert.equal(exact.ok, true);
+  assert.equal(
+    (await currentDecision(accountId, exactConversation))?.matterId,
+    now?.matterId,
+  );
+
+  // Or force a new, user-named matter even when Seer sees a relation.
+  const newConversation = await addConversation(
+    db.pool,
+    accountId,
+    "pc-new-matter",
+  );
+  const created = await executeCommand(
+    ctx,
+    {
+      type: "correctConversation",
+      conversationId: newConversation,
+      home: "matter",
+      matterTitle: "User named concern",
+      createMatter: true,
+    },
+    "key-new-matter",
+  );
+  assert.equal(created.ok, true);
+  assert.notEqual(created.detail?.matterId, now?.matterId);
+  assert.equal(created.detail?.matterTitle, "User named concern");
 
   // Teaching a VIP persists a user-sourced person.
   const taught = await executeCommand(

@@ -44,7 +44,18 @@ export type Command =
       sourceMatterIds: string[];
       targetMatterIds: string[];
     }
-  | { type: "correctConversation"; conversationId: string; home: Home; note?: string }
+  | {
+      type: "correctConversation";
+      conversationId: string;
+      home: Home;
+      note?: string;
+      /** Exact existing concern chosen by the user. */
+      matterId?: string | null;
+      /** A user-entered title or a hint for Seer's relation sweep. */
+      matterTitle?: string | null;
+      /** Do not reuse a related matter; create this user-named concern. */
+      createMatter?: boolean;
+    }
   | { type: "teachSender"; email: string; instruction: "vip" | "always_delete" | "never_delete" }
   | {
       type: "send";

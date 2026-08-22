@@ -18,6 +18,7 @@ import {
 } from "./repository";
 import type { Command, CommandResult } from "./types";
 import { db } from "../db/pool";
+import { placeConversationOnMatter } from "../intelligence/user-matter";
 import {
   saveMatterOrder,
   saveMatterOrders,
@@ -267,11 +268,30 @@ async function run(
       if (!(await conversationBelongsToAccount(ctx.accountId, command.conversationId))) {
         return fail("conversation not found");
       }
+      let matter:
+        | { matterId: string; title: string }
+        | undefined;
+      if (command.home === "matter") {
+        matter = await placeConversationOnMatter(
+          ctx.accountId,
+          asConversationId(command.conversationId),
+          {
+            matterId: command.matterId,
+            matterTitle: command.matterTitle,
+            createNew: command.createMatter,
+          },
+        );
+      }
       await inTransaction(async (client) => {
         await recordEvent(
           ctx.accountId,
           "user_correction",
-          { conversationId: command.conversationId, home: command.home, note: command.note ?? null },
+          {
+            conversationId: command.conversationId,
+            home: command.home,
+            note: command.note ?? null,
+            matterId: matter?.matterId ?? null,
+          },
           idempotencyKey,
           client,
         );
@@ -284,13 +304,20 @@ async function run(
         summary: command.note ?? "",
         rationale: "Corrected by you",
         owner: "nobody",
+        matterId: matter?.matterId,
         vetoReasons: [],
         yields: [],
         evidence: [],
         modelVersion: "user-correction",
         contextVersion: "user",
       });
-      return { ok: true, replayed: false };
+      return {
+        ok: true,
+        replayed: false,
+        detail: matter
+          ? { matterId: matter.matterId, matterTitle: matter.title }
+          : undefined,
+      };
     }
 
     case "teachSender": {
