@@ -18,6 +18,10 @@ const mailClientSource = await fs.readFile(
   path.join(root, "src/components/v3/MailClient.tsx"),
   "utf8",
 );
+const inboxHookSource = await fs.readFile(
+  path.join(root, "src/components/v2/useInboxView.ts"),
+  "utf8",
+);
 const styles = await fs.readFile(path.join(root, "src/app/globals.css"), "utf8");
 const skin = await fs.readFile(path.join(root, "src/app/seer-skin.css"), "utf8");
 
@@ -161,6 +165,11 @@ assert.deepEqual(atlasDropTarget(targetElement), {
   section: "sales",
   beforeMatterId: "matter-2",
 });
+assert.match(
+  inboxHookSource,
+  /if \(disabled\)[\s\S]{0,220}optimistic: true/,
+  "the backend-less preview must keep optimistic drag order visible",
+);
 
 /**
  * The skin has to be worn, not just shipped. seer-skin.css defined the display

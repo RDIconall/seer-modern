@@ -65,6 +65,17 @@ export function useInboxView(
     async (command: Command, optimistic?: (v: InboxView) => InboxView) => {
       snapshot.current = view;
       if (view && optimistic) setView(optimistic(view));
+      // The development preview has a representative view but deliberately no
+      // account/database behind it. Keep the optimistic result there so drag,
+      // archive and correction interactions can be tested instead of flashing
+      // for one frame and rolling back on an expected 404.
+      if (disabled) {
+        return {
+          ok: true,
+          replayed: false,
+          optimistic: true,
+        } satisfies CommandResult;
+      }
       try {
         const res = await fetch("/api/v2/commands", {
           method: "POST",
@@ -88,7 +99,7 @@ export function useInboxView(
         return null;
       }
     },
-    [view],
+    [disabled, view],
   );
 
   return { view, error, reload: load, dispatch };
