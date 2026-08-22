@@ -152,13 +152,29 @@ export function useMailbox(
   const [error, setError] = useState<string | null>(null);
   const viewRef = useRef<MailboxView | null>(initial);
 
+  /**
+   * Reset to the cached view when the SCOPE changes — a different account,
+   * folder, or sort order. Scope is compared by value, not by the identity of
+   * the seed view.
+   *
+   * Keying this on `initial` instead was an infinite render loop: the effect
+   * assigns state on every run, so any render that produced a new seed object
+   * scheduled another render, which produced another seed. React caught it as
+   * "Maximum update depth exceeded" and the error boundary swallowed the whole
+   * client — which is what a blank app with a "client-side exception" was.
+   */
+  const scope = `${accountId ?? ""}:${folder}:${sort}`;
+  const appliedScope = useRef<string | null>(null);
+
   useEffect(() => {
+    if (appliedScope.current === scope) return;
+    appliedScope.current = scope;
     viewRef.current = initial;
     setView(initial);
     setLoading(!initial);
     setRefreshing(Boolean(!options.disabled && initial));
     setError(null);
-  }, [folder, initial, options.disabled, sort]);
+  }, [initial, options.disabled, scope]);
 
   const reload = useCallback(async () => {
     if (options.disabled) return;
