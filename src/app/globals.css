@@ -2640,9 +2640,15 @@ body {
   .mobile-mail-row {
     position: relative;
     display: block;
-    overflow: hidden;
     border-bottom: 1px solid color-mix(in srgb, var(--border) 72%, transparent);
     background: var(--card);
+  }
+
+  /* The swipe track is the scrollport, not the row: the reveals must be sized
+     to the face that slides, not to the row's buttons as well. */
+  .mobile-mail-row-track {
+    position: relative;
+    overflow: hidden;
   }
 
   .mobile-mail-reveal {

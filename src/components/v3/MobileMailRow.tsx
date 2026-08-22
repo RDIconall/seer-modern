@@ -69,6 +69,10 @@ export function MobileMailRow({
       data-current={current ? "true" : "false"}
       data-dragging={dragging ? "true" : "false"}
     >
+      {/* The swipe track wraps only the row face. Left as a child of the row
+          itself, the reveals are sized to the whole row and paint their red and
+          green over the buttons underneath. */}
+      <div className="mobile-mail-row-track">
       <div className="mobile-mail-reveal mobile-mail-reveal-delete">
         <Trash2 aria-hidden />
         <span>Delete</span>
@@ -146,6 +150,7 @@ export function MobileMailRow({
           ) : null}
         </span>
       </button>
+      </div>
       {actions && actions.length > 0 ? (
         <div className="mobile-mail-row-actions" role="group" aria-label={`Place ${model.subject || "conversation"}`}>
           {actions.map((action) => (
