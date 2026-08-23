@@ -2,6 +2,15 @@
 
 import { useCallback, useEffect, useState } from "react";
 import {
+  AlertTriangle,
+  Check,
+  LogOut,
+  Mail,
+  Plus,
+  RefreshCw,
+  Trash2,
+} from "lucide-react";
+import {
   connectGoogleDesktop,
   connectGoogleMobile,
   connectMicrosoftDesktop,
@@ -31,6 +40,16 @@ type AccountData = {
   available: { google: boolean; microsoft: boolean };
   sessionError: string | null;
 };
+
+const PROVIDER_NAME: Record<Account["provider"], string> = {
+  google: "Google",
+  microsoft: "Microsoft",
+};
+
+function initialFor(account: Account): string {
+  const source = account.name.trim() || account.email.trim();
+  return (source.slice(0, 1) || "?").toUpperCase();
+}
 
 export function Settings({ mobile = false }: { mobile?: boolean }) {
   const [data, setData] = useState<AccountData | null>(null);
@@ -99,94 +118,153 @@ export function Settings({ mobile = false }: { mobile?: boolean }) {
   }
 
   if (!data && !error) {
-    return <section className="mail-settings" aria-label="Settings">Loading settings…</section>;
+    return (
+      <section className="mail-settings" aria-label="Settings">
+        <p className="mail-settings-loading">Loading settings…</p>
+      </section>
+    );
   }
 
   return (
     <section className="mail-settings" aria-label="Settings">
-      <h1>Settings</h1>
-      <p>Manage the mailboxes connected to your Seer account.</p>
+      <header className="mail-settings-header">
+        <h1>Settings</h1>
+        <p>Manage the mailboxes connected to your Seer account.</p>
+      </header>
 
-      {error && <p role="alert">{error}</p>}
+      {error && (
+        <p className="mail-settings-alert" role="alert">
+          <AlertTriangle className="mail-settings-alert-icon" aria-hidden="true" />
+          {error}
+        </p>
+      )}
       {data?.sessionError && (
-        <p role="alert">
+        <p className="mail-settings-alert" role="alert">
+          <AlertTriangle className="mail-settings-alert-icon" aria-hidden="true" />
           Your sign-in needs attention. Reconnect the current account to continue.
         </p>
       )}
 
-      <section aria-labelledby="current-account-heading">
-        <h2 id="current-account-heading">Current account</h2>
+      <section className="mail-settings-section" aria-labelledby="current-account-heading">
+        <h2 className="mail-settings-heading" id="current-account-heading">
+          Current account
+        </h2>
         {data?.active ? (
-          <div>
-            <strong>{data.active.email}</strong>
-            <span>{data.active.label}</span>
+          <div className="mail-settings-card">
+            <span className="mail-settings-avatar" aria-hidden="true">
+              {initialFor(data.active)}
+            </span>
+            <span className="mail-settings-identity">
+              <strong className="mail-settings-email">{data.active.email}</strong>
+              <span className="mail-settings-label">{data.active.label}</span>
+            </span>
+            <Check className="mail-settings-check" aria-hidden="true" />
           </div>
         ) : (
-          <p>No account is currently selected.</p>
+          <p className="mail-settings-empty">No account is currently selected.</p>
         )}
       </section>
 
-      <section aria-labelledby="accounts-heading">
-        <h2 id="accounts-heading">Connected accounts</h2>
+      <section className="mail-settings-section" aria-labelledby="accounts-heading">
+        <h2 className="mail-settings-heading" id="accounts-heading">
+          Connected accounts
+        </h2>
         {data?.accounts.length ? (
-          <ul>
+          <ul className="mail-settings-list">
             {data.accounts.map((account) => (
-              <li key={account.id}>
-                <button
-                  type="button"
-                  disabled={account.active || busy === account.id}
-                  onClick={() => void accountAction(account.id, "switch")}
-                >
-                  {account.active ? "Current" : "Switch"} {account.email}
-                </button>
-                <span>{account.label}</span>
-                {account.status === "reconnect_required" && (
-                  <strong role="status">Needs reconnect</strong>
-                )}
-                <button
-                  type="button"
-                  disabled={busy === account.id}
-                  onClick={() => void reconnect(account.id)}
-                >
-                  Reconnect
-                </button>
-                <button
-                  type="button"
-                  disabled={busy === account.id}
-                  onClick={() => {
-                    if (window.confirm(`Remove ${account.email} from Seer?`)) {
-                      void accountAction(account.id, "remove");
-                    }
-                  }}
-                >
-                  Remove
-                </button>
+              <li
+                className="mail-settings-account"
+                key={account.id}
+                data-active={account.active ? "true" : "false"}
+              >
+                <span className="mail-settings-avatar" aria-hidden="true">
+                  {initialFor(account)}
+                </span>
+                <span className="mail-settings-identity">
+                  <strong className="mail-settings-email">{account.email}</strong>
+                  <span className="mail-settings-label">
+                    {PROVIDER_NAME[account.provider]} · {account.label}
+                  </span>
+                  {account.status === "reconnect_required" && (
+                    <strong className="mail-settings-badge" role="status">
+                      Needs reconnect
+                    </strong>
+                  )}
+                </span>
+                <span className="mail-settings-actions">
+                  <button
+                    className="mail-settings-button"
+                    type="button"
+                    disabled={account.active || busy === account.id}
+                    onClick={() => void accountAction(account.id, "switch")}
+                  >
+                    {account.active ? "Current" : "Switch"}
+                    <span className="mail-settings-sr">
+                      {account.active ? " account" : ` to ${account.email}`}
+                    </span>
+                  </button>
+                  <button
+                    className="mail-settings-button"
+                    type="button"
+                    disabled={busy === account.id}
+                    onClick={() => void reconnect(account.id)}
+                  >
+                    <RefreshCw className="mail-settings-button-icon" aria-hidden="true" />
+                    Reconnect
+                  </button>
+                  <button
+                    className="mail-settings-button mail-settings-danger"
+                    type="button"
+                    disabled={busy === account.id}
+                    onClick={() => {
+                      if (window.confirm(`Remove ${account.email} from Seer?`)) {
+                        void accountAction(account.id, "remove");
+                      }
+                    }}
+                  >
+                    <Trash2 className="mail-settings-button-icon" aria-hidden="true" />
+                    Remove
+                  </button>
+                </span>
               </li>
             ))}
           </ul>
         ) : (
-          <p>No connected accounts.</p>
+          <p className="mail-settings-empty">No connected accounts.</p>
         )}
       </section>
 
-      <section aria-labelledby="add-account-heading">
-        <h2 id="add-account-heading">Add account</h2>
-        <div>
+      <section className="mail-settings-section" aria-labelledby="add-account-heading">
+        <h2 className="mail-settings-heading" id="add-account-heading">
+          Add account
+        </h2>
+        <div className="mail-settings-add">
           {data?.available.google && (
             <form action={mobile ? connectGoogleMobile : connectGoogleDesktop}>
-              <button type="submit">Add Google account</button>
+              <button className="mail-settings-connect" type="submit">
+                <Plus className="mail-settings-button-icon" aria-hidden="true" />
+                <Mail className="mail-settings-button-icon" aria-hidden="true" />
+                Add Google account
+              </button>
             </form>
           )}
           {data?.available.microsoft && (
             <form action={mobile ? connectMicrosoftMobile : connectMicrosoftDesktop}>
-              <button type="submit">Add Microsoft account</button>
+              <button className="mail-settings-connect" type="submit">
+                <Plus className="mail-settings-button-icon" aria-hidden="true" />
+                <Mail className="mail-settings-button-icon" aria-hidden="true" />
+                Add Microsoft account
+              </button>
             </form>
           )}
         </div>
       </section>
 
-      <form action={logout}>
-        <button type="submit">Sign out</button>
+      <form className="mail-settings-signout" action={logout}>
+        <button className="mail-settings-button" type="submit">
+          <LogOut className="mail-settings-button-icon" aria-hidden="true" />
+          Sign out
+        </button>
       </form>
     </section>
   );

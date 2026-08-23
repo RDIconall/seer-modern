@@ -96,4 +96,33 @@ assert.match(
   "phone layout must reset named grid placement",
 );
 
+/*
+ * The class-coverage sweep above cannot see an element that carries no class at
+ * all, which is how Settings ended up as browser-default headings, bullets and
+ * grey buttons. Require the account surfaces to be named and styled.
+ */
+const settingsSource = readFileSync(join(componentsDir, "Settings.tsx"), "utf8");
+for (const cls of [
+  "mail-settings-header",
+  "mail-settings-section",
+  "mail-settings-heading",
+  "mail-settings-list",
+  "mail-settings-account",
+  "mail-settings-identity",
+  "mail-settings-actions",
+  "mail-settings-button",
+]) {
+  assert.ok(
+    settingsSource.includes(`"${cls}`) || settingsSource.includes(` ${cls}"`),
+    `Settings must render ${cls} rather than a bare element`,
+  );
+  assert.ok(hasRule(cls), `${cls} needs a stylesheet rule`);
+}
+
+assert.match(
+  css,
+  /\.mail-settings-list \{[\s\S]*?list-style: none;/,
+  "connected accounts must not fall back to browser bullets",
+);
+
 console.log(`v3-styles: OK (${used.size} classes all styled)`);
