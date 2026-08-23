@@ -99,7 +99,7 @@ try {
         yields: [], evidence: [],
       }),
     });
-    assert.equal(decision.home, "undecided", "pending obligation must not be deletable");
+    assert.equal(decision.home, "record", "pending obligation falls back to Archive, never Delete");
     assert.ok(decision.vetoReasons.includes("pending_obligation"));
     assert.equal(decision.proposedHome, "delete", "the model's proposal is retained for audit");
   }
@@ -185,7 +185,7 @@ try {
         owner: "you", ask: "Confirm SOW pricing", obligation: false, yields: [], evidence: [],
       }),
     });
-    assert.equal(decision.home, "undecided");
+    assert.equal(decision.home, "record");
     assert.ok(decision.vetoReasons.includes("known_sender"));
     assert.ok(decision.vetoReasons.includes("owner_is_you"));
     assert.ok(decision.vetoReasons.includes("open_ask"));
@@ -254,7 +254,7 @@ try {
 
   // 5d. A model matter guess from an automated notification cannot create a
   // concern without an obligation, known relation, internal sender or human
-  // correspondence. It stays visible in Review instead.
+  // correspondence. It falls back to reversible Archive instead.
   {
     const before = await db.pool.query<{ n: number }>(
       "select count(*)::int as n from seer.matters where account_id = $1",
@@ -290,7 +290,7 @@ try {
         evidence: [],
       }),
     });
-    assert.equal(decision.home, "undecided");
+    assert.equal(decision.home, "record");
     assert.ok(decision.vetoReasons.includes("matter_untrusted_sender"));
     assert.equal(decision.matterId, undefined);
     const after = await db.pool.query<{ n: number }>(
@@ -304,7 +304,7 @@ try {
     );
   }
 
-  // 6. Incomplete body → undecided, never guessed.
+  // 6. Incomplete body → Archive, the reversible no-guess fallback.
   {
     const providerId = "incomplete-1";
     const row = await db.pool.query<{ id: string }>(
@@ -329,7 +329,7 @@ try {
       accountId, conversationId: asConversationId(row.rows[0].id), conversation, context,
       model: async () => { modelCalled = true; throw new Error("should not be called"); },
     });
-    assert.equal(decision.home, "undecided");
+    assert.equal(decision.home, "record");
     assert.equal(modelCalled, false, "an incomplete conversation must not reach the model");
     assert.ok(decision.vetoReasons.includes("incomplete_context"));
   }

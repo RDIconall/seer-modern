@@ -111,10 +111,11 @@ export async function readConversation(
     return saveDecision({
       accountId: input.accountId,
       conversationId: input.conversationId,
-      home: "undecided",
+      home: "record",
       proposedHome: "undecided",
       summary: "",
-      rationale: "Not read yet — incomplete conversation content",
+      rationale:
+        "Archived by conservative fallback — incomplete conversation content",
       owner: "nobody",
       vetoReasons: ["incomplete_context"],
       yields: [],
@@ -145,10 +146,10 @@ export async function readConversation(
     return saveDecision({
       accountId: input.accountId,
       conversationId: input.conversationId,
-      home: "undecided",
+      home: "record",
       proposedHome: "undecided",
       summary: "",
-      rationale: "Not read yet — model unavailable",
+      rationale: "Archived by conservative fallback — model unavailable",
       owner: "nobody",
       vetoReasons: ["read_failed"],
       yields: [],
@@ -172,10 +173,13 @@ export async function readConversation(
     facts,
   );
   const safety = {
-    home: matterSafety.home,
+    home: matterSafety.home === "undecided" ? "record" : matterSafety.home,
     vetoReasons: [
       ...deletionSafety.vetoReasons,
       ...matterSafety.vetoReasons,
+      ...(matterSafety.home === "undecided"
+        ? ["undecided_default_archive"]
+        : []),
     ],
   };
 

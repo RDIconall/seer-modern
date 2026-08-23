@@ -37,32 +37,32 @@ assert.equal(validateDelete({ home: "delete" }, SAFE).home, "delete");
 // The Salesforce "ACTION REQUIRED" case: an obligation remains → never deleted.
 {
   const r = validateDelete({ home: "delete" }, { ...SAFE, hasPendingObligation: true });
-  assert.equal(r.home, "undecided");
+  assert.equal(r.home, "record");
   assert.ok(r.vetoReasons.includes("pending_obligation"));
 }
 
 // Owner is you → veto.
-assert.equal(validateDelete({ home: "delete" }, { ...SAFE, ownerIsYou: true }).home, "undecided");
+assert.equal(validateDelete({ home: "delete" }, { ...SAFE, ownerIsYou: true }).home, "record");
 
 // Live matter (e.g. a newsletter touching the Roche matter) → veto.
 assert.equal(
   validateDelete({ home: "delete" }, { ...SAFE, liveMatterId: "m1" }).home,
-  "undecided",
+  "record",
 );
 
 // Known sender (a real contact) → veto.
-assert.equal(validateDelete({ home: "delete" }, { ...SAFE, senderIsKnown: true }).home, "undecided");
+assert.equal(validateDelete({ home: "delete" }, { ...SAFE, senderIsKnown: true }).home, "record");
 
 // Yield detected but not persisted → veto (keep meaning before deleting husk).
 assert.equal(
   validateDelete({ home: "delete" }, { ...SAFE, yieldPersisted: false }).home,
-  "undecided",
+  "record",
 );
 
 // Incomplete context → veto.
 assert.equal(
   validateDelete({ home: "delete" }, { ...SAFE, hadCompleteContext: false }).home,
-  "undecided",
+  "record",
 );
 
 // A person wrote to you by name → veto. This is the referral case: the sender
@@ -70,7 +70,7 @@ assert.equal(
 // stayed silent and a letter from a family friend reached "Safe to delete".
 {
   const r = validateDelete({ home: "delete" }, { ...SAFE, isHumanCorrespondence: true });
-  assert.equal(r.home, "undecided");
+  assert.equal(r.home, "record");
   assert.ok(r.vetoReasons.includes("personal_greeting"));
 }
 
@@ -91,7 +91,7 @@ for (const home of ["matter", "record", "undecided"] as const) {
     { home: "matter", matterRef: "Vendor notification" },
     SAFE,
   );
-  assert.equal(result.home, "undecided");
+  assert.equal(result.home, "record");
   assert.ok(result.vetoReasons.includes("matter_owner_nobody"));
   assert.ok(result.vetoReasons.includes("matter_no_open_work"));
   assert.ok(result.vetoReasons.includes("matter_not_direct"));
@@ -123,7 +123,7 @@ assert.equal(
 );
 
 // Missing matterRef and a prior explicit correction away from Atlas both veto
-// a weak promotion. The email remains visible in Review; safety never guesses.
+// a weak promotion. The email falls back to reversible Archive.
 {
   const result = validateMatterPromotion(
     { home: "matter" },
@@ -135,7 +135,7 @@ assert.equal(
       priorMatterRejections: 2,
     },
   );
-  assert.equal(result.home, "undecided");
+  assert.equal(result.home, "record");
   assert.ok(result.vetoReasons.includes("matter_ref_missing"));
   assert.ok(result.vetoReasons.includes("prior_triage_rejection"));
   assert.ok(result.vetoReasons.includes("matter_untrusted_sender"));

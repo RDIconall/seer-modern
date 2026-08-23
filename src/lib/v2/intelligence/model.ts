@@ -37,7 +37,9 @@ Decide two things and nothing else:
    - Never the email's subject line verbatim, and never an imperative.
    - "record": no live story, but worth keeping (receipt, executed contract, invoice, statement, confirmation).
    - "delete": the useful meaning (if any) has been captured in YIELDS and the email itself is not needed.
-   - "undecided": you cannot responsibly decide.
+   - "undecided": only when the content is genuinely insufficient. This is an
+     internal uncertainty signal; the product will conservatively place it in
+     Archive rather than exposing a fourth destination to the user.
    Judge from MEANING, never the sender's shape. A no-reply address can carry an approval; a real person can send pure noise.
 
 2. YIELDS — business meaning worth keeping even if the email is deleted:

@@ -4,8 +4,8 @@ import type { ReadResult } from "./schema";
 /**
  * The safety constraint. It is NOT a second brain: it cannot classify a
  * conversation or choose a home. It does exactly one thing — refuse to let an
- * unsafe `delete` stand, downgrading it to `undecided` so the mail stays
- * visible. Every other decision passes through untouched.
+ * unsafe `delete` stand, downgrading it to `record` — Archive, the reversible
+ * fallback. Every other decision passes through untouched.
  *
  * This is the structural fix for the original bug: a read that said "fyi/delete"
  * while its own fields showed the user owed a reply, a signature was pending, or
@@ -73,10 +73,12 @@ export function validateDelete(
   if (reasons.length === 0) {
     return { home: "delete", vetoReasons: [] };
   }
-  // Vetoed: keep the mail visible rather than delete it. The safety layer never
-  // promotes it to a matter — that would be a classification it is not allowed
-  // to make. Undecided is the honest, safe landing spot.
-  return { home: "undecided", vetoReasons: reasons };
+  // Vetoed: archive rather than delete. The safety layer never promotes it to a
+  // matter — that would be a classification it is not allowed to make.
+  // A veto says only "do not delete." Archive is the conservative,
+  // reversible fallback; leaving an `undecided` home made Triage defer the very
+  // placement decision it exists to make.
+  return { home: "record", vetoReasons: reasons };
 }
 
 /**
@@ -86,8 +88,8 @@ export function validateDelete(
  * false positive to accumulate forever.
  *
  * Existing matter continuity is strong evidence. A new matter needs a named
- * unit of work plus a direct unresolved ask/obligation. Anything weaker remains
- * visible in Review; safety never guesses Archive/Delete.
+ * unit of work plus a direct unresolved ask/obligation. Anything weaker goes to
+ * Archive, the reversible fallback; it never pollutes Atlas.
  */
 export function validateMatterPromotion(
   read: Pick<ReadResult, "home" | "matterRef">,
@@ -125,5 +127,5 @@ export function validateMatterPromotion(
 
   return reasons.length === 0
     ? { home: "matter", vetoReasons: [] }
-    : { home: "undecided", vetoReasons: reasons };
+    : { home: "record", vetoReasons: reasons };
 }

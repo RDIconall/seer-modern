@@ -174,15 +174,26 @@ const previewRows: Record<MailboxFolder, MailboxRow[]> = {
   ],
 };
 
-const view = (folder: MailboxFolder, sort: MailboxView["sort"] = "date"): MailboxView => ({
-  accountId: "preview",
-  folder,
-  sort,
-  rows: previewRows[folder],
-  total: previewRows[folder].length,
-  needsYou: previewRows[folder].filter((row) => row.disposition === "undecided").length,
-  nextCursor: null,
-});
+const view = (
+  folder: MailboxFolder,
+  sort: MailboxView["sort"] = "date",
+): MailboxView => {
+  // Production removes model-confirmed matters from Triage because they are
+  // already on Atlas. Keep the preview honest to that contract.
+  const rows =
+    sort === "triage"
+      ? previewRows[folder].filter((row) => row.disposition !== "matter")
+      : previewRows[folder];
+  return {
+    accountId: "preview",
+    folder,
+    sort,
+    rows,
+    total: rows.length,
+    needsYou: 0,
+    nextCursor: null,
+  };
+};
 
 const reader: Conversation = {
   providerConversationId: "preview-p-1",

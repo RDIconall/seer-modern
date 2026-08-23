@@ -1,46 +1,44 @@
 import type { MailboxRow } from "./types";
 
 /**
- * Triage has two model-cleared destinations and one honest uncertainty bucket.
- * Delete and Archive are recommendations; Review means Seer has NOT chosen a
- * destination. The user still has three gestures available — Atlas, Archive,
- * Delete — but the UI must never present that choice as if the model made it.
+ * Triage is a total placement: Atlas, Archive, or Delete. Matter rows leave the
+ * queue for Atlas immediately, so the remaining list normally shows Archive
+ * and Delete recommendations. Pending/legacy-undecided rows fall back to
+ * Archive — reversible and unable to pollute the whiteboard.
  *
  * The piles this file produces are named after the destination, not after a
  * verb describing the user's mood about the mail. "File", "Answer" and "Keep"
  * all meant "still in the inbox afterwards", which is how a triage screen ends
  * a session with the same rows it started with.
  */
-export type TriageVerb = "delete" | "archive" | "review";
+export type TriageVerb = "delete" | "archive" | "matter";
 
-export const VERB_ORDER: TriageVerb[] = ["delete", "archive", "review"];
+export const VERB_ORDER: TriageVerb[] = ["delete", "archive", "matter"];
 
 export const VERB_LABEL: Record<TriageVerb, string> = {
   delete: "Delete",
   archive: "Archive",
-  review: "Review",
+  matter: "Atlas",
 };
 
 /** What each pile is for, said once above the rows rather than on each of them. */
 export const VERB_HINT: Record<TriageVerb, string> = {
   delete: "Nothing here is worth keeping.",
   archive: "Worth keeping, but nothing is being asked of you.",
-  review: "No destination chosen — swipe or hold to decide.",
+  matter: "Live work — these belong on the whiteboard.",
 };
 
 /**
  * Where a conversation is headed.
  *
  * Only two dispositions have a destination of their own: Seer cleared it for
- * deletion, or it is a record. Everything else needs a human decision. Calling
- * an undecided or not-yet-read email "Atlas" is itself a classification, and a
- * particularly dangerous one because it looks authoritative while bypassing
- * the matter classifier entirely.
+ * deletion, it is a record, or it has passed the guarded matter classifier.
+ * Pending and legacy-undecided rows use Archive as the conservative fallback.
  */
 export function verbFor(row: MailboxRow): TriageVerb {
   if (row.disposition === "delete") return "delete";
-  if (row.disposition === "record") return "archive";
-  return "review";
+  if (row.disposition === "matter") return "matter";
+  return "archive";
 }
 
 /**
