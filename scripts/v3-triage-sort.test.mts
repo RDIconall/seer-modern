@@ -186,19 +186,24 @@ try {
   // --- 3. DB ordering ------------------------------------------------------
   const triage = await getMailboxView(accountId, "inbox", 20, undefined, "triage");
   assert.equal(triage.sort, "triage");
-  assert.equal(triage.total, 4, "Atlas matters are not duplicated in Triage");
+  assert.equal(
+    triage.total,
+    2,
+    "Triage contains completed Archive/Delete classifications only",
+  );
+  assert.equal(triage.processing, 2, "pending/legacy uncertainty is processing");
   assert.deepEqual(
     triage.rows.map((r) => r.disposition),
-    TRIAGE_ORDER.filter((disposition) => disposition !== "matter"),
+    ["delete", "record"],
   );
   assert.deepEqual(
     triage.rows.map((r) => r.deleteRank),
-    [0, 1, 2, 4],
+    [0, 1],
   );
   assert.equal(triage.rows[0].subject, "Row delete");
-  assert.equal(triage.rows[3].subject, "Row pending");
+  assert.equal(triage.rows[1].subject, "Row record");
   assert.equal(triage.rows[0].category, "ops");
-  assert.equal(triage.rows[3].category, null);
+  assert.equal(triage.rows[1].category, null);
   assert.ok(!triage.rows.some((row) => row.category === "sales"));
 
   for (const row of triage.rows) {
