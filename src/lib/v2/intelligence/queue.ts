@@ -24,10 +24,22 @@ export async function conversationsNeedingRead(
         and c.folders @> array['inbox']::text[]
         and (
           d.id is null
-          or d.model_version <> $2
-          or d.context_version <> $3
+          -- A user correction is law. Model/context rollouts may refresh model
+          -- reads, but must never silently overwrite an explicit placement.
+          or (
+            d.model_version <> 'user-correction'
+            and (d.model_version <> $2 or d.context_version <> $3)
+          )
+          -- Re-read a thread when new mail arrived after its decision. This was
+          -- previously missing, so a current-version decision could survive
+          -- forever while the conversation changed underneath it.
+          or (
+            d.model_version <> 'user-correction'
+            and c.last_message_at > d.decided_at
+          )
           or (
             d.home = 'undecided'
+            and d.model_version <> 'user-correction'
             and d.decided_at < now() - interval '24 hours'
           )
         )

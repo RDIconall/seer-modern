@@ -12,6 +12,7 @@ import { executeCommand } from "../src/lib/v2/commands/execute.ts";
 import { FakeProvider } from "../src/lib/v2/providers/fake.ts";
 import { asConversationId, type AccountId } from "../src/lib/v2/db/types.ts";
 import type { Message } from "../src/lib/v2/providers/types.ts";
+import { conversationsNeedingRead } from "../src/lib/v2/intelligence/queue.ts";
 
 function fakeMsg(id: string, fail = false): Message & { folder: "inbox"; failMutation?: boolean } {
   return {
@@ -173,6 +174,38 @@ try {
   assert.equal(created.ok, true);
   assert.notEqual(created.detail?.matterId, now?.matterId);
   assert.equal(created.detail?.matterTitle, "User named concern");
+
+  // Context/model rollouts re-read model decisions, but never overwrite an
+  // explicit matter placement. New mail can be triaged again by the user.
+  const staleModelConversation = await addConversation(
+    db.pool,
+    accountId,
+    "pc-stale-model",
+  );
+  await saveDecision({
+    accountId,
+    conversationId: staleModelConversation,
+    home: "matter",
+    proposedHome: "matter",
+    summary: "Old model matter",
+    rationale: "old",
+    owner: "you",
+    matterId: String(created.detail?.matterId),
+    vetoReasons: [],
+    yields: [],
+    evidence: [],
+    modelVersion: "old-model",
+    contextVersion: "old-context",
+  });
+  const readQueue = await conversationsNeedingRead(accountId);
+  assert.ok(
+    readQueue.some((id) => String(id) === String(staleModelConversation)),
+    "old model decisions must be re-read through the new gate",
+  );
+  assert.ok(
+    !readQueue.some((id) => String(id) === String(newConversation)),
+    "a user-created matter must never be overwritten by a version rollout",
+  );
 
   // Triage archive/delete are classifier corrections as well as provider
   // mutations. Plain mailbox actions elsewhere do not carry this meaning.
