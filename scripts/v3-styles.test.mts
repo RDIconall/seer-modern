@@ -41,4 +41,59 @@ assert.match(css, /\.mail-focus-ring\b/, "missing keyboard focus styles");
 assert.match(css, /\.mail-reader-full[\s\S]*z-index:\s*50/, "reader modal must stack above navigation");
 assert.match(css, /\.mail-compose[\s\S]*z-index:\s*60/, "compose modal must stack above navigation");
 
+/**
+ * Triage on desktop is a one-line table through MobileMailboxList. The grid
+ * broke when only date/meta named columns — auto-placement skipped backward,
+ * subject landed in column five, and preview wrapped. Row actions also sat
+ * under every row instead of at the end of the line.
+ */
+const compactBlockRule = css.indexOf(
+  ".compact-mail-list .mobile-mail-row {\n  display: block;",
+);
+const desktopFlexRule = css.indexOf(
+  "@media (min-width: 701px) {\n  .compact-mail-list .mobile-mail-row {\n    display: flex;",
+);
+assert.ok(
+  compactBlockRule > -1 && desktopFlexRule > compactBlockRule,
+  "desktop flex row layout must follow the unscoped display:block rule",
+);
+
+for (const [selector, column] of [
+  [".compact-mail-list .mobile-mail-row-top strong", 1],
+  [".compact-mail-list .mobile-mail-row-subject", 2],
+  [".compact-mail-list .mobile-mail-row-preview", 3],
+  [".compact-mail-list .mobile-mail-row-top time", 4],
+  [".compact-mail-list .mobile-mail-row-meta", 5],
+] as const) {
+  const escaped = selector.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+  assert.match(
+    css,
+    new RegExp(`${escaped}[\\s\\S]*?grid-column:\\s*${column}`),
+    `${selector} must occupy column ${column}`,
+  );
+}
+
+assert.match(
+  css,
+  /\.compact-mail-list \.mobile-mail-row-top strong,\s*\n\.compact-mail-list \.mobile-mail-row-subject,\s*\n\.compact-mail-list \.mobile-mail-row-preview,\s*\n\.compact-mail-list \.mobile-mail-row-top time,\s*\n\.compact-mail-list \.mobile-mail-row-meta \{\s*\n\s*grid-row: 1;/,
+  "every table cell must share row 1 on desktop",
+);
+
+assert.match(
+  css,
+  /@media \(min-width: 701px\) and \(hover: hover\) and \(pointer: fine\) \{[\s\S]*\.compact-mail-list \.mobile-mail-row-actions \{\s*\n\s*opacity: 0;/,
+  "mouse users see row actions on hover, not on every row",
+);
+
+const mobileMailStyles = css.slice(
+  css.indexOf(
+    "@media (max-width: 700px) {\n  .mail-client {\n    display: block;",
+  ),
+);
+assert.match(
+  mobileMailStyles,
+  /\.compact-mail-list \.mobile-mail-row-top time,[\s\S]*?grid-column: auto;[\s\S]*?grid-row: auto;/,
+  "phone layout must reset named grid placement",
+);
+
 console.log(`v3-styles: OK (${used.size} classes all styled)`);
