@@ -16,6 +16,8 @@ import type { ReadResult } from "./schema";
 export type SafetyFacts = {
   /** The user personally owes the next action. */
   ownerIsYou: boolean;
+  /** Nobody has a live next move. */
+  ownerIsNobody: boolean;
   /** A real ask is outstanding (not "nothing — informational"). */
   hasOpenAsk: boolean;
   /** A signature / approval / regulatory / legal / payment step remains. */
@@ -32,6 +34,10 @@ export type SafetyFacts = {
   hadCompleteContext: boolean;
   /** A person wrote to the user by name — a letter, not a broadcast. */
   isHumanCorrespondence: boolean;
+  /** The newest inbound turn names the user in To/Cc, rather than a broadcast. */
+  addressedDirectly: boolean;
+  /** Exact-sender Triage choices away from Atlas. */
+  priorMatterRejections: number;
 };
 
 export type SafetyResult = {
@@ -71,4 +77,53 @@ export function validateDelete(
   // promotes it to a matter — that would be a classification it is not allowed
   // to make. Undecided is the honest, safe landing spot.
   return { home: "undecided", vetoReasons: reasons };
+}
+
+/**
+ * Matter promotion is consequential too: it creates/extends a durable concern
+ * on the executive's whiteboard. The old safety layer constrained deletion but
+ * let any model `matter` pass untouched, making Atlas the easiest place for a
+ * false positive to accumulate forever.
+ *
+ * Existing matter continuity is strong evidence. A new matter needs a named
+ * unit of work plus a direct unresolved ask/obligation. Anything weaker remains
+ * visible in Review; safety never guesses Archive/Delete.
+ */
+export function validateMatterPromotion(
+  read: Pick<ReadResult, "home" | "matterRef">,
+  facts: SafetyFacts,
+): SafetyResult {
+  if (read.home !== "matter") {
+    return { home: read.home, vetoReasons: [] };
+  }
+  if (facts.liveMatterId) {
+    return { home: "matter", vetoReasons: [] };
+  }
+
+  const reasons: string[] = [];
+  if (!read.matterRef?.trim()) reasons.push("matter_ref_missing");
+  if (facts.ownerIsNobody) reasons.push("matter_owner_nobody");
+  if (!facts.hasOpenAsk && !facts.hasPendingObligation) {
+    reasons.push("matter_no_open_work");
+  }
+  if (!facts.addressedDirectly) reasons.push("matter_not_direct");
+  if (
+    !facts.isHumanCorrespondence &&
+    !facts.senderIsKnown &&
+    !facts.senderIsInternal &&
+    !facts.hasPendingObligation
+  ) {
+    reasons.push("matter_untrusted_sender");
+  }
+  if (
+    facts.priorMatterRejections > 0 &&
+    !facts.hasPendingObligation &&
+    !(facts.hasOpenAsk && facts.isHumanCorrespondence)
+  ) {
+    reasons.push("prior_triage_rejection");
+  }
+
+  return reasons.length === 0
+    ? { home: "matter", vetoReasons: [] }
+    : { home: "undecided", vetoReasons: reasons };
 }

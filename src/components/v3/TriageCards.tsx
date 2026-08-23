@@ -14,7 +14,6 @@ import {
   reconcile,
   undoLast,
   upcoming,
-  wouldDelete,
   type DeckState,
   type DeckVerdict,
 } from "./triage-deck";
@@ -138,7 +137,6 @@ export function TriageCards({
 
   const clearing = dragX < -20;
   const keeping = dragX > 20;
-  const destructive = wouldDelete(card);
 
   return (
     <section className="deck seer-deck-bg" aria-label="Cards">
@@ -179,7 +177,7 @@ export function TriageCards({
         >
           {/* What the gesture will do, named before it happens. */}
           <span className="deck-verdict deck-verdict-clear" data-on={clearing}>
-            {destructive ? "Delete" : "Archive"}
+            Delete
           </span>
           <span className="deck-verdict deck-verdict-keep" data-on={keeping}>
             Atlas
@@ -280,11 +278,6 @@ function CardFace({ row }: { row: MailboxRow }) {
           <span className="tabular">
             {row.attachments.length} file{row.attachments.length === 1 ? "" : "s"}
           </span>
-        )}
-        {!row.deleteToken && (
-          // Said on the card: Seer did not clear this one, but the button still
-          // works — it is the user's mail.
-          <span className="deck-held">Seer didn’t clear this one</span>
         )}
       </div>
     </div>

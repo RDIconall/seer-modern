@@ -141,12 +141,112 @@ async function validMatterOrder(
   return candidates.filter((id) => valid.has(id));
 }
 
+/**
+ * Persist the destination the user chose in Triage. Mailbox actions elsewhere
+ * are not automatically feedback — archiving a finished matter is not the same
+ * statement as correcting an email Seer just classified.
+ */
+async function recordTriageCorrection(
+  ctx: CommandContext,
+  conversationId: string,
+  home: "record" | "delete",
+  idempotencyKey: string,
+): Promise<void> {
+  await inTransaction(async (client) => {
+    await recordEvent(
+      ctx.accountId,
+      "user_correction",
+      {
+        conversationId,
+        home,
+        source: "triage",
+      },
+      idempotencyKey,
+      client,
+    );
+  });
+  await saveDecision({
+    accountId: ctx.accountId,
+    conversationId: asConversationId(conversationId),
+    home,
+    proposedHome: home,
+    summary:
+      home === "record"
+        ? "Archived by you in Triage"
+        : "Deleted by you in Triage",
+    rationale: "Corrected by you in Triage",
+    owner: "nobody",
+    vetoReasons: [],
+    yields: [],
+    evidence: [],
+    modelVersion: "user-correction",
+    contextVersion: "user",
+  });
+}
+
 async function run(
   ctx: CommandContext,
   command: Command,
   idempotencyKey: string,
 ): Promise<CommandResult> {
   switch (command.type) {
+    case "triageConversation": {
+      if (
+        !(await conversationBelongsToAccount(
+          ctx.accountId,
+          command.conversationId,
+        ))
+      ) {
+        return fail("conversation not found");
+      }
+      if (command.destination === "matter") {
+        return run(
+          ctx,
+          {
+            type: "correctConversation",
+            conversationId: command.conversationId,
+            home: "matter",
+            note: "made a matter in triage",
+            matterId: command.matterId,
+            matterTitle: command.matterTitle,
+            createMatter: command.createMatter,
+          },
+          idempotencyKey,
+        );
+      }
+
+      const queued = await enqueueMutation(
+        ctx,
+        command.destination === "delete" ? "trash" : "archive",
+        command.conversationId,
+        idempotencyKey,
+      );
+      if (!queued.ok) return queued;
+
+      // Provider delivery is already durable in the outbox. Feedback failing
+      // must not make the UI claim the mailbox action was not queued.
+      try {
+        await recordTriageCorrection(
+          ctx,
+          command.conversationId,
+          command.destination === "delete" ? "delete" : "record",
+          idempotencyKey,
+        );
+      } catch (cause) {
+        return {
+          ...queued,
+          detail: {
+            ...(queued.detail ?? {}),
+            feedbackError:
+              cause instanceof Error
+                ? cause.message
+                : "correction was not recorded",
+          },
+        };
+      }
+      return queued;
+    }
+
     case "delete": {
       // A person who selected this and pressed Delete has said what they want
       // done with their own mail. Ownership is the only question worth asking;

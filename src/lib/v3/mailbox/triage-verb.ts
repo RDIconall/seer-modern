@@ -1,46 +1,46 @@
 import type { MailboxRow } from "./types";
 
 /**
- * Triage has three destinations, and every conversation leaves by one of them:
- * it becomes a matter on Atlas, it is archived for the record, or it is
- * deleted. That is the whole point of the screen — an inbox is emptied by
- * deciding where things go, not by relabelling them.
+ * Triage has two model-cleared destinations and one honest uncertainty bucket.
+ * Delete and Archive are recommendations; Review means Seer has NOT chosen a
+ * destination. The user still has three gestures available — Atlas, Archive,
+ * Delete — but the UI must never present that choice as if the model made it.
  *
  * The piles this file produces are named after the destination, not after a
  * verb describing the user's mood about the mail. "File", "Answer" and "Keep"
  * all meant "still in the inbox afterwards", which is how a triage screen ends
  * a session with the same rows it started with.
  */
-export type TriageVerb = "delete" | "archive" | "matter";
+export type TriageVerb = "delete" | "archive" | "review";
 
-export const VERB_ORDER: TriageVerb[] = ["delete", "archive", "matter"];
+export const VERB_ORDER: TriageVerb[] = ["delete", "archive", "review"];
 
 export const VERB_LABEL: Record<TriageVerb, string> = {
   delete: "Delete",
   archive: "Archive",
-  matter: "Atlas",
+  review: "Review",
 };
 
 /** What each pile is for, said once above the rows rather than on each of them. */
 export const VERB_HINT: Record<TriageVerb, string> = {
   delete: "Nothing here is worth keeping.",
   archive: "Worth keeping, but nothing is being asked of you.",
-  matter: "Live work — these belong on the whiteboard.",
+  review: "No destination chosen — swipe or hold to decide.",
 };
 
 /**
  * Where a conversation is headed.
  *
  * Only two dispositions have a destination of their own: Seer cleared it for
- * deletion, or it is a record. Everything else is live work and belongs on
- * Atlas, including mail Seer has not finished reading — an undecided
- * conversation is a decision the user still owes, and the board is where they
- * owe it.
+ * deletion, or it is a record. Everything else needs a human decision. Calling
+ * an undecided or not-yet-read email "Atlas" is itself a classification, and a
+ * particularly dangerous one because it looks authoritative while bypassing
+ * the matter classifier entirely.
  */
 export function verbFor(row: MailboxRow): TriageVerb {
   if (row.disposition === "delete") return "delete";
   if (row.disposition === "record") return "archive";
-  return "matter";
+  return "review";
 }
 
 /**

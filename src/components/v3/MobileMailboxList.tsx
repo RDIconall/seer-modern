@@ -38,11 +38,22 @@ const matterCommand = (
     createMatter?: boolean;
   } = {},
 ): Command => ({
-  type: "correctConversation",
+  type: "triageConversation",
   conversationId: row.conversationId,
-  home: "matter",
-  note: "made a matter in triage",
+  destination: "matter",
   ...options,
+});
+
+const triageArchiveCommand = (row: MailboxRow): Command => ({
+  type: "triageConversation",
+  conversationId: row.conversationId,
+  destination: "archive",
+});
+
+const triageDeleteCommand = (row: MailboxRow): Command => ({
+  type: "triageConversation",
+  conversationId: row.conversationId,
+  destination: "delete",
 });
 
 const archiveCommand = (row: MailboxRow): Command => ({
@@ -182,8 +193,15 @@ export function MobileMailboxList({
       }}
       current={row.conversationId === currentConversationId}
       onOpen={() => onOpen(row)}
-      onArchive={() => void act(row, archiveCommand(row))}
-      onDelete={() => void act(row, deleteCommand(row))}
+      onArchive={() =>
+        void act(
+          row,
+          triage ? triageArchiveCommand(row) : archiveCommand(row),
+        )
+      }
+      onDelete={() =>
+        void act(row, triage ? triageDeleteCommand(row) : deleteCommand(row))
+      }
       onAtlas={
         triage ? () => void act(row, matterCommand(row)) : undefined
       }
@@ -192,8 +210,14 @@ export function MobileMailboxList({
         triage
           ? [
               { label: "Atlas", run: () => void act(row, matterCommand(row)) },
-              { label: "Archive", run: () => void act(row, archiveCommand(row)) },
-              { label: "Delete", run: () => void act(row, deleteCommand(row)) },
+              {
+                label: "Archive",
+                run: () => void act(row, triageArchiveCommand(row)),
+              },
+              {
+                label: "Delete",
+                run: () => void act(row, triageDeleteCommand(row)),
+              },
             ]
           : undefined
       }
@@ -238,7 +262,9 @@ export function MobileMailboxList({
                     onClick={() =>
                       void sweep(
                         group.rows,
-                        group.key === "delete" ? deleteCommand : archiveCommand,
+                        group.key === "delete"
+                          ? triageDeleteCommand
+                          : triageArchiveCommand,
                       )
                     }
                   >

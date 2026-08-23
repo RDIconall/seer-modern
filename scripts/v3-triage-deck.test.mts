@@ -1,11 +1,6 @@
 /**
  * Gate: the triage deck decides one card at a time, and a gesture can never
- * reach further than a button would.
- *
- * Swiping is fast, and speed is exactly the reason it must not escalate: a card
- * the safety layer refused to authorize for deletion carries no token, and a
- * swipe on it archives. The deck is also allowed to be taken back, because a
- * decision that cannot be undone is one people hesitate over.
+ * persist the destination as classifier feedback.
  */
 import assert from "node:assert/strict";
 import {
@@ -17,7 +12,6 @@ import {
   reconcile,
   undoLast,
   upcoming,
-  wouldDelete,
 } from "../src/components/v3/triage-deck.ts";
 import { createElement } from "react";
 import { renderToString } from "react-dom/server";
@@ -73,37 +67,36 @@ const row = (id: string, deleteToken: string | null = null): MailboxRow => ({
   const refused = row("b");
 
   assert.deepEqual(commandForVerdict(authorized, "delete"), {
-    type: "delete",
+    type: "triageConversation",
     conversationId: "a",
-    deleteToken: "t-a",
+    destination: "delete",
   });
 
-  // The whole point: the same gesture on an unauthorized card archives.
+  // A person deliberately choosing Delete in Triage is the authority, and the
+  // correction is recorded so the next similar email can be read differently.
   assert.deepEqual(commandForVerdict(refused, "delete"), {
-    type: "archive",
+    type: "triageConversation",
     conversationId: "b",
+    destination: "delete",
   });
-  assert.equal(wouldDelete(refused), false);
-  assert.equal(wouldDelete(authorized), true);
 
   assert.deepEqual(commandForVerdict(authorized, "archive"), {
-    type: "archive",
+    type: "triageConversation",
     conversationId: "a",
+    destination: "archive",
   });
 
   // The third destination has to write something: a verdict that sent no
   // command left the conversation in the inbox to be triaged again tomorrow.
   assert.deepEqual(commandForVerdict(authorized, "matter"), {
-    type: "correctConversation",
+    type: "triageConversation",
     conversationId: "a",
-    home: "matter",
-    note: "made a matter in triage",
+    destination: "matter",
   });
   assert.deepEqual(commandForVerdict(refused, "matter"), {
-    type: "correctConversation",
+    type: "triageConversation",
     conversationId: "b",
-    home: "matter",
-    note: "made a matter in triage",
+    destination: "matter",
   });
 }
 
@@ -172,19 +165,9 @@ const row = (id: string, deleteToken: string | null = null): MailboxRow => ({
   assert.match(html, /deck-verdict-clear[^>]*>Delete</, "an authorized card offers Delete");
   assert.match(html, /deck-verdict-keep[^>]*>Atlas</, "the third destination is named");
 
-  // And on a card the safety layer refused, the same gesture says Archive.
+  // The user has all three destinations even when the model was uncertain.
   const heldHtml = render([refused]);
-  assert.match(
-    heldHtml,
-    /deck-verdict-clear[^>]*>Archive</,
-    "a refused card never offers Delete, however it is swiped",
-  );
-  assert.match(
-    heldHtml,
-    /didn’t clear this one/,
-    "the card says Seer did not clear it — the button still works",
-  );
-  assert.doesNotMatch(heldHtml, /deck-verdict-clear[^>]*>Delete</);
+  assert.match(heldHtml, /deck-verdict-clear[^>]*>Delete</);
 
   // The deck keeps the look it always had: paper on the teal field.
   assert.match(html, /seer-deck-bg/, "the deck runs on the teal field");

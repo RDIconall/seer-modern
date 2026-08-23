@@ -68,9 +68,19 @@ try {
   );
   const context: ContextInput = {
     ownDomain: "rditrials.com",
+    ownEmail: "me@rditrials.com",
     people: [{ email: "contact@partner.com", tier: "known", vip: false }],
-    matters: [{ id: matterRow.rows[0].id, title: "Roche anti-TPO study" }],
+    matters: [
+      {
+        id: matterRow.rows[0].id,
+        title: "Roche anti-TPO study",
+        codes: [],
+        counterparty: "roche",
+        userAuthored: false,
+      },
+    ],
     interests: ["leadership and management"],
+    placements: [],
   };
 
   // 1. Salesforce ACTION REQUIRED — even if the model proposes delete, a
@@ -110,9 +120,10 @@ try {
         evidence: [{ ref: "matter:roche", provenance: "inference" }],
       }),
     });
-    // The context matched the Roche matter, so it is a live-matter veto: kept.
-    assert.equal(decision.home, "undecided");
-    assert.ok(decision.vetoReasons.includes("live_matter"));
+    // A single shared company/topic word is not matter continuity. The useful
+    // yield is retained, while the newsletter husk can still be deleted.
+    assert.equal(decision.home, "delete");
+    assert.ok(!decision.vetoReasons.includes("live_matter"));
     // The yield was persisted regardless.
     const yields = await db.pool.query(
       "select kind, headline from seer.yields where conversation_id = $1",
@@ -239,6 +250,58 @@ try {
     );
     assert.equal(linked.rowCount, 1, "the yield must attach to the matter it names");
     assert.equal(linked.rows[0].title, "Roche anti-TPO study");
+  }
+
+  // 5d. A model matter guess from an automated notification cannot create a
+  // concern without an obligation, known relation, internal sender or human
+  // correspondence. It stays visible in Review instead.
+  {
+    const before = await db.pool.query<{ n: number }>(
+      "select count(*)::int as n from seer.matters where account_id = $1",
+      [accountId],
+    );
+    const { conversation, conversationId } = await newConversation(
+      db.pool,
+      accountId,
+      "false-matter-1",
+      "Your monthly dashboard is ready",
+      [
+        message(
+          "notifications@vendor.example",
+          "Your monthly dashboard is ready to view.",
+          "Dashboard ready",
+        ),
+      ],
+    );
+    const decision = await readConversation({
+      accountId,
+      conversationId,
+      conversation,
+      context,
+      model: modelFor({
+        home: "matter",
+        summary: "Review the monthly dashboard",
+        rationale: "Mistook a notification for work",
+        owner: "you",
+        ask: "Review dashboard",
+        obligation: false,
+        matterRef: "Vendor monthly dashboard",
+        yields: [],
+        evidence: [],
+      }),
+    });
+    assert.equal(decision.home, "undecided");
+    assert.ok(decision.vetoReasons.includes("matter_untrusted_sender"));
+    assert.equal(decision.matterId, undefined);
+    const after = await db.pool.query<{ n: number }>(
+      "select count(*)::int as n from seer.matters where account_id = $1",
+      [accountId],
+    );
+    assert.equal(
+      after.rows[0].n,
+      before.rows[0].n,
+      "a vetoed promotion must not create an Atlas matter",
+    );
   }
 
   // 6. Incomplete body → undecided, never guessed.

@@ -174,6 +174,48 @@ try {
   assert.notEqual(created.detail?.matterId, now?.matterId);
   assert.equal(created.detail?.matterTitle, "User named concern");
 
+  // Triage archive/delete are classifier corrections as well as provider
+  // mutations. Plain mailbox actions elsewhere do not carry this meaning.
+  const triageArchiveId = await addConversation(
+    db.pool,
+    accountId,
+    "pc-triage-archive",
+  );
+  const triageArchived = await executeCommand(
+    ctx,
+    {
+      type: "triageConversation",
+      conversationId: triageArchiveId,
+      destination: "archive",
+    },
+    "key-triage-archive",
+  );
+  assert.equal(triageArchived.ok, true);
+  assert.ok(triageArchived.outboxId);
+  const archivedDecision = await currentDecision(accountId, triageArchiveId);
+  assert.equal(archivedDecision?.home, "record");
+  assert.equal(archivedDecision?.modelVersion, "user-correction");
+
+  const triageDeleteId = await addConversation(
+    db.pool,
+    accountId,
+    "pc-triage-delete",
+  );
+  const triageDeleted = await executeCommand(
+    ctx,
+    {
+      type: "triageConversation",
+      conversationId: triageDeleteId,
+      destination: "delete",
+    },
+    "key-triage-delete",
+  );
+  assert.equal(triageDeleted.ok, true);
+  assert.ok(triageDeleted.outboxId);
+  const deletedDecision = await currentDecision(accountId, triageDeleteId);
+  assert.equal(deletedDecision?.home, "delete");
+  assert.equal(deletedDecision?.modelVersion, "user-correction");
+
   // Teaching a VIP persists a user-sourced person.
   const taught = await executeCommand(
     ctx, { type: "teachSender", email: "boss@example.com", instruction: "vip" }, "key-teach",

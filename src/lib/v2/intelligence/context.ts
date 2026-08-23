@@ -1,4 +1,9 @@
 import type { Conversation } from "../providers/types";
+import {
+  counterpartyOf,
+  ownTokens,
+  resolveMatterMatch,
+} from "./matter-key";
 
 /**
  * The context packet fed alongside the full conversation. It is the smallest
@@ -17,6 +22,15 @@ export type KnownPerson = {
 export type LiveMatter = {
   id: string;
   title: string;
+  codes: string[];
+  counterparty: string;
+  userAuthored: boolean;
+};
+
+export type PlacementFeedback = {
+  senderEmail: string;
+  home: "matter" | "record" | "delete";
+  count: number;
 };
 
 export type ContextInput = {
@@ -26,6 +40,8 @@ export type ContextInput = {
   people: KnownPerson[];
   matters: LiveMatter[];
   interests: string[];
+  /** Explicit destinations this user previously chose in Triage. */
+  placements?: PlacementFeedback[];
 };
 
 export type CompiledContext = {
@@ -38,6 +54,8 @@ export type CompiledContext = {
   /** The sender's tier and VIP flag, for salience. */
   senderTier: string;
   senderVip: boolean;
+  /** Exact-sender corrections away from Atlas, used by the promotion gate. */
+  priorMatterRejections: number;
 };
 
 const MAX_CHARS = 1200;
@@ -81,26 +99,60 @@ export function compileContext(
     lines.push(`[system] sender is inside your organization (${input.ownDomain})`);
   }
 
-  // Match the thread against live matters by shared vocabulary.
-  const haystack = tokens(
-    `${conversation.subject} ${conversation.messages
-      .map((m) => m.bodyText ?? m.snippet)
-      .join(" ")}`,
+  const placement = (input.placements ?? []).filter(
+    (item) => item.senderEmail.toLowerCase() === senderEmail,
   );
-  let candidateMatterId: string | null = null;
-  for (const matter of input.matters) {
-    const overlap = [...tokens(matter.title)].filter((t) => haystack.has(t));
-    if (overlap.length > 0) {
+  const priorMatterRejections = placement
+    .filter((item) => item.home === "record" || item.home === "delete")
+    .reduce((sum, item) => sum + item.count, 0);
+  const priorMatters = placement
+    .filter((item) => item.home === "matter")
+    .reduce((sum, item) => sum + item.count, 0);
+  if (priorMatterRejections > 0 || priorMatters > 0) {
+    lines.push(
+      `[explicit] for this exact sender you previously chose Atlas ${priorMatters} time(s), archive/delete ${priorMatterRejections} time(s). Treat this as strong placement feedback; a new direct obligation may override it.`,
+    );
+    refs.push(`placement:${senderEmail}`);
+  }
+
+  // Existing-matter continuity used to mean "one shared word". That made
+  // every Roche email continue the first Roche matter and then bypass matter
+  // promotion safety as known work. Use the conservative resolver instead:
+  // shared study/event code is proof; otherwise counterparty AND meaningful
+  // request words must overlap.
+  const matterText = `${conversation.subject} ${conversation.messages
+    .map((m) => m.bodyText ?? m.snippet)
+    .join(" ")}`;
+  const counterparty = counterpartyOf(senderEmail, input.ownDomain);
+  const matterMatch = resolveMatterMatch(
+    {
+      title: conversation.subject,
+      text: matterText,
+      counterparty,
+      own: ownTokens(input.ownEmail ?? `x@${input.ownDomain}`),
+    },
+    input.matters.map((matter) => ({
+      matterId: matter.id,
+      title: matter.title,
+      codes: matter.codes ?? [],
+      counterparty: matter.counterparty ?? "",
+      userAuthored: Boolean(matter.userAuthored),
+    })),
+  );
+  const candidateMatterId = matterMatch?.matterId ?? null;
+  if (matterMatch) {
+    const matter = input.matters.find((item) => item.id === matterMatch.matterId);
+    if (matter) {
       lines.push(
-        `[inference] may continue the live matter "${matter.title}" (shared: ${overlap.join(", ")})`,
+        `[inference] may continue the live matter "${matter.title}" (conservative relation match)`,
       );
       refs.push(`matter:${matter.id}`);
-      candidateMatterId ??= matter.id;
     }
   }
 
+  const interestHaystack = tokens(matterText);
   const relevantInterests = input.interests.filter((i) =>
-    [...tokens(i)].some((t) => haystack.has(t)),
+    [...tokens(i)].some((t) => interestHaystack.has(t)),
   );
   for (const interest of relevantInterests) {
     lines.push(`[explicit] you said you care about: ${interest}`);
@@ -115,5 +167,6 @@ export function compileContext(
     candidateMatterId,
     senderTier: person?.tier ?? "unknown",
     senderVip: Boolean(person?.vip),
+    priorMatterRejections,
   };
 }

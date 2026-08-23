@@ -197,6 +197,12 @@ function pastTense(command: Command): string {
       return "Marked unread";
     case "correctConversation":
       return command.home === "matter" ? "Added to Atlas" : "Updated";
+    case "triageConversation":
+      return command.destination === "matter"
+        ? "Added to Atlas"
+        : command.destination === "archive"
+          ? "Archived"
+          : "Deleted";
     default:
       return "Updated";
   }
@@ -214,6 +220,12 @@ function actionName(command: Command): string {
       return "Mark unread";
     case "correctConversation":
       return command.home === "matter" ? "Add to Atlas" : "Update";
+    case "triageConversation":
+      return command.destination === "matter"
+        ? "Add to Atlas"
+        : command.destination === "archive"
+          ? "Archive"
+          : "Delete";
     default:
       return "Action";
   }

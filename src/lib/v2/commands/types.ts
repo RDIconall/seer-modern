@@ -56,6 +56,18 @@ export type Command =
       /** Do not reuse a related matter; create this user-named concern. */
       createMatter?: boolean;
     }
+  | {
+      /**
+       * A decision made on the Triage screen. Unlike a plain mailbox archive or
+       * delete, this is classifier feedback and must be learned.
+       */
+      type: "triageConversation";
+      conversationId: string;
+      destination: "matter" | "archive" | "delete";
+      matterId?: string | null;
+      matterTitle?: string | null;
+      createMatter?: boolean;
+    }
   | { type: "teachSender"; email: string; instruction: "vip" | "always_delete" | "never_delete" }
   | {
       type: "send";

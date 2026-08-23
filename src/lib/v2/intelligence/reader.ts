@@ -1,6 +1,10 @@
 import type { AccountId, ConversationId } from "../db/types";
 import type { Conversation } from "../providers/types";
-import { compileContext, type ContextInput } from "./context";
+import {
+  compileContext,
+  type CompiledContext,
+  type ContextInput,
+} from "./context";
 import { counterpartyOf, matterNameFrom, ownTokens } from "./matter-key";
 import {
   addressedDirectly,
@@ -13,7 +17,11 @@ import {
   linkConversationToMatter,
   saveDecision,
 } from "./repository";
-import { validateDelete, type SafetyFacts } from "./safety";
+import {
+  validateDelete,
+  validateMatterPromotion,
+  type SafetyFacts,
+} from "./safety";
 import { isHumanCorrespondence } from "./human-correspondence";
 import {
   CONTEXT_VERSION,
@@ -63,13 +71,21 @@ function hasCompleteContent(conversation: Conversation): boolean {
 
 function factsFrom(
   read: ReadResult,
-  compiled: { senderIsKnown: boolean; senderIsInternal: boolean; candidateMatterId: string | null },
+  compiled: Pick<
+    CompiledContext,
+    | "senderIsKnown"
+    | "senderIsInternal"
+    | "candidateMatterId"
+    | "priorMatterRejections"
+  >,
   hadCompleteContext: boolean,
   isHuman: boolean,
+  isDirect: boolean,
 ): SafetyFacts {
   const openAsk = Boolean(read.ask && !/^\s*nothing/i.test(read.ask));
   return {
     ownerIsYou: read.owner === "you",
+    ownerIsNobody: read.owner === "nobody",
     hasOpenAsk: openAsk,
     hasPendingObligation: read.obligation,
     liveMatterId: compiled.candidateMatterId,
@@ -80,6 +96,8 @@ function factsFrom(
     yieldPersisted: true,
     hadCompleteContext,
     isHumanCorrespondence: isHuman,
+    addressedDirectly: isDirect,
+    priorMatterRejections: compiled.priorMatterRejections,
   };
 }
 
@@ -143,8 +161,23 @@ export async function readConversation(
     compiled,
     true,
     isHumanCorrespondence(input.conversation, input.context.ownEmail),
+    addressedDirectly(
+      input.conversation,
+      input.context.ownEmail ?? `x@${input.context.ownDomain}`,
+    ),
   );
-  const safety = validateDelete(read, facts);
+  const deletionSafety = validateDelete(read, facts);
+  const matterSafety = validateMatterPromotion(
+    { home: deletionSafety.home, matterRef: read.matterRef },
+    facts,
+  );
+  const safety = {
+    home: matterSafety.home,
+    vetoReasons: [
+      ...deletionSafety.vetoReasons,
+      ...matterSafety.vetoReasons,
+    ],
+  };
 
   // Grounded salience: how loudly this should raise its hand, from facts —
   // a direct demand addressed to you from someone senior outranks a broadcast
@@ -160,7 +193,8 @@ export async function readConversation(
   // Promotion: live work must land on the board. Reuse the matched matter, or
   // create one from the read's proposed name — otherwise a `matter` decision
   // has no matter to belong to and would be misfiled.
-  let matterId = compiled.candidateMatterId;
+  let matterId =
+    safety.home === "matter" ? compiled.candidateMatterId : null;
   if (safety.home === "matter") {
     // Tie on what this is ABOUT: codes in the subject/name/body plus the
     // counterparty. Sender type is irrelevant — an automated portal notice

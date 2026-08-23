@@ -1,6 +1,5 @@
 import type { Command } from "@/lib/v2/commands/types";
 import type { MailboxRow } from "@/lib/v3/mailbox/types";
-import { commandFor } from "@/components/v2/triage-command";
 
 /**
  * The triage deck: one conversation at a time, decided and gone.
@@ -55,20 +54,13 @@ export const isFinished = (state: DeckState): boolean =>
 export function commandForVerdict(
   row: MailboxRow,
   verdict: DeckVerdict,
-): Command | null {
-  if (verdict === "matter") {
-    return {
-      type: "correctConversation",
-      conversationId: row.conversationId,
-      home: "matter",
-      note: "made a matter in triage",
-    };
-  }
-  return commandFor(row, verdict === "delete" ? "trash" : "archive");
+): Command {
+  return {
+    type: "triageConversation",
+    conversationId: row.conversationId,
+    destination: verdict,
+  };
 }
-
-/** True when a delete gesture on this card would really delete it. */
-export const wouldDelete = (row: MailboxRow): boolean => Boolean(row.deleteToken);
 
 export function decide(state: DeckState, verdict: DeckVerdict): DeckState {
   const row = currentCard(state);

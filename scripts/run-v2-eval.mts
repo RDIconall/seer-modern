@@ -55,7 +55,15 @@ async function main() {
   // CI without secrets still validates the harness.
   const { defaultReaderModel } = await import("../src/lib/v2/intelligence/model.ts");
   const { compileContext } = await import("../src/lib/v2/intelligence/context.ts");
-  const { validateDelete } = await import("../src/lib/v2/intelligence/safety.ts");
+  const { validateDelete, validateMatterPromotion } = await import(
+    "../src/lib/v2/intelligence/safety.ts"
+  );
+  const { addressedDirectly } = await import(
+    "../src/lib/v2/intelligence/salience.ts"
+  );
+  const { isHumanCorrespondence } = await import(
+    "../src/lib/v2/intelligence/human-correspondence.ts"
+  );
 
   const evaluations: Evaluation[] = [];
   for (const c of cases) {
@@ -64,8 +72,9 @@ async function main() {
       conversation: c.conversation,
       contextText: compiled.text,
     });
-    const safety = validateDelete(read, {
+    const facts = {
       ownerIsYou: read.owner === "you",
+      ownerIsNobody: read.owner === "nobody",
       hasOpenAsk: Boolean(read.ask && !/^\s*nothing/i.test(read.ask)),
       hasPendingObligation: read.obligation,
       liveMatterId: compiled.candidateMatterId,
@@ -73,7 +82,21 @@ async function main() {
       senderIsInternal: compiled.senderIsInternal,
       yieldPersisted: true,
       hadCompleteContext: true,
-    });
+      isHumanCorrespondence: isHumanCorrespondence(
+        c.conversation,
+        c.context.ownEmail,
+      ),
+      addressedDirectly: addressedDirectly(
+        c.conversation,
+        c.context.ownEmail ?? `x@${c.context.ownDomain}`,
+      ),
+      priorMatterRejections: compiled.priorMatterRejections,
+    };
+    const deleteSafety = validateDelete(read, facts);
+    const safety = validateMatterPromotion(
+      { home: deleteSafety.home, matterRef: read.matterRef },
+      facts,
+    );
     const baselineRead = await defaultReaderModel({
       conversation: c.conversation,
       contextText: "",

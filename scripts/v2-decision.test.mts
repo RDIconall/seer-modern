@@ -5,13 +5,18 @@
  */
 import assert from "node:assert/strict";
 import { startTestDb } from "./v2-testdb.mts";
-import { validateDelete, type SafetyFacts } from "../src/lib/v2/intelligence/safety.ts";
+import {
+  validateDelete,
+  validateMatterPromotion,
+  type SafetyFacts,
+} from "../src/lib/v2/intelligence/safety.ts";
 import { saveDecision, currentDecision } from "../src/lib/v2/intelligence/repository.ts";
 import { upsertUser, upsertAccount } from "../src/lib/v2/db/accounts.ts";
 import { asConversationId } from "../src/lib/v2/db/types.ts";
 
 const SAFE: SafetyFacts = {
   ownerIsYou: false,
+  ownerIsNobody: true,
   hasOpenAsk: false,
   hasPendingObligation: false,
   liveMatterId: null,
@@ -20,6 +25,8 @@ const SAFE: SafetyFacts = {
   yieldPersisted: true,
   hadCompleteContext: true,
   isHumanCorrespondence: false,
+  addressedDirectly: false,
+  priorMatterRejections: 0,
 };
 
 // --- Veto-only safety (pure) -------------------------------------------------
@@ -73,6 +80,65 @@ for (const home of ["matter", "record", "undecided"] as const) {
   const r = validateDelete({ home }, { ...SAFE, ownerIsYou: true, liveMatterId: "m1" });
   assert.equal(r.home, home, `safety must never reclassify ${home}`);
   assert.deepEqual(r.vetoReasons, []);
+}
+
+// --- Matter promotion is gated too ------------------------------------------
+
+// A model saying "matter" is not enough. This is exactly the brittle path that
+// let generic notifications accumulate on Atlas.
+{
+  const result = validateMatterPromotion(
+    { home: "matter", matterRef: "Vendor notification" },
+    SAFE,
+  );
+  assert.equal(result.home, "undecided");
+  assert.ok(result.vetoReasons.includes("matter_owner_nobody"));
+  assert.ok(result.vetoReasons.includes("matter_no_open_work"));
+  assert.ok(result.vetoReasons.includes("matter_not_direct"));
+}
+
+// A new direct unresolved request, named as a unit of work, is a real matter.
+assert.equal(
+  validateMatterPromotion(
+    { home: "matter", matterRef: "Roche contract signature" },
+    {
+      ...SAFE,
+      ownerIsYou: true,
+      ownerIsNobody: false,
+      hasOpenAsk: true,
+      addressedDirectly: true,
+      isHumanCorrespondence: true,
+    },
+  ).home,
+  "matter",
+);
+
+// Continuity with an existing matter is strong enough on its own.
+assert.equal(
+  validateMatterPromotion(
+    { home: "matter", matterRef: "Roche contract signature" },
+    { ...SAFE, liveMatterId: "matter-1" },
+  ).home,
+  "matter",
+);
+
+// Missing matterRef and a prior explicit correction away from Atlas both veto
+// a weak promotion. The email remains visible in Review; safety never guesses.
+{
+  const result = validateMatterPromotion(
+    { home: "matter" },
+    {
+      ...SAFE,
+      ownerIsNobody: false,
+      hasOpenAsk: true,
+      addressedDirectly: true,
+      priorMatterRejections: 2,
+    },
+  );
+  assert.equal(result.home, "undecided");
+  assert.ok(result.vetoReasons.includes("matter_ref_missing"));
+  assert.ok(result.vetoReasons.includes("prior_triage_rejection"));
+  assert.ok(result.vetoReasons.includes("matter_untrusted_sender"));
 }
 
 // --- Persistence: one current decision per conversation ----------------------
