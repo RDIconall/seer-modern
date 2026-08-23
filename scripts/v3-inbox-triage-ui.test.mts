@@ -59,9 +59,9 @@ assert.match(
 
 assert.match(triageHtml, /Ready to clear/);
 assert.match(triageHtml, /Filed for the record/);
-assert.match(triageHtml, /Needs you/);
-assert.match(triageHtml, /Live matters/);
-assert.match(triageHtml, /Not read yet/);
+assert.doesNotMatch(triageHtml, /Needs you/);
+assert.doesNotMatch(triageHtml, /Live matters/);
+assert.doesNotMatch(triageHtml, /Not read yet/);
 
 /**
  * The clear pile says what it will not take. A user about to sweep several
@@ -73,9 +73,9 @@ assert.match(triageHtml, /Sadanand Palekar/, "the held-back note names the sende
 assert.match(triageHtml, /never swept/);
 // It belongs to the pile it was pulled out of, not to the pile it landed in.
 const heldAt = triageHtml.indexOf("mail-list-held");
-const needsYouAt = triageHtml.indexOf("Needs you");
-assert.ok(heldAt > -1 && needsYouAt > -1 && heldAt < needsYouAt,
-  "the note sits under the clear pile, above Needs you");
+const archiveAt = triageHtml.indexOf("Filed for the record");
+assert.ok(heldAt > -1 && archiveAt > -1 && heldAt < archiveAt,
+  "the note sits under the clear pile, above Archive");
 assert.match(triageHtml, /Seer cleared these for deletion/);
 assert.match(triageHtml, /IT &amp; software notices|IT & software notices/);
 assert.match(triageHtml, /Routine vendor digest/);
@@ -98,8 +98,7 @@ assert.doesNotMatch(triageHtml, /mail-bulk-toolbar/);
 
 /**
  * The sweep is offered on the two piles that can be emptied in one move, and
- * withheld from the ones that cannot: a live matter is not cleared in bulk, and
- * "Needs you" is the pile whose whole point is that each one wants a look.
+ * withheld from Atlas, whose rows have already left this queue.
  */
 assert.match(triageHtml, /class="mail-list-sweep[^"]*"[^>]*>Clear \d+</, "the clear pile sweeps");
 assert.match(triageHtml, /class="mail-list-sweep[^"]*"[^>]*>File \d+</, "the record pile files");

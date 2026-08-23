@@ -182,7 +182,17 @@ const view = (
   // already on Atlas. Keep the preview honest to that contract.
   const rows =
     sort === "triage"
-      ? previewRows[folder].filter((row) => row.disposition !== "matter")
+      ? previewRows[folder]
+          .filter((row) => row.disposition !== "matter")
+          .map((row) =>
+            row.disposition === "undecided" || row.disposition === "pending"
+              ? {
+                  ...row,
+                  disposition: "record" as const,
+                  deleteRank: 1,
+                }
+              : row,
+          )
       : previewRows[folder];
   return {
     accountId: "preview",
