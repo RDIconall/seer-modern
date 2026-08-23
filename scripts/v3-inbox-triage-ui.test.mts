@@ -47,14 +47,14 @@ const triageHtml = renderToString(
   }),
 );
 
-// The ledger counts what still needs the user across the whole inbox, from the
-// server's count, not from the rows that happen to have loaded.
+// The ledger reports only completed three-way classifications. Model failures
+// are a processing count, never a fourth destination.
 assert.match(triageHtml, /mail-list-ledger/);
 const triageText = triageHtml.replace(/<!--[\s\S]*?-->/g, "");
 assert.match(
   triageText,
-  new RegExp(`${v3TriageInboxView.needsYou} need you`),
-  "the ledger reports the server needsYou count",
+  new RegExp(`${v3TriageInboxView.total} classified`),
+  "the ledger reports completed classifications",
 );
 
 assert.match(triageHtml, /Ready to clear/);

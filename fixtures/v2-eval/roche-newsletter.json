@@ -23,10 +23,16 @@
   "context": {
     "ownDomain": "company.com",
     "people": [],
-    "matters": [{ "id": "roche", "title": "Roche anti-TPO study" }],
+    "matters": [{
+      "id": "roche",
+      "title": "Roche anti-TPO study",
+      "codes": [],
+      "counterparty": "roche",
+      "userAuthored": false
+    }],
     "interests": []
   },
-  "expectedHome": "undecided",
+  "expectedHome": "delete",
   "allowedMatterRefs": ["roche", "Roche anti-TPO study"],
   "requiredYieldKinds": ["matter_connection"]
 }

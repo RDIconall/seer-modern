@@ -201,6 +201,7 @@ const view = (
     rows,
     total: rows.length,
     needsYou: 0,
+    processing: 0,
     nextCursor: null,
   };
 };

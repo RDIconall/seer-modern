@@ -133,8 +133,7 @@ try {
   const inbox = await getMailboxView(accountId, "inbox", 10);
   assert.equal(inbox.folder, "inbox");
   assert.equal(inbox.total, 2);
-  // needsYou is the whole-folder undecided count, not a page-local tally.
-  assert.equal(inbox.needsYou, 1, "the ledger counts undecided mail across the inbox");
+  assert.equal(inbox.needsYou, 0, "Triage has no undecided destination");
   assert.equal(inbox.rows.length, 2);
   assert.equal(inbox.rows[0].subject, "New inbox thread");
   assert.equal(inbox.rows[0].senderDisplayName, "Alice");
@@ -148,9 +147,17 @@ try {
   assert.ok(!inbox.rows.some((r) => r.subject === "Deleted thread"));
 
   const triage = await getMailboxView(accountId, "inbox", 10, undefined, "triage");
-  assert.equal(triage.total, 1, "mail already promoted to Atlas is not counted in Triage");
-  assert.equal(triage.rows.length, 1);
-  assert.equal(triage.rows[0].subject, "Older inbox thread");
+  assert.equal(
+    triage.total,
+    0,
+    "Atlas and unclassified mail are not completed Triage classifications",
+  );
+  assert.equal(triage.rows.length, 0);
+  assert.equal(
+    triage.processing,
+    1,
+    "legacy uncertainty is processing state, not a Triage destination",
+  );
   assert.ok(
     !triage.rows.some((row) => row.matterTitle),
     "Atlas matters must not be duplicated in the action queue",

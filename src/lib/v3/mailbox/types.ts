@@ -63,5 +63,7 @@ export type MailboxView = {
    * fold — the one number the ledger exists to give, wrong.
    */
   needsYou: number;
+  /** No placement yet because AI classification has not completed. */
+  processing?: number;
   nextCursor: string | null;
 };

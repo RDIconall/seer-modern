@@ -54,6 +54,13 @@ export type ReaderModelInput = {
 
 export type ReaderModel = (input: ReaderModelInput) => Promise<ReadResult>;
 
+export class ReaderUnavailableError extends Error {
+  constructor(message: string) {
+    super(message);
+    this.name = "ReaderUnavailableError";
+  }
+}
+
 export type ReadInput = {
   accountId: AccountId;
   conversationId: ConversationId;
@@ -106,21 +113,11 @@ export async function readConversation(
 ): Promise<ConversationDecision> {
   const compiled = compileContext(input.conversation, input.context);
 
-  // A read requires the full thread. Without it, stay honest: undecided.
+  // A read requires the full thread. Without it, stay unclassified and retry.
   if (!hasCompleteContent(input.conversation)) {
-    return saveDecision({
-      accountId: input.accountId,
-      conversationId: input.conversationId,
-      home: "record",
-      proposedHome: "undecided",
-      summary: "",
-      rationale:
-        "Archived by conservative fallback — incomplete conversation content",
-      owner: "nobody",
-      vetoReasons: ["incomplete_context"],
-      yields: [],
-      evidence: compiled.refs.map((ref) => ({ ref, provenance: "observed" as const })),
-    });
+    throw new ReaderUnavailableError(
+      "conversation content incomplete; classification not persisted",
+    );
   }
 
   let read: ReadResult;
@@ -141,20 +138,15 @@ export async function readConversation(
       },
     });
     read = readResultSchema.parse(raw);
-  } catch {
-    // Model, timeout, or parse failure → undecided and retryable. Never a guess.
-    return saveDecision({
-      accountId: input.accountId,
-      conversationId: input.conversationId,
-      home: "record",
-      proposedHome: "undecided",
-      summary: "",
-      rationale: "Archived by conservative fallback — model unavailable",
-      owner: "nobody",
-      vetoReasons: ["read_failed"],
-      yields: [],
-      evidence: [],
-    });
+  } catch (cause) {
+    // Failure is a queue state, not a fourth classification and not permission
+    // to call the email Archive. With no current decision the bounded reader
+    // retries it on the next run.
+    throw new ReaderUnavailableError(
+      cause instanceof Error
+        ? `AI classification unavailable: ${cause.message}`
+        : "AI classification unavailable",
+    );
   }
 
   const facts = factsFrom(
@@ -168,18 +160,25 @@ export async function readConversation(
     ),
   );
   const deletionSafety = validateDelete(read, facts);
+  if (deletionSafety.home === "undecided") {
+    throw new ReaderUnavailableError(
+      "classification invariant violated: delete safety returned undecided",
+    );
+  }
   const matterSafety = validateMatterPromotion(
     { home: deletionSafety.home, matterRef: read.matterRef },
     facts,
   );
+  if (matterSafety.home === "undecided") {
+    throw new ReaderUnavailableError(
+      "classification invariant violated: final home was undecided",
+    );
+  }
   const safety = {
-    home: matterSafety.home === "undecided" ? "record" : matterSafety.home,
+    home: matterSafety.home,
     vetoReasons: [
       ...deletionSafety.vetoReasons,
       ...matterSafety.vetoReasons,
-      ...(matterSafety.home === "undecided"
-        ? ["undecided_default_archive"]
-        : []),
     ],
   };
 

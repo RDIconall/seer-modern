@@ -19,8 +19,9 @@ import {
 /**
  * The real chief-of-staff model, behind the injectable ReaderModel interface.
  * One structured call per conversation over the WHOLE thread plus the context
- * packet. There is no snippet path and no keyword fallback: if the model fails,
- * the reader records `undecided` and retries later.
+ * packet. There is no snippet path and no keyword fallback. The output schema
+ * permits exactly three homes; if both model routes fail, no classification is
+ * persisted and the queue retries the conversation later.
  */
 
 export const CHIEF_OF_STAFF_SYSTEM = `You are a chief of staff reading one email conversation for a busy executive.
@@ -37,9 +38,6 @@ Decide two things and nothing else:
    - Never the email's subject line verbatim, and never an imperative.
    - "record": no live story, but worth keeping (receipt, executed contract, invoice, statement, confirmation).
    - "delete": the useful meaning (if any) has been captured in YIELDS and the email itself is not needed.
-   - "undecided": only when the content is genuinely insufficient. This is an
-     internal uncertainty signal; the product will conservatively place it in
-     Archive rather than exposing a fourth destination to the user.
    Judge from MEANING, never the sender's shape. A no-reply address can carry an approval; a real person can send pure noise.
 
 2. YIELDS — business meaning worth keeping even if the email is deleted:
@@ -148,7 +146,6 @@ export function escalationReasons(
   input: ReaderModelInput,
 ): string[] {
   const reasons: string[] = [];
-  if (read.home === "undecided") reasons.push("fast_undecided");
   // Matter creation and matter connections affect the board's structure, so a
   // stronger model verifies them before they become durable.
   if (read.home === "matter") reasons.push("proposed_matter");
@@ -329,12 +326,12 @@ export function createReaderRouter(deps: {
 
     const strongModel = requestedModel("strong");
     if (!(await allowCall(input.accountId, "strong"))) {
-      // Do not trust the cheap decision on a consequential case when the
-      // strong budget is exhausted. Return undecided so it remains visible.
+      // The fast model already made one of the three valid classifications.
+      // Strong verification is preferred for consequential cases, but budget
+      // exhaustion must not invent a fourth answer.
       return {
         ...fast.output,
-        home: "undecided",
-        rationale: `Strong-model daily limit reached; held for review (${reasons.join(", ")})`,
+        rationale: `${fast.output.rationale} (fast classification; strong verification budget reached: ${reasons.join(", ")})`,
       };
     }
     const strong = await call(strongModel, "strong", input);

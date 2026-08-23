@@ -175,14 +175,14 @@ export async function getMailboxView(
       ? await db().query<{ n: number }>(
           `select count(*)::int as n
              from seer.conversations c
-             left join seer.conversation_decisions d
+             join seer.conversation_decisions d
                on d.conversation_id = c.id
               and d.account_id = c.account_id
               and d.is_current
             where c.account_id = $1
               and c.is_deleted = false
               and c.folders @> array[$2]::text[]
-              and coalesce(d.home, 'pending') <> 'matter'`,
+              and d.home in ('delete', 'record')`,
           [accountId, folder],
         )
       : await db().query<{ n: number }>(
@@ -193,29 +193,28 @@ export async function getMailboxView(
               and c.folders @> array[$2]::text[]`,
           [accountId, folder],
         );
-
-  // The ledger's count, over the whole folder — undecided mail is what still
-  // needs the user, and it sorts below the fold, so a page-local tally is blind
-  // to it.
-  const needsYouRow = await db().query<{ n: number }>(
-    `select count(*)::int as n
-       from seer.conversations c
-       join seer.conversation_decisions d
-         on d.conversation_id = c.id
-        and d.account_id = c.account_id
-        and d.is_current
-      where c.account_id = $1
-        and c.is_deleted = false
-        and c.folders @> array[$2]::text[]
-        and d.home = 'undecided'`,
-    [accountId, folder],
-  );
+  const processingRow =
+    sort === "triage"
+      ? await db().query<{ n: number }>(
+          `select count(*)::int as n
+             from seer.conversations c
+             left join seer.conversation_decisions d
+               on d.conversation_id = c.id
+              and d.account_id = c.account_id
+              and d.is_current
+            where c.account_id = $1
+              and c.is_deleted = false
+              and c.folders @> array[$2]::text[]
+              and (d.id is null or d.home = 'undecided')`,
+          [accountId, folder],
+        )
+      : { rows: [{ n: 0 }] };
 
   const rows =
     sort === "triage"
       ? await db().query<MailboxRowDb>(
           `${MAILBOX_SELECT}
-        and coalesce(d.home, 'pending') <> 'matter'
+        and d.home in ('delete', 'record')
         and (
           $3::int is null
           or (
@@ -293,7 +292,8 @@ export async function getMailboxView(
     sort,
     rows: page.map(mapRow),
     total: totalRow.rows[0]?.n ?? 0,
-    needsYou: needsYouRow.rows[0]?.n ?? 0,
+    needsYou: 0,
+    processing: processingRow.rows[0]?.n ?? 0,
     nextCursor,
   };
 }

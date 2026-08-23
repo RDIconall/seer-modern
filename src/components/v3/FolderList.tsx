@@ -442,7 +442,8 @@ export function FolderList({
             // Sorted by what to do with it, the count that matters is not how
             // much mail there is but how much of it is still the user's problem.
             <p className="mail-list-ledger tabular">
-              {view.needsYou} need you · {view.total - view.needsYou} sorted
+              {view.total} classified
+              {view.processing ? ` · Seer reading ${view.processing}` : ""}
               {refreshing ? " · Updating…" : ""}
             </p>
           ) : (

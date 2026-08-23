@@ -304,7 +304,8 @@ try {
     );
   }
 
-  // 6. Incomplete body → Archive, the reversible no-guess fallback.
+  // 6. Incomplete body → no classification. It stays in the reader queue;
+  // inventing Archive would be a fallback, not an AI decision.
   {
     const providerId = "incomplete-1";
     const row = await db.pool.query<{ id: string }>(
@@ -325,13 +326,55 @@ try {
       lastMessageAt: "2026-08-08T10:00:00Z",
     };
     let modelCalled = false;
-    const decision = await readConversation({
-      accountId, conversationId: asConversationId(row.rows[0].id), conversation, context,
-      model: async () => { modelCalled = true; throw new Error("should not be called"); },
-    });
-    assert.equal(decision.home, "record");
+    await assert.rejects(
+      () =>
+        readConversation({
+          accountId,
+          conversationId: asConversationId(row.rows[0].id),
+          conversation,
+          context,
+          model: async () => {
+            modelCalled = true;
+            throw new Error("should not be called");
+          },
+        }),
+      /classification not persisted/,
+    );
     assert.equal(modelCalled, false, "an incomplete conversation must not reach the model");
-    assert.ok(decision.vetoReasons.includes("incomplete_context"));
+    const decisions = await db.pool.query<{ n: number }>(
+      "select count(*)::int as n from seer.conversation_decisions where conversation_id = $1",
+      [row.rows[0].id],
+    );
+    assert.equal(decisions.rows[0].n, 0, "failure is not a fake placement");
+  }
+
+  // 6b. A model outage is also processing failure, not an Archive decision.
+  {
+    const { conversation, conversationId } = await newConversation(
+      db.pool,
+      accountId,
+      "model-failure-1",
+      "A complete email",
+      [message("person@example.com", "Complete body text.", "Complete")],
+    );
+    await assert.rejects(
+      () =>
+        readConversation({
+          accountId,
+          conversationId,
+          conversation,
+          context,
+          model: async () => {
+            throw new Error("gateway unavailable");
+          },
+        }),
+      /AI classification unavailable: gateway unavailable/,
+    );
+    const decisions = await db.pool.query<{ n: number }>(
+      "select count(*)::int as n from seer.conversation_decisions where conversation_id = $1",
+      [conversationId],
+    );
+    assert.equal(decisions.rows[0].n, 0);
   }
 
   console.log("v2-reader: OK");

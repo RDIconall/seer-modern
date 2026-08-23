@@ -234,7 +234,11 @@ export function MobileMailboxList({
           <h1>{triage ? "Triage" : "Inbox"}</h1>
           <span className="tabular">
             {triage
-              ? `${rows.length} to place · Atlas, archive or bin`
+              ? `${rows.length} to place${
+                  view.processing
+                    ? ` · Seer reading ${view.processing}`
+                    : ""
+                } · Atlas, archive or bin`
               : `${view.total} conversations`}
           </span>
         </div>

@@ -76,10 +76,10 @@ const baselineDrop: BaselineResult = { keep: false, hasAsk: false };
 // improvement, and the case passes.
 {
   const e = compareDecision(
-    evalCase({ expectedHome: "undecided", allowedMatterRefs: ["roche"], requiredYieldKinds: ["matter_connection"] }),
+    evalCase({ expectedHome: "delete", allowedMatterRefs: ["roche"], requiredYieldKinds: ["matter_connection"] }),
     baselineDrop,
     {
-      home: "undecided",
+      home: "delete",
       yields: [{ kind: "matter_connection", matterRef: "Roche", headline: "FDA cleared Roche" }],
     },
   );

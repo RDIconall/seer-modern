@@ -8,6 +8,8 @@ import type { Home, Owner } from "../db/types";
  */
 
 export const homeSchema = z.enum(["matter", "record", "delete", "undecided"]);
+/** The AI must classify. `undecided` is legacy persistence, never model output. */
+export const classifiedHomeSchema = z.enum(["matter", "record", "delete"]);
 export const ownerSchema = z.enum(["you", "team", "them", "nobody"]);
 
 export const yieldSchema = z.object({
@@ -29,7 +31,7 @@ export type Evidence = z.infer<typeof evidenceSchema>;
 
 /** What the model returns for one conversation. */
 export const readResultSchema = z.object({
-  home: homeSchema,
+  home: classifiedHomeSchema,
   summary: z.string(),
   rationale: z.string(),
   owner: ownerSchema,
@@ -77,7 +79,7 @@ const modelEvidenceSchema = z.object({
 });
 
 export const modelReadResultSchema = z.object({
-  home: homeSchema,
+  home: classifiedHomeSchema,
   summary: z.string(),
   rationale: z.string(),
   owner: ownerSchema,
@@ -129,5 +131,5 @@ export type ConversationDecision = {
 };
 
 /** Bump when the read prompt or schema changes; invalidates cached reads. */
-export const MODEL_VERSION = "v2-read-2-router";
+export const MODEL_VERSION = "v2-read-3-strict-three-way";
 export const CONTEXT_VERSION = "v2-ctx-3-total-placement";

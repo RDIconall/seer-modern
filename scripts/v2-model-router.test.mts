@@ -3,8 +3,7 @@
  *
  * Easy disposable mail stays on the cheap model. Consequential deletes,
  * matter creation/connections, live-matter continuations, and fast-model
- * failures escalate. If the strong daily cap is reached, consequential mail
- * becomes undecided rather than trusting the cheap call.
+ * failures escalate. The output contract has exactly three homes.
  */
 import assert from "node:assert/strict";
 import {
@@ -194,7 +193,8 @@ function harness(outputs: Partial<Record<RoutedTier, ReadResult>>) {
   assert.deepEqual(h.usage[0].escalationReasons, ["fast_failed"]);
 }
 
-// Strong cap reached: don't trust consequential fast result; hold undecided.
+// Strong cap reached: the fast call still made a valid three-way
+// classification. Budget exhaustion cannot invent a fourth answer.
 {
   const calls: RoutedTier[] = [];
   const router = createReaderRouter({
@@ -209,9 +209,22 @@ function harness(outputs: Partial<Record<RoutedTier, ReadResult>>) {
     ...input,
     routingFacts: { ...input.routingFacts, senderIsKnown: true },
   });
-  assert.equal(output.home, "undecided");
-  assert.match(output.rationale, /daily limit/i);
+  assert.equal(output.home, "delete");
+  assert.match(output.rationale, /strong verification budget reached/i);
   assert.deepEqual(calls, ["fast"]);
+}
+
+// If neither route can classify, fail the read so the queue retries it. Never
+// manufacture Archive or an `undecided` answer.
+{
+  const router = createReaderRouter({
+    call: async () => {
+      throw new Error("model route unavailable");
+    },
+    recordUsage: async () => {},
+    allowCall: async () => true,
+  });
+  await assert.rejects(() => router(input), /model route unavailable/);
 }
 
 console.log("v2-model-router: OK");

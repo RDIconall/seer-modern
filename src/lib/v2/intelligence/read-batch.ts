@@ -15,6 +15,8 @@ import { readConversation, type ReaderModel } from "./reader";
 export type ReadBatchResult = {
   attempted: number;
   decided: number;
+  /** Model/content failures left unclassified for a later retry. */
+  failed: number;
 };
 
 async function loadConversation(
@@ -99,6 +101,7 @@ export async function readBatch(
   let cursor = 0;
   let decided = 0;
   let attempted = 0;
+  let failed = 0;
 
   async function worker() {
     for (;;) {
@@ -108,19 +111,25 @@ export async function readBatch(
       const conversation = await loadConversation(conversationId);
       if (!conversation) continue;
       attempted++;
-      const decision = await readConversation({
-        accountId,
-        conversationId: asConversationId(conversationId),
-        conversation,
-        context,
-        model,
-      });
-      if (decision.home !== "undecided") decided++;
+      try {
+        await readConversation({
+          accountId,
+          conversationId: asConversationId(conversationId),
+          conversation,
+          context,
+          model,
+        });
+        decided++;
+      } catch {
+        // No fake Archive and no fourth destination. With no current decision,
+        // the queue naturally retries this conversation on the next bounded run.
+        failed++;
+      }
     }
   }
 
   await Promise.all(
     Array.from({ length: Math.min(concurrency, ids.length) }, worker),
   );
-  return { attempted, decided };
+  return { attempted, decided, failed };
 }

@@ -22,11 +22,18 @@
   },
   "context": {
     "ownDomain": "rditrials.com",
+    "ownEmail": "conall@rditrials.com",
     "people": [{ "email": "claire@rditrials.com", "tier": "inner", "vip": false }],
-    "matters": [{ "id": "rcd2904", "title": "RCD_2904 anti-TPO study" }],
+    "matters": [{
+      "id": "rcd2904",
+      "title": "RCD_2904 anti-TPO study",
+      "codes": ["RCD2904"],
+      "counterparty": "internal",
+      "userAuthored": false
+    }],
     "interests": []
   },
-  "expectedHome": "undecided",
+  "expectedHome": "matter",
   "allowedMatterRefs": ["rcd2904", "RCD_2904 anti-TPO study"],
   "requiredYieldKinds": []
 }

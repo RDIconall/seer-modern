@@ -74,9 +74,9 @@ assert.equal(
   assert.ok(r.vetoReasons.includes("personal_greeting"));
 }
 
-// Safety CANNOT change a matter/record/undecided, ever — not even with unsafe
+// Delete safety cannot change matter/record, even with unsafe
 // facts. It is veto-only, never a classifier.
-for (const home of ["matter", "record", "undecided"] as const) {
+for (const home of ["matter", "record"] as const) {
   const r = validateDelete({ home }, { ...SAFE, ownerIsYou: true, liveMatterId: "m1" });
   assert.equal(r.home, home, `safety must never reclassify ${home}`);
   assert.deepEqual(r.vetoReasons, []);
