@@ -1,12 +1,19 @@
 "use client";
 
 import * as React from "react";
-import { useMemo, useState } from "react";
-import { Sparkles, X } from "lucide-react";
+import { useEffect, useMemo, useReducer, useRef, useState } from "react";
+import { Archive, LayoutGrid, Sparkles, Trash2, X } from "lucide-react";
 import type { Command, CommandResult } from "@/lib/v2/commands/types";
 import type { MailboxRow, MailboxView } from "@/lib/v3/mailbox/types";
 import { triagePiles } from "@/lib/v3/mailbox/triage-verb";
+import { groupState } from "@/components/v2/triage-select";
 import { MobileMailRow } from "./MobileMailRow";
+import {
+  EMPTY_SELECTION,
+  reduceSelection,
+  type Selection,
+  type SelectionAction,
+} from "./list-selection";
 import type { MatterSuggestion } from "@/lib/v2/intelligence/user-matter";
 
 const mobileTime = (iso: string) => {
@@ -119,6 +126,47 @@ export function MobileMailboxList({
     [rows, triage, view.folder],
   );
 
+  // Selection follows the order the rows are READ in, not the order they
+  // arrived in: a shift range across a pile boundary has to mean what the eye
+  // saw, so the ids are the flattened piles rather than `view.rows`.
+  const orderedRows = useMemo(
+    () => groups.flatMap((group) => group.rows),
+    [groups],
+  );
+  const allIds = useMemo(
+    () => orderedRows.map((row) => row.conversationId),
+    [orderedRows],
+  );
+  const allIdsRef = useRef(allIds);
+  allIdsRef.current = allIds;
+  const [selection, dispatchSelection] = useReducer(
+    (state: Selection, action: SelectionAction) =>
+      reduceSelection(state, action, allIdsRef.current),
+    EMPTY_SELECTION,
+  );
+
+  // A tick on a row that has since been placed must not survive to act on
+  // something else later.
+  useEffect(() => {
+    dispatchSelection({ kind: "prune" });
+  }, [allIds]);
+
+  const selected = selection.ids as Set<string>;
+  const selectedCount = selected.size;
+  const selecting = selectedCount > 0;
+
+  // Escape drops the selection, as it does in every mail client. Being stuck
+  // in selection mode with no way out but un-ticking rows one by one is what
+  // makes bulk actions feel dangerous.
+  useEffect(() => {
+    if (!selecting) return;
+    const onKeyDown = (event: KeyboardEvent) => {
+      if (event.key === "Escape") dispatchSelection({ kind: "clear" });
+    };
+    window.addEventListener("keydown", onKeyDown);
+    return () => window.removeEventListener("keydown", onKeyDown);
+  }, [selecting]);
+
   const sweep = async (
     groupRows: MailboxRow[],
     command: (row: MailboxRow) => Command,
@@ -139,6 +187,14 @@ export function MobileMailboxList({
         return next;
       });
     }
+  };
+
+  /** Send everything ticked to one destination, then drop the selection. */
+  const placeSelected = async (command: (row: MailboxRow) => Command) => {
+    const picked = orderedRows.filter((row) => selected.has(row.conversationId));
+    if (picked.length === 0) return;
+    dispatchSelection({ kind: "clear" });
+    await sweep(picked, command);
   };
 
   const openMatterPicker = async (row: MailboxRow) => {
@@ -176,9 +232,15 @@ export function MobileMailboxList({
     void act(row, matterCommand(row, options));
   };
 
-  const renderRow = (row: MailboxRow) => (
+  const renderRow = (row: MailboxRow, index: number) => (
     <MobileMailRow
       key={row.conversationId}
+      selectable
+      selected={selected.has(row.conversationId)}
+      selecting={selecting}
+      onToggleSelect={(shift) =>
+        dispatchSelection({ kind: "row", index, shift })
+      }
       model={{
         id: row.conversationId,
         from: row.senderDisplayName,
@@ -248,38 +310,112 @@ export function MobileMailboxList({
           </button>
         ) : null}
       </header>
+      {/* The bar belongs to selecting, not to the list: a list that always
+          shows bulk actions is a spreadsheet. It names the same destinations
+          the row does, so placing ten is the gesture for placing one. */}
+      {selecting ? (
+        <div
+          className="compact-mail-bulk"
+          role="toolbar"
+          aria-label="Selected conversation actions"
+        >
+          <span className="tabular" aria-live="polite">
+            {selectedCount} selected
+          </span>
+          {triage ? (
+            <button
+              type="button"
+              onClick={() => void placeSelected((row) => matterCommand(row))}
+            >
+              <LayoutGrid aria-hidden />
+              Atlas
+            </button>
+          ) : null}
+          <button
+            type="button"
+            onClick={() =>
+              void placeSelected(triage ? triageArchiveCommand : archiveCommand)
+            }
+          >
+            <Archive aria-hidden />
+            Archive
+          </button>
+          <button
+            type="button"
+            onClick={() =>
+              void placeSelected(triage ? triageDeleteCommand : deleteCommand)
+            }
+          >
+            <Trash2 aria-hidden />
+            Delete
+          </button>
+          <button
+            type="button"
+            className="compact-mail-bulk-clear"
+            onClick={() => dispatchSelection({ kind: "clear" })}
+          >
+            <X aria-hidden />
+            Clear
+          </button>
+        </div>
+      ) : null}
       {rows.length === 0 ? (
         <p className="mail-empty">
           {triage ? "Inbox placed. Nothing left to triage." : "Nothing here yet."}
         </p>
       ) : (
-        groups.map((group) => (
-          <div key={group.key} className="compact-mail-group">
-            {group.label ? (
-              <h2>
-                <span>{group.label}</span>
-                <em className="tabular">{group.rows.length}</em>
-                <small>{group.hint}</small>
-                {group.key === "delete" || group.key === "archive" ? (
-                  <button
-                    type="button"
-                    onClick={() =>
-                      void sweep(
-                        group.rows,
-                        group.key === "delete"
-                          ? triageDeleteCommand
-                          : triageArchiveCommand,
-                      )
+        groups.map((group) => {
+          const groupIds = group.rows.map((row) => row.conversationId);
+          const state = groupState(selected, groupIds);
+          // Where this pile starts in the flattened reading order, so a row
+          // knows its own index for a shift range.
+          const offset = allIds.indexOf(groupIds[0] ?? "");
+          return (
+            <div key={group.key} className="compact-mail-group">
+              {group.label ? (
+                <h2>
+                  <input
+                    type="checkbox"
+                    className="mobile-mail-select mail-focus-ring"
+                    checked={state === "all"}
+                    ref={(el) => {
+                      if (el) el.indeterminate = state === "some";
+                    }}
+                    aria-label={`Select all in ${group.label}`}
+                    onChange={(event) =>
+                      dispatchSelection({
+                        kind: "group",
+                        ids: groupIds,
+                        checked: event.target.checked,
+                      })
                     }
-                  >
-                    {group.key === "delete" ? "Delete all" : "Archive all"}
-                  </button>
-                ) : null}
-              </h2>
-            ) : null}
-            {group.rows.map(renderRow)}
-          </div>
-        ))
+                  />
+                  <span>{group.label}</span>
+                  <em className="tabular">{group.rows.length}</em>
+                  <small>{group.hint}</small>
+                  {group.key === "delete" || group.key === "archive" ? (
+                    <button
+                      type="button"
+                      onClick={() =>
+                        void sweep(
+                          group.rows,
+                          group.key === "delete"
+                            ? triageDeleteCommand
+                            : triageArchiveCommand,
+                        )
+                      }
+                    >
+                      {group.key === "delete" ? "Delete all" : "Archive all"}
+                    </button>
+                  ) : null}
+                </h2>
+              ) : null}
+              {group.rows.map((row, index) =>
+                renderRow(row, offset < 0 ? index : offset + index),
+              )}
+            </div>
+          );
+        })
       )}
       {matterRow ? (
         <div

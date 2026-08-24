@@ -137,13 +137,15 @@ assert.equal(timeLabel("2026-08-14T09:04:00.000Z", now), "");
     } as never),
   ).replace(/<!--[\s\S]*?-->/g, "");
 
+  // The pile heading now leads with its select-all box, so the name is the
+  // first span rather than the first child.
   assert.deepEqual(
-    [...html.matchAll(/<h2><span>([^<]*)<\/span>/g)].map((m) => m[1]),
+    [...html.matchAll(/<h2>[\s\S]*?<span>([^<]*)<\/span>/g)].map((m) => m[1]),
     ["Delete", "Archive"],
     "legacy uncertainty falls back to Archive; model matters leave for Atlas",
   );
   for (const gone of ["File", "Answer", "Keep"]) {
-    assert.doesNotMatch(html, new RegExp(`<h2><span>${gone}</span>`));
+    assert.doesNotMatch(html, new RegExp(`<span>${gone}</span>`));
   }
 
   // Every row can be placed without a gesture, and Atlas is one of the choices.
