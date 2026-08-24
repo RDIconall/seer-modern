@@ -1234,6 +1234,28 @@ body {
   display: contents;
 }
 
+/* Every cell names its own place on the one line.
+ *
+ * Only the date and the meta cell used to say where they went, and grid
+ * auto-placement never walks backwards: the date claimed column four, which
+ * pushed the cursor past it, so the subject — auto-placed, and next in the
+ * markup — was put in column FIVE, to the right of its own date, and the
+ * preview had nowhere left on that line and wrapped onto a second row. Naming
+ * the column is not enough either; without the row, a cell whose column sits
+ * behind the cursor is pushed down instead of back. That is why the table
+ * stopped reading as a table. */
+.compact-mail-list .mobile-mail-row-top strong {
+  grid-column: 1;
+}
+
+.compact-mail-list .mobile-mail-row-top strong,
+.compact-mail-list .mobile-mail-row-subject,
+.compact-mail-list .mobile-mail-row-preview,
+.compact-mail-list .mobile-mail-row-top time,
+.compact-mail-list .mobile-mail-row-meta {
+  grid-row: 1;
+}
+
 .compact-mail-list .mobile-mail-row-top strong,
 .compact-mail-list .mobile-mail-row-subject,
 .compact-mail-list .mobile-mail-row-preview {
@@ -1254,11 +1276,13 @@ body {
 }
 
 .compact-mail-list .mobile-mail-row-subject {
+  grid-column: 2;
   color: var(--fg-strong);
   font-size: 13px;
 }
 
 .compact-mail-list .mobile-mail-row-preview {
+  grid-column: 3;
   color: var(--muted);
   font-size: 12px;
 }
@@ -1281,6 +1305,53 @@ body {
 .compact-mail-list .mobile-mail-row-attachment svg {
   width: 14px;
   height: 14px;
+}
+
+/* Above phone width the three destinations belong at the END of the row, not
+   under it. Standing open beneath each conversation they added a line to every
+   row, and a list where each entry is two lines and a button strip is a stack
+   of cards — which is what triage had become on a desktop. They take their own
+   space at the end of the line rather than floating over it, so the date keeps
+   its column. */
+@media (min-width: 701px) {
+  .compact-mail-list .mobile-mail-row {
+    display: flex;
+    align-items: center;
+  }
+
+  .compact-mail-list .mobile-mail-row-track {
+    min-width: 0;
+    flex: 1;
+  }
+
+  .compact-mail-list .mobile-mail-row-actions {
+    flex: none;
+    padding: 0 10px;
+    background: none;
+  }
+
+  .compact-mail-list .mobile-mail-row:hover .mobile-mail-row-button {
+    background: var(--row-active);
+  }
+}
+
+/* With a mouse they wait for the row, the way every mail client has done it
+   since Gmail. The space stays reserved either way, so nothing shifts under
+   the pointer; they keep their place in the tab order and come back on
+   keyboard focus, so no action is reachable by hover alone. A wide TOUCH
+   screen keeps them standing open — there is no hover to find them with, and
+   no swipe at that width either. */
+@media (min-width: 701px) and (hover: hover) and (pointer: fine) {
+  .compact-mail-list .mobile-mail-row-actions {
+    opacity: 0;
+    pointer-events: none;
+  }
+
+  .compact-mail-list .mobile-mail-row:hover .mobile-mail-row-actions,
+  .compact-mail-list .mobile-mail-row:focus-within .mobile-mail-row-actions {
+    opacity: 1;
+    pointer-events: auto;
+  }
 }
 
 .mail-toolbar-status {
@@ -2888,9 +2959,14 @@ body {
     display: flex;
   }
 
+  /* One column on a phone, so nothing may name a place of its own. */
   .compact-mail-list .mobile-mail-row-top time,
-  .compact-mail-list .mobile-mail-row-meta {
+  .compact-mail-list .mobile-mail-row-meta,
+  .compact-mail-list .mobile-mail-row-subject,
+  .compact-mail-list .mobile-mail-row-preview,
+  .compact-mail-list .mobile-mail-row-top strong {
     grid-column: auto;
+    grid-row: auto;
   }
 
   .mobile-mail-row[data-dragging="true"] .mobile-mail-row-button {
