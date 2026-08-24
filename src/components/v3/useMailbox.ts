@@ -10,14 +10,28 @@ import type {
 } from "@/lib/v3/mailbox/types";
 import { fetchDefault, fetchFresh } from "@/lib/v3/net/fetch";
 import {
+  appendPage,
   applyMailboxCommands,
   prefetchAdjacentIds,
   viewForFolder,
 } from "./mailbox-state";
 
-const CACHE_VERSION = 4;
+const CACHE_VERSION = 5;
 const mailboxCache = new Map<string, MailboxView>();
 const bodyCache = new Map<string, unknown>();
+
+/**
+ * A folder is a scroll, so one page of it is a page. Triage is a work queue,
+ * and one page of a work queue is a lie about how much work there is: the pile
+ * headings count the rows that arrived, so clearing them only pulls the next
+ * page in and the same pile comes back at the same size. Triage is therefore
+ * read to the END, a page at a time, through the keyset cursor the mailbox
+ * already returns.
+ */
+const FOLDER_PAGE = 50;
+const TRIAGE_PAGE = 200;
+/** A ceiling, so a runaway cursor cannot walk a mailbox forever. */
+const MAX_TRIAGE_PAGES = 8;
 
 function cacheKey(
   accountId: string,
@@ -213,23 +227,51 @@ export function useMailbox(
       }
       const activeAccountId = accountJson.active.id;
       setAccountId(activeAccountId);
-      const response = await fetchFresh(
-        `/api/v3/mailbox?folder=${encodeURIComponent(folder)}&sort=${encodeURIComponent(sort)}&limit=50`,
-      );
-      if (!response.ok) throw new Error(`mailbox ${response.status}`);
-      const json = (await response.json()) as { view: MailboxView };
-      if (
-        json.view.folder !== folder ||
-        json.view.sort !== sort ||
-        json.view.accountId !== activeAccountId
-      ) {
-        throw new Error("mailbox response scope mismatch");
+      const scope = `${activeAccountId}:${folder}:${sort}`;
+      const pageSize = sort === "triage" ? TRIAGE_PAGE : FOLDER_PAGE;
+      let merged: MailboxView | null = null;
+      let before: string | null = null;
+
+      for (let page = 0; page < MAX_TRIAGE_PAGES; page += 1) {
+        const response = await fetchFresh(
+          `/api/v3/mailbox?folder=${encodeURIComponent(folder)}` +
+            `&sort=${encodeURIComponent(sort)}&limit=${pageSize}` +
+            (before ? `&before=${encodeURIComponent(before)}` : ""),
+        );
+        if (!response.ok) throw new Error(`mailbox ${response.status}`);
+        const json = (await response.json()) as { view: MailboxView };
+        if (
+          json.view.folder !== folder ||
+          json.view.sort !== sort ||
+          json.view.accountId !== activeAccountId
+        ) {
+          throw new Error("mailbox response scope mismatch");
+        }
+        merged = merged ? appendPage(merged, json.view) : json.view;
+        // The first page paints straight away; the tail of the queue arrives
+        // behind it rather than holding the whole screen back.
+        if (page === 0) {
+          viewRef.current = merged;
+          settle(
+            {
+              view: merged,
+              loading: false,
+              refreshing: Boolean(json.view.nextCursor) && sort === "triage",
+              error: null,
+            },
+            scope,
+          );
+        }
+        before = json.view.nextCursor;
+        if (sort !== "triage" || !before) break;
       }
-      writeCache(json.view);
-      viewRef.current = json.view;
+
+      if (!merged) throw new Error("mailbox returned no page");
+      writeCache(merged);
+      viewRef.current = merged;
       settle(
-        { view: json.view, loading: false, refreshing: false, error: null },
-        `${activeAccountId}:${folder}:${sort}`,
+        { view: merged, loading: false, refreshing: false, error: null },
+        scope,
       );
     } catch (cause) {
       viewRef.current = null;

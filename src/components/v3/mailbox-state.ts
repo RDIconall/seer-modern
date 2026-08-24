@@ -51,6 +51,26 @@ export function applyMailboxCommands(
   };
 }
 
+/**
+ * Join the next page of a list onto the one already on screen.
+ *
+ * The tail of the list carries the newer cursor and the newer totals, so it
+ * wins on everything except the rows, which accumulate. A conversation that
+ * arrives on two pages — the mail moved between reads — is kept once, because
+ * two rows with one id is a duplicate on screen and a duplicate command when
+ * the pile is swept.
+ */
+export function appendPage(view: MailboxView, next: MailboxView): MailboxView {
+  const seen = new Set(view.rows.map((row) => row.conversationId));
+  return {
+    ...next,
+    rows: [
+      ...view.rows,
+      ...next.rows.filter((row) => !seen.has(row.conversationId)),
+    ],
+  };
+}
+
 /** Return the focused row and at most one adjacent row on either side. */
 export function prefetchAdjacentIds(
   view: MailboxView | null,
