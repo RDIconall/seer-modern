@@ -990,6 +990,77 @@ body {
   text-transform: none;
 }
 
+/*
+ * Selecting several conversations at once.
+ *
+ * Triage renders through this list at every width, and it had no selection at
+ * all: the only bulk move was "Delete all" on a whole pile, so placing six of
+ * the forty meant six separate gestures. The tick box lives outside the swipe
+ * track so it stays still while the face slides under a thumb.
+ */
+.mobile-mail-select {
+  flex: none;
+  width: 15px;
+  height: 15px;
+  margin: 0 0 0 12px;
+  accent-color: var(--brand);
+  cursor: pointer;
+}
+
+.compact-mail-group > h2 .mobile-mail-select {
+  margin-left: 0;
+}
+
+.compact-mail-bulk {
+  position: sticky;
+  top: 0;
+  z-index: 4;
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px;
+  margin-bottom: 10px;
+  padding: 7px 10px;
+  border: 1px solid var(--border);
+  border-radius: 9px;
+  background: var(--card);
+  color: var(--muted);
+  font-size: 12px;
+}
+
+.compact-mail-bulk button {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  padding: 4px 10px;
+  background: var(--bg);
+  color: var(--fg-strong);
+  font: inherit;
+  font-size: 11px;
+  font-weight: 650;
+  cursor: pointer;
+}
+
+.compact-mail-bulk button:hover {
+  background: var(--row-hover);
+}
+
+.compact-mail-bulk button svg {
+  width: 13px;
+  height: 13px;
+}
+
+.compact-mail-bulk-clear {
+  margin-left: auto;
+  color: var(--muted) !important;
+}
+
+.compact-mail-list .mobile-mail-row[data-selected="true"] .mobile-mail-row-button {
+  background: var(--brand-soft);
+}
+
 /* The three destinations, in words. A swipe is not discoverable, and a row
    that cannot be placed is a row that comes back tomorrow. */
 .mobile-mail-row-actions {
@@ -3099,10 +3170,19 @@ body {
     background: var(--card);
   }
 
+  /* The tick box sits beside the face rather than above it, so a row is still
+     one line when a selection is under way. */
+  .compact-mail-list .mobile-mail-row {
+    display: flex;
+    align-items: center;
+  }
+
   /* The swipe track is the scrollport, not the row: the reveals must be sized
      to the face that slides, not to the row's buttons as well. */
   .mobile-mail-row-track {
     position: relative;
+    min-width: 0;
+    flex: 1;
     overflow: hidden;
   }
 

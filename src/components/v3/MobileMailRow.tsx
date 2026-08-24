@@ -45,6 +45,10 @@ export function MobileMailRow({
   actions,
   onLongPress,
   onAtlas,
+  selectable = false,
+  selected = false,
+  selecting = false,
+  onToggleSelect,
 }: {
   model: MobileMailRowModel;
   current?: boolean;
@@ -56,6 +60,12 @@ export function MobileMailRow({
   onLongPress?: () => void;
   /** Triage only: a deliberate far-right pull sends the row to Atlas. */
   onAtlas?: () => void;
+  /** Show the tick box, so several rows can be placed in one go. */
+  selectable?: boolean;
+  selected?: boolean;
+  /** Something is already ticked, so a tap on the row aims at the tick box. */
+  selecting?: boolean;
+  onToggleSelect?: (shift: boolean) => void;
 }) {
   const [offset, setOffset] = useState(0);
   const [dragging, setDragging] = useState(false);
@@ -65,6 +75,10 @@ export function MobileMailRow({
   const offsetRef = useRef(0);
   const longPressTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const longPressFired = useRef(false);
+  // React derives a checkbox's change from the click, but the modifier does not
+  // reliably survive that hand-off, and a shift that arrives false quietly
+  // turns a range select into two ordinary ticks.
+  const shiftHeld = useRef(false);
 
   const cancelLongPress = () => {
     if (longPressTimer.current) clearTimeout(longPressTimer.current);
@@ -87,10 +101,26 @@ export function MobileMailRow({
       data-unread={model.isUnread ? "true" : "false"}
       data-current={current ? "true" : "false"}
       data-dragging={dragging ? "true" : "false"}
+      data-selected={selected ? "true" : "false"}
       data-long-atlas={
         onAtlas && offset >= ATLAS_SWIPE_THRESHOLD ? "true" : undefined
       }
     >
+      {/* The tick box sits outside the swipe track, so it stays put while the
+          face slides under the thumb. */}
+      {selectable && onToggleSelect ? (
+        <input
+          type="checkbox"
+          className="mobile-mail-select mail-focus-ring"
+          checked={selected}
+          aria-label={`Select ${model.subject || model.from || "conversation"}`}
+          onClick={(event) => {
+            shiftHeld.current = event.shiftKey;
+            event.stopPropagation();
+          }}
+          onChange={() => onToggleSelect(shiftHeld.current)}
+        />
+      ) : null}
       {/* The swipe track wraps only the row face. Left as a child of the row
           itself, the reveals are sized to the whole row and paint their red and
           green over the buttons underneath. */}
@@ -116,12 +146,24 @@ export function MobileMailRow({
         type="button"
         className="mobile-mail-row-button"
         style={{ transform: `translateX(${offset}px)` }}
-        onClick={() => {
+        aria-pressed={selecting ? selected : undefined}
+        onClick={(event) => {
+          // Once something is ticked the row itself is a bigger tick box. A tap
+          // that navigated away instead would throw the selection away, which
+          // is what makes bulk clearing feel hostile on a phone.
+          if (selecting && onToggleSelect) {
+            moved.current = false;
+            onToggleSelect(event.shiftKey);
+            return;
+          }
           if (!moved.current) onOpen();
           moved.current = false;
         }}
         onPointerDown={(event) => {
           if (event.button !== 0) return;
+          // A swipe acts on one row. While several are ticked that is a
+          // contradiction, so the gestures stand down until the selection ends.
+          if (selecting) return;
           event.currentTarget.setPointerCapture(event.pointerId);
           start.current = { x: event.clientX, y: event.clientY };
           horizontal.current = null;
