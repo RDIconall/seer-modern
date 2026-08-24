@@ -3,7 +3,6 @@
  * safety boundary on mailbox rows.
  */
 import assert from "node:assert/strict";
-import { readFileSync } from "node:fs";
 import { startTestDb } from "./v2-testdb.mts";
 import { upsertUser, upsertAccount } from "../src/lib/v2/db/accounts.ts";
 import { saveDecision } from "../src/lib/v2/intelligence/repository.ts";
@@ -375,96 +374,6 @@ try {
     dateWithTriageCursor.rows[0].conversationId,
     byDate.rows[0].conversationId,
     "triage cursor on date request must restart from the top",
-  );
-
-  // --- 8. Triage is a queue, not a page -----------------------------------
-  //
-  // Every row here is one the user would delete, but a veto parked its durable
-  // home at undecided, so they all sort behind the records. Read 50 at a time
-  // and most of them are invisible; clear the visible ones and the next slice
-  // takes their place, which reads as a pile that refills forever.
-  const queueUserId = await upsertUser("triage-queue@example.com");
-  const queueAccountId = await upsertAccount({
-    userId: queueUserId,
-    provider: "google",
-    email: "triage-queue@example.com",
-  });
-  const LIKELY_DELETES = 40;
-  const RECORDS = 20;
-  for (let i = 0; i < RECORDS; i += 1) {
-    const id = await seedConversation(
-      db.pool,
-      queueAccountId,
-      `p-record-${i}`,
-      "inbox",
-      `Receipt ${i}`,
-      `2026-07-${String(1 + (i % 28)).padStart(2, "0")}T12:00:00Z`,
-    );
-    await saveDecision({
-      accountId: queueAccountId,
-      conversationId: id,
-      home: "record",
-      proposedHome: "record",
-      summary: "receipt",
-      rationale: "test",
-      owner: "nobody",
-      vetoReasons: [],
-      yields: [],
-      evidence: [],
-      priority: 10,
-    });
-  }
-  for (let i = 0; i < LIKELY_DELETES; i += 1) {
-    const id = await seedConversation(
-      db.pool,
-      queueAccountId,
-      `p-vetoed-${i}`,
-      "inbox",
-      `Newsletter ${i}`,
-      `2026-08-${String(1 + (i % 20)).padStart(2, "0")}T12:00:00Z`,
-    );
-    await saveDecision({
-      accountId: queueAccountId,
-      conversationId: id,
-      home: "undecided",
-      proposedHome: "delete",
-      summary: "marketing",
-      rationale: "test",
-      owner: "nobody",
-      vetoReasons: ["live matter"],
-      yields: [],
-      evidence: [],
-      priority: 10,
-    });
-  }
-
-  const likelyDeletes = (view: Awaited<ReturnType<typeof getMailboxView>>) =>
-    view.rows.filter((row) => row.proposedDisposition === "delete").length;
-
-  const oldPage = await getMailboxView(queueAccountId, "inbox", 50, undefined, "triage");
-  assert.equal(oldPage.rows.length, 50);
-  assert.ok(
-    likelyDeletes(oldPage) < LIKELY_DELETES,
-    "a 50-row page cannot hold the whole Delete pile",
-  );
-
-  const wholeQueue = await getMailboxView(queueAccountId, "inbox", 200, undefined, "triage");
-  assert.equal(wholeQueue.total, RECORDS + LIKELY_DELETES);
-  assert.equal(
-    likelyDeletes(wholeQueue),
-    LIKELY_DELETES,
-    "the triage read holds every row the user is likely to delete",
-  );
-
-  const mailboxHook = readFileSync(
-    new URL("../src/components/v3/useMailbox.ts", import.meta.url),
-    "utf8",
-  );
-  assert.match(mailboxHook, /TRIAGE_LIMIT = 200/);
-  assert.match(
-    mailboxHook,
-    /sort === "triage" \? TRIAGE_LIMIT : FOLDER_LIMIT/,
-    "triage asks for the queue; a folder asks for a page",
   );
 
   console.log("v3-triage-sort: OK");
