@@ -328,6 +328,37 @@ try {
   assert.match(commandRoute, /originAllowed/);
   assert.match(commandRoute, /providerFor/);
   assert.match(commandRoute, /send|reply|forward/);
+  // A command answers with its result. The whiteboard's two projections are
+  // opt-in, because building them per row made a bulk action pay for a hundred
+  // rebuilds nobody read.
+  assert.match(
+    commandRoute,
+    /if \(!body\.withView\) return NextResponse\.json\(\{ result \}\)/,
+    "projections are opt-in",
+  );
+  const whiteboard = readFileSync(
+    path.join(HERE, "../src/components/v2/useInboxView.ts"),
+    "utf8",
+  );
+  assert.match(whiteboard, /withView: true/, "the whiteboard asks for what it repaints from");
+
+  // The queue is drained when the user acts, not only when the cron next runs.
+  const drainRoute = readFileSync(
+    path.join(HERE, "../src/app/api/v3/outbox/drain/route.ts"),
+    "utf8",
+  );
+  assert.match(drainRoute, /export async function POST/, "the client can drain its own queue");
+  assert.match(drainRoute, /getActiveV2Account/, "a user drain is scoped to their session");
+  assert.match(drainRoute, /originAllowed/);
+  const mailboxHook = readFileSync(
+    path.join(HERE, "../src/components/v3/useMailbox.ts"),
+    "utf8",
+  );
+  assert.match(
+    mailboxHook,
+    /fetch\("\/api\/v3\/outbox\/drain", \{ method: "POST"/,
+    "a batch kicks the queue instead of waiting five minutes for the cron",
+  );
 
   console.log("v3-command-outbox: OK");
 } finally {

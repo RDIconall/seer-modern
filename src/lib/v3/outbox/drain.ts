@@ -332,7 +332,10 @@ export async function drainOutbox(
   provider: MailProvider,
   opts: DrainOptions = {},
 ): Promise<DrainReport> {
-  const limit = opts.limit ?? 10;
+  // Ten at a time meant a bulk triage left the provider minutes behind: fifty
+  // deletes took five cron ticks — half an hour — to reach Outlook, all of it
+  // after the user believed the mail was gone.
+  const limit = opts.limit ?? 50;
   const leaseMs = opts.leaseMs ?? INFLIGHT_LEASE_MS;
   const report: DrainReport = {
     processed: 0,

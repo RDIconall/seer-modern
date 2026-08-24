@@ -84,6 +84,8 @@ export function useInboxView(
             command,
             idempotencyKey:
               globalThis.crypto?.randomUUID?.() ?? `${Date.now()}-${Math.random()}`,
+            // The whiteboard repaints from the response rather than reloading.
+            withView: true,
           }),
         });
         const json = (await res.json()) as { result: CommandResult; view?: InboxView };

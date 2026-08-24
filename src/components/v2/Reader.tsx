@@ -86,7 +86,9 @@ export function Reader({
   replySlot?: React.ReactNode;
   replying?: boolean;
 }) {
-  const nativeUrl = nativeUrlFor(provider, conversation.providerConversationId);
+  const nativeUrl = nativeUrlFor(provider, conversation.providerConversationId, {
+    messageId: conversation.messages[conversation.messages.length - 1]?.providerMessageId,
+  });
   const ownDomain = (ownEmail ?? "").split("@")[1] ?? "";
   const lanes = useMemo(
     () => shapeThread(conversation, ownDomain, ownEmail),
