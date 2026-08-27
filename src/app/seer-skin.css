@@ -301,6 +301,26 @@ body {
   box-shadow: inset 3px 0 0 var(--brand);
   opacity: 0.72;
 }
+
+/*
+ * The gap the matter will drop into. Until the board drew this, a drag was a
+ * guess: nothing said where the row would land until after it had landed, and
+ * a drop that came down one line off looked like the board ignoring the move.
+ */
+.wb-m[data-drop-before="true"]::before,
+.wb-sec[data-drop-end="true"]::after {
+  content: "";
+  display: block;
+  height: 2px;
+  background: var(--brand);
+}
+.wb-m[data-drop-before="true"]::before {
+  position: absolute;
+  top: -1px;
+  right: 0;
+  left: 0;
+  z-index: 5;
+}
 .wb-mhead {
   width: 100%;
   appearance: none;
@@ -332,6 +352,7 @@ body {
   color: var(--nav-muted);
   cursor: grab;
   touch-action: none;
+  user-select: none;
 }
 
 .wb-drag:active {
