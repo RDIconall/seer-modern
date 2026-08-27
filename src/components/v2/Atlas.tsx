@@ -524,15 +524,21 @@ export function Atlas({
     else endDrag();
   };
 
-  /** The grip is a control, so it has to move a matter without a pointer too. */
-  const nudgeMatter = (matterId: string, section: string, delta: -1 | 1) => {
-    const column = boardSections.find((item) => item.name === section);
-    if (!column) return;
-    const target = atlasNudgeTarget(
-      column.matters.map((matter) => matter.matterId),
-      matterId,
-      delta,
-    );
+  /**
+   * The grip is a control, so it has to move a matter without a pointer too.
+   *
+   * `visibleIds` is the section as the user sees it, not as the board holds it:
+   * a section also carries the outreach rolled up out of sight, and stepping
+   * over one of those moved the matter past a row that was not on screen, which
+   * reads as the key having done nothing at all.
+   */
+  const nudgeMatter = (
+    matterId: string,
+    section: string,
+    visibleIds: string[],
+    delta: -1 | 1,
+  ) => {
+    const target = atlasNudgeTarget(visibleIds, matterId, delta);
     if (!target) return;
     draggedRef.current = {
       matterId,
@@ -660,7 +666,12 @@ export function Atlas({
                     onDragDrop={commitDrag}
                     onDragEnd={endDrag}
                     onNudge={(delta) =>
-                      nudgeMatter(matter.matterId, section.name, delta)
+                      nudgeMatter(
+                        matter.matterId,
+                        section.name,
+                        section.matters.map((row) => row.matterId),
+                        delta,
+                      )
                     }
                   />
                 ))}
