@@ -25,19 +25,100 @@ export type AtlasDropTarget = {
 };
 
 /**
- * Resolve the row/section under a touch pointer. Native HTML drag events work
- * with a mouse but not reliably on iOS, so touch drag uses hit testing and then
- * hands the result to the exact same persisted reorder command.
+ * Pointer travel before a press on the grip counts as a drag. Without it every
+ * brush of the handle opened a drag and committed a drop wherever the finger
+ * happened to lift, which is most of what made the board feel arbitrary.
  */
-export function atlasDropTarget(element: Element | null): AtlasDropTarget | null {
+const DRAG_SLOP_PX = 4;
+
+/** How near the edge of the scrollport a drag must come before the board
+ *  follows it, and how far it then travels each frame. A matter could not be
+ *  moved to a section that was off-screen until the board scrolled itself. */
+const AUTOSCROLL_EDGE_PX = 72;
+const AUTOSCROLL_STEP_PX = 14;
+
+/** Whether a press has travelled far enough to be meant as a drag. */
+export function atlasDragTravelled(
+  start: { x: number; y: number },
+  point: { x: number; y: number },
+): boolean {
+  return (
+    Math.abs(point.x - start.x) >= DRAG_SLOP_PX ||
+    Math.abs(point.y - start.y) >= DRAG_SLOP_PX
+  );
+}
+
+/**
+ * Where a matter lands when the arrow keys move it one place. Moving up means
+ * "in front of the row above"; moving down means "behind the row below", which
+ * is the row after that one — or the end of the section when there is none.
+ */
+export function atlasNudgeTarget(
+  matterIds: readonly string[],
+  matterId: string,
+  delta: -1 | 1,
+): { beforeMatterId: string | null } | null {
+  const from = matterIds.indexOf(matterId);
+  if (from < 0) return null;
+  const to = from + delta;
+  if (to < 0 || to >= matterIds.length) return null;
+  return {
+    beforeMatterId: delta < 0 ? matterIds[to] : (matterIds[to + 1] ?? null),
+  };
+}
+
+/** The next matter row after this one, which is what "drop below it" means. */
+function matterAfter(row: HTMLElement): string | null {
+  for (let node = row.nextElementSibling; node; node = node.nextElementSibling) {
+    const id = (node as HTMLElement).dataset?.atlasMatter;
+    if (id) return id;
+  }
+  return null;
+}
+
+/**
+ * Resolve the row/section under a pointer. Native HTML drag events work with a
+ * mouse but not reliably on iOS, so one pointer path hit-tests the board and
+ * hands the result to the exact same persisted reorder command.
+ *
+ * `clientY` splits the row it lands on: above the midpoint the matter goes in
+ * ahead of that row, below it goes after. Treating any touch of a row as
+ * "insert before" put every drop one place higher than the gap being pointed
+ * at, and made dropping at the foot of a section impossible.
+ */
+export function atlasDropTarget(
+  element: Element | null,
+  clientY?: number,
+): AtlasDropTarget | null {
   const matter = element?.closest<HTMLElement>("[data-atlas-matter]");
   const column = element?.closest<HTMLElement>("[data-atlas-section]");
   const section = matter?.dataset.atlasSection ?? column?.dataset.atlasSection;
   if (!section) return null;
+  if (!matter) return { section, beforeMatterId: null };
+  const box = matter.getBoundingClientRect?.();
+  if (clientY !== undefined && box && box.height > 0) {
+    if (clientY > box.top + box.height / 2) {
+      return { section, beforeMatterId: matterAfter(matter) };
+    }
+  }
   return {
     section,
-    beforeMatterId: matter?.dataset.atlasMatter ?? null,
+    beforeMatterId: matter.dataset.atlasMatter ?? null,
   };
+}
+
+/** The element that actually scrolls the board, so a drag can drive it. */
+function scrollportFor(element: Element | null): HTMLElement | null {
+  for (let node = element?.parentElement ?? null; node; node = node.parentElement) {
+    const overflow = window.getComputedStyle(node).overflowY;
+    if (
+      /(auto|scroll|overlay)/.test(overflow) &&
+      node.scrollHeight > node.clientHeight + 1
+    ) {
+      return node;
+    }
+  }
+  return null;
 }
 
 /**
@@ -188,23 +269,37 @@ export function Atlas({
   type DraggedMatter = {
     matterId: string;
     fromSection: string;
+    startX: number;
+    startY: number;
+    /** False until the pointer has travelled far enough to mean it. */
+    active: boolean;
   };
-  const [dragged, setDragged] = useState<DraggedMatter | null>(null);
+  const [dragged, setDragged] = useState<{ matterId: string } | null>(null);
   // Pointer-up can arrive before React has committed the render caused by
   // pointer-down. The ref is the drag transaction; state is only its paint.
   const draggedRef = useRef<DraggedMatter | null>(null);
-  const beginDrag = (next: DraggedMatter) => {
-    draggedRef.current = next;
-    setDragged(next);
-  };
-  const endDrag = () => {
-    draggedRef.current = null;
-    setDragged(null);
-  };
+  const [hover, setHover] = useState<AtlasDropTarget | null>(null);
+  const hoverRef = useRef<AtlasDropTarget | null>(null);
+  const boardRef = useRef<HTMLElement | null>(null);
+  const scrollportRef = useRef<HTMLElement | null>(null);
+  const pointerRef = useRef({ x: 0, y: 0 });
+  const frameRef = useRef<number | null>(null);
+  // A drop is applied locally and then confirmed by the server. Until it comes
+  // back the incoming view still describes the old order, and letting it repaint
+  // the board is what snapped a dragged matter back to where it started.
+  const [pendingMoves, setPendingMoves] = useState(0);
 
   useEffect(() => {
+    if (pendingMoves > 0) return;
     setBoardSections(view.sections);
-  }, [view.sections]);
+  }, [view.sections, pendingMoves]);
+
+  useEffect(
+    () => () => {
+      if (frameRef.current !== null) cancelAnimationFrame(frameRef.current);
+    },
+    [],
+  );
 
   const sections = boardSections;
 
@@ -288,6 +383,37 @@ export function Atlas({
     });
   };
 
+  const applyHover = (next: AtlasDropTarget | null) => {
+    const prev = hoverRef.current;
+    if (
+      prev?.section === next?.section &&
+      prev?.beforeMatterId === next?.beforeMatterId
+    ) {
+      return;
+    }
+    hoverRef.current = next;
+    setHover(next);
+  };
+
+  const endDrag = () => {
+    draggedRef.current = null;
+    if (frameRef.current !== null) {
+      cancelAnimationFrame(frameRef.current);
+      frameRef.current = null;
+    }
+    applyHover(null);
+    setDragged(null);
+  };
+
+  const commit = async (run: () => void | Promise<unknown>) => {
+    setPendingMoves((n) => n + 1);
+    try {
+      await run();
+    } finally {
+      setPendingMoves((n) => Math.max(0, n - 1));
+    }
+  };
+
   const dropMatter = (
     targetSection: string,
     beforeMatterId?: string | null,
@@ -306,20 +432,122 @@ export function Atlas({
     endDrag();
     if (result.sections === boardSections) return;
     setBoardSections(result.sections);
-    if (result.sourceSection === result.targetSection) {
-      void onReorderMatters?.(
-        result.targetSection,
-        result.targetMatterIds,
-      );
-    } else {
-      void onMoveMatter?.({
-        matterId: active.matterId,
-        fromSection: result.sourceSection,
-        toSection: result.targetSection,
-        sourceMatterIds: result.sourceMatterIds,
-        targetMatterIds: result.targetMatterIds,
-      });
+    void commit(() =>
+      result.sourceSection === result.targetSection
+        ? onReorderMatters?.(result.targetSection, result.targetMatterIds)
+        : onMoveMatter?.({
+            matterId: active.matterId,
+            fromSection: result.sourceSection,
+            toSection: result.targetSection,
+            sourceMatterIds: result.sourceMatterIds,
+            targetMatterIds: result.targetMatterIds,
+          }),
+    );
+  };
+
+  const hoverAt = (x: number, y: number) => {
+    applyHover(atlasDropTarget(document.elementFromPoint(x, y), y));
+  };
+
+  /** Drive the board's own scrollport while a drag sits against its edge. */
+  const followEdge = () => {
+    const { y } = pointerRef.current;
+    const port = scrollportRef.current;
+    const box = port?.getBoundingClientRect();
+    const top = box ? box.top : 0;
+    const bottom = box ? box.bottom : window.innerHeight;
+    let delta = 0;
+    if (y < top + AUTOSCROLL_EDGE_PX) delta = -AUTOSCROLL_STEP_PX;
+    else if (y > bottom - AUTOSCROLL_EDGE_PX) delta = AUTOSCROLL_STEP_PX;
+    if (delta === 0) return;
+    if (port) port.scrollTop += delta;
+    else window.scrollBy(0, delta);
+  };
+
+  const runFrame = () => {
+    if (!draggedRef.current?.active) {
+      frameRef.current = null;
+      return;
     }
+    followEdge();
+    // The board moves under a finger that is holding still, so the target is
+    // recomputed every frame rather than only when the pointer reports one.
+    hoverAt(pointerRef.current.x, pointerRef.current.y);
+    frameRef.current = requestAnimationFrame(runFrame);
+  };
+
+  const beginDrag = (
+    matterId: string,
+    fromSection: string,
+    x: number,
+    y: number,
+  ) => {
+    draggedRef.current = {
+      matterId,
+      fromSection,
+      startX: x,
+      startY: y,
+      active: false,
+    };
+    pointerRef.current = { x, y };
+    scrollportRef.current = scrollportFor(boardRef.current);
+  };
+
+  const moveDrag = (x: number, y: number) => {
+    const drag = draggedRef.current;
+    if (!drag) return;
+    pointerRef.current = { x, y };
+    if (!drag.active) {
+      if (!atlasDragTravelled({ x: drag.startX, y: drag.startY }, { x, y })) {
+        return;
+      }
+      drag.active = true;
+      setDragged({ matterId: drag.matterId });
+      if (frameRef.current === null) {
+        frameRef.current = requestAnimationFrame(runFrame);
+      }
+    }
+    hoverAt(x, y);
+  };
+
+  const commitDrag = (x: number, y: number) => {
+    const drag = draggedRef.current;
+    if (!drag) return;
+    // A press that never travelled is a press, not a move.
+    if (!drag.active) {
+      endDrag();
+      return;
+    }
+    const target =
+      atlasDropTarget(document.elementFromPoint(x, y), y) ?? hoverRef.current;
+    if (target) dropMatter(target.section, target.beforeMatterId);
+    else endDrag();
+  };
+
+  /**
+   * The grip is a control, so it has to move a matter without a pointer too.
+   *
+   * `visibleIds` is the section as the user sees it, not as the board holds it:
+   * a section also carries the outreach rolled up out of sight, and stepping
+   * over one of those moved the matter past a row that was not on screen, which
+   * reads as the key having done nothing at all.
+   */
+  const nudgeMatter = (
+    matterId: string,
+    section: string,
+    visibleIds: string[],
+    delta: -1 | 1,
+  ) => {
+    const target = atlasNudgeTarget(visibleIds, matterId, delta);
+    if (!target) return;
+    draggedRef.current = {
+      matterId,
+      fromSection: section,
+      startX: 0,
+      startY: 0,
+      active: true,
+    };
+    dropMatter(section, target.beforeMatterId);
   };
 
   if (sections.length === 0) {
@@ -336,7 +564,7 @@ export function Atlas({
   );
 
   return (
-    <section aria-label="Atlas — the whiteboard" className="wb">
+    <section aria-label="Atlas — the whiteboard" className="wb" ref={boardRef}>
       {/* Two rows of chrome, not three: the title and the account of the board
           share a line, and the filter carries the row count on its right.
           The mark and the search field live in the app toolbar directly above,
@@ -394,7 +622,14 @@ export function Atlas({
                   ) : null}
                 </span>
               </div>
-              <div className="wb-sec">
+              <div
+                className="wb-sec"
+                data-drop-end={
+                  hover?.section === section.name && hover.beforeMatterId === null
+                    ? "true"
+                    : undefined
+                }
+              >
                 {section.matters.map((matter) => (
                   <BoardMatter
                     key={matter.matterId}
@@ -407,6 +642,11 @@ export function Atlas({
                         conversation.conversationId === currentConversationId,
                     )}
                     dragging={dragged?.matterId === matter.matterId}
+                    dropBefore={
+                      hover?.section === section.name &&
+                      hover.beforeMatterId === matter.matterId &&
+                      dragged?.matterId !== matter.matterId
+                    }
                     onToggle={() => {
                       const conversation = latestConversation(matter);
                       if (conversation) onOpenConversation?.(conversation);
@@ -419,15 +659,19 @@ export function Atlas({
                     onOpenConversation={onOpenConversation}
                     onArchiveConversation={onArchiveConversation}
                     onDeleteConversation={onDeleteConversation}
-                    onDragStart={() =>
-                      beginDrag({
-                        matterId: matter.matterId,
-                        fromSection: section.name,
-                      })
+                    onDragStart={(x, y) =>
+                      beginDrag(matter.matterId, section.name, x, y)
                     }
+                    onDragMove={moveDrag}
+                    onDragDrop={commitDrag}
                     onDragEnd={endDrag}
-                    onTouchDrop={(target) =>
-                      dropMatter(target.section, target.beforeMatterId)
+                    onNudge={(delta) =>
+                      nudgeMatter(
+                        matter.matterId,
+                        section.name,
+                        section.matters.map((row) => row.matterId),
+                        delta,
+                      )
                     }
                   />
                 ))}
@@ -503,6 +747,7 @@ function BoardMatter({
   archived,
   current,
   dragging,
+  dropBefore,
   onToggle,
   onArchive,
   onUndo,
@@ -513,8 +758,10 @@ function BoardMatter({
   onArchiveConversation,
   onDeleteConversation,
   onDragStart,
+  onDragMove,
+  onDragDrop,
   onDragEnd,
-  onTouchDrop,
+  onNudge,
 }: {
   matter: MatterCard;
   now: number;
@@ -522,6 +769,7 @@ function BoardMatter({
   archived: boolean;
   current: boolean;
   dragging: boolean;
+  dropBefore: boolean;
   onToggle: () => void;
   onArchive: () => void;
   onUndo: () => void;
@@ -531,9 +779,11 @@ function BoardMatter({
   onOpenConversation?: (conversation: ConversationRow) => void;
   onArchiveConversation?: (conversation: ConversationRow) => void;
   onDeleteConversation?: (conversation: ConversationRow) => void;
-  onDragStart: () => void;
+  onDragStart: (clientX: number, clientY: number) => void;
+  onDragMove: (clientX: number, clientY: number) => void;
+  onDragDrop: (clientX: number, clientY: number) => void;
   onDragEnd: () => void;
-  onTouchDrop: (target: AtlasDropTarget) => void;
+  onNudge: (delta: -1 | 1) => void;
 }) {
   const age = daysSinceMoved(matter, now);
   const stalled = isStalled(matter, now);
@@ -548,6 +798,7 @@ function BoardMatter({
       data-atlas-matter={matter.matterId}
       data-atlas-section={matter.section}
       data-dragging={dragging ? "true" : undefined}
+      data-drop-before={dropBefore ? "true" : undefined}
     >
       <button
         type="button"
@@ -557,18 +808,34 @@ function BoardMatter({
           if (archived) return;
           event.preventDefault();
           event.stopPropagation();
-          event.currentTarget.setPointerCapture(event.pointerId);
-          onDragStart();
+          // Capture keeps the move and the release on this handle even when the
+          // pointer leaves it, which is every drag that goes anywhere.
+          try {
+            event.currentTarget.setPointerCapture(event.pointerId);
+          } catch {
+            /* a pointer the browser has already released cannot be captured */
+          }
+          event.currentTarget.focus();
+          onDragStart(event.clientX, event.clientY);
+        }}
+        onPointerMove={(event) => {
+          if (archived) return;
+          onDragMove(event.clientX, event.clientY);
         }}
         onPointerUp={(event) => {
           if (archived) return;
-          const target = atlasDropTarget(
-            document.elementFromPoint(event.clientX, event.clientY),
-          );
-          if (target) onTouchDrop(target);
-          else onDragEnd();
+          onDragDrop(event.clientX, event.clientY);
         }}
+        // A gesture the browser claims mid-drag, and the release of a capture
+        // that ended some other way, both have to put the board back.
         onPointerCancel={onDragEnd}
+        onLostPointerCapture={onDragEnd}
+        onKeyDown={(event) => {
+          if (archived) return;
+          if (event.key !== "ArrowUp" && event.key !== "ArrowDown") return;
+          event.preventDefault();
+          onNudge(event.key === "ArrowUp" ? -1 : 1);
+        }}
       >
         <GripVertical aria-hidden />
       </button>

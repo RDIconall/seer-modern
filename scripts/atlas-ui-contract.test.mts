@@ -5,8 +5,12 @@ import { createElement } from "react";
 import { renderToString } from "react-dom/server";
 import {
   Atlas,
+  atlasDragTravelled,
   atlasDropTarget,
+  atlasNudgeTarget,
 } from "../src/components/v2/Atlas.tsx";
+import { reorderMatterSections } from "../src/lib/v2/view/matter-order.ts";
+import type { AtlasSection } from "../src/lib/v2/view/types.ts";
 import { sampleView } from "../src/app/dev/preview/sample.ts";
 
 const root = process.cwd();
@@ -141,30 +145,176 @@ assert.match(atlasSource, /onPointerDown/);
 assert.match(atlasSource, /document\.elementFromPoint/);
 assert.match(atlasSource, /data-atlas-matter/);
 assert.match(atlasSource, /data-atlas-section/);
-assert.match(atlasSource, /onTouchDrop/);
 assert.doesNotMatch(
   skin,
   /@media \(max-width: 700px\)[\s\S]*?\.wb-drag\s*\{[^}]*display:\s*none/,
   "the drag handle must remain available on touch screens",
 );
 
-const targetElement = {
-  closest(selector: string) {
-    if (selector === "[data-atlas-matter]") {
-      return {
-        dataset: {
-          atlasMatter: "matter-2",
-          atlasSection: "sales",
-        },
-      };
-    }
-    return null;
-  },
-} as unknown as Element;
-assert.deepEqual(atlasDropTarget(targetElement), {
+/**
+ * A drag is a gesture, not two isolated events. The board reads the pointer the
+ * whole way across so it can say where the row will land, carry the scrollport
+ * with it, and tell a press apart from a move — the three things whose absence
+ * made a drop look like it had been ignored.
+ */
+assert.match(
+  atlasSource,
+  /onPointerMove/,
+  "the drag must be tracked while it moves, not only where it is released",
+);
+assert.match(
+  atlasSource,
+  /DRAG_SLOP_PX/,
+  "a press that never travelled must not commit a drop",
+);
+assert.match(atlasSource, /onPointerCancel/);
+assert.match(
+  atlasSource,
+  /onLostPointerCapture/,
+  "a capture lost mid-gesture has to put the board back",
+);
+assert.match(
+  atlasSource,
+  /requestAnimationFrame/,
+  "a drag held at the edge must scroll the board to reach an off-screen section",
+);
+assert.match(
+  atlasSource,
+  /data-drop-before/,
+  "the board must show the gap the matter will drop into",
+);
+assert.match(
+  skin,
+  /\.wb-m\[data-drop-before="true"\]::before/,
+  "the drop indicator needs a rule, not just an attribute",
+);
+assert.match(skin, /\.wb-sec\[data-drop-end="true"\]::after/);
+
+/**
+ * The grip is a control. Arrow keys move a matter without a pointer at all,
+ * which is the one path that cannot be lost to a cancelled gesture.
+ */
+assert.match(atlasSource, /ArrowUp/);
+assert.match(atlasSource, /ArrowDown/);
+assert.match(atlasSource, /aria-label={`Drag /);
+
+/**
+ * A drop is applied locally and confirmed by the server. Until the confirmation
+ * lands the incoming view still describes the old order, and repainting from it
+ * is what snapped a dragged matter back to where it started.
+ */
+assert.match(
+  atlasSource,
+  /if \(pendingMoves > 0\) return;\s*setBoardSections\(view\.sections\);/,
+  "an unconfirmed move must not be repainted by the stale server view",
+);
+
+const rowElement = (row: {
+  id: string;
+  section: string;
+  top?: number;
+  height?: number;
+  next?: string;
+}) => {
+  const matter = {
+    dataset: { atlasMatter: row.id, atlasSection: row.section },
+    getBoundingClientRect:
+      row.top === undefined
+        ? undefined
+        : () => ({
+            top: row.top!,
+            height: row.height ?? 36,
+            bottom: row.top! + (row.height ?? 36),
+          }),
+    nextElementSibling: row.next
+      ? { dataset: { atlasMatter: row.next }, nextElementSibling: null }
+      : null,
+  };
+  return {
+    closest(selector: string) {
+      return selector === "[data-atlas-matter]" ? matter : null;
+    },
+  } as unknown as Element;
+};
+
+assert.deepEqual(atlasDropTarget(rowElement({ id: "matter-2", section: "sales" })), {
   section: "sales",
   beforeMatterId: "matter-2",
 });
+
+// Above the midpoint the matter goes in ahead of the row under the pointer;
+// below it, after. Treating any touch of a row as "insert before" landed every
+// drop one place high and made the foot of a section unreachable.
+const midRow = { id: "matter-2", section: "sales", top: 100, height: 36, next: "matter-3" };
+assert.deepEqual(atlasDropTarget(rowElement(midRow), 110), {
+  section: "sales",
+  beforeMatterId: "matter-2",
+});
+assert.deepEqual(atlasDropTarget(rowElement(midRow), 130), {
+  section: "sales",
+  beforeMatterId: "matter-3",
+});
+assert.deepEqual(
+  atlasDropTarget(
+    rowElement({ id: "matter-9", section: "sales", top: 100, height: 36 }),
+    130,
+  ),
+  { section: "sales", beforeMatterId: null },
+  "past the last row a drop appends to the section",
+);
+
+const columnElement = {
+  closest(selector: string) {
+    return selector === "[data-atlas-section]"
+      ? { dataset: { atlasSection: "sales" } }
+      : null;
+  },
+} as unknown as Element;
+assert.deepEqual(atlasDropTarget(columnElement, 400), {
+  section: "sales",
+  beforeMatterId: null,
+});
+assert.equal(atlasDropTarget(null), null);
+
+/**
+ * A tap on the grip is a tap. Every pixel of travel counting as a drag is what
+ * let a scroll that started on the handle finish as a move of the matter.
+ */
+assert.equal(atlasDragTravelled({ x: 10, y: 10 }, { x: 11, y: 12 }), false);
+assert.equal(atlasDragTravelled({ x: 10, y: 10 }, { x: 10, y: 16 }), true);
+assert.equal(atlasDragTravelled({ x: 10, y: 10 }, { x: 2, y: 10 }), true);
+
+/**
+ * Arrow keys move a matter one place, and the place has to be the next one:
+ * an off-by-one here reads as the board refusing to move the row at all.
+ */
+const ids = ["a", "b", "c"];
+assert.equal(atlasNudgeTarget(ids, "a", -1), null, "the first row cannot go up");
+assert.equal(atlasNudgeTarget(ids, "c", 1), null, "the last row cannot go down");
+assert.equal(atlasNudgeTarget(ids, "nope", 1), null);
+
+const nudged = (matterId: string, delta: -1 | 1) => {
+  const sections: AtlasSection[] = [
+    {
+      name: "sales",
+      matters: ids.map(
+        (id) =>
+          ({ matterId: id, section: "sales", conversations: [] }) as never,
+      ),
+    } as AtlasSection,
+  ];
+  const target = atlasNudgeTarget(ids, matterId, delta);
+  assert.ok(target, `expected ${matterId} to move`);
+  return reorderMatterSections(sections, {
+    matterId,
+    targetSection: "sales",
+    beforeMatterId: target.beforeMatterId,
+  }).targetMatterIds;
+};
+assert.deepEqual(nudged("b", -1), ["b", "a", "c"], "up swaps with the row above");
+assert.deepEqual(nudged("b", 1), ["a", "c", "b"], "down swaps with the row below");
+assert.deepEqual(nudged("a", 1), ["b", "a", "c"]);
+assert.deepEqual(nudged("c", -1), ["a", "c", "b"]);
 assert.match(
   inboxHookSource,
   /if \(disabled\)[\s\S]{0,220}optimistic: true/,
