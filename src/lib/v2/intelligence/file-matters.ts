@@ -18,6 +18,7 @@ import {
   listRegistry,
   mattersNeedingFiling,
 } from "./functions";
+import { loadGuidance } from "./operating-model";
 
 /**
  * Filing work onto the whiteboard.
@@ -92,6 +93,7 @@ async function fileBatch(
   items: Item[],
   model: string,
   apply: (id: string, section: string) => Promise<unknown>,
+  guidance?: string,
 ): Promise<{ filed: number; unfiled: number }> {
   const functions = [...sections.functions, ...sections.topics];
   const started = Date.now();
@@ -107,7 +109,9 @@ async function fileBatch(
         thinkingConfig: { thinkingLevel: "minimal", includeThoughts: false },
       },
     },
-    system: FILING_SYSTEM,
+    system: guidance
+      ? `${FILING_SYSTEM}\n\nUSER GUIDANCE (law):\n${guidance}`
+      : FILING_SYSTEM,
     prompt: JSON.stringify({
       functions: sections.functions,
       topics: sections.topics,
@@ -171,6 +175,7 @@ export async function fileMatters(
   const functions = await listRegistry(accountId, "function");
   const topics = await listRegistry(accountId, "topic");
   if (functions.length === 0) return { matters: empty, conversations: empty };
+  const guidance = await loadGuidance(accountId);
 
   const limit = options.limit ?? 200;
   const model =
@@ -195,6 +200,7 @@ export async function fileMatters(
       batch,
       model,
       (id, s) => fileMatter(id, s, "inferred"),
+      guidance,
     );
     matters.filed += outcome.filed;
     matters.unfiled += outcome.unfiled;
@@ -218,6 +224,7 @@ export async function fileMatters(
       batch,
       model,
       (id, s) => fileConversation(id, s, "inferred"),
+      guidance,
     );
     conversations.filed += outcome.filed;
     conversations.unfiled += outcome.unfiled;

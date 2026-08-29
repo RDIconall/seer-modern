@@ -67,6 +67,13 @@ assert.equal(generic.priorMatterRejections, 3);
 assert.match(generic.text, /\[explicit\].*archive\/delete 3 time/);
 assert.ok(generic.refs.includes("placement:notifications@roche.com"));
 
+const guided = compileContext(conversation("Roche weekly product news", "A generic product status update."), {
+  ...base,
+  operatingGuidance: "This is a personal desk. Family logistics are matters.",
+});
+assert.match(guided.text, /\[explicit\] how this desk is organised/);
+assert.match(guided.text, /Family logistics are matters/);
+
 const coded = compileContext(
   conversation(
     "RCD_2904 sample collection update",

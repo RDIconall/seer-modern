@@ -23,6 +23,7 @@ import {
   saveMatterOrder,
   saveMatterOrders,
 } from "@/lib/store/matter-order";
+import { applyOperatingModel } from "../intelligence/operating-model";
 
 /**
  * Execute one command. Ownership and idempotency are checked first. A delete is
@@ -483,6 +484,30 @@ async function run(
         idempotencyKey,
       );
       return { ok: true, replayed: false, detail: { ...receipt } };
+    }
+
+    case "applyOperatingModel": {
+      try {
+        const state = await applyOperatingModel(ctx.accountId, {
+          functions: command.functions,
+          topics: command.topics,
+          guidance: command.guidance,
+        });
+        return {
+          ok: true,
+          replayed: false,
+          processed: state.functions,
+          detail: {
+            functions: state.functions,
+            topics: state.topics,
+            guidance: state.guidance,
+          },
+        };
+      } catch (cause) {
+        return fail(
+          cause instanceof Error ? cause.message : "could not apply Atlas sections",
+        );
+      }
     }
 
     case "forward": {

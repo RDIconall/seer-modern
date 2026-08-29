@@ -2135,6 +2135,73 @@ body {
   font-size: 13px;
 }
 
+.mail-settings-copy,
+.mail-settings-hint {
+  margin: 0 0 12px;
+  color: var(--muted);
+  font-size: 14px;
+  line-height: 1.45;
+}
+
+.mail-settings-status {
+  margin: 0 0 14px;
+  color: var(--fg);
+  font-size: 14px;
+  line-height: 1.45;
+}
+
+.mail-settings-field {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  margin: 14px 0;
+  color: var(--fg);
+  font-size: 14px;
+}
+
+.mail-settings-textarea,
+.mail-settings-input {
+  width: 100%;
+  min-height: 44px;
+  padding: 10px 12px;
+  border: 1px solid var(--border, color-mix(in srgb, var(--fg) 12%, transparent));
+  border-radius: 10px;
+  background: var(--bg, transparent);
+  color: var(--fg);
+  font: inherit;
+}
+
+.mail-settings-textarea {
+  min-height: 88px;
+  resize: vertical;
+}
+
+.mail-settings-subheading {
+  margin: 18px 0 4px;
+  color: var(--fg-strong, var(--fg));
+  font-size: 14px;
+  font-weight: 700;
+}
+
+.mail-settings-shelves {
+  margin: 16px 0 8px;
+}
+
+.mail-settings-shelf-list {
+  list-style: none;
+  margin: 0 0 10px;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.mail-settings-shelf {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
 .mail-settings-signout {
   padding-top: 4px;
   border-top: 1px solid var(--border);

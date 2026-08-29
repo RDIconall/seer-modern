@@ -28,6 +28,7 @@ const CORE_TABLES = [
   "sync_runs",
   "model_usage",
   "functions",
+  "operating_models",
   "folder_sync_state",
   "folder_sync_seen",
   "outbox",

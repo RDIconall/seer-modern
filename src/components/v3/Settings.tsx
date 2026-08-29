@@ -19,6 +19,7 @@ import {
   reconnectAccount,
 } from "@/app/actions";
 import { fetchFresh } from "@/lib/v3/net/fetch";
+import { AtlasSettings } from "./AtlasSettings";
 import {
   ACCOUNT_CHANGED_EVENT,
   clearMailboxCaches,
@@ -259,6 +260,8 @@ export function Settings({ mobile = false }: { mobile?: boolean }) {
           )}
         </div>
       </section>
+
+      <AtlasSettings />
 
       <form className="mail-settings-signout" action={logout}>
         <button className="mail-settings-button" type="submit">

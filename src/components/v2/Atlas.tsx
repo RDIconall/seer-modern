@@ -553,7 +553,8 @@ export function Atlas({
   if (sections.length === 0) {
     return (
       <section className="wb-empty" aria-label="Atlas — the whiteboard">
-        No live matters yet.
+        No live matters yet. Open Settings and propose Atlas sections from this
+        mailbox.
       </section>
     );
   }
