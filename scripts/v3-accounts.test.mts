@@ -106,16 +106,12 @@ try {
     false,
     "cross-origin mutations are rejected",
   );
-  const previousAllowlist = process.env.SEER_V2_ACCOUNT_ALLOWLIST;
-  process.env.SEER_V2_ACCOUNT_ALLOWLIST = "task8-a@example.com";
-  assert.equal(v2Session.isV2Enabled("task8-a@example.com"), true);
+  assert.equal(v2Session.isV2Enabled("claire@rditrials.com"), true);
   assert.equal(
     v2Session.isV2Enabled("task8-b@example.com"),
     false,
-    "unallowlisted signed-in users must not enter V3 account management",
+    "non-RDI addresses must not enter V3 account management",
   );
-  if (previousAllowlist === undefined) delete process.env.SEER_V2_ACCOUNT_ALLOWLIST;
-  else process.env.SEER_V2_ACCOUNT_ALLOWLIST = previousAllowlist;
 
   assert.equal(
     await accounts.deleteOwnedAccount(userA, accountB.id),

@@ -92,11 +92,87 @@ export async function seedRegistry(
   return result.rowCount ?? 0;
 }
 
-/** Seed both axes: the org chart, and the kinds of mail that are not work. */
+/**
+ * First-run only. Once a desk has any shelves — CEO defaults or a custom
+ * operating model — cron must not re-insert the default org chart. That is
+ * what made a personal mailbox grow thirteen RDI columns it never asked for.
+ */
 export async function seedFunctions(accountId: AccountId): Promise<number> {
+  const existing = await listRegistry(accountId);
+  if (existing.length > 0) return 0;
   const functions = await seedRegistry(accountId, DEFAULT_FUNCTIONS, "function");
   const topics = await seedRegistry(accountId, DEFAULT_TOPICS, "topic");
   return functions + topics;
+}
+
+export const MAX_FUNCTIONS = 16;
+export const MAX_TOPICS = 12;
+export const MAX_SECTION_CHARS = 40;
+
+/** Trim, clamp, and drop blanks. Names are unique case-insensitively. */
+export function sanitizeSectionNames(
+  names: string[],
+  limit: number,
+): string[] {
+  const out: string[] = [];
+  const seen = new Set<string>();
+  for (const raw of names) {
+    const name = raw.replace(/\s+/g, " ").trim().slice(0, MAX_SECTION_CHARS);
+    if (!name) continue;
+    const key = name.toLowerCase();
+    if (seen.has(key)) continue;
+    seen.add(key);
+    out.push(name);
+    if (out.length >= limit) break;
+  }
+  return out;
+}
+
+/**
+ * Replace the live registry. Inferred filings whose shelf disappeared are
+ * cleared so the next filing pass can re-home them. A filing the user made
+ * themselves is left alone even if the name is no longer in the registry —
+ * the board already keeps extra sections.
+ */
+export async function replaceRegistry(
+  accountId: AccountId,
+  functions: string[],
+  topics: string[],
+): Promise<{ functions: string[]; topics: string[] }> {
+  const nextFunctions = sanitizeSectionNames(functions, MAX_FUNCTIONS);
+  const nextTopics = sanitizeSectionNames(topics, MAX_TOPICS);
+  if (nextFunctions.length === 0) {
+    throw new Error("Atlas needs at least one work section");
+  }
+  const allowed = new Set(
+    [...nextFunctions, ...nextTopics].map((n) => n.toLowerCase()),
+  );
+
+  await db().query(
+    `delete from seer.functions where account_id = $1`,
+    [accountId],
+  );
+  await seedRegistry(accountId, nextFunctions, "function");
+  await seedRegistry(accountId, nextTopics, "topic");
+
+  await db().query(
+    `update seer.matters
+        set function_name = null, updated_at = now()
+      where account_id = $1
+        and function_source = 'inferred'
+        and (function_name is null or lower(function_name) <> all($2::text[]))`,
+    [accountId, [...allowed]],
+  );
+  await db().query(
+    `update seer.conversations
+        set function_name = null
+      where account_id = $1
+        and function_source = 'inferred'
+        and (function_name is null or lower(function_name) <> all($2::text[]))`,
+    [accountId, [...allowed]],
+  );
+
+  return { functions: nextFunctions, topics: nextTopics };
 }
 
 /**

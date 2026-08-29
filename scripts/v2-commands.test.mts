@@ -261,6 +261,27 @@ try {
   assert.equal(vip.rows[0].vip, true);
   assert.equal(vip.rows[0].vip_source, "user");
 
+  const applied = await executeCommand(
+    ctx,
+    {
+      type: "applyOperatingModel",
+      functions: ["house", "money"],
+      topics: ["receipts"],
+      guidance: "House projects are matters. Store mail is a topic.",
+    },
+    "key-operating-model",
+  );
+  assert.equal(applied.ok, true);
+  assert.deepEqual(applied.processed, ["house", "money"]);
+  const shelves = await db.pool.query<{ name: string; kind: string }>(
+    "select name, kind from seer.functions where account_id = $1 order by kind, position",
+    [accountId],
+  );
+  assert.deepEqual(
+    shelves.rows.map((r) => `${r.kind}:${r.name}`),
+    ["function:house", "function:money", "topic:receipts"],
+  );
+
   console.log("v2-commands: OK");
 } finally {
   await db.stop();

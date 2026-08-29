@@ -20,6 +20,7 @@ import {
   type AccountLinkProvider,
 } from "@/lib/auth/account-link";
 import { setActiveAccountId } from "@/lib/store/accounts";
+import { isAllowedOrgEmail } from "@/lib/auth/org";
 
 const googleConfigured =
   Boolean(process.env.AUTH_GOOGLE_ID) &&
@@ -86,6 +87,9 @@ export const { handlers, auth, signIn, signOut } = NextAuth({
       : []),
   ],
   callbacks: {
+    async signIn({ user }) {
+      return isAllowedOrgEmail(user.email);
+    },
     async jwt({ token, account, profile }) {
       if (account) {
         token.accessToken = account.access_token;
@@ -110,6 +114,9 @@ export const { handlers, auth, signIn, signOut } = NextAuth({
           if (!providerEmail) {
             throw new Error("Provider email is missing");
           }
+          if (!isAllowedOrgEmail(providerEmail)) {
+            throw new Error("Seer is limited to rditrials.com accounts");
+          }
           const existingOwner = token.email as string | undefined;
           if (
             linkState.status === "valid" &&
@@ -130,6 +137,9 @@ export const { handlers, auth, signIn, signOut } = NextAuth({
             linkState.status === "valid"
               ? linkState.payload.ownerEmail
               : providerEmail;
+          if (!isAllowedOrgEmail(ownerEmail)) {
+            throw new Error("Seer is limited to rditrials.com accounts");
+          }
           const ownerUserId: UserId =
             linkState.status === "valid"
               ? (linkState.payload.ownerUserId as UserId)

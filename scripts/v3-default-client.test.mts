@@ -1,43 +1,26 @@
 /**
- * The cutover is done: the V3 client is what every signed-in account gets.
- * The allowlist survives only as a way to hold named accounts back.
+ * The cutover is done: every signed-in RDI account gets the V3 client.
+ * There is no named-user allowlist.
  */
 import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
-
-const previous = process.env.SEER_V2_ACCOUNT_ALLOWLIST;
-
-delete process.env.SEER_V2_ACCOUNT_ALLOWLIST;
-const { isV2Enabled } = await import("../src/lib/v2/session.ts");
+import { isV2Enabled } from "../src/lib/v2/session.ts";
 
 assert.equal(
-  isV2Enabled("anyone@example.com"),
+  isV2Enabled("claire@rditrials.com"),
   true,
-  "an unset allowlist must put everyone on the V3 client",
+  "an RDI account is on the V3 client",
+);
+assert.equal(
+  isV2Enabled("you@gmail.com"),
+  false,
+  "a non-RDI account is not on the V3 client",
 );
 assert.equal(
   isV2Enabled(null),
   false,
   "a signed-out visitor is never on the V3 client",
 );
-
-process.env.SEER_V2_ACCOUNT_ALLOWLIST = "  ,  ";
-assert.equal(
-  isV2Enabled("anyone@example.com"),
-  true,
-  "an allowlist of nothing but separators is still no allowlist",
-);
-
-process.env.SEER_V2_ACCOUNT_ALLOWLIST = "kept@example.com";
-assert.equal(isV2Enabled("kept@example.com"), true);
-assert.equal(
-  isV2Enabled("other@example.com"),
-  false,
-  "a configured allowlist still holds everyone else on the legacy client",
-);
-
-if (previous === undefined) delete process.env.SEER_V2_ACCOUNT_ALLOWLIST;
-else process.env.SEER_V2_ACCOUNT_ALLOWLIST = previous;
 
 // Installing Seer on a desktop needs a manifest that covers the whole app,
 // not just the mobile route the phone install has always used.

@@ -66,8 +66,8 @@ export function MobileLoginScreen() {
         <h1 className="seer-brand mt-5 text-4xl">Seer</h1>
         <p className="seer-tagline mt-1 text-lg">Fewer decisions.</p>
         <p className="mt-4 text-[17px] font-normal leading-relaxed text-[var(--muted)]">
-          See what matters — swipe cards, compose on the go, triage when you
-          need it.
+          Sign in with your rditrials.com account. See what matters — swipe
+          cards, compose on the go, triage when you want to.
         </p>
       </div>
       <div className="mx-auto w-full max-w-sm space-y-3">
@@ -99,6 +99,7 @@ export function DesktopLoginScreen() {
           </h1>
           <p className="seer-tagline mt-4 max-w-sm text-lg">Fewer decisions.</p>
           <p className="mt-4 max-w-sm text-[17px] font-normal leading-relaxed text-[var(--muted)]">
+            Sign in with your rditrials.com Google or Microsoft account.
             Three-pane reading on a big screen. Cards and triage when you want
             to move fast. Mobile lives at /m.
           </p>

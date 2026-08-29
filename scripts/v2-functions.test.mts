@@ -17,6 +17,7 @@ import {
   listFunctions,
   listRegistry,
   mattersNeedingFiling,
+  replaceRegistry,
   seedFunctions,
 } from "../src/lib/v2/intelligence/functions.ts";
 
@@ -100,6 +101,23 @@ try {
   const odd = await newMatter("Something unplaceable");
   await fileMatter(odd, UNFILED, "inferred");
   assert.deepEqual(await mattersNeedingFiling(accountId, 10), []);
+
+  // A custom desk must not grow the CEO org chart on the next cron seed.
+  await replaceRegistry(accountId, ["house", "family"], ["receipts"]);
+  assert.equal(await seedFunctions(accountId), 0);
+  assert.deepEqual(await listFunctions(accountId), ["house", "family"]);
+  assert.deepEqual(await listRegistry(accountId, "topic"), ["receipts"]);
+  const after = await db.pool.query<{ function_name: string | null; function_source: string }>(
+    "select function_name, function_source from seer.matters where id = $1",
+    [auto],
+  );
+  assert.equal(after.rows[0].function_source, "inferred");
+  assert.equal(after.rows[0].function_name, null, "inferred filing on a removed shelf is cleared");
+  const kept = await db.pool.query<{ function_name: string }>(
+    "select function_name from seer.matters where id = $1",
+    [mine],
+  );
+  assert.equal(kept.rows[0].function_name, "hr", "user filing survives a registry replace");
 
   console.log("v2-functions: ok");
 } finally {

@@ -82,7 +82,14 @@ export type Command =
       }[];
     }
   | { type: "reply"; providerConversationId: string; all: boolean; bodyHtml: string }
-  | { type: "forward"; providerConversationId: string; to: string[]; bodyHtml: string };
+  | { type: "forward"; providerConversationId: string; to: string[]; bodyHtml: string }
+  | {
+      /** Replace Atlas shelves and filing guidance for this mailbox. */
+      type: "applyOperatingModel";
+      functions: string[];
+      topics: string[];
+      guidance: string;
+    };
 
 export type CommandResult = {
   ok: boolean;

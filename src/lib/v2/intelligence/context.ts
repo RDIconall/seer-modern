@@ -42,6 +42,8 @@ export type ContextInput = {
   interests: string[];
   /** Explicit destinations this user previously chose in Triage. */
   placements?: PlacementFeedback[];
+  /** How this desk is organised, in the user's own words. */
+  operatingGuidance?: string;
 };
 
 export type CompiledContext = {
@@ -76,6 +78,13 @@ export function compileContext(
 ): CompiledContext {
   const lines: string[] = [];
   const refs: string[] = [];
+
+  const guidance = input.operatingGuidance?.trim();
+  if (guidance) {
+    lines.push(
+      `[explicit] how this desk is organised (user): ${guidance.slice(0, 500)}`,
+    );
+  }
 
   const senderEmail = conversation.messages[0]?.from.email?.toLowerCase() ?? "";
   const senderDomain = senderEmail.split("@")[1] ?? "";

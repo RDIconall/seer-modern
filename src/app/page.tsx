@@ -19,8 +19,7 @@ export default async function DesktopHome() {
     return <DesktopLoginScreen />;
   }
 
-  // Cutover flag: allowlisted accounts get the V3 client; everyone else
-  // stays on the current app until the shadow gate clears.
+  // Cutover is done: every signed-in RDI account gets the V3 client.
   if (isV2Enabled(session.user.email)) {
     return <MailClient />;
   }
