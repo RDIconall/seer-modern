@@ -5,31 +5,19 @@ import {
   type MailAccount,
 } from "./db/accounts";
 import { getActiveAccountId } from "../store/accounts";
+import { isAllowedOrgEmail } from "@/lib/auth/org";
 
 /**
  * Resolve the signed-in user's active v2 mail account. Returns null when the
  * user is not on the v2 path, so callers fall back to the legacy experience.
  */
 
-function allowlist(): Set<string> {
-  return new Set(
-    (process.env.SEER_V2_ACCOUNT_ALLOWLIST ?? "")
-      .split(",")
-      .map((s) => s.trim().toLowerCase())
-      .filter(Boolean),
-  );
-}
-
 /**
- * Every signed-in account is on the v3 client. Naming accounts in
- * SEER_V2_ACCOUNT_ALLOWLIST narrows it back down to those accounts, which is
- * the only remaining way to hold someone on the legacy app.
+ * Every signed-in RDI account is on the v3 client. There is no named-user
+ * allowlist; the organization domain is the only gate.
  */
 export function isV2Enabled(email: string | null | undefined): boolean {
-  if (!email) return false;
-  const list = allowlist();
-  if (list.size === 0) return true;
-  return list.has(email.toLowerCase());
+  return isAllowedOrgEmail(email);
 }
 
 export function selectV2Account(

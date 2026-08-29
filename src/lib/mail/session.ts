@@ -15,6 +15,7 @@ import {
   legacyAccountFallbackEnabled,
   resolveActiveAccount,
 } from "@/lib/store/accounts";
+import { isAllowedOrgEmail } from "@/lib/auth/org";
 
 export async function requireMailSession() {
   const session = await auth();
@@ -22,10 +23,9 @@ export async function requireMailSession() {
     return null;
   }
 
-  const allowed = process.env.ALLOWED_EMAIL?.trim().toLowerCase();
   const sessionEmail = session.user.email?.toLowerCase();
 
-  if (!sessionEmail) return null;
+  if (!sessionEmail || !isAllowedOrgEmail(sessionEmail)) return null;
 
   const userId = await upsertUser(sessionEmail);
   const provider = toV2Provider(session.provider);
@@ -78,10 +78,7 @@ export async function requireMailSession() {
       throw new Error("No mail token — open Settings and connect an account");
     }
 
-    const email = account.email.toLowerCase();
-    if (allowed && email && email !== allowed) {
-      throw new Error(`This app is limited to ${allowed}`);
-    }
+    if (!isAllowedOrgEmail(account.email)) return null;
     return {
       accessToken,
       provider: account.provider === "google" ? "google" : "microsoft-entra-id",
@@ -107,10 +104,7 @@ export async function requireMailSession() {
   );
   if (!legacy?.accessToken) return null;
 
-  const email = legacy.email.toLowerCase();
-  if (allowed && email && email !== allowed) {
-    throw new Error(`This app is limited to ${allowed}`);
-  }
+  if (!isAllowedOrgEmail(legacy.email)) return null;
 
   if (
     legacy.refreshToken &&
