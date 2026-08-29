@@ -149,6 +149,26 @@ export async function suggestMattersForConversation(
     .sort((a, b) => Number(b.related) - Number(a.related));
 }
 
+/** The open matter a conversation is already on, if it is on one. */
+async function currentMatter(
+  accountId: AccountId,
+  conversationId: ConversationId,
+): Promise<{ matterId: string; title: string } | null> {
+  const result = await db().query<{ id: string; title: string }>(
+    `select m.id, m.title
+       from seer.matter_conversations mc
+       join seer.matters m on m.id = mc.matter_id
+      where m.account_id = $1
+        and mc.conversation_id = $2
+        and m.status <> 'closed'
+      order by mc.link_source = 'user' desc, mc.linked_at desc
+      limit 1`,
+    [accountId, conversationId],
+  );
+  const row = result.rows[0];
+  return row ? { matterId: row.id, title: row.title } : null;
+}
+
 /**
  * Put a conversation on an exact existing matter, force a new user-named one,
  * or let Seer's relation sweep reuse/create the right concern.
@@ -186,21 +206,31 @@ export async function placeConversationOnMatter(
     );
     matterId = created.rows[0].id;
   } else {
-    const ownDomain = context.ownEmail.split("@")[1] ?? "";
-    const counterparty = counterpartyOf(context.fromEmail, ownDomain);
-    const text = [context.subject, context.summary, context.bodyText].join(" ");
-    title = matterNameFrom(
-      title || context.summary,
-      context.subject,
-      counterparty,
-      text,
-      ownTokens(context.ownEmail),
-    );
-    matterId = await ensureMatter(accountId, title, {
-      text,
-      counterparty,
-      own: ownTokens(context.ownEmail),
-    });
+    // No particular concern was named, and this conversation is already on one:
+    // it belongs where it was put. Deriving a name again filed the same email
+    // under a second concern, because by then the summary being read was the
+    // note left by the first filing rather than what the mail is about.
+    const current = await currentMatter(accountId, conversationId);
+    if (current) {
+      matterId = current.matterId;
+      title = current.title;
+    } else {
+      const ownDomain = context.ownEmail.split("@")[1] ?? "";
+      const counterparty = counterpartyOf(context.fromEmail, ownDomain);
+      const text = [context.subject, context.summary, context.bodyText].join(" ");
+      title = matterNameFrom(
+        title || context.summary,
+        context.subject,
+        counterparty,
+        text,
+        ownTokens(context.ownEmail),
+      );
+      matterId = await ensureMatter(accountId, title, {
+        text,
+        counterparty,
+        own: ownTokens(context.ownEmail),
+      });
+    }
   }
 
   // A conversation has one current home. Remove an older inferred/user link

@@ -276,7 +276,21 @@ export async function findMatterByRef(
   return match?.matterId ?? null;
 }
 
-/** Link a conversation to a matter (idempotent). */
+/**
+ * Link a conversation to a matter (idempotent).
+ *
+ * A link that is already there is the desired state, so it counts as done. It
+ * used to count as nothing: `do nothing` reports no rows, which was read as
+ * "does not belong to this account" and thrown. Since the AI reader links every
+ * conversation it promotes, filing one of those into Atlas by hand — the
+ * ordinary case — hit that throw and the user was told the request had failed.
+ *
+ * Only the count of rows still distinguishes ownership: no row matches the
+ * select when the matter or the conversation is not this account's.
+ *
+ * A user placing mail somewhere outranks a sweep that guessed the same, so the
+ * source is upgraded and never downgraded.
+ */
 export async function linkConversationToMatter(
   accountId: AccountId,
   matterId: string,
@@ -290,7 +304,11 @@ export async function linkConversationToMatter(
          from seer.matters m
          join seer.conversations c on c.id = $2 and c.account_id = $1
         where m.id = $4 and m.account_id = $1
-       on conflict do nothing`,
+       on conflict (matter_id, conversation_id) do update
+          set link_source = case
+                when seer.matter_conversations.link_source = 'user' then 'user'
+                else excluded.link_source
+              end`,
     [accountId, conversationId, source, matterId],
   );
   if ((result.rowCount ?? 0) === 0) {

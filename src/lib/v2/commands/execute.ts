@@ -232,7 +232,11 @@ async function run(
             type: "correctConversation",
             conversationId: command.conversationId,
             home: "matter",
-            note: "made a matter in triage",
+            // This note becomes the decision's summary, which is read on the
+            // whiteboard and, previously, fed back into naming a matter. It has
+            // to read like the sentence a person would write, as its siblings
+            // in `recordTriageCorrection` do.
+            note: "Filed by you in Triage",
             matterId: command.matterId,
             matterTitle: command.matterTitle,
             createMatter: command.createMatter,

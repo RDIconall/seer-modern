@@ -1,11 +1,11 @@
 /**
  * Gate: a command that cannot be carried out says why.
  *
- * "Add to Atlas was not queued. The message is back in the list. Failed to
- * execute 'json' on 'Response': Unexpected end of JSON input" is what the user
- * saw when filing an email failed. Two faults met: the command route let a
- * throw become a bodiless 500, and the client called `response.json()` on that
- * empty body, so the parser's complaint replaced the reason.
+ * "Failed to execute 'json' on 'Response': Unexpected end of JSON input" was
+ * what the mail client said in place of every reason: the command route let a
+ * throw become a bodiless 500, and the client called `response.json()` on the
+ * empty body. What was throwing is gated in atlas-refile; this gate is about
+ * never losing the reason again, whatever the reason turns out to be.
  */
 import assert from "node:assert/strict";
 import { readFile } from "node:fs/promises";
