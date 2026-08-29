@@ -6,7 +6,7 @@ import { buildInboxView } from "@/lib/v2/view/build";
 import { parseMailboxLimit } from "@/lib/v3/mailbox/limit";
 import { getMailboxView } from "@/lib/v3/mailbox/repository";
 import { originAllowed } from "@/lib/security/origin";
-import type { Command } from "@/lib/v2/commands/types";
+import type { Command, CommandResult } from "@/lib/v2/commands/types";
 import { drainOutbox } from "@/lib/v3/outbox/drain";
 
 export const dynamic = "force-dynamic";
@@ -69,11 +69,30 @@ export async function POST(request: Request) {
       );
     }
   }
-  const result = await executeCommand(
-    { accountId: account.id, provider },
-    body.command,
-    body.idempotencyKey,
-  );
+  // Every command answers with a result. A throw used to be left to the
+  // framework, which replies 500 with no body at all: the client's
+  // `response.json()` then failed on the empty body and the user was told
+  // "Failed to execute 'json' on 'Response'" instead of what went wrong.
+  let result: CommandResult;
+  try {
+    result = await executeCommand(
+      { accountId: account.id, provider },
+      body.command,
+      body.idempotencyKey,
+    );
+  } catch (cause) {
+    console.error("v2 command failed", body.command.type, cause);
+    return NextResponse.json(
+      {
+        result: {
+          ok: false,
+          replayed: false,
+          error: cause instanceof Error ? cause.message : "command failed",
+        },
+      },
+      { status: 500 },
+    );
+  }
   // Do not make a swipe wait for the five-minute worker. The optimistic patch
   // is already durable, so provider delivery belongs after the response; the
   // status endpoint lets the client report confirmation, retry, or failure.

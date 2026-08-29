@@ -109,6 +109,32 @@ async function enqueueMutation(
   }
 }
 
+/**
+ * Ordinary reasons a conversation cannot be put on a matter.
+ *
+ * The mail list paints from its cache, so a row can be acted on after a sync
+ * has taken the conversation out of the mailbox or someone closed the matter
+ * underneath it. Those are answers to a command, not faults: thrown, they left
+ * the request with no body and the client with nothing to say but a JSON
+ * parser's complaint. Anything unrecognized is still a fault and still thrown.
+ */
+function placementRefusal(cause: unknown): CommandResult | null {
+  const message = cause instanceof Error ? cause.message : "";
+  switch (message) {
+    case "conversation not found":
+    case "conversation does not belong to account":
+      return fail("conversation not found — the list was out of date");
+    case "matter not found":
+    case "matter does not belong to account":
+    case "matter or conversation does not belong to account":
+      return fail("that matter is no longer open — pick another or make a new one");
+    case "matter title required":
+      return fail("a new matter needs a title");
+    default:
+      return null;
+  }
+}
+
 async function rejectCorpusId(
   ctx: CommandContext,
   providerConversationId: string,
@@ -372,15 +398,21 @@ async function run(
         | { matterId: string; title: string }
         | undefined;
       if (command.home === "matter") {
-        matter = await placeConversationOnMatter(
-          ctx.accountId,
-          asConversationId(command.conversationId),
-          {
-            matterId: command.matterId,
-            matterTitle: command.matterTitle,
-            createNew: command.createMatter,
-          },
-        );
+        try {
+          matter = await placeConversationOnMatter(
+            ctx.accountId,
+            asConversationId(command.conversationId),
+            {
+              matterId: command.matterId,
+              matterTitle: command.matterTitle,
+              createNew: command.createMatter,
+            },
+          );
+        } catch (cause) {
+          const refused = placementRefusal(cause);
+          if (refused) return refused;
+          throw cause;
+        }
       }
       await inTransaction(async (client) => {
         await recordEvent(

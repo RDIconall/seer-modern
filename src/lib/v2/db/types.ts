@@ -24,6 +24,16 @@ export const asMessageId = (id: string): MessageId => id as MessageId;
 export const asDecisionId = (id: string): DecisionId => id as DecisionId;
 export const asMatterId = (id: string): MatterId => id as MatterId;
 
+const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+
+/**
+ * Every id above is a Postgres uuid, and Postgres answers a query filtered by a
+ * string that is not one with an error rather than an empty row. A client id
+ * that never was an id — a provider thread id from a search result, a stale
+ * cache key — must read as "not found", so the shape is checked before asking.
+ */
+export const isUuid = (id: string): boolean => UUID_RE.test(id);
+
 /** The four homes a conversation can occupy. `undecided` is the safe default. */
 export type Home = "matter" | "record" | "delete" | "undecided";
 

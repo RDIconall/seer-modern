@@ -1,6 +1,6 @@
 import type { PoolClient } from "pg";
 import { db } from "../db/pool";
-import type { AccountId } from "../db/types";
+import { isUuid, type AccountId } from "../db/types";
 import { findByIdempotencyKey } from "@/lib/v3/outbox/repository";
 import type { CommandResult } from "./types";
 
@@ -95,15 +95,12 @@ export async function completeOutboundReceipt(
   );
 }
 
-const UUID_RE =
-  /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
-
 /** Reject reply/forward when the id is a corpus conversation UUID. */
 export async function isCorpusConversationId(
   accountId: AccountId,
   id: string,
 ): Promise<boolean> {
-  if (!UUID_RE.test(id)) return false;
+  if (!isUuid(id)) return false;
   const r = await db().query(
     "select 1 from seer.conversations where account_id = $1 and id = $2::uuid",
     [accountId, id],
@@ -142,6 +139,7 @@ export async function conversationBelongsToAccount(
   accountId: AccountId,
   conversationId: string,
 ): Promise<boolean> {
+  if (!isUuid(conversationId)) return false;
   const r = await db().query(
     "select 1 from seer.conversations where id = $1 and account_id = $2",
     [conversationId, accountId],

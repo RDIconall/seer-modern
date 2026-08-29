@@ -1,4 +1,4 @@
-import type { AccountId, ConversationId } from "../db/types";
+import { isUuid, type AccountId, type ConversationId } from "../db/types";
 import { db } from "../db/pool";
 import {
   counterpartyOf,
@@ -167,6 +167,7 @@ export async function placeConversationOnMatter(
   let title = input.matterTitle?.trim().slice(0, 120) || "";
 
   if (matterId) {
+    if (!isUuid(matterId)) throw new Error("matter not found");
     const existing = await db().query<{ title: string }>(
       `select title from seer.matters
         where id = $1 and account_id = $2 and status <> 'closed'`,
