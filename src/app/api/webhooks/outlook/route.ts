@@ -34,15 +34,38 @@ export async function POST(request: Request) {
   } | null;
   const notifications = body?.value ?? [];
   const toWake = new Set<string>();
+  let deferred = 0;
+  let firstError: unknown;
 
   for (const note of notifications) {
     if (!note.subscriptionId) continue;
-    const push = await getPushByGraphSubscriptionId(note.subscriptionId);
-    if (!push) continue;
-    if (!clientStateMatches(push.accountId, note.clientState)) continue;
-    if (await claimWake(push.accountId)) {
-      toWake.add(push.accountId);
+    try {
+      const push = await getPushByGraphSubscriptionId(note.subscriptionId);
+      if (!push) continue;
+      if (!clientStateMatches(push.accountId, note.clientState)) continue;
+      if (await claimWake(push.accountId)) {
+        toWake.add(push.accountId);
+      }
+    } catch (error) {
+      // Graph retries every non-2xx response. If Postgres or its pooler is
+      // unavailable, returning 500 turns one notification into a retry storm
+      // while the reconciliation job will recover the missed mail anyway.
+      deferred += 1;
+      firstError ??= error;
     }
+  }
+
+  if (deferred > 0) {
+    console.error(
+      "[seer] Outlook webhook deferred notifications; reconciliation will recover them",
+      {
+        deferred,
+        error:
+          firstError instanceof Error
+            ? firstError.message.slice(0, 200)
+            : "notification lookup failed",
+      },
+    );
   }
 
   if (toWake.size > 0) {
@@ -54,5 +77,5 @@ export async function POST(request: Request) {
     });
   }
 
-  return NextResponse.json({ ok: true, waking: toWake.size });
+  return NextResponse.json({ ok: true, waking: toWake.size, deferred });
 }

@@ -7,6 +7,7 @@ import {
   graphClientState,
   graphClientStateHash,
 } from "../src/lib/v2/push/security.ts";
+import { setPoolForTesting } from "../src/lib/v2/db/pool.ts";
 import { asAccountId } from "../src/lib/v2/db/types.ts";
 
 process.env.SEER_WEBHOOK_PEPPER = "test-pepper-for-push";
@@ -33,5 +34,42 @@ assert.match(
   validation.headers.get("content-type") ?? "",
   /text\/plain/,
 );
+
+// A temporary database failure must still be acknowledged. Microsoft Graph
+// retries non-2xx responses aggressively, while reconciliation recovers mail
+// that could not be scheduled during the outage.
+setPoolForTesting({
+  query: async () => {
+    throw new Error("pooler temporarily unavailable");
+  },
+} as never);
+const originalConsoleError = console.error;
+console.error = () => {};
+try {
+  const degraded = await POST(
+    new Request("https://example.com/api/webhooks/outlook", {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({
+        value: [
+          {
+            subscriptionId: "graph-subscription",
+            clientState: state,
+            changeType: "created",
+          },
+        ],
+      }),
+    }),
+  );
+  assert.equal(degraded.status, 200);
+  assert.deepEqual(await degraded.json(), {
+    ok: true,
+    waking: 0,
+    deferred: 1,
+  });
+} finally {
+  console.error = originalConsoleError;
+  setPoolForTesting(null);
+}
 
 console.log("v2-push-security: OK");
