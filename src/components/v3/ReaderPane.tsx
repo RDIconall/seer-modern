@@ -6,6 +6,7 @@ import { useEffect, useState } from "react";
 import type { Conversation, ProviderKind } from "@/lib/v2/providers/types";
 import type { CommandResult } from "@/lib/v2/commands/types";
 import { fetchDefault } from "@/lib/v3/net/fetch";
+import { describeHttpFailure, readJsonBody } from "@/lib/v3/net/json";
 import {
   Reader,
   useReaderCommands,
@@ -61,8 +62,12 @@ export function ReaderPane({
     const scope = accountId ? `?account=${encodeURIComponent(accountId)}` : "";
     void fetchDefault(`/api/v3/conversations/${encodeURIComponent(conversationId)}${scope}`)
       .then(async (response) => {
-        const json = (await response.json()) as ReaderResponse & { error?: string };
-        if (!response.ok) throw new Error(json.error ?? `conversation ${response.status}`);
+        const json = await readJsonBody<ReaderResponse & { error?: string }>(
+          response,
+        );
+        if (!response.ok || !json) {
+          throw new Error(json?.error ?? describeHttpFailure(response.status));
+        }
         return json;
       })
       .then((json) => {

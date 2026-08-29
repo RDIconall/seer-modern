@@ -9,6 +9,7 @@ import type {
   MailboxView,
 } from "@/lib/v3/mailbox/types";
 import { fetchDefault, fetchFresh } from "@/lib/v3/net/fetch";
+import { describeHttpFailure, readJsonBody } from "@/lib/v3/net/json";
 import {
   appendPage,
   applyMailboxCommands,
@@ -127,16 +128,25 @@ export type MailboxState = {
   dispatchMany: (commands: Command[]) => Promise<CommandResult[]>;
 };
 
+/**
+ * The reason an action failed is more useful than the fact that it did, so the
+ * body is read tolerantly: a bodiless 500 or a sign-in redirect must produce
+ * "Seer's server failed (500)", not a JSON parser's complaint about it.
+ */
 async function postCommand(command: Command): Promise<CommandResult> {
   const response = await fetch("/api/v2/commands", {
     method: "POST",
     headers: { "content-type": "application/json" },
     body: JSON.stringify({ command, idempotencyKey: idempotencyKey() }),
   });
-  const json = (await response.json()) as { result?: CommandResult };
-  const result = json.result;
+  const json = await readJsonBody<{ result?: CommandResult; error?: string }>(
+    response,
+  );
+  const result = json?.result;
   if (!response.ok || !result?.ok) {
-    throw new Error(result?.error ?? `command ${response.status}`);
+    throw new Error(
+      result?.error ?? json?.error ?? describeHttpFailure(response.status),
+    );
   }
   return result;
 }

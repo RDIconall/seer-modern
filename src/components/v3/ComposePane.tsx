@@ -13,6 +13,7 @@ import {
   quotedMessages,
 } from "@/lib/v3/compose/quoted-thread";
 import { fetchDefault } from "@/lib/v3/net/fetch";
+import { describeHttpFailure, readJsonBody } from "@/lib/v3/net/json";
 import {
   canSendCompose,
   dispatchCommand,
@@ -167,8 +168,10 @@ export function ComposePane({
     const scope = accountId ? `?account=${encodeURIComponent(accountId)}` : "";
     void fetchDefault(`/api/v3/conversations/${encodeURIComponent(conversationId)}${scope}`)
       .then(async (response) => {
-        const json = (await response.json()) as ConversationResponse;
-        if (!response.ok) throw new Error(json.error ?? `conversation ${response.status}`);
+        const json = await readJsonBody<ConversationResponse>(response);
+        if (!response.ok || !json) {
+          throw new Error(json?.error ?? describeHttpFailure(response.status));
+        }
         return json;
       })
       .then((next) => {
@@ -241,8 +244,13 @@ export function ComposePane({
         headers: { "content-type": "application/json" },
         body: JSON.stringify({ id: messageId }),
       });
-      const json = (await response.json()) as { body?: string; error?: string };
-      if (!response.ok || !json.body) throw new Error(json.error ?? "Draft failed");
+      const json = await readJsonBody<{ body?: string; error?: string }>(response);
+      if (!response.ok || !json?.body) {
+        throw new Error(
+          json?.error ??
+            (response.ok ? "Draft failed" : describeHttpFailure(response.status)),
+        );
+      }
       const html = `<p>${json.body
         .replaceAll("&", "&amp;")
         .replaceAll("<", "&lt;")

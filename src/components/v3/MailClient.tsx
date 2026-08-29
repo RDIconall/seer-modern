@@ -42,6 +42,7 @@ import {
 import { CommandPalette, type PaletteAction } from "./CommandPalette";
 import { reorderMatterSections } from "@/lib/v2/view/matter-order";
 import { fetchFresh } from "@/lib/v3/net/fetch";
+import { describeHttpFailure, readJsonBody } from "@/lib/v3/net/json";
 
 type PreviewReader = {
   conversation: Conversation;
@@ -855,8 +856,8 @@ export function MailClient({
         method: "POST",
       });
       if (!response.ok) {
-        const json = (await response.json()) as { error?: string };
-        throw new Error(json.error ?? `undo ${response.status}`);
+        const json = await readJsonBody<{ error?: string }>(response);
+        throw new Error(json?.error ?? describeHttpFailure(response.status));
       }
       await mailbox.reload();
       setNotice({ message: "Undone before provider delivery.", error: false });

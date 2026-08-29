@@ -19,6 +19,7 @@ import {
   reconnectAccount,
 } from "@/app/actions";
 import { fetchFresh } from "@/lib/v3/net/fetch";
+import { describeHttpFailure, readJsonBody } from "@/lib/v3/net/json";
 import {
   ACCOUNT_CHANGED_EVENT,
   clearMailboxCaches,
@@ -58,8 +59,10 @@ export function Settings({ mobile = false }: { mobile?: boolean }) {
 
   const load = useCallback(async () => {
     const response = await fetchFresh("/api/v3/accounts");
-    const json = (await response.json()) as AccountData & { error?: string };
-    if (!response.ok) throw new Error(json.error ?? "Unable to load accounts");
+    const json = await readJsonBody<AccountData & { error?: string }>(response);
+    if (!response.ok || !json) {
+      throw new Error(json?.error ?? describeHttpFailure(response.status));
+    }
     setData(json);
   }, []);
 
@@ -82,12 +85,14 @@ export function Settings({ mobile = false }: { mobile?: boolean }) {
           ...(action === "remove" ? { confirmed: true } : {}),
         }),
       });
-      const json = (await response.json()) as {
+      const json = await readJsonBody<{
         error?: string;
         requiresSignOut?: boolean;
-      };
-      if (!response.ok) throw new Error(json.error ?? `${action} failed`);
-      if (action === "remove" && json.requiresSignOut) {
+      }>(response);
+      if (!response.ok) {
+        throw new Error(json?.error ?? describeHttpFailure(response.status));
+      }
+      if (action === "remove" && json?.requiresSignOut) {
         await logout();
         return;
       }

@@ -11,6 +11,7 @@ import {
   dispatchCommand,
   needsRecipient,
 } from "./compose-command";
+import { describeHttpFailure, readJsonBody } from "@/lib/v3/net/json";
 import { RecipientInput } from "./RecipientInput";
 import type { Recipient } from "./recipient-state";
 import { RichComposer, type RichComposerValue } from "./RichComposer";
@@ -105,12 +106,14 @@ export function InlineReply({
         headers: { "content-type": "application/json" },
         body: JSON.stringify({ id: latest.providerMessageId }),
       });
-      const json = (await response.json()) as {
-        body?: string;
-        error?: string;
-      };
-      if (!response.ok || !json.body) {
-        throw new Error(json.error ?? "Draft failed");
+      const json = await readJsonBody<{ body?: string; error?: string }>(
+        response,
+      );
+      if (!response.ok || !json?.body) {
+        throw new Error(
+          json?.error ??
+            (response.ok ? "Draft failed" : describeHttpFailure(response.status)),
+        );
       }
       const html = `<p>${json.body
         .replaceAll("&", "&amp;")

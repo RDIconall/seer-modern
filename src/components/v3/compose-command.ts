@@ -1,4 +1,5 @@
 import type { Command, CommandResult } from "@/lib/v2/commands/types";
+import { describeHttpFailure, readJsonBody } from "@/lib/v3/net/json";
 
 export type ComposeMode = "send" | "reply" | "replyAll" | "forward";
 
@@ -39,9 +40,12 @@ export async function dispatchCommand(command: Command): Promise<CommandResult> 
         globalThis.crypto?.randomUUID?.() ?? `${Date.now()}-${Math.random()}`,
     }),
   });
-  const json = (await res.json()) as { result: CommandResult };
-  if (!res.ok || !json.result.ok) {
-    throw new Error(json.result?.error ?? `command ${res.status}`);
+  const json = await readJsonBody<{ result?: CommandResult; error?: string }>(res);
+  const result = json?.result;
+  if (!res.ok || !result?.ok) {
+    throw new Error(
+      result?.error ?? json?.error ?? describeHttpFailure(res.status),
+    );
   }
-  return json.result;
+  return result;
 }

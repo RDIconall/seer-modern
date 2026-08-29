@@ -4,6 +4,7 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import type { InboxView } from "@/lib/v2/view/types";
 import type { Command, CommandResult } from "@/lib/v2/commands/types";
 import { fetchFresh } from "@/lib/v3/net/fetch";
+import { describeHttpFailure, readJsonBody } from "@/lib/v3/net/json";
 import { ACCOUNT_CHANGED_EVENT } from "@/components/v3/useMailbox";
 
 /**
@@ -27,11 +28,9 @@ export function useInboxView(
       const res = await fetchFresh("/api/v2/inbox");
       // A failed response may not be JSON at all; falling back to the status is
       // better than replacing the real problem with a parse error.
-      const json = (await res.json().catch(() => null)) as
-        | { view: InboxView; error?: string }
-        | null;
+      const json = await readJsonBody<{ view?: InboxView; error?: string }>(res);
       if (!res.ok || !json?.view) {
-        throw new Error(json?.error ?? `inbox ${res.status}`);
+        throw new Error(json?.error ?? describeHttpFailure(res.status));
       }
       if (requestGeneration !== accountGeneration.current) return;
       setView(json.view);
@@ -88,12 +87,19 @@ export function useInboxView(
             withView: true,
           }),
         });
-        const json = (await res.json()) as { result: CommandResult; view?: InboxView };
-        if (!res.ok || !json.result.ok) {
-          throw new Error(json.result?.error ?? `command ${res.status}`);
+        const json = await readJsonBody<{
+          result?: CommandResult;
+          view?: InboxView;
+          error?: string;
+        }>(res);
+        const result = json?.result;
+        if (!res.ok || !result?.ok) {
+          throw new Error(
+            result?.error ?? json?.error ?? describeHttpFailure(res.status),
+          );
         }
-        if (json.view) setView(json.view);
-        return json.result;
+        if (json?.view) setView(json.view);
+        return result;
       } catch (e) {
         // Roll back to the pre-command snapshot.
         if (snapshot.current) setView(snapshot.current);
