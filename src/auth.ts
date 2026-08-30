@@ -20,7 +20,7 @@ import {
   type AccountLinkProvider,
 } from "@/lib/auth/account-link";
 import { setActiveAccountId } from "@/lib/store/accounts";
-import { isAllowedOrgEmail } from "@/lib/auth/org";
+import { describeAccessRefusal, isAllowedOrgEmail } from "@/lib/auth/org";
 
 const googleConfigured =
   Boolean(process.env.AUTH_GOOGLE_ID) &&
@@ -88,7 +88,11 @@ export const { handlers, auth, signIn, signOut } = NextAuth({
   ],
   callbacks: {
     async signIn({ user }) {
-      return isAllowedOrgEmail(user.email);
+      if (isAllowedOrgEmail(user.email)) return true;
+      // The Auth.js AccessDenied page cannot name the address it turned away,
+      // so nothing but this line says which mailbox was refused and why.
+      console.warn("[auth] sign-in refused:", describeAccessRefusal(user.email));
+      return false;
     },
     async jwt({ token, account, profile }) {
       if (account) {
@@ -115,7 +119,7 @@ export const { handlers, auth, signIn, signOut } = NextAuth({
             throw new Error("Provider email is missing");
           }
           if (!isAllowedOrgEmail(providerEmail)) {
-            throw new Error("Seer is limited to rditrials.com accounts");
+            throw new Error(describeAccessRefusal(providerEmail));
           }
           const existingOwner = token.email as string | undefined;
           if (
@@ -138,7 +142,7 @@ export const { handlers, auth, signIn, signOut } = NextAuth({
               ? linkState.payload.ownerEmail
               : providerEmail;
           if (!isAllowedOrgEmail(ownerEmail)) {
-            throw new Error("Seer is limited to rditrials.com accounts");
+            throw new Error(describeAccessRefusal(ownerEmail));
           }
           const ownerUserId: UserId =
             linkState.status === "valid"
