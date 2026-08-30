@@ -6,13 +6,23 @@
  * The organization is not the whole story, though. This desk was a personal
  * mailbox before it was a company's, and gating on one hardcoded domain locked
  * the owner's own Gmail out of their own mail client — sign-in, account
- * linking and the v3 client all read this one function. So the deployment can
- * name extra domains (an alias domain of the same company) or extra addresses,
- * and by default it names neither: with nothing configured, only the org
- * domain passes.
+ * linking and the v3 client all read this one function. So that mailbox is
+ * named below, and a deployment can name further addresses or an alias domain
+ * of the same company without a code change.
  */
 
 export const ORG_DOMAIN = "rditrials.com";
+
+/**
+ * The desk's own mailbox, allowed by name.
+ *
+ * Seer was this Gmail's mail client before it was the company's, and it is the
+ * account the app is used and developed against, so it is named in the code
+ * rather than left to an environment variable that a redeploy can lose or a
+ * dashboard edit can drop. This repository is public, so this address is
+ * public with it; move it to `SEER_ALLOWED_EMAILS` to keep it out of git.
+ */
+export const OWNER_EMAIL = "cpa2002@gmail.com";
 
 /** Extra addresses, comma-separated. `SEER_ALLOWED_EMAILS=you@gmail.com` */
 export const EMAILS_ENV = "SEER_ALLOWED_EMAILS";
@@ -58,7 +68,11 @@ export function allowedDomains(): string[] {
 /** Addresses allowed on their own, outside any allowed domain. */
 export function allowedEmails(): string[] {
   return [
-    ...new Set([...configured(EMAILS_ENV), ...configured(LEGACY_EMAIL_ENV)]),
+    ...new Set([
+      OWNER_EMAIL,
+      ...configured(EMAILS_ENV),
+      ...configured(LEGACY_EMAIL_ENV),
+    ]),
   ];
 }
 
@@ -82,9 +96,5 @@ export function describeAccessRefusal(
   const domains = allowedDomains()
     .map((domain) => `@${domain}`)
     .join(", ");
-  const named =
-    allowedEmails().length > 0
-      ? ` nor one of the ${allowedEmails().length} address(es) in ${EMAILS_ENV}`
-      : "";
-  return `${parsed.address} is not ${domains}${named} — add it to ${EMAILS_ENV} to let it in`;
+  return `${parsed.address} is not ${domains} and is not one of the ${allowedEmails().length} address(es) Seer allows by name — add it to ${EMAILS_ENV} to let it in`;
 }

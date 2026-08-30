@@ -16,6 +16,7 @@ import {
   isAllowedOrgEmail,
   LEGACY_EMAIL_ENV,
   ORG_DOMAIN,
+  OWNER_EMAIL,
 } from "../src/lib/auth/org.ts";
 
 assert.equal(ORG_DOMAIN, "rditrials.com");
@@ -28,9 +29,21 @@ assert.equal(isAllowedOrgEmail("rditrials.com"), false);
 assert.equal(isAllowedOrgEmail(null), false);
 assert.equal(isAllowedOrgEmail(""), false);
 
-// Nothing configured means nothing extra: the org is the whole gate.
+// Nothing configured: the org domain, plus the desk's own mailbox by name.
 assert.deepEqual(allowedDomains(), [ORG_DOMAIN]);
-assert.deepEqual(allowedEmails(), []);
+assert.deepEqual(allowedEmails(), [OWNER_EMAIL]);
+assert.equal(isAllowedOrgEmail(OWNER_EMAIL), true, "the owner is not shut out");
+assert.equal(isAllowedOrgEmail(OWNER_EMAIL.toUpperCase()), true);
+assert.equal(
+  isAllowedOrgEmail(`x${OWNER_EMAIL}`),
+  false,
+  "the owner's address is matched whole, not as a suffix",
+);
+assert.equal(
+  isAllowedOrgEmail(`someone.else@${OWNER_EMAIL.split("@")[1]}`),
+  false,
+  "the address is named, its provider is not a domain gate",
+);
 
 // A refusal names the address and the setting that would admit it.
 const refusal = describeAccessRefusal("you@gmail.com");
@@ -45,7 +58,11 @@ try {
   assert.equal(isAllowedOrgEmail("YOU@gmail.com"), true);
   assert.equal(isAllowedOrgEmail("second@example.com"), true);
   assert.equal(isAllowedOrgEmail("stranger@gmail.com"), false, "named, not the domain");
-  assert.deepEqual(allowedEmails(), ["you@gmail.com", "second@example.com"]);
+  assert.deepEqual(allowedEmails(), [
+    OWNER_EMAIL,
+    "you@gmail.com",
+    "second@example.com",
+  ]);
 } finally {
   delete process.env[EMAILS_ENV];
 }
@@ -56,7 +73,7 @@ assert.equal(isAllowedOrgEmail("you@gmail.com"), false, "the setting is not stic
 process.env[LEGACY_EMAIL_ENV] = "Owner@gmail.com";
 try {
   assert.equal(isAllowedOrgEmail("owner@gmail.com"), true);
-  assert.deepEqual(allowedEmails(), ["owner@gmail.com"]);
+  assert.deepEqual(allowedEmails(), [OWNER_EMAIL, "owner@gmail.com"]);
 } finally {
   delete process.env[LEGACY_EMAIL_ENV];
 }
