@@ -1,6 +1,11 @@
-import { NextResponse } from "next/server";
+import { NextResponse, after } from "next/server";
 import { cronUnauthorized } from "@/lib/v2/cron/auth";
+import { kickNextHop, shouldContinueSync } from "@/lib/v2/cron/continue";
 import { fanOutPerAccount } from "@/lib/v2/cron/fan-out";
+import {
+  claimWorkerLease,
+  releaseWorkerLease,
+} from "@/lib/v2/cron/lease";
 import { listAllAccounts } from "@/lib/v2/db/list-accounts";
 import { asAccountId, isUuid } from "@/lib/v2/db/types";
 import { providerFor } from "@/lib/v2/providers/provider";
@@ -41,8 +46,26 @@ export async function GET(request: Request) {
     if (!account) {
       return NextResponse.json({ error: "account not found" }, { status: 404 });
     }
-    const report = await syncOneAccount(account, mode, deadlineMs);
-    return NextResponse.json({ ok: true, mode, report });
+    const held = await claimWorkerLease(account.id, "sync");
+    if (!held) {
+      return NextResponse.json({
+        ok: true,
+        mode,
+        continued: false,
+        report: [{ email: account.email, skipped: "lease" }],
+      });
+    }
+    try {
+      const report = await syncOneAccount(account, mode, deadlineMs);
+      const continued = shouldContinueSync(report);
+      if (continued) {
+        const auth = request.headers.get("authorization");
+        after(() => kickNextHop(request.url, auth));
+      }
+      return NextResponse.json({ ok: true, mode, continued, report });
+    } finally {
+      await releaseWorkerLease(account.id, "sync");
+    }
   }
 
   const accounts = await listAllAccounts();

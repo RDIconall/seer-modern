@@ -12,7 +12,7 @@ import type {
 } from "./reader";
 import {
   recordModelUsage,
-  withinDailyCallLimit,
+  withinDailyBudget,
   type ModelUsageRecord,
 } from "./model-usage";
 
@@ -292,7 +292,7 @@ export function createReaderRouter(deps: {
 } = {}): ReaderModel {
   const call = deps.call ?? callGatewayModel;
   const recorder = deps.recordUsage ?? recordModelUsage;
-  const allowCall = deps.allowCall ?? withinDailyCallLimit;
+  const allowCall = deps.allowCall ?? withinDailyBudget;
 
   return async (input) => {
     const fastModel = requestedModel("fast");

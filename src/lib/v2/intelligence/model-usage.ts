@@ -75,3 +75,27 @@ export async function withinDailyCallLimit(
   return (result.rows[0]?.n ?? 0) < limit;
 }
 
+/** Dollar ceiling across both tiers. 0 / unset means no spend cap. */
+export async function withinDailySpendLimit(
+  accountId: AccountId,
+): Promise<boolean> {
+  const cap = Number(process.env.SEER_DAILY_SPEND_LIMIT_USD ?? 0);
+  if (!Number.isFinite(cap) || cap <= 0) return true;
+  const result = await db().query<{ spend: string }>(
+    `select coalesce(sum(cost_usd), 0)::text as spend
+       from seer.model_usage
+      where account_id = $1
+        and created_at >= date_trunc('day', now())`,
+    [accountId],
+  );
+  return Number(result.rows[0]?.spend ?? 0) < cap;
+}
+
+export async function withinDailyBudget(
+  accountId: AccountId,
+  tier: "fast" | "strong",
+): Promise<boolean> {
+  if (!(await withinDailyCallLimit(accountId, tier))) return false;
+  return withinDailySpendLimit(accountId);
+}
+
