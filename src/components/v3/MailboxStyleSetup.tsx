@@ -9,6 +9,10 @@ import type {
   StyleInference,
 } from "@/lib/v2/intelligence/mailbox-style";
 import { fetchFresh } from "@/lib/v3/net/fetch";
+import {
+  applyConfirmedMailboxStyle,
+  mailboxStyleOverlayOpen,
+} from "./mailbox-style-setup";
 
 type StyleResponse = {
   clearHabit: ClearHabit;
@@ -59,8 +63,7 @@ export function MailboxStyleSetup({
     });
   }, [load]);
 
-  if (data && data.confirmed && !force && !data.driftPrompt) return null;
-  if (!data && !error) return null;
+  if (!mailboxStyleOverlayOpen({ data, error, force })) return null;
 
   async function confirm(andTrain: boolean) {
     setBusy(true);
@@ -72,6 +75,9 @@ export function MailboxStyleSetup({
         importanceCues: [importance],
         matterBar,
       });
+      setData((current) =>
+        current ? applyConfirmedMailboxStyle(current) : current,
+      );
       if (andTrain) onTrain();
       else onDone();
     } catch (cause) {
