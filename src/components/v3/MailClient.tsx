@@ -1054,7 +1054,10 @@ export function MailClient({
       {!preview && (
         <MailboxStyleSetup
           onCommand={async (command) => {
-            await runCommands([command]);
+            const [result] = await runCommands([command]);
+            if (!result?.ok) {
+              throw new Error(result?.error ?? "Could not save");
+            }
           }}
           onDone={() => {}}
           onTrain={() => navigate("cards")}
