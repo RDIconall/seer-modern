@@ -120,10 +120,26 @@ export async function readBatch(
           model,
         });
         decided++;
-      } catch {
-        // No fake Archive and no fourth destination. With no current decision,
-        // the queue naturally retries this conversation on the next bounded run.
+      } catch (cause) {
+        // No fake Archive and no fourth destination. The queue backs off from
+        // a paid attempt; a throw before the model call (incomplete body) is
+        // retried on the next tick because it left no model_usage row.
         failed++;
+        const message =
+          cause instanceof Error ? cause.message.slice(0, 200) : "read failed";
+        console.error(`[seer:v2] read failed ${conversationId}:`, message);
+        try {
+          await db().query(
+            `insert into seer.events (account_id, kind, payload)
+             values ($1, 'read_failed', $2::jsonb)`,
+            [
+              accountId,
+              JSON.stringify({ conversationId, error: message }),
+            ],
+          );
+        } catch {
+          // Telemetry must not hide the classification failure.
+        }
       }
     }
   }

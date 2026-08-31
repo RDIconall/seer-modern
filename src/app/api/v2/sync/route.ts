@@ -1,102 +1,124 @@
 import { NextResponse } from "next/server";
+import { cronUnauthorized } from "@/lib/v2/cron/auth";
+import { fanOutPerAccount } from "@/lib/v2/cron/fan-out";
 import { listAllAccounts } from "@/lib/v2/db/list-accounts";
+import { asAccountId, isUuid } from "@/lib/v2/db/types";
 import { providerFor } from "@/lib/v2/providers/provider";
 import {
   activeSyncFolders,
-  defaultSyncBudget,
-  syncTickRoundRobin,
-  type SyncAccountEntry,
+  syncAccountFolders,
 } from "@/lib/v2/sync/report";
+import { getAccountById } from "@/lib/v2/sync/wake-account";
 import { drainOutbox } from "@/lib/v3/outbox/drain";
+import type { MailAccount } from "@/lib/v2/db/accounts";
+import type { SyncMode } from "@/lib/v2/sync/engine";
 
 export const maxDuration = 300;
 
+const SYNC_TICK_MS = 250_000;
+
 /**
- * Authenticated v2 sync ingress. Reconciliation cron and manual triggers land
- * here. Auth is mandatory: in production a missing CRON_SECRET is a hard error,
- * never an open endpoint.
+ * Authenticated v2 sync. The schedule hits this URL once; with no accountId
+ * it starts one worker per mailbox. Each worker owns the full tick — outbox,
+ * push repair, and folder sync — so one large backfill cannot stall another
+ * desk. Auth is mandatory in production.
  */
 export async function GET(request: Request) {
-  const secret = process.env.CRON_SECRET;
-  if (!secret) {
-    if (process.env.NODE_ENV === "production") {
-      return NextResponse.json(
-        { error: "CRON_SECRET is required in production" },
-        { status: 500 },
-      );
+  const denied = cronUnauthorized(request);
+  if (denied) return denied;
+
+  const url = new URL(request.url);
+  const mode: SyncMode =
+    url.searchParams.get("mode") === "full" ? "full" : "incremental";
+  const rawId = url.searchParams.get("accountId");
+  const deadlineMs = Date.now() + SYNC_TICK_MS;
+
+  if (rawId) {
+    if (!isUuid(rawId)) {
+      return NextResponse.json({ error: "invalid account id" }, { status: 400 });
     }
-  } else {
-    const auth = request.headers.get("authorization");
-    if (auth !== `Bearer ${secret}`) {
-      return NextResponse.json({ error: "unauthorized" }, { status: 401 });
+    const account = await getAccountById(asAccountId(rawId));
+    if (!account) {
+      return NextResponse.json({ error: "account not found" }, { status: 404 });
     }
+    const report = await syncOneAccount(account, mode, deadlineMs);
+    return NextResponse.json({ ok: true, mode, report });
   }
 
-  const mode =
-    new URL(request.url).searchParams.get("mode") === "full"
-      ? "full"
-      : "incremental";
-
   const accounts = await listAllAccounts();
-  const report: Record<string, unknown>[] = [];
-  const tickStarted = Date.now();
-  const syncBudget = defaultSyncBudget(tickStarted);
-  const activeFolders = activeSyncFolders();
-  const entries: SyncAccountEntry[] = [];
+  const pipes = await fanOutPerAccount({
+    accounts,
+    path: "/api/v2/sync",
+    searchParams: mode === "full" ? { mode: "full" } : {},
+    authorization: request.headers.get("authorization"),
+    runLocal: async (accountId) => {
+      const account = accounts.find((item) => item.id === accountId);
+      if (!account) throw new Error("account not found");
+      return syncOneAccount(account, mode, Date.now() + SYNC_TICK_MS);
+    },
+  });
 
-  for (const account of accounts) {
-    let provider;
+  return NextResponse.json({
+    ok: pipes.every((pipe) => pipe.ok),
+    mode,
+    pipes: pipes.length,
+    report: pipes,
+  });
+}
+
+async function syncOneAccount(
+  account: MailAccount,
+  mode: SyncMode,
+  deadlineMs: number,
+): Promise<Record<string, unknown>[]> {
+  const report: Record<string, unknown>[] = [];
+  let provider;
+  try {
+    provider = await providerFor(account);
+  } catch (e) {
+    return [
+      {
+        email: account.email,
+        error: e instanceof Error ? e.message.slice(0, 160) : "sync failed",
+      },
+    ];
+  }
+
+  const outbox = await drainOutbox(account.id, provider);
+  report.push({ email: account.email, outbox });
+
+  if (process.env.AUTH_URL && account.status === "active") {
     try {
-      provider = await providerFor(account);
+      const { getPushSubscription } = await import("@/lib/v2/push/repository");
+      const { ensurePushForAccount } = await import("@/lib/v2/push/ensure");
+      const existing = await getPushSubscription(account.id);
+      const needs =
+        !existing ||
+        (account.provider === "microsoft" && !existing.graphSubscriptionId) ||
+        (account.provider === "google" &&
+          !existing.gmailWatchExpiresAt &&
+          Boolean(process.env.GMAIL_PUBSUB_TOPIC));
+      if (needs) {
+        await ensurePushForAccount(account);
+        report.push({ email: account.email, push: "enrolled" });
+      }
     } catch (e) {
       report.push({
         email: account.email,
-        error: e instanceof Error ? e.message.slice(0, 160) : "sync failed",
+        pushError:
+          e instanceof Error ? e.message.slice(0, 120) : "push failed",
       });
-      continue;
-    }
-    const outbox = await drainOutbox(account.id, provider);
-    report.push({ email: account.email, outbox });
-    entries.push({ account, provider });
-  }
-
-  // Enroll / repair push off the sync path so Outlook Graph subscriptions
-  // appear without waiting for a re-login or the renewal cron alone.
-  if (process.env.AUTH_URL) {
-    const { getPushSubscription } = await import("@/lib/v2/push/repository");
-    const { ensurePushForAccount } = await import("@/lib/v2/push/ensure");
-    for (const { account } of entries) {
-      if (account.status !== "active") continue;
-      try {
-        const existing = await getPushSubscription(account.id);
-        const needs =
-          !existing ||
-          (account.provider === "microsoft" && !existing.graphSubscriptionId) ||
-          (account.provider === "google" &&
-            !existing.gmailWatchExpiresAt &&
-            Boolean(process.env.GMAIL_PUBSUB_TOPIC));
-        if (needs) {
-          await ensurePushForAccount(account);
-          report.push({ email: account.email, push: "enrolled" });
-        }
-      } catch (e) {
-        report.push({
-          email: account.email,
-          pushError: e instanceof Error ? e.message.slice(0, 120) : "push failed",
-        });
-      }
     }
   }
 
-  if (entries.length > 0 && syncBudget.deadlineMs !== undefined) {
-    report.push(
-      ...(await syncTickRoundRobin(entries, mode, activeFolders, {
-        deadlineMs: syncBudget.deadlineMs,
-        tickSlot: syncBudget.tickSlot,
-        rounds: syncBudget.rounds,
-      })),
-    );
-  }
-
-  return NextResponse.json({ ok: true, mode, report });
+  report.push(
+    ...(await syncAccountFolders(
+      account,
+      provider,
+      mode,
+      activeSyncFolders(),
+      { deadlineMs },
+    )),
+  );
+  return report;
 }
