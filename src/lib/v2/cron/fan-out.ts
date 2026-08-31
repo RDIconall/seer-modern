@@ -15,7 +15,10 @@ export type FanOutResult<T> = {
 };
 
 export function cronOrigin(
-  env: Pick<NodeJS.ProcessEnv, "AUTH_URL" | "VERCEL_URL"> = process.env,
+  env: { AUTH_URL?: string; VERCEL_URL?: string } = {
+    AUTH_URL: process.env.AUTH_URL,
+    VERCEL_URL: process.env.VERCEL_URL,
+  },
 ): string | null {
   const raw = env.AUTH_URL ?? env.VERCEL_URL;
   if (!raw?.trim()) return null;
@@ -56,7 +59,7 @@ export async function fanOutPerAccount<T>(options: {
     const fetchImpl = options.fetchImpl ?? fetch;
     return Promise.all(
       options.accounts.map((account) =>
-        invokeRemote(fetchImpl, origin, account, options),
+        invokeRemote<T>(fetchImpl, origin, account, options),
       ),
     );
   }
