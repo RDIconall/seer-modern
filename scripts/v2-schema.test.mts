@@ -78,6 +78,15 @@ try {
   );
   assert.equal(idx.rowCount, 1, "one-current-decision index must exist");
 
+  const usageIdx = await db.pool.query<{ indexname: string }>(
+    "select indexname from pg_indexes where schemaname = 'seer' and indexname = 'model_usage_conversation_created_idx'",
+  );
+  assert.equal(
+    usageIdx.rowCount,
+    1,
+    "model_usage must be indexed by conversation for read-queue backoff",
+  );
+
   console.log("v2-schema: OK");
 } finally {
   await db.stop();

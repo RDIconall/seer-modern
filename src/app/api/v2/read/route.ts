@@ -1,17 +1,14 @@
 import { NextResponse } from "next/server";
-import { listAllAccounts } from "@/lib/v2/db/list-accounts";
-import { readBatch } from "@/lib/v2/intelligence/read-batch";
 import { defaultReaderModel } from "@/lib/v2/intelligence/model";
-import { fileMatters } from "@/lib/v2/intelligence/file-matters";
-import { seedFunctions } from "@/lib/v2/intelligence/functions";
+import { runReadTick } from "@/lib/v2/intelligence/read-tick";
 
 export const maxDuration = 300;
 
 /**
  * The read cron: turn ingested-but-unread conversations into decisions. Sync
  * ingests mail; this produces the chief-of-staff reads. Bounded per tick by a
- * deadline and read concurrently; a large backlog converges over several ticks.
- * Auth is mandatory in production.
+ * deadline and split fairly across mailboxes so one backlog cannot stall the
+ * others. Auth is mandatory in production.
  */
 export async function GET(request: Request) {
   const secret = process.env.CRON_SECRET;
@@ -27,37 +24,9 @@ export async function GET(request: Request) {
     );
   }
 
-  const deadlineMs = Date.now() + 250_000;
-  const accounts = await listAllAccounts();
-  const report: Record<string, unknown>[] = [];
-  for (const account of accounts) {
-    try {
-      const result = await readBatch(account.id, account.email, defaultReaderModel, {
-        limit: 200,
-        concurrency: 6,
-        deadlineMs,
-      });
-
-      // Reading creates matters; filing puts them on the whiteboard. It runs
-      // here so a new matter reaches its section on the same tick rather than
-      // sitting in "unfiled" until some later pass. A filing failure must not
-      // discard the reads that just succeeded.
-      await seedFunctions(account.id);
-      let filing: Awaited<ReturnType<typeof fileMatters>> | { error: string };
-      try {
-        filing = await fileMatters(account.id, { limit: 200 });
-      } catch (e) {
-        filing = {
-          error: e instanceof Error ? e.message.slice(0, 120) : "filing failed",
-        };
-      }
-      report.push({ email: account.email, ...result, filing });
-    } catch (e) {
-      report.push({
-        email: account.email,
-        error: e instanceof Error ? e.message.slice(0, 160) : "read failed",
-      });
-    }
-  }
+  const report = await runReadTick({
+    deadlineMs: Date.now() + 250_000,
+    model: defaultReaderModel,
+  });
   return NextResponse.json({ ok: true, report });
 }

@@ -5,6 +5,27 @@ import { loadGuidance } from "./operating-model";
 import { guidanceFor, loadMailboxStyle } from "./mailbox-style-store";
 
 /**
+ * Operating-model and mailbox-style rows are additive. A lagging migration
+ * used to reject the whole Promise.all and skip every conversation on the
+ * desk; the core people/matters/placements packet is enough to classify.
+ */
+async function optionalContext<T>(
+  label: string,
+  load: () => Promise<T>,
+  fallback: T,
+): Promise<T> {
+  try {
+    return await load();
+  } catch (error) {
+    console.error(
+      `[seer:v2] ${label} unavailable; reading without it:`,
+      error instanceof Error ? error.message : error,
+    );
+    return fallback;
+  }
+}
+
+/**
  * Load the business context for an account from the durable store: known
  * people, live matters, and explicit interests. This is what lets a read beat
  * the naive baseline. It is assembled once per read batch and passed to each
@@ -104,8 +125,8 @@ export async function loadContextInput(
         group by lower(sender.from_email), p.home`,
       [accountId],
     ),
-    loadGuidance(accountId),
-    loadMailboxStyle(accountId),
+    optionalContext("operating guidance", () => loadGuidance(accountId), ""),
+    optionalContext("mailbox style", () => loadMailboxStyle(accountId), null),
   ]);
 
   return {
