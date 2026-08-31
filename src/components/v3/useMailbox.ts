@@ -17,7 +17,7 @@ import {
   viewForFolder,
 } from "./mailbox-state";
 
-const CACHE_VERSION = 5;
+const CACHE_VERSION = 6;
 const mailboxCache = new Map<string, MailboxView>();
 const bodyCache = new Map<string, unknown>();
 
@@ -33,6 +33,10 @@ const FOLDER_PAGE = 50;
 const TRIAGE_PAGE = 200;
 /** A ceiling, so a runaway cursor cannot walk a mailbox forever. */
 const MAX_TRIAGE_PAGES = 8;
+
+function isWorkQueue(sort: MailboxSort): boolean {
+  return sort === "triage" || sort === "focus";
+}
 
 function cacheKey(
   accountId: string,
@@ -238,7 +242,7 @@ export function useMailbox(
       const activeAccountId = accountJson.active.id;
       setAccountId(activeAccountId);
       const scope = `${activeAccountId}:${folder}:${sort}`;
-      const pageSize = sort === "triage" ? TRIAGE_PAGE : FOLDER_PAGE;
+      const pageSize = isWorkQueue(sort) ? TRIAGE_PAGE : FOLDER_PAGE;
       let merged: MailboxView | null = null;
       let before: string | null = null;
 
@@ -266,14 +270,14 @@ export function useMailbox(
             {
               view: merged,
               loading: false,
-              refreshing: Boolean(json.view.nextCursor) && sort === "triage",
+              refreshing: Boolean(json.view.nextCursor) && isWorkQueue(sort),
               error: null,
             },
             scope,
           );
         }
         before = json.view.nextCursor;
-        if (sort !== "triage" || !before) break;
+        if (!isWorkQueue(sort) || !before) break;
       }
 
       if (!merged) throw new Error("mailbox returned no page");

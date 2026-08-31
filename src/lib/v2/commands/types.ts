@@ -89,7 +89,22 @@ export type Command =
       functions: string[];
       topics: string[];
       guidance: string;
-    };
+    }
+  | {
+      /** First-run or Settings: user accepts or edits the inferred mailbox style. */
+      type: "confirmMailboxStyle";
+      clearHabit: "archive" | "delete" | "leave";
+      importanceCues: Array<"flag" | "unread" | "star" | "none">;
+      matterBar: "high" | "medium" | "low";
+    }
+  | {
+      /** Cards: is this thread still relevant, and if not, why. */
+      type: "trainRelevance";
+      conversationId: string;
+      relevant: boolean;
+      reason?: "taken_care_of" | "ended" | "never_was" | "not_for_me" | null;
+    }
+  | { type: "dismissStyleDrift" };
 
 export type CommandResult = {
   ok: boolean;

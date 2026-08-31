@@ -74,6 +74,14 @@ const guided = compileContext(conversation("Roche weekly product news", "A gener
 assert.match(guided.text, /\[explicit\] how this desk is organised/);
 assert.match(guided.text, /Family logistics are matters/);
 
+const styled = compileContext(conversation("Roche weekly product news", "A generic product status update."), {
+  ...base,
+  mailboxStyleGuidance:
+    "they leave mail in the Inbox folder; they mark importance with unread; only real ongoing work is an Atlas matter.",
+});
+assert.match(styled.text, /\[explicit\] how this person uses mail/);
+assert.match(styled.text, /leave mail in the Inbox/);
+
 const coded = compileContext(
   conversation(
     "RCD_2904 sample collection update",

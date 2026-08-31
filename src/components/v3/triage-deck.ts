@@ -1,4 +1,5 @@
 import type { Command } from "@/lib/v2/commands/types";
+import type { IrrelevanceReason } from "@/lib/v2/intelligence/mailbox-style";
 import type { MailboxRow } from "@/lib/v3/mailbox/types";
 
 /**
@@ -59,6 +60,19 @@ export function commandForVerdict(
     type: "triageConversation",
     conversationId: row.conversationId,
     destination: verdict,
+  };
+}
+
+export function commandForRelevance(
+  row: MailboxRow,
+  relevant: boolean,
+  reason?: IrrelevanceReason | null,
+): Command {
+  return {
+    type: "trainRelevance",
+    conversationId: row.conversationId,
+    relevant,
+    reason: relevant ? null : (reason ?? "never_was"),
   };
 }
 

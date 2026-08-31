@@ -170,6 +170,16 @@ export async function getMailboxView(
 ): Promise<MailboxView> {
   const bounded = Math.max(1, Math.min(200, limit));
   const cursor = decodeMailboxCursor(before, sort);
+  const focusFilter = `and (
+            c.is_unread
+            or d.home = 'matter'
+            or c.last_message_at > now() - interval '14 days'
+            or (
+              (d.id is null or d.home = 'undecided')
+              and c.last_message_at > now() - interval '7 days'
+            )
+          )`;
+
   const totalRow =
     sort === "triage"
       ? await db().query<{ n: number }>(
@@ -182,9 +192,25 @@ export async function getMailboxView(
             where c.account_id = $1
               and c.is_deleted = false
               and c.folders @> array[$2]::text[]
+              and coalesce(c.focus_hidden, false) = false
               and d.home in ('delete', 'record')`,
           [accountId, folder],
         )
+      : sort === "focus"
+        ? await db().query<{ n: number }>(
+            `select count(*)::int as n
+               from seer.conversations c
+               left join seer.conversation_decisions d
+                 on d.conversation_id = c.id
+                and d.account_id = c.account_id
+                and d.is_current
+              where c.account_id = $1
+                and c.is_deleted = false
+                and c.folders @> array[$2]::text[]
+                and coalesce(c.focus_hidden, false) = false
+                ${focusFilter}`,
+            [accountId, folder],
+          )
       : await db().query<{ n: number }>(
           `select count(*)::int as n
              from seer.conversations c
@@ -214,6 +240,7 @@ export async function getMailboxView(
     sort === "triage"
       ? await db().query<MailboxRowDb>(
           `${MAILBOX_SELECT}
+        and coalesce(c.focus_hidden, false) = false
         and d.home in ('delete', 'record')
         and (
           $3::int is null
@@ -240,6 +267,28 @@ export async function getMailboxView(
             bounded + 1,
           ],
         )
+      : sort === "focus"
+        ? await db().query<MailboxRowDb>(
+            `${MAILBOX_SELECT}
+        and coalesce(c.focus_hidden, false) = false
+        ${focusFilter}
+        and (
+          $3::timestamptz is null
+          or (
+            coalesce(lm.sent_at, c.last_message_at),
+            c.id
+          ) < ($3::timestamptz, $4::uuid)
+        )
+      order by coalesce(lm.sent_at, c.last_message_at) desc nulls last, c.id desc
+      limit $5`,
+            [
+              accountId,
+              folder,
+              cursor && cursor.sort === "focus" ? cursor.at : null,
+              cursor && cursor.sort === "focus" ? cursor.id : null,
+              bounded + 1,
+            ],
+          )
       : await db().query<MailboxRowDb>(
           `${MAILBOX_SELECT}
         and (
@@ -278,7 +327,7 @@ export async function getMailboxView(
       const at = listTimestamp(last);
       if (at) {
         nextCursor = encodeMailboxCursor({
-          sort: "date",
+          sort: sort === "focus" ? "focus" : "date",
           at,
           id: last.conversation_id,
         });

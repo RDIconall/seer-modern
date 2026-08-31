@@ -305,6 +305,30 @@ try {
   }
   assert.equal(seen.size, 4, "all tied-timestamp rows must paginate without skips");
 
+  const hiddenId = await seedConversation(
+    db.pool,
+    accountId,
+    "p-hidden",
+    "inbox",
+    "Hidden from focus",
+    new Date().toISOString(),
+    { unread: true },
+  );
+  await db.pool.query(
+    "update seer.conversations set focus_hidden = true where id = $1",
+    [hiddenId],
+  );
+  const focus = await getMailboxView(accountId, "inbox", 50, undefined, "focus");
+  assert.equal(focus.sort, "focus");
+  assert.ok(
+    !focus.rows.some((row) => row.subject === "Hidden from focus"),
+    "focus omits hidden conversations",
+  );
+  assert.ok(
+    focus.rows.some((row) => row.subject === "New inbox thread"),
+    "focus still includes live unread matters",
+  );
+
   console.log("v3-mailbox-view: OK");
 } finally {
   await db.stop();

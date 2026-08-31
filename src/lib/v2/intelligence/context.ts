@@ -44,6 +44,8 @@ export type ContextInput = {
   placements?: PlacementFeedback[];
   /** How this desk is organised, in the user's own words. */
   operatingGuidance?: string;
+  /** How this person clears mail and what should become a matter. */
+  mailboxStyleGuidance?: string;
 };
 
 export type CompiledContext = {
@@ -83,6 +85,12 @@ export function compileContext(
   if (guidance) {
     lines.push(
       `[explicit] how this desk is organised (user): ${guidance.slice(0, 500)}`,
+    );
+  }
+  const mailboxStyle = input.mailboxStyleGuidance?.trim();
+  if (mailboxStyle) {
+    lines.push(
+      `[explicit] how this person uses mail (user): ${mailboxStyle.slice(0, 400)}`,
     );
   }
 

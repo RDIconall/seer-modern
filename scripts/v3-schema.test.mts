@@ -29,6 +29,8 @@ const CORE_TABLES = [
   "model_usage",
   "functions",
   "operating_models",
+  "mailbox_styles",
+  "training_events",
   "folder_sync_state",
   "folder_sync_seen",
   "outbox",

@@ -12,6 +12,7 @@ import type { MailboxSort } from "./types";
 
 export type MailboxCursor =
   | { sort: "date"; at: string; id: string }
+  | { sort: "focus"; at: string; id: string }
   | { sort: "triage"; rank: number; priority: number; at: string; id: string };
 
 export function encodeMailboxCursor(cursor: MailboxCursor): string {
@@ -49,6 +50,9 @@ export function decodeMailboxCursor(
         at: parsed.at,
         id: parsed.id,
       };
+    }
+    if (cursorSort === "focus") {
+      return { sort: "focus", at: parsed.at, id: parsed.id };
     }
     return { sort: "date", at: parsed.at, id: parsed.id };
   } catch {

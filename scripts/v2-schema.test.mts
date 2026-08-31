@@ -28,6 +28,8 @@ const EXPECTED_TABLES = [
   "model_usage",
   "functions",
   "operating_models",
+  "mailbox_styles",
+  "training_events",
 ].sort();
 
 const RLS_TABLES = [
@@ -44,6 +46,8 @@ const RLS_TABLES = [
   "model_usage",
   "functions",
   "operating_models",
+  "mailbox_styles",
+  "training_events",
 ];
 
 const db = await startTestDb();

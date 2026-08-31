@@ -4,6 +4,7 @@
  */
 import assert from "node:assert/strict";
 import {
+  commandForRelevance,
   commandForVerdict,
   currentCard,
   deckFrom,
@@ -78,6 +79,19 @@ const row = (id: string, deleteToken: string | null = null): MailboxRow => ({
     type: "triageConversation",
     conversationId: "b",
     destination: "delete",
+  });
+
+  assert.deepEqual(commandForRelevance(authorized, true), {
+    type: "trainRelevance",
+    conversationId: "a",
+    relevant: true,
+    reason: null,
+  });
+  assert.deepEqual(commandForRelevance(authorized, false, "ended"), {
+    type: "trainRelevance",
+    conversationId: "a",
+    relevant: false,
+    reason: "ended",
   });
 
   assert.deepEqual(commandForVerdict(authorized, "archive"), {
@@ -162,12 +176,13 @@ const row = (id: string, deleteToken: string | null = null): MailboxRow => ({
   assert.match(html, /deck-card-behind/, "the pile is visible behind the top card");
 
   // The verdict is named on the card before the gesture commits.
-  assert.match(html, /deck-verdict-clear[^>]*>Delete</, "an authorized card offers Delete");
-  assert.match(html, /deck-verdict-keep[^>]*>Atlas</, "the third destination is named");
+  assert.match(html, /deck-verdict-clear[^>]*>Not relevant</);
+  assert.match(html, /deck-verdict-keep[^>]*>Still relevant</);
+  assert.match(html, /Is this still relevant\?/);
 
   // The user has all three destinations even when the model was uncertain.
   const heldHtml = render([refused]);
-  assert.match(heldHtml, /deck-verdict-clear[^>]*>Delete</);
+  assert.match(heldHtml, /deck-verdict-clear[^>]*>Not relevant</);
 
   // The deck keeps the look it always had: paper on the teal field.
   assert.match(html, /seer-deck-bg/, "the deck runs on the teal field");

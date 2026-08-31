@@ -156,7 +156,9 @@ console.log("v3-inbox-triage-ui: OK");
 const clientSource = await fs.readFile("src/components/v3/MailClient.tsx", "utf8");
 assert.match(clientSource, /const triaging = section === "triage"/,
   "triage is a section, not a sort on the inbox");
-assert.match(clientSource, /mailboxSort: MailboxSort = triaging \? "triage" : "date"/,
+assert.match(clientSource, /mailboxSort: MailboxSort =/,
   "the section decides the ordering");
+assert.match(clientSource, /section === "cards" \? "focus"/,
+  "Cards uses the live focus set, not the full Inbox");
 assert.doesNotMatch(clientSource, /setInboxSort/, "there is no inbox sort state left");
 assert.doesNotMatch(clientSource, /onSortChange/, "and no sort control to wire");

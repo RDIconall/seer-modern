@@ -30,9 +30,13 @@ export function applyMailboxCommands(
     if (
       command.type === "archive" ||
       command.type === "restore" ||
-      command.type === "delete"
+      command.type === "delete" ||
+      command.type === "triageConversation" ||
+      command.type === "trainRelevance"
     ) {
-      removed.add(command.conversationId);
+      const id =
+        "conversationId" in command ? command.conversationId : undefined;
+      if (id) removed.add(id);
     } else if (command.type === "markUnread") {
       unread.add(command.conversationId);
     }

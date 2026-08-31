@@ -120,6 +120,14 @@ export async function buildInboxView(
         -- provider filed to no folder at all are not inbox mail; without this
         -- the list was roughly half junk.
         and c.folders @> array['inbox']::text[]
+        and (
+          d.home = 'matter'
+          or (
+            coalesce(c.focus_hidden, false) = false
+            and coalesce(c.last_message_at, '-infinity'::timestamptz)
+              > now() - interval '21 days'
+          )
+        )
       -- Loudest first; within a bucket, whatever is due soonest.
       order by d.priority desc, d.due_date asc nulls last, c.last_message_at desc nulls last`,
     [accountId],

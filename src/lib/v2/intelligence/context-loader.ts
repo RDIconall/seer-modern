@@ -2,6 +2,7 @@ import { db } from "../db/pool";
 import type { AccountId } from "../db/types";
 import type { ContextInput } from "./context";
 import { loadGuidance } from "./operating-model";
+import { guidanceFor, loadMailboxStyle } from "./mailbox-style-store";
 
 /**
  * Load the business context for an account from the durable store: known
@@ -13,7 +14,7 @@ export async function loadContextInput(
   accountId: AccountId,
   ownEmail: string,
 ): Promise<ContextInput> {
-  const [people, matters, interests, placements, operatingGuidance] = await Promise.all([
+  const [people, matters, interests, placements, operatingGuidance, mailboxStyle] = await Promise.all([
     db().query<{ email: string; tier: string; vip: boolean }>(
       "select email, tier, vip from seer.people where account_id = $1",
       [accountId],
@@ -104,6 +105,7 @@ export async function loadContextInput(
       [accountId],
     ),
     loadGuidance(accountId),
+    loadMailboxStyle(accountId),
   ]);
 
   return {
@@ -124,5 +126,6 @@ export async function loadContextInput(
       count: item.count,
     })),
     operatingGuidance,
+    mailboxStyleGuidance: guidanceFor(mailboxStyle),
   };
 }

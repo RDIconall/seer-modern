@@ -28,6 +28,7 @@ import { ReaderPane } from "./ReaderPane";
 import { SeerMark } from "./SeerMark";
 import { Settings } from "./Settings";
 import { TriageCards } from "./TriageCards";
+import { MailboxStyleSetup } from "./MailboxStyleSetup";
 import { MobileMailboxList } from "./MobileMailboxList";
 import { fetchSearch, SearchBox, type SearchResult } from "./SearchBox";
 import { SearchRequestGuard } from "./search-request";
@@ -360,8 +361,14 @@ export function MailClient({
   const triaging = section === "triage" || section === "cards";
   const dealing = section === "cards";
   const folder: MailboxFolder = isFolder(section) ? section : "inbox";
-  const mailboxSort: MailboxSort = triaging ? "triage" : "date";
-  const previewView = triaging ? preview?.triageInbox : preview?.mailbox[folder];
+  const mailboxSort: MailboxSort =
+    section === "cards" ? "focus" : triaging ? "triage" : "date";
+  const previewView =
+    section === "cards" && preview?.triageInbox
+      ? { ...preview.triageInbox, sort: "focus" as const }
+      : triaging
+        ? preview?.triageInbox
+        : preview?.mailbox[folder];
   const mailbox = useMailbox(folder, {
     initialView: previewView,
     disabled: Boolean(preview),
@@ -1044,6 +1051,15 @@ export function MailClient({
 
   return (
     <div className="mail-client" data-reader-open={conversationId ? "true" : "false"}>
+      {!preview && (
+        <MailboxStyleSetup
+          onCommand={async (command) => {
+            await runCommands([command]);
+          }}
+          onDone={() => {}}
+          onTrain={() => navigate("cards")}
+        />
+      )}
       <Navigation
         active={section}
         onNavigate={navigate}

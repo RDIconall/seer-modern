@@ -24,6 +24,23 @@ import {
   saveMatterOrders,
 } from "@/lib/store/matter-order";
 import { applyOperatingModel } from "../intelligence/operating-model";
+import {
+  closeLinkedMatter,
+  confirmMailboxStyle,
+  dismissStyleDrift,
+  effectiveStyle,
+  loadMailboxStyle,
+  recordTrainingEvent,
+  setFocusHidden,
+} from "../intelligence/mailbox-style-store";
+import {
+  driftSignalForRelevance,
+  isClearHabit,
+  isIrrelevanceReason,
+  isMatterBar,
+  normalizeCues,
+  relevanceOutcome,
+} from "../intelligence/mailbox-style";
 
 /**
  * Execute one command. Ownership and idempotency are checked first. A delete is
@@ -227,6 +244,11 @@ async function run(
         return fail("conversation not found");
       }
       if (command.destination === "matter") {
+        await recordTrainingEvent(ctx.accountId, command.conversationId, "triage", {
+          destination: "matter",
+          clearToward: "leave",
+          matterToward: "promote",
+        });
         return run(
           ctx,
           {
@@ -244,6 +266,31 @@ async function run(
           },
           idempotencyKey,
         );
+      }
+
+      const style = effectiveStyle(await loadMailboxStyle(ctx.accountId));
+      if (style.clearHabit === "leave") {
+        await setFocusHidden(ctx.accountId, command.conversationId, true);
+        try {
+          await recordTriageCorrection(
+            ctx,
+            command.conversationId,
+            command.destination === "delete" ? "delete" : "record",
+            idempotencyKey,
+          );
+        } catch (cause) {
+          return fail(
+            cause instanceof Error
+              ? cause.message
+              : "correction was not recorded",
+          );
+        }
+        await recordTrainingEvent(ctx.accountId, command.conversationId, "triage", {
+          destination: command.destination,
+          clearToward: "leave",
+          matterToward: "demote",
+        });
+        return { ok: true, replayed: false, detail: { focusHidden: true } };
       }
 
       const queued = await enqueueMutation(
@@ -275,6 +322,11 @@ async function run(
           },
         };
       }
+      await recordTrainingEvent(ctx.accountId, command.conversationId, "triage", {
+        destination: command.destination,
+        clearToward: command.destination === "delete" ? "delete" : "archive",
+        matterToward: "demote",
+      });
       return queued;
     }
 
@@ -544,6 +596,143 @@ async function run(
           cause instanceof Error ? cause.message : "could not apply Atlas sections",
         );
       }
+    }
+
+    case "confirmMailboxStyle": {
+      if (!isClearHabit(command.clearHabit) || !isMatterBar(command.matterBar)) {
+        return fail("invalid mailbox style");
+      }
+      const state = await confirmMailboxStyle(ctx.accountId, {
+        clearHabit: command.clearHabit,
+        importanceCues: normalizeCues(command.importanceCues),
+        matterBar: command.matterBar,
+      });
+      return {
+        ok: true,
+        replayed: false,
+        detail: {
+          clearHabit: state.clearHabit,
+          importanceCues: state.importanceCues,
+          matterBar: state.matterBar,
+          confirmed: state.confirmed,
+        },
+      };
+    }
+
+    case "dismissStyleDrift": {
+      await dismissStyleDrift(ctx.accountId);
+      return { ok: true, replayed: false };
+    }
+
+    case "trainRelevance": {
+      if (
+        !(await conversationBelongsToAccount(
+          ctx.accountId,
+          command.conversationId,
+        ))
+      ) {
+        return fail("conversation not found");
+      }
+      const reason =
+        command.reason && isIrrelevanceReason(command.reason)
+          ? command.reason
+          : command.relevant
+            ? null
+            : "never_was";
+      const style = effectiveStyle(await loadMailboxStyle(ctx.accountId));
+      const outcome = relevanceOutcome(style, command.relevant, reason);
+      const signal = driftSignalForRelevance(
+        command.relevant,
+        reason,
+        outcome.provider,
+      );
+      await setFocusHidden(
+        ctx.accountId,
+        command.conversationId,
+        outcome.focusHidden,
+      );
+      if (outcome.closeMatter) {
+        await closeLinkedMatter(ctx.accountId, command.conversationId);
+      }
+      if (outcome.home === "matter") {
+        const placed = await run(
+          ctx,
+          {
+            type: "correctConversation",
+            conversationId: command.conversationId,
+            home: "matter",
+            note: "Still relevant — kept as live work",
+          },
+          idempotencyKey,
+        );
+        await recordTrainingEvent(
+          ctx.accountId,
+          command.conversationId,
+          "relevance",
+          { relevant: true, ...signal },
+        );
+        return placed;
+      }
+      if (outcome.provider) {
+        const queued = await enqueueMutation(
+          ctx,
+          outcome.provider === "trash" ? "trash" : "archive",
+          command.conversationId,
+          idempotencyKey,
+        );
+        if (!queued.ok) return queued;
+        try {
+          await recordTriageCorrection(
+            ctx,
+            command.conversationId,
+            outcome.home,
+            idempotencyKey,
+          );
+        } catch (cause) {
+          return {
+            ...queued,
+            detail: {
+              ...(queued.detail ?? {}),
+              feedbackError:
+                cause instanceof Error
+                  ? cause.message
+                  : "correction was not recorded",
+            },
+          };
+        }
+        await recordTrainingEvent(
+          ctx.accountId,
+          command.conversationId,
+          "relevance",
+          { relevant: false, reason, ...signal },
+        );
+        return queued;
+      }
+      try {
+        await recordTriageCorrection(
+          ctx,
+          command.conversationId,
+          outcome.home,
+          idempotencyKey,
+        );
+      } catch (cause) {
+        return fail(
+          cause instanceof Error
+            ? cause.message
+            : "correction was not recorded",
+        );
+      }
+      await recordTrainingEvent(
+        ctx.accountId,
+        command.conversationId,
+        "relevance",
+        { relevant: false, reason, ...signal },
+      );
+      return {
+        ok: true,
+        replayed: false,
+        detail: { focusHidden: outcome.focusHidden, home: outcome.home },
+      };
     }
 
     case "forward": {

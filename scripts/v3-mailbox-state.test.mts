@@ -94,8 +94,8 @@ assert.deepEqual(
   );
   assert.match(
     source,
-    /if \(sort !== "triage" \|\| !before\) break/,
-    "a folder stops at one page; triage stops when the queue runs out",
+    /if \(!isWorkQueue\(sort\) \|\| !before\) break/,
+    "a folder stops at one page; triage and focus stop when the queue runs out",
   );
   assert.doesNotMatch(
     source,

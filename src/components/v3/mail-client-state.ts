@@ -34,7 +34,7 @@ export function parseMailHash(hash: string): MailHash {
     section: section && sections.has(section) ? section : undefined,
     conversation: params.get("conversation") ?? undefined,
     query: params.get("q") ?? undefined,
-    sort: sort === "date" || sort === "triage" ? sort : undefined,
+    sort: sort === "date" || sort === "triage" || sort === "focus" ? sort : undefined,
   };
 }
 

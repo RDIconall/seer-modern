@@ -4,10 +4,10 @@ export type MailboxFolder = "inbox" | "sent" | "trash";
 
 /**
  * How the list is ordered. `date` is a mail client's newest-first. `triage` is
- * the smart filter: most likely to delete first, ordered by the durable
- * decision behind each row rather than by when it arrived.
+ * the smart filter: most likely to delete first. `focus` is the live working
+ * set for Cards: recent, unread, and open matters, never the whole Inbox.
  */
-export type MailboxSort = "date" | "triage";
+export type MailboxSort = "date" | "triage" | "focus";
 
 export type MailboxRow = {
   conversationId: string;

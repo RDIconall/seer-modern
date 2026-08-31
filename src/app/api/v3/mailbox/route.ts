@@ -5,7 +5,7 @@ import { getMailboxView } from "@/lib/v3/mailbox/repository";
 import type { MailboxFolder, MailboxSort } from "@/lib/v3/mailbox/types";
 
 const FOLDERS = new Set<MailboxFolder>(["inbox", "sent", "trash"]);
-const SORTS = new Set<MailboxSort>(["date", "triage"]);
+const SORTS = new Set<MailboxSort>(["date", "triage", "focus"]);
 
 export const dynamic = "force-dynamic";
 

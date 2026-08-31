@@ -2,10 +2,12 @@
 
 import * as React from "react";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { Archive, Check, RotateCcw, Trash2 } from "lucide-react";
+import { Archive, Check, RotateCcw, Trash2, X } from "lucide-react";
 import type { Command } from "@/lib/v2/commands/types";
+import type { IrrelevanceReason } from "@/lib/v2/intelligence/mailbox-style";
 import type { MailboxRow } from "@/lib/v3/mailbox/types";
 import {
+  commandForRelevance,
   commandForVerdict,
   currentCard,
   deckFrom,
@@ -18,18 +20,14 @@ import {
   type DeckVerdict,
 } from "./triage-deck";
 
-/**
- * Triage as a deck.
- *
- * The list makes you decide what to look at before you decide what to do, and
- * over four hundred rows that first decision is the expensive one. A deck takes
- * it away: the next card is simply the next card, and a verdict costs one
- * gesture. Swipe right to put it on Atlas, left to clear it — and "clear" is
- * archive unless the server authorized a delete, so the fast gesture can never
- * reach further than the button would.
- */
-
 const COMMIT_PX = 120;
+
+const WHY: { id: IrrelevanceReason; label: string; hint: string }[] = [
+  { id: "taken_care_of", label: "Taken care of", hint: "Done — keep findable" },
+  { id: "ended", label: "It ended", hint: "The work is finished" },
+  { id: "never_was", label: "Never was", hint: "Not live work" },
+  { id: "not_for_me", label: "Not for me", hint: "FYI or wrong desk" },
+];
 
 export function TriageCards({
   rows,
@@ -45,9 +43,8 @@ export function TriageCards({
   const [deck, setDeck] = useState<DeckState>(() => deckFrom(rows));
   const [dragX, setDragX] = useState(0);
   const [dragging, setDragging] = useState(false);
+  const [whyOpen, setWhyOpen] = useState(false);
 
-  // New mail arriving must not deal a card the user already decided, nor lose
-  // their place in the queue.
   useEffect(() => {
     setDeck((previous) => reconcile(previous, rows));
   }, [rows]);
@@ -56,20 +53,32 @@ export function TriageCards({
   const behind = useMemo(() => upcoming(deck), [deck]);
   const total = deck.queue.length;
 
+  const commitRelevance = useCallback(
+    (relevant: boolean, reason?: IrrelevanceReason | null) => {
+      const row = currentCard(deck);
+      if (!row) return;
+      setDragX(0);
+      setWhyOpen(false);
+      setDeck((previous) => decide(previous, relevant ? "matter" : "archive"));
+      const command = commandForRelevance(row, relevant, reason);
+      void onCommands([{ command, conversationId: row.conversationId }]);
+    },
+    [deck, onCommands],
+  );
+
   const commit = useCallback(
     (verdict: DeckVerdict) => {
       const row = currentCard(deck);
       if (!row) return;
       setDragX(0);
+      setWhyOpen(false);
       setDeck((previous) => decide(previous, verdict));
       const command = commandForVerdict(row, verdict);
-      if (command) void onCommands([{ command, conversationId: row.conversationId }]);
+      void onCommands([{ command, conversationId: row.conversationId }]);
     },
     [deck, onCommands],
   );
 
-  // Direction lock: a card only moves when the drag is deliberately sideways,
-  // so triaging never fights the scroll of the page underneath.
   const start = useRef<{ x: number; y: number } | null>(null);
   const horizontal = useRef<boolean | null>(null);
 
@@ -97,21 +106,25 @@ export function TriageCards({
     horizontal.current = null;
     setDragging(false);
     if (!armed) return setDragX(0);
-    if (dx > COMMIT_PX) return commit("matter");
-    if (dx < -COMMIT_PX) return commit("delete");
+    if (dx > COMMIT_PX) return commitRelevance(true);
+    if (dx < -COMMIT_PX) {
+      setDragX(0);
+      setWhyOpen(true);
+      return;
+    }
     setDragX(0);
   };
 
   useEffect(() => {
     const onKey = (event: KeyboardEvent) => {
-      if (event.key === "ArrowRight") commit("matter");
-      else if (event.key === "ArrowLeft") commit("delete");
+      if (event.key === "ArrowRight" || event.key === "y") commitRelevance(true);
+      else if (event.key === "ArrowLeft" || event.key === "n") setWhyOpen(true);
       else if (event.key === "e") commit("archive");
       else if (event.key === "Escape") onExit();
     };
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
-  }, [commit, onExit]);
+  }, [commit, commitRelevance, onExit]);
 
   if (isFinished(deck) || !card) {
     return (
@@ -149,6 +162,8 @@ export function TriageCards({
         </button>
       </header>
 
+      <p className="deck-prompt">Is this still relevant?</p>
+
       <div className="deck-stage">
         {behind.map((row, depth) => (
           <article
@@ -175,12 +190,11 @@ export function TriageCards({
           onPointerUp={endDrag}
           onPointerCancel={endDrag}
         >
-          {/* What the gesture will do, named before it happens. */}
           <span className="deck-verdict deck-verdict-clear" data-on={clearing}>
-            Delete
+            Not relevant
           </span>
           <span className="deck-verdict deck-verdict-keep" data-on={keeping}>
-            Atlas
+            Still relevant
           </span>
           <button type="button" className="deck-open" onClick={() => onOpen(card)}>
             <CardFace row={card} />
@@ -188,27 +202,47 @@ export function TriageCards({
         </div>
       </div>
 
-      {/* Round buttons on the field, labelled underneath. The deck is worked
-          with the thumb, so the targets are big and the words say what will
-          happen rather than naming a mode. */}
-      <div className="deck-actions">
-        <DeckAction label="Delete" onClick={() => commit("delete")}>
-          <Trash2 aria-hidden />
-        </DeckAction>
-        <DeckAction label="Archive" onClick={() => commit("archive")}>
-          <Archive aria-hidden />
-        </DeckAction>
-        <DeckAction label="Atlas" primary onClick={() => commit("matter")}>
-          <Check aria-hidden />
-        </DeckAction>
-        <DeckAction
-          label="Undo"
-          disabled={!deck.last}
-          onClick={() => setDeck(undoLast)}
-        >
-          <RotateCcw aria-hidden />
-        </DeckAction>
-      </div>
+      {whyOpen ? (
+        <div className="deck-why-sheet" role="group" aria-label="Why not relevant">
+          <p className="deck-why-title">Why not?</p>
+          {WHY.map((item) => (
+            <button
+              key={item.id}
+              type="button"
+              className="deck-why-option"
+              onClick={() => commitRelevance(false, item.id)}
+            >
+              <span>{item.label}</span>
+              <span className="deck-why-hint">{item.hint}</span>
+            </button>
+          ))}
+          <button type="button" className="deck-why-cancel" onClick={() => setWhyOpen(false)}>
+            Cancel
+          </button>
+        </div>
+      ) : (
+        <div className="deck-actions">
+          <DeckAction label="No" onClick={() => setWhyOpen(true)}>
+            <X aria-hidden />
+          </DeckAction>
+          <DeckAction label="Yes" primary onClick={() => commitRelevance(true)}>
+            <Check aria-hidden />
+          </DeckAction>
+          <DeckAction label="Archive" onClick={() => commit("archive")}>
+            <Archive aria-hidden />
+          </DeckAction>
+          <DeckAction label="Delete" onClick={() => commit("delete")}>
+            <Trash2 aria-hidden />
+          </DeckAction>
+          <DeckAction
+            label="Undo"
+            disabled={!deck.last}
+            onClick={() => setDeck(undoLast)}
+          >
+            <RotateCcw aria-hidden />
+          </DeckAction>
+        </div>
+      )}
     </section>
   );
 }
@@ -242,11 +276,6 @@ function DeckAction({
 
 const initialOf = (name: string) => (name.trim()[0] ?? "?").toUpperCase();
 
-/**
- * One card. The sender identifies it, the middle says what it is in the largest
- * type on the card, and the preview sits under that in a quieter voice. Nothing
- * competes with the one line that tells you whether to keep it.
- */
 function CardFace({ row }: { row: MailboxRow }) {
   const sender = row.senderDisplayName || "Unknown sender";
   return (
