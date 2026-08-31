@@ -11,7 +11,7 @@ import { conversationsNeedingRead } from "../src/lib/v2/intelligence/queue.ts";
 import { loadContextInput } from "../src/lib/v2/intelligence/context-loader.ts";
 import { saveDecision } from "../src/lib/v2/intelligence/repository.ts";
 import {
-  perAccountReadLimit,
+  READ_TICK_ACCOUNT_LIMIT,
   runReadTick,
 } from "../src/lib/v2/intelligence/read-tick.ts";
 import { asConversationId, type AccountId } from "../src/lib/v2/db/types.ts";
@@ -71,10 +71,7 @@ async function recordUsage(
   }
 }
 
-assert.equal(perAccountReadLimit(0), 16);
-assert.equal(perAccountReadLimit(1), 120);
-assert.equal(perAccountReadLimit(3), 40);
-assert.equal(perAccountReadLimit(10), 16);
+assert.equal(READ_TICK_ACCOUNT_LIMIT, 200);
 
 const db = await startTestDb();
 try {
@@ -129,9 +126,13 @@ try {
       return archive;
     },
   });
-  assert.equal(report[0]?.email, "quiet-desk@example.com");
-  assert.equal(report[0]?.decided, 1);
-  assert.equal(seen[0], quiet);
+  assert.equal(report.length, 3);
+  assert.equal(
+    report.find((row) => row.email === "quiet-desk@example.com")?.decided,
+    1,
+  );
+  assert.ok(seen.includes(quiet), "the quiet desk must get a pipe this tick");
+  assert.equal(seen.length, 3, "every mailbox is read in parallel, not queued");
   const afterFirst = await db.pool.query<{ home: string }>(
     `select home from seer.conversation_decisions
       where conversation_id = $1 and is_current`,
@@ -226,6 +227,39 @@ try {
   assert.ok(
     withFresh.some((id) => String(id) === fresh),
     "mail that has never been attempted stays at the front of the queue",
+  );
+
+  const slowId = await upsertAccount({
+    userId,
+    provider: "google",
+    email: "slow-pipe@example.com",
+  });
+  const fastId = await upsertAccount({
+    userId,
+    provider: "google",
+    email: "fast-pipe@example.com",
+  });
+  await addInbox(db.pool, slowId, "slow-1", "2026-08-31T02:00:00Z");
+  await addInbox(db.pool, fastId, "fast-1", "2026-08-31T02:00:00Z");
+  const pipes = (await listAccountsForRead()).filter(
+    (account) => account.email.endsWith("-pipe@example.com"),
+  );
+  const isolated = await runReadTick({
+    deadlineMs: Date.now() + 400,
+    accounts: pipes.sort((a, b) => a.email.localeCompare(b.email)).reverse(),
+    perAccountLimit: 8,
+    concurrency: 1,
+    model: async (input) => {
+      if (input.accountId === slowId) {
+        await new Promise((resolve) => setTimeout(resolve, 800));
+      }
+      return archive;
+    },
+  });
+  assert.equal(
+    isolated.find((row) => row.email === "fast-pipe@example.com")?.decided,
+    1,
+    "a slow inbox must not block a sibling mailbox's pipe",
   );
 
   // Supplementary context tables must not take the whole desk down.

@@ -12,17 +12,26 @@ const report = await fs.readFile(
   path.join(root, "src/lib/v2/sync/report.ts"),
   "utf8",
 );
+const fanOut = await fs.readFile(
+  path.join(root, "src/lib/v2/cron/fan-out.ts"),
+  "utf8",
+);
 
-assert.match(route, /activeSyncFolders|syncFoldersForTick/);
+assert.match(route, /activeSyncFolders/);
 assert.match(
   route,
-  /syncTickRoundRobin\([\s\S]*activeFolders/,
-  "the route must pass the active-folder policy into the tick",
+  /fanOutPerAccount/,
+  "the sync cron must start one pipe per mailbox",
 );
 assert.match(
-  report,
-  /maxPages:\s*1/,
-  "round-robin slices must keep the inbox page budget available",
+  route,
+  /syncAccountFolders/,
+  "each mailbox worker must sync its own folders under its own deadline",
+);
+assert.match(
+  fanOut,
+  /accountId/,
+  "fan-out workers are addressed by account id, not a shared tick",
 );
 assert.match(report, /pagesPerFolder|DEFAULT_PAGES_PER_FOLDER/);
 
