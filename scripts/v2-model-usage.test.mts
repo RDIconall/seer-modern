@@ -7,7 +7,9 @@ import {
 } from "../src/lib/v2/db/accounts.ts";
 import {
   recordModelUsage,
+  withinDailyBudget,
   withinDailyCallLimit,
+  withinDailySpendLimit,
 } from "../src/lib/v2/intelligence/model-usage.ts";
 
 const database = await startTestDb();
@@ -68,6 +70,31 @@ try {
     else process.env.SEER_FAST_DAILY_CALL_LIMIT = oldFast;
     if (oldStrong === undefined) delete process.env.SEER_STRONG_DAILY_CALL_LIMIT;
     else process.env.SEER_STRONG_DAILY_CALL_LIMIT = oldStrong;
+  }
+
+  const oldSpend = process.env.SEER_DAILY_SPEND_LIMIT_USD;
+  try {
+    process.env.SEER_DAILY_SPEND_LIMIT_USD = "0.001";
+    assert.equal(
+      await withinDailySpendLimit(accountId),
+      false,
+      "recorded $0.0012 exceeds a $0.001 spend cap",
+    );
+    process.env.SEER_DAILY_SPEND_LIMIT_USD = "1";
+    assert.equal(await withinDailySpendLimit(accountId), true);
+    process.env.SEER_FAST_DAILY_CALL_LIMIT = "100";
+    assert.equal(await withinDailyBudget(accountId, "fast"), true);
+    process.env.SEER_DAILY_SPEND_LIMIT_USD = "0.001";
+    assert.equal(
+      await withinDailyBudget(accountId, "fast"),
+      false,
+      "spend cap fails the combined daily budget even when calls remain",
+    );
+  } finally {
+    if (oldFast === undefined) delete process.env.SEER_FAST_DAILY_CALL_LIMIT;
+    else process.env.SEER_FAST_DAILY_CALL_LIMIT = oldFast;
+    if (oldSpend === undefined) delete process.env.SEER_DAILY_SPEND_LIMIT_USD;
+    else process.env.SEER_DAILY_SPEND_LIMIT_USD = oldSpend;
   }
 
   console.log("v2-model-usage: OK");

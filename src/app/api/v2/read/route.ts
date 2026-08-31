@@ -1,6 +1,11 @@
-import { NextResponse } from "next/server";
+import { NextResponse, after } from "next/server";
 import { cronUnauthorized } from "@/lib/v2/cron/auth";
+import { kickNextHop, shouldContinueRead } from "@/lib/v2/cron/continue";
 import { fanOutPerAccount } from "@/lib/v2/cron/fan-out";
+import {
+  claimWorkerLease,
+  releaseWorkerLease,
+} from "@/lib/v2/cron/lease";
 import { listAccountsForRead } from "@/lib/v2/db/list-accounts";
 import { asAccountId, isUuid } from "@/lib/v2/db/types";
 import { defaultReaderModel } from "@/lib/v2/intelligence/model";
@@ -14,8 +19,8 @@ export const maxDuration = 300;
 
 /**
  * Read cron. The schedule hits this URL once; with no accountId it starts one
- * worker invocation per mailbox so each inbox has its own 250s pipe. The
- * worker (`?accountId=`) is the same route and is not itself a dispatcher.
+ * worker invocation per mailbox so each inbox has its own 250s pipe. A worker
+ * that still has unread mail kicks the next hop so a large desk drains today.
  */
 export async function GET(request: Request) {
   const denied = cronUnauthorized(request);
@@ -33,11 +38,32 @@ export async function GET(request: Request) {
     if (!account) {
       return NextResponse.json({ error: "account not found" }, { status: 404 });
     }
-    const report = await runReadAccount(account, {
-      deadlineMs,
-      model: defaultReaderModel,
-    });
-    return NextResponse.json({ ok: !report.error, report: [report] });
+    const held = await claimWorkerLease(account.id, "read");
+    if (!held) {
+      return NextResponse.json({
+        ok: true,
+        continued: false,
+        report: [{ email: account.email, skipped: "lease" }],
+      });
+    }
+    try {
+      const report = await runReadAccount(account, {
+        deadlineMs,
+        model: defaultReaderModel,
+      });
+      const continued = shouldContinueRead(report);
+      if (continued) {
+        const auth = request.headers.get("authorization");
+        after(() => kickNextHop(request.url, auth));
+      }
+      return NextResponse.json({
+        ok: !report.error,
+        continued,
+        report: [report],
+      });
+    } finally {
+      await releaseWorkerLease(account.id, "read");
+    }
   }
 
   const accounts = await listAccountsForRead();

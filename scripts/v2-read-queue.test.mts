@@ -71,7 +71,7 @@ async function recordUsage(
   }
 }
 
-assert.equal(READ_TICK_ACCOUNT_LIMIT, 200);
+assert.equal(READ_TICK_ACCOUNT_LIMIT, 400);
 
 const db = await startTestDb();
 try {

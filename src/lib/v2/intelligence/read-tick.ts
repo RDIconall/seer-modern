@@ -10,9 +10,22 @@ import { readBatch, type ReadBatchResult } from "./read-batch";
  * per inbox so desks do not share a serverless time budget.
  */
 
-export const READ_TICK_ACCOUNT_LIMIT = 200;
-export const READ_TICK_CONCURRENCY = 6;
+export const READ_TICK_ACCOUNT_LIMIT = 400;
+export const READ_TICK_CONCURRENCY = 8;
 export const READ_TICK_MS = 250_000;
+
+function envInt(name: string, fallback: number): number {
+  const raw = Number(process.env[name] ?? fallback);
+  return Number.isFinite(raw) && raw > 0 ? raw : fallback;
+}
+
+export function readTickLimit(): number {
+  return envInt("SEER_READ_TICK_LIMIT", READ_TICK_ACCOUNT_LIMIT);
+}
+
+export function readTickConcurrency(): number {
+  return envInt("SEER_READ_TICK_CONCURRENCY", READ_TICK_CONCURRENCY);
+}
 
 export type ReadTickReport = {
   email: string;
@@ -33,8 +46,8 @@ export async function runReadAccount(
     concurrency?: number;
   },
 ): Promise<ReadTickReport> {
-  const limit = options.perAccountLimit ?? READ_TICK_ACCOUNT_LIMIT;
-  const concurrency = options.concurrency ?? READ_TICK_CONCURRENCY;
+  const limit = options.perAccountLimit ?? readTickLimit();
+  const concurrency = options.concurrency ?? readTickConcurrency();
   try {
     const result: ReadBatchResult = await readBatch(
       account.id,
