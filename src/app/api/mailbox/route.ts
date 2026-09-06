@@ -20,7 +20,6 @@ import {
   listGraphFolder,
   searchGraph,
 } from "@/lib/mail/graph";
-import { makeGmailLabelStore } from "@/lib/mail/seer-labels";
 import { requireMailSession } from "@/lib/mail/session";
 import type { MailFolder, MailMessageListItem } from "@/lib/mail/types";
 import { getSenderOverride } from "@/lib/store/senders";
@@ -83,7 +82,7 @@ export async function GET(request: Request) {
       | undefined;
 
     if (shouldClassify) {
-      const [history, personal, actionMemory, labels, profile, replied] =
+      const [history, personal, actionMemory, profile, replied] =
         await Promise.all([
           getOrBuildMailHistory(
             session.email,
@@ -111,9 +110,6 @@ export async function GET(request: Request) {
             provider: session.provider,
           }),
           loadActionMemory(session.email),
-          session.provider === "google"
-            ? makeGmailLabelStore(session.accessToken, session.email)
-            : Promise.resolve(null),
           loadUserProfile(session.email),
           loadRepliedThreads(session.email),
         ]);
@@ -126,7 +122,6 @@ export async function GET(request: Request) {
           fromName: m.fromName,
           subject: m.subject,
           snippet: m.snippet,
-          labelIds: m.labelIds,
           threadId: m.threadId,
           receivedAt: m.receivedAt,
         })),
@@ -136,7 +131,6 @@ export async function GET(request: Request) {
         {
           personal,
           actionMemory,
-          labels,
           profile,
           replied,
           threadLast:

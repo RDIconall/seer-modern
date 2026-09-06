@@ -124,7 +124,7 @@ Legend:
 | Salesforce (deals, study codes, amounts, exemplars) | ✅ | ❌ |
 | Google/Microsoft contacts + calendar | ✅ | 🟡 people graph seeded once from legacy data |
 | iMessage (BlueBubbles) | ✅ | ❌ |
-| Gmail labels as decision cache | ✅ | ✅ replaced by durable provider-neutral decisions |
+| Gmail labels as decision cache | ✅ | ❌ removed; durable provider-neutral decisions |
 
 ## 9. Where v2 has no legacy equivalent
 
