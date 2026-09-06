@@ -28,7 +28,6 @@ import { ReaderPane } from "./ReaderPane";
 import { SeerMark } from "./SeerMark";
 import { Settings } from "./Settings";
 import { TriageCards } from "./TriageCards";
-import { MailboxStyleSetup } from "./MailboxStyleSetup";
 import { MobileMailboxList } from "./MobileMailboxList";
 import { fetchSearch, SearchBox, type SearchResult } from "./SearchBox";
 import { SearchRequestGuard } from "./search-request";
@@ -1051,18 +1050,6 @@ export function MailClient({
 
   return (
     <div className="mail-client" data-reader-open={conversationId ? "true" : "false"}>
-      {!preview && (
-        <MailboxStyleSetup
-          onCommand={async (command) => {
-            const [result] = await runCommands([command]);
-            if (!result?.ok) {
-              throw new Error(result?.error ?? "Could not save");
-            }
-          }}
-          onDone={() => {}}
-          onContinue={() => navigate("triage")}
-        />
-      )}
       <Navigation
         active={section}
         onNavigate={navigate}
