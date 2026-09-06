@@ -1,6 +1,5 @@
 import { PROMPT_VERSION } from "@/lib/inbox/gemini-triage";
 import { ACTION_META, type TriageAction } from "@/lib/inbox/classify";
-import { makeGmailLabelStore } from "@/lib/mail/seer-labels";
 import { requireMailSession } from "@/lib/mail/session";
 import {
   loadDecisions,
@@ -21,8 +20,7 @@ const ALLOWED = new Set<TriageAction>([
  * Correct ONE email, not the sender. "This LA28 presale is actionable"
  * must not teach "tickets@la28.org is always urgent" — the exception is
  * the point. The correction is stored as a user-sourced decision (top
- * of the chain: urgency decay and every floor respect it) and saved as
- * the message's Gmail label.
+ * of the chain: urgency decay and every floor respect it).
  */
 export async function POST(request: Request) {
   try {
@@ -61,14 +59,6 @@ export async function POST(request: Request) {
     // Merge into the cache without clobbering unrelated entries
     await loadDecisions(session.email, [], PROMPT_VERSION).catch(() => null);
     await saveDecisions(session.email, new Map([[body.id, decision]]));
-
-    if (session.provider === "google") {
-      const labels = await makeGmailLabelStore(
-        session.accessToken,
-        session.email,
-      ).catch(() => null);
-      await labels?.persist([{ id: body.id, action }]).catch(() => {});
-    }
 
     return NextResponse.json({ ok: true, action, task: decision.task });
   } catch (e) {

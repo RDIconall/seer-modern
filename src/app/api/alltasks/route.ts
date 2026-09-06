@@ -21,7 +21,6 @@ import {
   listGraphFolder,
   listGraphInbox,
 } from "@/lib/mail/graph";
-import { makeGmailLabelStore } from "@/lib/mail/seer-labels";
 import { requireMailSession } from "@/lib/mail/session";
 import { getSenderOverride } from "@/lib/store/senders";
 import { NextResponse } from "next/server";
@@ -42,7 +41,7 @@ export async function GET() {
         ? await listGmailInbox(session.accessToken, 30)
         : await listGraphInbox(session.accessToken, 30);
 
-    const [history, personal, actionMemory, labels, profile, replied] =
+    const [history, personal, actionMemory, profile, replied] =
       await Promise.all([
         getOrBuildMailHistory(
           session.email,
@@ -70,9 +69,6 @@ export async function GET() {
           provider: session.provider,
         }),
         loadActionMemory(session.email),
-        session.provider === "google"
-          ? makeGmailLabelStore(session.accessToken, session.email)
-          : Promise.resolve(null),
         loadUserProfile(session.email),
         loadRepliedThreads(session.email),
       ]);
@@ -85,7 +81,6 @@ export async function GET() {
         fromName: m.fromName,
         subject: m.subject,
         snippet: m.snippet,
-        labelIds: m.labelIds,
         threadId: m.threadId,
         receivedAt: m.receivedAt,
       })),
@@ -95,7 +90,6 @@ export async function GET() {
       {
         personal,
         actionMemory,
-        labels,
         profile,
         replied,
         threadLast:

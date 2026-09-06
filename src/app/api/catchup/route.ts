@@ -9,7 +9,6 @@ import {
   searchGmail,
 } from "@/lib/mail/gmail";
 import { listGraphFolder } from "@/lib/mail/graph";
-import { makeGmailLabelStore } from "@/lib/mail/seer-labels";
 import { requireMailSession } from "@/lib/mail/session";
 import { markOpened, readLastOpen } from "@/lib/store/last-open";
 import { getSenderOverride } from "@/lib/store/senders";
@@ -53,33 +52,28 @@ export async function GET() {
       return NextResponse.json({ quiet: true, newCount: fresh.length });
     }
 
-    const [history, labels] = await Promise.all([
-      getOrBuildMailHistory(
-        session.email,
-        session.accessToken,
-        {
-          listFolder: (t, f, max) =>
-            session.provider === "google"
-              ? listGmailFolder(t, f, max)
-              : listGraphFolder(t, f, max),
-          listArchive:
-            session.provider === "google"
-              ? (t, max) =>
-                  searchGmail(
-                    t,
-                    "-in:inbox -in:sent -in:trash -in:spam is:read",
-                    max,
-                  )
-              : undefined,
-        },
-        raw,
-      ),
-      session.provider === "google"
-        ? makeGmailLabelStore(session.accessToken, session.email)
-        : Promise.resolve(null),
-    ]);
+    const history = await getOrBuildMailHistory(
+      session.email,
+      session.accessToken,
+      {
+        listFolder: (t, f, max) =>
+          session.provider === "google"
+            ? listGmailFolder(t, f, max)
+            : listGraphFolder(t, f, max),
+        listArchive:
+          session.provider === "google"
+            ? (t, max) =>
+                searchGmail(
+                  t,
+                  "-in:inbox -in:sent -in:trash -in:spam is:read",
+                  max,
+                )
+            : undefined,
+      },
+      raw,
+    );
 
-    // Cache/labels serve instantly for anything the background pipeline
+    // Cache serves instantly for anything the background pipeline
     // already graded; the remainder returns provisional (still useful).
     const decisions = await classifyInboxWithAssistant(
       session.email,
@@ -89,7 +83,6 @@ export async function GET() {
         fromName: m.fromName,
         subject: m.subject,
         snippet: m.snippet,
-        labelIds: m.labelIds,
         threadId: m.threadId,
         receivedAt: m.receivedAt,
       })),
@@ -97,7 +90,6 @@ export async function GET() {
       (email) => getSenderOverride(email),
       classifyMessage,
       {
-        labels,
         geminiEnabled: false,
         threadLast:
           session.provider === "google"
