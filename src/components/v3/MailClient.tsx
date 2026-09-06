@@ -1060,7 +1060,7 @@ export function MailClient({
             }
           }}
           onDone={() => {}}
-          onTrain={() => navigate("cards")}
+          onContinue={() => navigate("triage")}
         />
       )}
       <Navigation

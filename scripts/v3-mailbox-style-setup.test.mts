@@ -1,9 +1,10 @@
 /**
- * Gate: the first-run train modal must unmount after save.
+ * Gate: the first-run style overlay must unmount after save, and it must
+ * send a large mailbox to Triage — not Cards.
  *
- * "Save and train on Cards" used to only navigate. The overlay reads
- * `data.confirmed` from the load on mount, which stayed false, so the
- * dialog sat on the Cards deck and could not be dismissed.
+ * Cards is one-thread training. On a never-archive Inbox that is hundreds
+ * of live threads; the overlay used to dump the user there and leave itself
+ * up. Triage is the classified pile that can actually be cleared.
  */
 import assert from "node:assert/strict";
 import { readFile } from "node:fs/promises";
@@ -86,9 +87,36 @@ assert.match(
   "overlay visibility must use the shared dismiss rule",
 );
 
+assert.match(
+  setup,
+  /Save and open Triage/,
+  "confirm continues into Triage, the pile that can clear a large mailbox",
+);
+assert.doesNotMatch(
+  setup,
+  /[Tt]rain on Cards/,
+  "Cards one-by-one training is not the first-run path",
+);
+assert.match(
+  setup,
+  /Triage[\s\S]{0,80}clear/,
+  "the map must say Triage is where mail is cleared",
+);
+assert.doesNotMatch(
+  setup,
+  /Cards[\s\S]{0,40}still relevant/,
+  "do not sell Cards as the training question in first-run",
+);
+assert.doesNotMatch(setup, /Train again/);
+assert.match(
+  setup,
+  /#section=triage/,
+  "Settings continue must open Triage, not Cards",
+);
+
 const client = await readFile("src/components/v3/MailClient.tsx", "utf8");
 const overlay = client.match(
-  /<MailboxStyleSetup[\s\S]*?onTrain=\{[\s\S]*?\}/,
+  /<MailboxStyleSetup[\s\S]*?onContinue=\{[\s\S]*?\}/,
 );
 assert.ok(overlay, "MailClient mounts the overlay");
 assert.match(
@@ -97,5 +125,11 @@ assert.match(
   "a failed confirm must throw so the overlay stays and shows the error",
 );
 assert.match(overlay[0], /throw new Error/);
+assert.match(
+  overlay[0],
+  /navigate\(["']triage["']\)/,
+  "save continues to Triage, not the Cards deck",
+);
+assert.doesNotMatch(overlay[0], /navigate\(["']cards["']\)/);
 
 console.log("v3-mailbox-style-setup: OK");

@@ -2,7 +2,7 @@
  * When the first-run overlay stays on screen.
  *
  * Confirmed state lives on the payload loaded at mount. Saving must flip that
- * payload locally; navigating to Cards is not a dismiss.
+ * payload locally; navigating away is not a dismiss.
  */
 
 export type MailboxStyleOverlayData = {
