@@ -9,6 +9,10 @@ import type {
   StyleInference,
 } from "@/lib/v2/intelligence/mailbox-style";
 import { fetchFresh } from "@/lib/v3/net/fetch";
+import {
+  applyConfirmedMailboxStyle,
+  mailboxStyleOverlayOpen,
+} from "./mailbox-style-setup";
 
 type StyleResponse = {
   clearHabit: ClearHabit;
@@ -24,12 +28,12 @@ type StyleResponse = {
 export function MailboxStyleSetup({
   onCommand,
   onDone,
-  onTrain,
+  onContinue,
   force,
 }: {
   onCommand: (command: Command) => Promise<unknown>;
   onDone: () => void;
-  onTrain: () => void;
+  onContinue: () => void;
   force?: boolean;
 }) {
   const [data, setData] = useState<StyleResponse | null>(null);
@@ -59,10 +63,9 @@ export function MailboxStyleSetup({
     });
   }, [load]);
 
-  if (data && data.confirmed && !force && !data.driftPrompt) return null;
-  if (!data && !error) return null;
+  if (!mailboxStyleOverlayOpen({ data, error, force })) return null;
 
-  async function confirm(andTrain: boolean) {
+  async function confirm(openTriage: boolean) {
     setBusy(true);
     setError(null);
     try {
@@ -72,7 +75,10 @@ export function MailboxStyleSetup({
         importanceCues: [importance],
         matterBar,
       });
-      if (andTrain) onTrain();
+      setData((current) =>
+        current ? applyConfirmedMailboxStyle(current) : current,
+      );
+      if (openTriage) onContinue();
       else onDone();
     } catch (cause) {
       setError(cause instanceof Error ? cause.message : "Could not save");
@@ -95,10 +101,8 @@ export function MailboxStyleSetup({
                 first — including everything you never archived.
               </li>
               <li>
-                <strong>Triage</strong> is decisions: clear noise, keep records.
-              </li>
-              <li>
-                <strong>Cards</strong> ask one question: is this still relevant?
+                <strong>Triage</strong> is the pile Seer already sorted for
+                clearing — that is how a large mailbox gets smaller.
               </li>
               <li>
                 <strong>Atlas</strong> is only live work, not your whole Inbox.
@@ -166,7 +170,7 @@ export function MailboxStyleSetup({
                 disabled={busy}
                 onClick={() => void confirm(true)}
               >
-                Save and train on Cards
+                Save and open Triage
               </button>
               <button
                 type="button"
@@ -174,7 +178,7 @@ export function MailboxStyleSetup({
                 disabled={busy}
                 onClick={() => void confirm(false)}
               >
-                Save and skip training
+                Save
               </button>
             </div>
           </>
@@ -233,7 +237,7 @@ export function MailboxStyleSettings() {
       )}
       <div className="style-setup-actions">
         <button type="button" className="mail-settings-button" onClick={() => setOpen(true)}>
-          Train again
+          Update how you use mail
         </button>
         {data?.driftPrompt && (
           <button
@@ -253,9 +257,9 @@ export function MailboxStyleSettings() {
             setOpen(false);
             void load();
           }}
-          onTrain={() => {
+          onContinue={() => {
             setOpen(false);
-            window.location.hash = "#section=cards";
+            window.location.hash = "#section=triage";
           }}
         />
       )}
