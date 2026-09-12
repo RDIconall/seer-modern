@@ -1,7 +1,9 @@
-import { providerFetch, type ProviderHttpOptions } from "./http";
 import {
-  conversationFetchNotFound,
-  gmailMutationAlreadyApplied,
+  ProviderHttpError,
+  providerFetch,
+  type ProviderHttpOptions,
+} from "./http";
+import {
   mutationErrorIsNoOp,
 } from "./mutation-idempotent";
 import { nativeUrlFor } from "./native-url";
@@ -55,6 +57,20 @@ type GmailMessage = {
   payload?: GmailPart & { headers?: GmailHeader[] };
 };
 type GmailThread = { id: string; messages?: GmailMessage[] };
+type GmailHistoryMessage = { message?: { id?: string; threadId?: string } };
+type GmailHistoryRecord = {
+  messages?: { id?: string; threadId?: string }[];
+  messagesAdded?: GmailHistoryMessage[];
+  messagesDeleted?: GmailHistoryMessage[];
+  labelsAdded?: GmailHistoryMessage[];
+  labelsRemoved?: GmailHistoryMessage[];
+};
+
+export type GmailHistorySync = {
+  conversations: Conversation[];
+  removedConversationIds: string[];
+  historyId: string;
+};
 
 export type GmailDeps = {
   accessToken: string;
@@ -163,18 +179,25 @@ export class GmailProvider implements MailProvider {
     )) as T;
   }
 
-  private async thread(id: string, context?: SyncContext): Promise<Conversation> {
+  private async rawThread(id: string, context?: SyncContext): Promise<GmailThread> {
     assertSyncBudget(context);
-    const t = await this.get<GmailThread>(`/threads/${id}?format=full`, context);
+    return this.get<GmailThread>(`/threads/${id}?format=full`, context);
+  }
+
+  private toConversation(t: GmailThread): Conversation {
     const messages = (t.messages ?? [])
       .map((m) => toMessage(m, this.deps.accountEmail))
       .sort((a, b) => a.sentAt.localeCompare(b.sentAt));
     return {
-      providerConversationId: id,
+      providerConversationId: t.id,
       subject: header(t.messages?.[0]?.payload?.headers, "subject"),
       messages,
       lastMessageAt: messages[messages.length - 1]?.sentAt ?? "",
     };
+  }
+
+  private async thread(id: string, context?: SyncContext): Promise<Conversation> {
+    return this.toConversation(await this.rawThread(id, context));
   }
 
   private folderQuery(folder: SyncFolder): string {
@@ -219,6 +242,75 @@ export class GmailProvider implements MailProvider {
       // Gmail thread-list estimate — not an exact conversation count.
       providerTotal: list.resultSizeEstimate ?? conversations.length,
     };
+  }
+
+  async currentHistoryId(context?: SyncContext): Promise<string> {
+    const profile = await this.get<{ historyId?: string }>("/profile", context);
+    if (!profile.historyId) {
+      throw new Error("Gmail profile did not return a historyId");
+    }
+    return profile.historyId;
+  }
+
+  async syncHistory(
+    startHistoryId: string,
+    context?: SyncContext,
+  ): Promise<GmailHistorySync> {
+    const changedThreadIds = new Set<string>();
+    let pageToken: string | undefined;
+    let historyId = startHistoryId;
+
+    do {
+      assertSyncBudget(context);
+      const page = await this.get<{
+        history?: GmailHistoryRecord[];
+        nextPageToken?: string;
+        historyId?: string;
+      }>(
+        `/history?startHistoryId=${encodeURIComponent(startHistoryId)}&maxResults=500` +
+          (pageToken ? `&pageToken=${encodeURIComponent(pageToken)}` : ""),
+        context,
+      );
+      for (const record of page.history ?? []) {
+        for (const item of [
+          ...(record.messages ?? []).map((message) => ({ message })),
+          ...(record.messagesAdded ?? []),
+          ...(record.messagesDeleted ?? []),
+          ...(record.labelsAdded ?? []),
+          ...(record.labelsRemoved ?? []),
+        ]) {
+          const threadId = item.message?.threadId;
+          if (threadId) changedThreadIds.add(threadId);
+        }
+      }
+      historyId = page.historyId ?? historyId;
+      pageToken = page.nextPageToken;
+    } while (pageToken);
+
+    const conversations: Conversation[] = [];
+    const removedConversationIds: string[] = [];
+    for (const threadId of changedThreadIds) {
+      assertSyncBudget(context);
+      try {
+        const raw = await this.rawThread(threadId, context);
+        const inInbox = (raw.messages ?? []).some((message) =>
+          (message.labelIds ?? []).includes("INBOX"),
+        );
+        if (inInbox) {
+          conversations.push(this.toConversation(raw));
+        } else {
+          removedConversationIds.push(threadId);
+        }
+      } catch (error) {
+        if (error instanceof ProviderHttpError && error.status === 404) {
+          removedConversationIds.push(threadId);
+          continue;
+        }
+        throw error;
+      }
+    }
+
+    return { conversations, removedConversationIds, historyId };
   }
 
   getConversation(id: string): Promise<Conversation> {
@@ -413,44 +505,27 @@ export class GmailProvider implements MailProvider {
     _key: string,
   ): Promise<MutationReceipt> {
     void _key;
-    let raw: GmailThread;
     try {
-      raw = await this.get<GmailThread>(`/threads/${id}?format=full`);
+      if (action === "trash") {
+        await this.post(`/threads/${id}/trash`, {});
+      } else {
+        const body =
+          action === "archive"
+            ? { removeLabelIds: ["INBOX"] }
+            : action === "restore"
+              ? { addLabelIds: ["INBOX"], removeLabelIds: ["TRASH"] }
+              : { addLabelIds: ["UNREAD"] };
+        await this.post(`/threads/${id}/modify`, body);
+      }
     } catch (err) {
-      conversationFetchNotFound(err, "gmail", id);
+      if (!mutationErrorIsNoOp(err)) throw err;
     }
-    const processed: string[] = [];
-    const failed: string[] = [];
-    const body =
-      action === "archive"
-        ? { removeLabelIds: ["INBOX"] }
-        : action === "restore"
-          ? { addLabelIds: ["INBOX"], removeLabelIds: ["TRASH"] }
-          : action === "markUnread"
-            ? { addLabelIds: ["UNREAD"] }
-            : null;
-    for (const m of raw.messages ?? []) {
-      const labels = m.labelIds ?? [];
-      if (gmailMutationAlreadyApplied(action, labels)) {
-        processed.push(m.id);
-        continue;
-      }
-      try {
-        if (action === "trash") {
-          await this.post(`/messages/${m.id}/trash`, {});
-        } else {
-          await this.post(`/messages/${m.id}/modify`, body);
-        }
-        processed.push(m.id);
-      } catch (err) {
-        if (mutationErrorIsNoOp(err)) {
-          processed.push(m.id);
-        } else {
-          failed.push(m.id);
-        }
-      }
-    }
-    return { conversationId: id, action, processed, failed };
+    return {
+      conversationId: id,
+      action,
+      processed: [id],
+      failed: [],
+    };
   }
 
   nativeUrl(id: string): string {

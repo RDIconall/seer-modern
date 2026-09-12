@@ -1,9 +1,20 @@
 import type { MailAccount } from "@/lib/v2/db/accounts";
 import { accessTokenFor } from "@/lib/v2/providers/provider";
 import { gmailPubSubTopic } from "./security";
-import { upsertPushSubscription, recordPushError } from "./repository";
+import {
+  getPushSubscription,
+  upsertPushSubscription,
+  recordPushError,
+} from "./repository";
 
 const GMAIL = "https://gmail.googleapis.com/gmail/v1/users/me";
+
+export function historyCursorAfterWatch(
+  existingHistoryId: string | null | undefined,
+  watchHistoryId: string | undefined,
+): string | null {
+  return existingHistoryId ?? watchHistoryId ?? null;
+}
 
 export async function registerGmailWatch(account: MailAccount): Promise<void> {
   if (account.provider !== "google") return;
@@ -35,8 +46,12 @@ export async function registerGmailWatch(account: MailAccount): Promise<void> {
       historyId?: string;
       expiration?: string;
     };
+    const existing = await getPushSubscription(account.id);
     await upsertPushSubscription(account.id, "google", {
-      gmailHistoryId: json.historyId ?? null,
+      gmailHistoryId: historyCursorAfterWatch(
+        existing?.gmailHistoryId,
+        json.historyId,
+      ),
       gmailWatchExpiresAt: json.expiration
         ? new Date(Number(json.expiration))
         : new Date(Date.now() + 6 * 24 * 60 * 60 * 1000),

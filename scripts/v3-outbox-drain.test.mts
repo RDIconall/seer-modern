@@ -393,12 +393,12 @@ try {
   );
   assert.equal(notFoundRow.rows[0].reconcile_needed, true);
 
-  // Gmail adapter: initial thread fetch 404 must reach drain reconcile path.
+  // Gmail adapter: a 404 from an atomic state-setting mutation is an
+  // idempotent success (the earlier attempt may already have moved it).
   const gmailFetch404 = (async (url: string, init?: RequestInit) => {
     const u = String(url);
     const method = init?.method ?? "GET";
-    const threadGet = u.match(/\/threads\/([^?]+)\?format=full/);
-    if (method === "GET" && threadGet) {
+    if (method === "POST" && u.endsWith("/threads/p-gmail-fetch-404/modify")) {
       return new Response("not found", { status: 404 });
     }
     throw new Error(`unexpected request: ${method} ${u}`);
@@ -415,18 +415,18 @@ try {
     fetchImpl: gmailFetch404,
   });
   const gmailDrain = await drainOutbox(accountId, gmailProvider, { limit: 1 });
-  assert.equal(gmailDrain.failed, 1);
+  assert.equal(gmailDrain.done, 1);
   const gmailRow = await db.pool.query<{ reconcile_needed: boolean; status: string }>(
     "select reconcile_needed, status from seer.outbox where idempotency_key = $1",
     ["gmail-fetch-404-key"],
   );
-  assert.equal(gmailRow.rows[0].status, "failed");
-  assert.equal(gmailRow.rows[0].reconcile_needed, true);
+  assert.equal(gmailRow.rows[0].status, "done");
+  assert.equal(gmailRow.rows[0].reconcile_needed, false);
   const gmailEvents = await db.pool.query<{ kind: string }>(
     "select kind from seer.events where account_id = $1 and idempotency_key = $2",
     [accountId, "gmail-fetch-404-key"],
   );
-  assert.ok(gmailEvents.rows.some((e) => e.kind === "outbox_reconcile_needed"));
+  assert.ok(!gmailEvents.rows.some((e) => e.kind === "outbox_reconcile_needed"));
 
   // Outlook adapter: initial conversation fetch 200+empty must reach drain reconcile path.
   const outlookEmptyFetch = (async (url: string, init?: RequestInit) => {
