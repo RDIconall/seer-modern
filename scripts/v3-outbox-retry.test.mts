@@ -10,6 +10,16 @@ assert.equal(classifyDrainError(new ProviderReconcileError("gmail", "missing")),
 
 assert.equal(classifyDrainError(new ProviderHttpError(401, "gmail", "auth")), "permanent");
 assert.equal(classifyDrainError(new ProviderHttpError(403, "gmail", "forbidden")), "permanent");
+assert.equal(
+  classifyDrainError(
+    new ProviderHttpError(
+      403,
+      "gmail",
+      "Quota exceeded for quota metric 'Total Query Cost' and limit 'Units per minute per user'",
+    ),
+  ),
+  "transient",
+);
 assert.equal(classifyDrainError(new ProviderHttpError(429, "gmail", "rate")), "transient");
 assert.equal(classifyDrainError(new ProviderHttpError(503, "gmail", "down")), "transient");
 assert.equal(classifyDrainError(new ProviderHttpError(404, "gmail", "missing")), "reconcile");

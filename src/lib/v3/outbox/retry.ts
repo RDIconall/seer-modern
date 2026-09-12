@@ -1,4 +1,7 @@
-import { ProviderHttpError } from "@/lib/v2/providers/http";
+import {
+  isProviderQuotaError,
+  ProviderHttpError,
+} from "@/lib/v2/providers/http";
 import { isProviderReconcileError } from "@/lib/v2/providers/mutation-idempotent";
 
 /** How a provider/drain error should be handled. */
@@ -27,6 +30,7 @@ function httpStatus(err: unknown): number | null {
  */
 export function classifyDrainError(err: unknown): RetryDisposition {
   if (isProviderReconcileError(err)) return "reconcile";
+  if (isProviderQuotaError(err)) return "transient";
   const status = httpStatus(err);
   if (status !== null) {
     if (status === 401 || status === 403) return "permanent";
