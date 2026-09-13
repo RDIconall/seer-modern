@@ -9,6 +9,7 @@ import {
 } from "../src/lib/v2/push/repository.ts";
 import { historyCursorAfterWatch } from "../src/lib/v2/push/gmail-watch.ts";
 import { syncGmailOnWake } from "../src/lib/v2/sync/gmail-history.ts";
+import { saveFolderSyncState } from "../src/lib/v2/sync/repository.ts";
 
 function json(body: unknown, status = 200): Response {
   return new Response(JSON.stringify(body), {
@@ -56,6 +57,7 @@ const historyFetch = (async (url: string) => {
   calls.push(value);
   const parsed = new URL(value);
   if (parsed.pathname.endsWith("/history")) {
+    assert.equal(parsed.searchParams.get("labelId"), "INBOX");
     if (!parsed.searchParams.get("pageToken")) {
       assert.equal(parsed.searchParams.get("startHistoryId"), "100");
       return json({
@@ -141,6 +143,14 @@ try {
   await upsertPushSubscription(accountId, "google", {
     gmailHistoryId: "100",
   });
+  await saveFolderSyncState(accountId, "inbox", {
+    cursor: null,
+    backfillComplete: true,
+    providerTotal: 2,
+    snapshotGeneration: null,
+    scanStartedAt: null,
+    lastReconciledAt: new Date(),
+  });
   await db.pool.query(
     `insert into seer.conversations
        (account_id, provider_conversation_id, subject, last_message_at, folders)
@@ -210,6 +220,50 @@ try {
     "duplicate history records must hydrate a changed thread once",
   );
 
+  const poisonUser = await upsertUser("gmail-history-poison@example.com");
+  const poisonAccount = asAccountId(
+    await upsertAccount({
+      userId: poisonUser,
+      provider: "google",
+      email: "gmail-history-poison@example.com",
+    }),
+  );
+  await upsertPushSubscription(poisonAccount, "google", {
+    gmailHistoryId: "400",
+  });
+  await saveFolderSyncState(poisonAccount, "inbox", {
+    cursor: null,
+    backfillComplete: true,
+    providerTotal: 1,
+    snapshotGeneration: null,
+    scanStartedAt: null,
+    lastReconciledAt: new Date(),
+  });
+  const poisonProvider = {
+    syncHistory: async () => ({
+      conversations: [
+        {
+          providerConversationId: "poison-thread",
+          subject: "Poison",
+          messages: [],
+          lastMessageAt: "not-a-date",
+        },
+      ],
+      removedConversationIds: [],
+      deletedConversationIds: [],
+      historyId: "500",
+    }),
+  } as unknown as GmailProvider;
+  await assert.rejects(
+    () => syncGmailOnWake(poisonAccount, poisonProvider),
+    /invalid input syntax|persistence failed/i,
+  );
+  assert.equal(
+    (await getPushSubscription(poisonAccount))?.gmailHistoryId,
+    "400",
+    "failed delta persistence must not advance the history cursor",
+  );
+
   const expiredUser = await upsertUser("gmail-history-expired@example.com");
   const expiredAccount = asAccountId(
     await upsertAccount({
@@ -261,6 +315,11 @@ try {
   assert.equal(fallback.mode, "head");
   assert.equal((await getPushSubscription(expiredAccount))?.gmailHistoryId, "300");
   assert.ok(fallbackCalls.some((call) => call.includes("/threads?")));
+  assert.ok(
+    fallbackCalls.findIndex((call) => call.endsWith("/profile")) <
+      fallbackCalls.findIndex((call) => call.includes("/threads?")),
+    "fallback must snapshot history before listing the inbox head",
+  );
 } finally {
   await db.stop();
 }

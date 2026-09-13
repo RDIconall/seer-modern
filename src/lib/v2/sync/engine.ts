@@ -74,6 +74,14 @@ function snapshotDue(folder: SyncFolder, state: FolderSyncState): boolean {
   return Date.now() - state.lastReconciledAt.getTime() >= reconciliationInterval(folder);
 }
 
+export async function isFolderReconciliationDue(
+  accountId: AccountId,
+  folder: SyncFolder,
+): Promise<boolean> {
+  const state = await loadFolderSyncState(accountId, folder);
+  return !state.backfillComplete || snapshotDue(folder, state);
+}
+
 async function persistFolderState(
   accountId: AccountId,
   folder: SyncFolder,

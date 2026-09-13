@@ -5,6 +5,7 @@
 import assert from "node:assert/strict";
 import { runProviderContract, type ContractHarness } from "../src/lib/v2/providers/contract.ts";
 import { GmailProvider } from "../src/lib/v2/providers/gmail.ts";
+import { isProviderReconcileError } from "../src/lib/v2/providers/mutation-idempotent.ts";
 
 function b64url(s: string): string {
   return Buffer.from(s, "utf8").toString("base64").replace(/\+/g, "-").replace(/\//g, "_").replace(/=+$/, "");
@@ -269,5 +270,20 @@ assert.deepEqual(atomicReceipt.processed, ["atomic-thread"]);
 assert.deepEqual(mutationRequests, [
   "POST https://gmail.googleapis.com/gmail/v1/users/me/threads/atomic-thread/modify",
 ]);
+
+const missingMutationProvider = new GmailProvider({
+  accessToken: "test-token",
+  accountEmail: "me@example.com",
+  fetchImpl: (async () => new Response("not found", { status: 404 })) as typeof fetch,
+});
+await assert.rejects(
+  () =>
+    missingMutationProvider.mutateConversation(
+      "missing-restore",
+      "restore",
+      "restore-key",
+    ),
+  (error: unknown) => isProviderReconcileError(error),
+);
 
 console.log("v2-provider-gmail: OK");

@@ -29,6 +29,7 @@ export async function writeConversationPage(
   conversations: Conversation[],
   deletedProviderIds: string[],
   snapshotGeneration?: string | null,
+  options?: { atomic?: boolean },
 ): Promise<PageWriteResult> {
   return inTransaction(async (client) => {
     let stored = 0;
@@ -46,6 +47,11 @@ export async function writeConversationPage(
            on conflict do nothing`,
           [accountId, folder, snapshotGeneration, convo.providerConversationId],
         );
+      }
+      if (options?.atomic) {
+        await writeConversation(client, accountId, folder, convo);
+        stored++;
+        continue;
       }
       await client.query(`savepoint ${savepoint}`);
       try {

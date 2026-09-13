@@ -4,6 +4,7 @@ import {
   type ProviderHttpOptions,
 } from "./http";
 import {
+  conversationFetchNotFound,
   mutationErrorIsNoOp,
 } from "./mutation-idempotent";
 import { nativeUrlFor } from "./native-url";
@@ -268,7 +269,7 @@ export class GmailProvider implements MailProvider {
         nextPageToken?: string;
         historyId?: string;
       }>(
-        `/history?startHistoryId=${encodeURIComponent(startHistoryId)}&maxResults=500` +
+        `/history?startHistoryId=${encodeURIComponent(startHistoryId)}&labelId=INBOX&maxResults=500` +
           (pageToken ? `&pageToken=${encodeURIComponent(pageToken)}` : ""),
         context,
       );
@@ -526,6 +527,9 @@ export class GmailProvider implements MailProvider {
       }
     } catch (err) {
       if (!mutationErrorIsNoOp(err)) throw err;
+      if (action === "restore" || action === "markUnread") {
+        conversationFetchNotFound(err, "gmail", id);
+      }
     }
     return {
       conversationId: id,

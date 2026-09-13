@@ -9,7 +9,7 @@ import {
   getPushSubscription,
   upsertPushSubscription,
 } from "@/lib/v2/push/repository";
-import { syncFolder } from "./engine";
+import { isFolderReconciliationDue, syncFolder } from "./engine";
 import {
   removeConversationFolderMembership,
   writeConversationPage,
@@ -21,6 +21,10 @@ export type GmailWakeSyncReport =
       stored: number;
       removed: string[];
       historyId: string;
+      reconciliation?: {
+        pages: number;
+        complete: boolean;
+      };
     }
   | {
       mode: "head";
@@ -49,6 +53,8 @@ async function applyHistoryPage(
     "inbox",
     page.conversations,
     page.deletedConversationIds,
+    undefined,
+    { atomic: true },
   );
   if (write.failed > 0) {
     throw new Error(
@@ -103,20 +109,36 @@ export async function syncGmailOnWake(
 ): Promise<GmailWakeSyncReport> {
   const history = await syncGmailHistory(accountId, provider, context);
   if (history.status === "applied") {
+    let reconciliation: { pages: number; complete: boolean } | undefined;
+    if (await isFolderReconciliationDue(accountId, "inbox")) {
+      const run = await syncFolder(
+        accountId,
+        provider,
+        "inbox",
+        "incremental",
+        {
+          maxPages: 1,
+          deadlineMs: context?.deadlineMs,
+          signal: context?.signal,
+        },
+      );
+      reconciliation = { pages: run.pages, complete: run.complete };
+    }
     return {
       mode: "history",
       stored: history.stored,
       removed: history.removed,
       historyId: history.historyId,
+      reconciliation,
     };
   }
 
+  const historyId = await provider.currentHistoryId(context);
   const head = await syncFolder(accountId, provider, "inbox", "incremental", {
     maxPages: 1,
     deadlineMs: context?.deadlineMs,
     signal: context?.signal,
   });
-  const historyId = await provider.currentHistoryId(context);
   await upsertPushSubscription(accountId, "google", {
     gmailHistoryId: historyId,
     lastError: null,
