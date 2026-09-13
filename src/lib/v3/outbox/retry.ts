@@ -1,10 +1,14 @@
-import { ProviderHttpError } from "@/lib/v2/providers/http";
+import {
+  isProviderQuotaError,
+  ProviderHttpError,
+} from "@/lib/v2/providers/http";
 import { isProviderReconcileError } from "@/lib/v2/providers/mutation-idempotent";
 
 /** How a provider/drain error should be handled. */
 export type RetryDisposition = "transient" | "permanent" | "reconcile";
 
 const TRANSIENT_STATUSES = new Set([408, 429, 500, 502, 503, 504]);
+const GMAIL_QUOTA_RETRY_MS = 60_000;
 
 function httpStatus(err: unknown): number | null {
   if (err instanceof ProviderHttpError) return err.status;
@@ -27,6 +31,7 @@ function httpStatus(err: unknown): number | null {
  */
 export function classifyDrainError(err: unknown): RetryDisposition {
   if (isProviderReconcileError(err)) return "reconcile";
+  if (isProviderQuotaError(err)) return "transient";
   const status = httpStatus(err);
   if (status !== null) {
     if (status === 401 || status === 403) return "permanent";
@@ -49,4 +54,9 @@ export function classifyDrainError(err: unknown): RetryDisposition {
     return "permanent";
   }
   return "transient";
+}
+
+export function retryDelayMs(attempt: number, error: unknown): number {
+  if (isProviderQuotaError(error)) return GMAIL_QUOTA_RETRY_MS;
+  return Math.min(60_000, 1000 * 2 ** attempt);
 }

@@ -4,9 +4,13 @@
  */
 import assert from "node:assert/strict";
 import { runProviderContract, type ContractHarness } from "../src/lib/v2/providers/contract.ts";
-import { GmailProvider } from "../src/lib/v2/providers/gmail.ts";
+import {
+  GMAIL_QUOTA_UNITS_PER_MINUTE,
+  GMAIL_SYNC_PAGE_SIZE,
+  GmailProvider,
+  gmailSyncPageCostUnits,
+} from "../src/lib/v2/providers/gmail.ts";
 import { isProviderReconcileError } from "../src/lib/v2/providers/mutation-idempotent.ts";
-import { ProviderHttpError } from "../src/lib/v2/providers/http.ts";
 
 function b64url(s: string): string {
   return Buffer.from(s, "utf8").toString("base64").replace(/\+/g, "-").replace(/\//g, "_").replace(/=+$/, "");
@@ -128,6 +132,23 @@ const mockFetch = (async (url: string, init?: RequestInit) => {
     return json({ id: "sent-1", threadId: body.threadId ?? "sent-1" });
   }
 
+  const threadTrash = u.match(/\/threads\/([^/]+)\/trash$/);
+  if (method === "POST" && threadTrash) {
+    if (threadTrash[1] === "c1") return new Response("nope", { status: 400 });
+    return json({ id: threadTrash[1] });
+  }
+
+  const threadModify = u.match(/\/threads\/([^/]+)\/modify$/);
+  if (method === "POST" && threadModify) {
+    if (threadModify[1] === "missing-thread") {
+      return new Response("not found", { status: 404 });
+    }
+    if (threadModify[1] === "gone") {
+      return new Response("gone", { status: 404 });
+    }
+    return json({ id: threadModify[1] });
+  }
+
   const trash = u.match(/\/messages\/([^/]+)\/trash$/);
   if (method === "POST" && trash) {
     // c1-m2 is the flagged partial failure.
@@ -204,7 +225,7 @@ assert.match(lastSendRaw, /<strong>From:<\/strong>/);
 assert.match(lastSendRaw, /see below/);
 assert.match(lastSendRaw, /<p>body<\/p>/);
 
-// State-setting idempotency: already-archived threads and 404-after-move are no-ops.
+// State-setting idempotency: repeated calls and 404-after-move are no-ops.
 const archived = await provider.mutateConversation("c3", "archive", "idem-1");
 assert.equal(archived.failed.length, 0);
 assert.equal(archived.processed.length, 1);
@@ -219,12 +240,84 @@ const gone = await provider.mutateConversation("gone", "archive", "idem-3");
 assert.equal(gone.failed.length, 0);
 assert.equal(gone.processed.length, 1);
 
-// Initial thread fetch 404 is ambiguous — must throw reconcile error, not no-op receipt.
+const missing = await provider.mutateConversation(
+  "missing-thread",
+  "archive",
+  "idem-missing",
+);
+assert.deepEqual(missing.failed, []);
+
+// Gmail conversation mutations must use one atomic thread endpoint. A full
+// thread read plus one write per message burns quota and can partially apply.
+const mutationRequests: string[] = [];
+const atomicMutationFetch = (async (url: string, init?: RequestInit) => {
+  const request = `${init?.method ?? "GET"} ${String(url)}`;
+  mutationRequests.push(request);
+  if (
+    init?.method === "POST" &&
+    String(url).endsWith("/threads/atomic-thread/modify")
+  ) {
+    return json({ id: "atomic-thread" });
+  }
+  throw new Error(`unexpected request: ${request}`);
+}) as unknown as typeof fetch;
+const atomicProvider = new GmailProvider({
+  accessToken: "test-token",
+  accountEmail: "me@example.com",
+  fetchImpl: atomicMutationFetch,
+});
+const atomicReceipt = await atomicProvider.mutateConversation(
+  "atomic-thread",
+  "archive",
+  "atomic-key",
+);
+assert.deepEqual(atomicReceipt.processed, ["atomic-thread"]);
+assert.deepEqual(mutationRequests, [
+  "POST https://gmail.googleapis.com/gmail/v1/users/me/threads/atomic-thread/modify",
+]);
+
+const missingMutationProvider = new GmailProvider({
+  accessToken: "test-token",
+  accountEmail: "me@example.com",
+  fetchImpl: (async () => new Response("not found", { status: 404 })) as typeof fetch,
+});
 await assert.rejects(
-  () => provider.mutateConversation("missing-thread", "archive", "idem-missing"),
-  (err: unknown) =>
-    isProviderReconcileError(err) ||
-    (err instanceof ProviderHttpError && err.status === 404),
+  () =>
+    missingMutationProvider.mutateConversation(
+      "missing-restore",
+      "restore",
+      "restore-key",
+    ),
+  (error: unknown) => isProviderReconcileError(error),
+);
+
+// A sync page must leave room in the per-user minute for the outbox drain and
+// reads that run in the same tick. At 100 threads a page cost 4,010 units, so
+// the cron's two rounds exhausted the budget and every later call 403'd —
+// which stalled backfill indefinitely rather than slowing it down.
+const SYNC_ROUNDS_PER_TICK = 2;
+assert.ok(
+  gmailSyncPageCostUnits(GMAIL_SYNC_PAGE_SIZE) * SYNC_ROUNDS_PER_TICK <=
+    GMAIL_QUOTA_UNITS_PER_MINUTE / 2,
+  `a cron tick must stay within half the per-user minute, cost ${gmailSyncPageCostUnits(
+    GMAIL_SYNC_PAGE_SIZE,
+  )} units per page`,
+);
+
+const pagedRequests: string[] = [];
+const pageSizeFetch = (async (url: string) => {
+  pagedRequests.push(String(url));
+  return json({ threads: [], resultSizeEstimate: 0 });
+}) as unknown as typeof fetch;
+await new GmailProvider({
+  accessToken: "test-token",
+  accountEmail: "me@example.com",
+  fetchImpl: pageSizeFetch,
+}).syncFolder("inbox", null);
+assert.match(
+  pagedRequests[0],
+  new RegExp(`maxResults=${GMAIL_SYNC_PAGE_SIZE}(&|$)`),
+  "sync must request the quota-bounded page size by default",
 );
 
 console.log("v2-provider-gmail: OK");

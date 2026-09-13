@@ -4,16 +4,37 @@
 import assert from "node:assert/strict";
 import { ProviderHttpError } from "../src/lib/v2/providers/http.ts";
 import { ProviderReconcileError } from "../src/lib/v2/providers/mutation-idempotent.ts";
-import { classifyDrainError } from "../src/lib/v3/outbox/retry.ts";
+import {
+  classifyDrainError,
+  retryDelayMs,
+} from "../src/lib/v3/outbox/retry.ts";
 
 assert.equal(classifyDrainError(new ProviderReconcileError("gmail", "missing")), "reconcile");
 
 assert.equal(classifyDrainError(new ProviderHttpError(401, "gmail", "auth")), "permanent");
 assert.equal(classifyDrainError(new ProviderHttpError(403, "gmail", "forbidden")), "permanent");
+assert.equal(
+  classifyDrainError(
+    new ProviderHttpError(
+      403,
+      "gmail",
+      "Quota exceeded for quota metric 'Total Query Cost' and limit 'Units per minute per user'",
+    ),
+  ),
+  "transient",
+);
 assert.equal(classifyDrainError(new ProviderHttpError(429, "gmail", "rate")), "transient");
 assert.equal(classifyDrainError(new ProviderHttpError(503, "gmail", "down")), "transient");
 assert.equal(classifyDrainError(new ProviderHttpError(404, "gmail", "missing")), "reconcile");
 assert.equal(classifyDrainError(new Error("network timeout")), "transient");
 assert.equal(classifyDrainError(new Error("request unauthorized")), "permanent");
+
+const quotaError = new ProviderHttpError(
+  403,
+  "gmail",
+  "Quota exceeded for quota metric 'Total Query Cost'",
+);
+assert.equal(retryDelayMs(0, quotaError), 60_000);
+assert.equal(retryDelayMs(0, new Error("network timeout")), 1_000);
 
 console.log("v3-outbox-retry: OK");

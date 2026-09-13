@@ -33,6 +33,34 @@ export type ProviderHttpOptions = {
 
 const RETRYABLE = new Set([429, 500, 502, 503, 504]);
 const RETRY_HEADROOM_MS = 25;
+const QUOTA_RETRY_MS = 60_000;
+
+export function isProviderQuotaError(error: unknown): boolean {
+  if (
+    typeof error !== "object" ||
+    error === null ||
+    !("status" in error) ||
+    !("message" in error)
+  ) {
+    return false;
+  }
+  const candidate = error as { status?: unknown; message?: unknown };
+  return (
+    candidate.status === 403 &&
+    typeof candidate.message === "string" &&
+    /quota exceeded|units per minute|rate ?limit/i.test(candidate.message)
+  );
+}
+
+function isQuotaResponse(
+  status: number,
+  provider: string,
+  message: string,
+): boolean {
+  return isProviderQuotaError(
+    new ProviderHttpError(status, provider, message),
+  );
+}
 
 function backoffMs(attempt: number): number {
   return Math.min(16_000, 500 * 2 ** attempt);
@@ -83,12 +111,19 @@ export async function providerFetch(
         callerSignal,
         opts.deadlineMs,
       );
-      if (RETRYABLE.has(res.status) && attempt < attempts) {
+      if (
+        (RETRYABLE.has(res.status) ||
+          isQuotaResponse(res.status, opts.provider, text)) &&
+        attempt < attempts
+      ) {
+        const quotaLimited = isQuotaResponse(res.status, opts.provider, text);
         const retryAfter = Number(res.headers.get("retry-after"));
         const requestedDelay =
           Number.isFinite(retryAfter) && retryAfter > 0
             ? retryAfter * 1000
-            : backoffMs(attempt);
+            : quotaLimited
+              ? QUOTA_RETRY_MS
+              : backoffMs(attempt);
         const delay = retryDelay(requestedDelay, opts.deadlineMs);
         await abortableSleep(sleep, delay, callerSignal, opts.deadlineMs);
         continue;

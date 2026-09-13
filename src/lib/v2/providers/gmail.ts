@@ -1,7 +1,10 @@
-import { providerFetch, type ProviderHttpOptions } from "./http";
+import {
+  ProviderHttpError,
+  providerFetch,
+  type ProviderHttpOptions,
+} from "./http";
 import {
   conversationFetchNotFound,
-  gmailMutationAlreadyApplied,
   mutationErrorIsNoOp,
 } from "./mutation-idempotent";
 import { nativeUrlFor } from "./native-url";
@@ -38,6 +41,22 @@ import { assertSyncBudget } from "./types";
 
 const API = "https://gmail.googleapis.com/gmail/v1/users/me";
 
+/**
+ * Gmail bills per method against a per-user minute that cannot be raised, and
+ * hydrating a thread is the expensive call. A page must therefore stay small
+ * enough that the outbox drain and reads sharing the same minute still fit:
+ * at 100 threads a single page cost ~4,010 units, so the cron's second round
+ * always 403'd and backfill stopped making progress instead of slowing down.
+ */
+export const GMAIL_QUOTA_UNITS_PER_MINUTE = 6_000;
+export const GMAIL_THREAD_LIST_UNITS = 10;
+export const GMAIL_THREAD_GET_UNITS = 40;
+export const GMAIL_SYNC_PAGE_SIZE = 25;
+
+export function gmailSyncPageCostUnits(pageSize: number): number {
+  return GMAIL_THREAD_LIST_UNITS + pageSize * GMAIL_THREAD_GET_UNITS;
+}
+
 type GmailHeader = { name: string; value: string };
 type GmailPart = {
   mimeType?: string;
@@ -55,6 +74,21 @@ type GmailMessage = {
   payload?: GmailPart & { headers?: GmailHeader[] };
 };
 type GmailThread = { id: string; messages?: GmailMessage[] };
+type GmailHistoryMessage = { message?: { id?: string; threadId?: string } };
+type GmailHistoryRecord = {
+  messages?: { id?: string; threadId?: string }[];
+  messagesAdded?: GmailHistoryMessage[];
+  messagesDeleted?: GmailHistoryMessage[];
+  labelsAdded?: GmailHistoryMessage[];
+  labelsRemoved?: GmailHistoryMessage[];
+};
+
+export type GmailHistorySync = {
+  conversations: Conversation[];
+  removedConversationIds: string[];
+  deletedConversationIds: string[];
+  historyId: string;
+};
 
 export type GmailDeps = {
   accessToken: string;
@@ -135,7 +169,7 @@ export class GmailProvider implements MailProvider {
 
   constructor(private deps: GmailDeps) {
     this.http = { provider: "gmail", fetchImpl: deps.fetchImpl };
-    this.pageSize = deps.pageSize ?? 100;
+    this.pageSize = deps.pageSize ?? GMAIL_SYNC_PAGE_SIZE;
   }
 
   private auth(): Record<string, string> {
@@ -163,18 +197,25 @@ export class GmailProvider implements MailProvider {
     )) as T;
   }
 
-  private async thread(id: string, context?: SyncContext): Promise<Conversation> {
+  private async rawThread(id: string, context?: SyncContext): Promise<GmailThread> {
     assertSyncBudget(context);
-    const t = await this.get<GmailThread>(`/threads/${id}?format=full`, context);
+    return this.get<GmailThread>(`/threads/${id}?format=full`, context);
+  }
+
+  private toConversation(t: GmailThread): Conversation {
     const messages = (t.messages ?? [])
       .map((m) => toMessage(m, this.deps.accountEmail))
       .sort((a, b) => a.sentAt.localeCompare(b.sentAt));
     return {
-      providerConversationId: id,
+      providerConversationId: t.id,
       subject: header(t.messages?.[0]?.payload?.headers, "subject"),
       messages,
       lastMessageAt: messages[messages.length - 1]?.sentAt ?? "",
     };
+  }
+
+  private async thread(id: string, context?: SyncContext): Promise<Conversation> {
+    return this.toConversation(await this.rawThread(id, context));
   }
 
   private folderQuery(folder: SyncFolder): string {
@@ -218,6 +259,81 @@ export class GmailProvider implements MailProvider {
       nextCursor: list.nextPageToken ?? null,
       // Gmail thread-list estimate — not an exact conversation count.
       providerTotal: list.resultSizeEstimate ?? conversations.length,
+    };
+  }
+
+  async currentHistoryId(context?: SyncContext): Promise<string> {
+    const profile = await this.get<{ historyId?: string }>("/profile", context);
+    if (!profile.historyId) {
+      throw new Error("Gmail profile did not return a historyId");
+    }
+    return profile.historyId;
+  }
+
+  async syncHistory(
+    startHistoryId: string,
+    context?: SyncContext,
+  ): Promise<GmailHistorySync> {
+    const changedThreadIds = new Set<string>();
+    let pageToken: string | undefined;
+    let historyId = startHistoryId;
+
+    do {
+      assertSyncBudget(context);
+      const page = await this.get<{
+        history?: GmailHistoryRecord[];
+        nextPageToken?: string;
+        historyId?: string;
+      }>(
+        `/history?startHistoryId=${encodeURIComponent(startHistoryId)}&labelId=INBOX&maxResults=500` +
+          (pageToken ? `&pageToken=${encodeURIComponent(pageToken)}` : ""),
+        context,
+      );
+      for (const record of page.history ?? []) {
+        for (const item of [
+          ...(record.messages ?? []).map((message) => ({ message })),
+          ...(record.messagesAdded ?? []),
+          ...(record.messagesDeleted ?? []),
+          ...(record.labelsAdded ?? []),
+          ...(record.labelsRemoved ?? []),
+        ]) {
+          const threadId = item.message?.threadId;
+          if (threadId) changedThreadIds.add(threadId);
+        }
+      }
+      historyId = page.historyId ?? historyId;
+      pageToken = page.nextPageToken;
+    } while (pageToken);
+
+    const conversations: Conversation[] = [];
+    const removedConversationIds: string[] = [];
+    const deletedConversationIds: string[] = [];
+    for (const threadId of changedThreadIds) {
+      assertSyncBudget(context);
+      try {
+        const raw = await this.rawThread(threadId, context);
+        const inInbox = (raw.messages ?? []).some((message) =>
+          (message.labelIds ?? []).includes("INBOX"),
+        );
+        if (inInbox) {
+          conversations.push(this.toConversation(raw));
+        } else {
+          removedConversationIds.push(threadId);
+        }
+      } catch (error) {
+        if (error instanceof ProviderHttpError && error.status === 404) {
+          deletedConversationIds.push(threadId);
+          continue;
+        }
+        throw error;
+      }
+    }
+
+    return {
+      conversations,
+      removedConversationIds,
+      deletedConversationIds,
+      historyId,
     };
   }
 
@@ -413,44 +529,30 @@ export class GmailProvider implements MailProvider {
     _key: string,
   ): Promise<MutationReceipt> {
     void _key;
-    let raw: GmailThread;
     try {
-      raw = await this.get<GmailThread>(`/threads/${id}?format=full`);
+      if (action === "trash") {
+        await this.post(`/threads/${id}/trash`, {});
+      } else {
+        const body =
+          action === "archive"
+            ? { removeLabelIds: ["INBOX"] }
+            : action === "restore"
+              ? { addLabelIds: ["INBOX"], removeLabelIds: ["TRASH"] }
+              : { addLabelIds: ["UNREAD"] };
+        await this.post(`/threads/${id}/modify`, body);
+      }
     } catch (err) {
-      conversationFetchNotFound(err, "gmail", id);
-    }
-    const processed: string[] = [];
-    const failed: string[] = [];
-    const body =
-      action === "archive"
-        ? { removeLabelIds: ["INBOX"] }
-        : action === "restore"
-          ? { addLabelIds: ["INBOX"], removeLabelIds: ["TRASH"] }
-          : action === "markUnread"
-            ? { addLabelIds: ["UNREAD"] }
-            : null;
-    for (const m of raw.messages ?? []) {
-      const labels = m.labelIds ?? [];
-      if (gmailMutationAlreadyApplied(action, labels)) {
-        processed.push(m.id);
-        continue;
-      }
-      try {
-        if (action === "trash") {
-          await this.post(`/messages/${m.id}/trash`, {});
-        } else {
-          await this.post(`/messages/${m.id}/modify`, body);
-        }
-        processed.push(m.id);
-      } catch (err) {
-        if (mutationErrorIsNoOp(err)) {
-          processed.push(m.id);
-        } else {
-          failed.push(m.id);
-        }
+      if (!mutationErrorIsNoOp(err)) throw err;
+      if (action === "restore" || action === "markUnread") {
+        conversationFetchNotFound(err, "gmail", id);
       }
     }
-    return { conversationId: id, action, processed, failed };
+    return {
+      conversationId: id,
+      action,
+      processed: [id],
+      failed: [],
+    };
   }
 
   nativeUrl(id: string): string {

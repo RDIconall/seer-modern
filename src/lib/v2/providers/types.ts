@@ -83,9 +83,9 @@ export type MutationAction = "archive" | "trash" | "restore" | "markUnread";
 export type MutationReceipt = {
   conversationId: string;
   action: MutationAction;
-  /** Provider message ids successfully acted on. */
+  /** Provider message or atomic conversation ids successfully acted on. */
   processed: string[];
-  /** Provider message ids that failed — never silently dropped. */
+  /** Provider target ids that failed — never silently dropped. */
   failed: string[];
 };
 

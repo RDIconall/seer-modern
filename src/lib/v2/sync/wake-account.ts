@@ -2,7 +2,9 @@ import { db } from "@/lib/v2/db/pool";
 import { asAccountId, asUserId, type AccountId } from "@/lib/v2/db/types";
 import type { MailAccount } from "@/lib/v2/db/accounts";
 import { providerFor } from "@/lib/v2/providers/provider";
+import { GmailProvider } from "@/lib/v2/providers/gmail";
 import { syncFolder } from "@/lib/v2/sync/engine";
+import { syncGmailOnWake } from "@/lib/v2/sync/gmail-history";
 import { readBatch } from "@/lib/v2/intelligence/read-batch";
 import { defaultReaderModel } from "@/lib/v2/intelligence/model";
 import { fileMatters } from "@/lib/v2/intelligence/file-matters";
@@ -89,10 +91,19 @@ export async function wakeAccount(accountId: AccountId): Promise<WakeReport> {
     const provider = await providerFor(account);
     const outbox = await drainOutbox(account.id, provider);
     const deadlineMs = Date.now() + 240_000;
-    const sync = await syncFolder(account.id, provider, "inbox", "incremental", {
-      maxPages: 1,
-      deadlineMs,
-    });
+    const sync =
+      provider instanceof GmailProvider
+        ? await syncGmailOnWake(account.id, provider, { deadlineMs })
+        : await syncFolder(
+            account.id,
+            provider,
+            "inbox",
+            "incremental",
+            {
+              maxPages: 1,
+              deadlineMs,
+            },
+          );
     const read = await readBatch(
       account.id,
       account.email,
@@ -112,11 +123,7 @@ export async function wakeAccount(accountId: AccountId): Promise<WakeReport> {
       accountId,
       email: account.email,
       outbox,
-      sync: {
-        pages: sync.pages,
-        complete: sync.complete,
-        polledHead: sync.polledHead,
-      },
+      sync,
       read,
       filing,
     };
