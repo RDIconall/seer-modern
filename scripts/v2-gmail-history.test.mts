@@ -141,6 +141,14 @@ try {
   await upsertPushSubscription(accountId, "google", {
     gmailHistoryId: "100",
   });
+  await db.pool.query(
+    `insert into seer.conversations
+       (account_id, provider_conversation_id, subject, last_message_at, folders)
+     values
+       ($1, 'archived-thread', 'Archived', now(), array['inbox']::text[]),
+       ($1, 'deleted-thread', 'Deleted', now(), array['inbox']::text[])`,
+    [accountId],
+  );
 
   const provider = new GmailProvider({
     accessToken: "test-token",
@@ -162,6 +170,7 @@ try {
     `select provider_conversation_id, folders
        from seer.conversations
       where account_id = $1
+        and folders @> array['inbox']::text[]
       order by provider_conversation_id`,
     [accountId],
   );
@@ -170,6 +179,30 @@ try {
     ["new-thread", "second-thread"],
   );
   assert.ok(stored.rows.every((row) => row.folders.includes("inbox")));
+  const removed = await db.pool.query<{
+    provider_conversation_id: string;
+    folders: string[];
+    is_deleted: boolean;
+  }>(
+    `select provider_conversation_id, folders, is_deleted
+       from seer.conversations
+      where account_id = $1
+        and provider_conversation_id in ('archived-thread', 'deleted-thread')
+      order by provider_conversation_id`,
+    [accountId],
+  );
+  assert.deepEqual(removed.rows, [
+    {
+      provider_conversation_id: "archived-thread",
+      folders: [],
+      is_deleted: false,
+    },
+    {
+      provider_conversation_id: "deleted-thread",
+      folders: [],
+      is_deleted: true,
+    },
+  ]);
   assert.equal((await getPushSubscription(accountId))?.gmailHistoryId, "200");
   assert.equal(
     calls.filter((call) => call.includes("/threads/new-thread?")).length,

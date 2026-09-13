@@ -87,6 +87,43 @@ export async function writeConversationPage(
   });
 }
 
+export async function removeConversationFolderMembership(
+  accountId: AccountId,
+  folder: SyncFolder,
+  providerIds: string[],
+): Promise<void> {
+  await inTransaction(async (client) => {
+    for (const providerId of providerIds) {
+      const existing = await client.query<{
+        id: string;
+        last_message_at: Date | null;
+      }>(
+        `select id, last_message_at
+           from seer.conversations
+          where account_id = $1 and provider_conversation_id = $2
+          for update`,
+        [accountId, providerId],
+      );
+      const conversation = existing.rows[0];
+      if (!conversation) continue;
+      const mask = await getSyncMask(
+        client,
+        accountId,
+        conversation.id,
+        conversation.last_message_at?.toISOString() ?? null,
+      );
+      if (mask.protectedFolders.has(folder)) continue;
+      await client.query(
+        `update seer.conversations
+            set folders = array_remove(folders, $3::text),
+                updated_at = now()
+          where account_id = $1 and provider_conversation_id = $2`,
+        [accountId, providerId, folder],
+      );
+    }
+  });
+}
+
 async function writeConversation(
   client: PoolClient,
   accountId: AccountId,

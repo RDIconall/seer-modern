@@ -69,6 +69,7 @@ type GmailHistoryRecord = {
 export type GmailHistorySync = {
   conversations: Conversation[];
   removedConversationIds: string[];
+  deletedConversationIds: string[];
   historyId: string;
 };
 
@@ -289,6 +290,7 @@ export class GmailProvider implements MailProvider {
 
     const conversations: Conversation[] = [];
     const removedConversationIds: string[] = [];
+    const deletedConversationIds: string[] = [];
     for (const threadId of changedThreadIds) {
       assertSyncBudget(context);
       try {
@@ -303,14 +305,19 @@ export class GmailProvider implements MailProvider {
         }
       } catch (error) {
         if (error instanceof ProviderHttpError && error.status === 404) {
-          removedConversationIds.push(threadId);
+          deletedConversationIds.push(threadId);
           continue;
         }
         throw error;
       }
     }
 
-    return { conversations, removedConversationIds, historyId };
+    return {
+      conversations,
+      removedConversationIds,
+      deletedConversationIds,
+      historyId,
+    };
   }
 
   getConversation(id: string): Promise<Conversation> {

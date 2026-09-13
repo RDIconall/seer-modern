@@ -10,7 +10,10 @@ import {
   upsertPushSubscription,
 } from "@/lib/v2/push/repository";
 import { syncFolder } from "./engine";
-import { writeConversationPage } from "./repository";
+import {
+  removeConversationFolderMembership,
+  writeConversationPage,
+} from "./repository";
 
 export type GmailWakeSyncReport =
   | {
@@ -45,13 +48,18 @@ async function applyHistoryPage(
     accountId,
     "inbox",
     page.conversations,
-    page.removedConversationIds,
+    page.deletedConversationIds,
   );
   if (write.failed > 0) {
     throw new Error(
       `Gmail history persistence failed for ${write.failed} conversation(s)`,
     );
   }
+  await removeConversationFolderMembership(
+    accountId,
+    "inbox",
+    page.removedConversationIds,
+  );
   await upsertPushSubscription(accountId, "google", {
     gmailHistoryId: page.historyId,
     lastError: null,
@@ -59,7 +67,10 @@ async function applyHistoryPage(
   return {
     status: "applied",
     stored: write.stored,
-    removed: page.removedConversationIds,
+    removed: [
+      ...page.removedConversationIds,
+      ...page.deletedConversationIds,
+    ],
     historyId: page.historyId,
   };
 }
