@@ -4,7 +4,12 @@
  */
 import assert from "node:assert/strict";
 import { runProviderContract, type ContractHarness } from "../src/lib/v2/providers/contract.ts";
-import { GmailProvider } from "../src/lib/v2/providers/gmail.ts";
+import {
+  GMAIL_QUOTA_UNITS_PER_MINUTE,
+  GMAIL_SYNC_PAGE_SIZE,
+  GmailProvider,
+  gmailSyncPageCostUnits,
+} from "../src/lib/v2/providers/gmail.ts";
 import { isProviderReconcileError } from "../src/lib/v2/providers/mutation-idempotent.ts";
 
 function b64url(s: string): string {
@@ -284,6 +289,35 @@ await assert.rejects(
       "restore-key",
     ),
   (error: unknown) => isProviderReconcileError(error),
+);
+
+// A sync page must leave room in the per-user minute for the outbox drain and
+// reads that run in the same tick. At 100 threads a page cost 4,010 units, so
+// the cron's two rounds exhausted the budget and every later call 403'd —
+// which stalled backfill indefinitely rather than slowing it down.
+const SYNC_ROUNDS_PER_TICK = 2;
+assert.ok(
+  gmailSyncPageCostUnits(GMAIL_SYNC_PAGE_SIZE) * SYNC_ROUNDS_PER_TICK <=
+    GMAIL_QUOTA_UNITS_PER_MINUTE / 2,
+  `a cron tick must stay within half the per-user minute, cost ${gmailSyncPageCostUnits(
+    GMAIL_SYNC_PAGE_SIZE,
+  )} units per page`,
+);
+
+const pagedRequests: string[] = [];
+const pageSizeFetch = (async (url: string) => {
+  pagedRequests.push(String(url));
+  return json({ threads: [], resultSizeEstimate: 0 });
+}) as unknown as typeof fetch;
+await new GmailProvider({
+  accessToken: "test-token",
+  accountEmail: "me@example.com",
+  fetchImpl: pageSizeFetch,
+}).syncFolder("inbox", null);
+assert.match(
+  pagedRequests[0],
+  new RegExp(`maxResults=${GMAIL_SYNC_PAGE_SIZE}(&|$)`),
+  "sync must request the quota-bounded page size by default",
 );
 
 console.log("v2-provider-gmail: OK");

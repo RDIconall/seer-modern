@@ -41,6 +41,22 @@ import { assertSyncBudget } from "./types";
 
 const API = "https://gmail.googleapis.com/gmail/v1/users/me";
 
+/**
+ * Gmail bills per method against a per-user minute that cannot be raised, and
+ * hydrating a thread is the expensive call. A page must therefore stay small
+ * enough that the outbox drain and reads sharing the same minute still fit:
+ * at 100 threads a single page cost ~4,010 units, so the cron's second round
+ * always 403'd and backfill stopped making progress instead of slowing down.
+ */
+export const GMAIL_QUOTA_UNITS_PER_MINUTE = 6_000;
+export const GMAIL_THREAD_LIST_UNITS = 10;
+export const GMAIL_THREAD_GET_UNITS = 40;
+export const GMAIL_SYNC_PAGE_SIZE = 25;
+
+export function gmailSyncPageCostUnits(pageSize: number): number {
+  return GMAIL_THREAD_LIST_UNITS + pageSize * GMAIL_THREAD_GET_UNITS;
+}
+
 type GmailHeader = { name: string; value: string };
 type GmailPart = {
   mimeType?: string;
@@ -153,7 +169,7 @@ export class GmailProvider implements MailProvider {
 
   constructor(private deps: GmailDeps) {
     this.http = { provider: "gmail", fetchImpl: deps.fetchImpl };
-    this.pageSize = deps.pageSize ?? 100;
+    this.pageSize = deps.pageSize ?? GMAIL_SYNC_PAGE_SIZE;
   }
 
   private auth(): Record<string, string> {
