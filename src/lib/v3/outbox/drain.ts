@@ -6,7 +6,7 @@ import { providerConversationId } from "@/lib/v2/commands/repository";
 import type { AccountId } from "@/lib/v2/db/types";
 import type { MailProvider, MutationReceipt } from "@/lib/v2/providers/types";
 import { revertOptimistic } from "./optimistic";
-import { classifyDrainError } from "./retry";
+import { classifyDrainError, retryDelayMs } from "./retry";
 import type { DrainReport, OutboxCommand, OutboxItem } from "./types";
 
 export const MAX_OUTBOX_ATTEMPTS = 5;
@@ -52,7 +52,7 @@ function mapRow(row: OutboxRow): OutboxItem {
 }
 
 export function backoffMs(attempt: number): number {
-  return Math.min(60_000, 1000 * 2 ** attempt);
+  return retryDelayMs(attempt, null);
 }
 
 function providerAction(
@@ -138,8 +138,8 @@ async function scheduleRetry(
   outboxId: string,
   attempts: number,
   error: string,
+  delayMs: number = backoffMs(attempts - 1),
 ): Promise<void> {
-  const delayMs = backoffMs(attempts - 1);
   await client.query(
     `update seer.outbox
         set status = 'pending',
@@ -314,7 +314,13 @@ async function processOne(
       return "failed";
     }
     await inTransaction(async (client) => {
-      await scheduleRetry(client, item.id, attempts, error);
+      await scheduleRetry(
+        client,
+        item.id,
+        attempts,
+        error,
+        retryDelayMs(attempts - 1, err),
+      );
     });
     return "retried";
   } finally {

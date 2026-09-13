@@ -33,6 +33,7 @@ export type ProviderHttpOptions = {
 
 const RETRYABLE = new Set([429, 500, 502, 503, 504]);
 const RETRY_HEADROOM_MS = 25;
+const QUOTA_RETRY_MS = 60_000;
 
 export function isProviderQuotaError(error: unknown): boolean {
   if (
@@ -115,11 +116,14 @@ export async function providerFetch(
           isQuotaResponse(res.status, opts.provider, text)) &&
         attempt < attempts
       ) {
+        const quotaLimited = isQuotaResponse(res.status, opts.provider, text);
         const retryAfter = Number(res.headers.get("retry-after"));
         const requestedDelay =
           Number.isFinite(retryAfter) && retryAfter > 0
             ? retryAfter * 1000
-            : backoffMs(attempt);
+            : quotaLimited
+              ? QUOTA_RETRY_MS
+              : backoffMs(attempt);
         const delay = retryDelay(requestedDelay, opts.deadlineMs);
         await abortableSleep(sleep, delay, callerSignal, opts.deadlineMs);
         continue;

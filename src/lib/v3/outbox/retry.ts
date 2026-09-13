@@ -8,6 +8,7 @@ import { isProviderReconcileError } from "@/lib/v2/providers/mutation-idempotent
 export type RetryDisposition = "transient" | "permanent" | "reconcile";
 
 const TRANSIENT_STATUSES = new Set([408, 429, 500, 502, 503, 504]);
+const GMAIL_QUOTA_RETRY_MS = 60_000;
 
 function httpStatus(err: unknown): number | null {
   if (err instanceof ProviderHttpError) return err.status;
@@ -53,4 +54,9 @@ export function classifyDrainError(err: unknown): RetryDisposition {
     return "permanent";
   }
   return "transient";
+}
+
+export function retryDelayMs(attempt: number, error: unknown): number {
+  if (isProviderQuotaError(error)) return GMAIL_QUOTA_RETRY_MS;
+  return Math.min(60_000, 1000 * 2 ** attempt);
 }

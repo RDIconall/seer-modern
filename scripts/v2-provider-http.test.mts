@@ -5,6 +5,7 @@ import {
 } from "../src/lib/v2/providers/http.ts";
 
 let attempts = 0;
+const delays: number[] = [];
 const quotaThenSuccess = (async () => {
   attempts += 1;
   if (attempts === 1) {
@@ -28,11 +29,14 @@ const recovered = await providerFetch(
   {
     provider: "gmail",
     fetchImpl: quotaThenSuccess,
-    sleep: async () => {},
+    sleep: async (ms) => {
+      delays.push(ms);
+    },
   },
 );
 assert.deepEqual(recovered, { ok: true });
 assert.equal(attempts, 2, "quota-limited Gmail reads should retry");
+assert.deepEqual(delays, [60_000]);
 
 let forbiddenAttempts = 0;
 const forbidden = (async () => {
