@@ -55,6 +55,17 @@ export function middleware(request: NextRequest) {
 }
 
 export const config = {
-  // Everything except static assets — auth routes especially must match
-  matcher: ["/((?!_next/static|_next/image|favicon\\.ico|icons/|sw\\.js).*)"],
+  // Everything except static assets — auth routes especially must match.
+  //
+  // The cron, worker, and webhook paths are excluded outright rather than
+  // waved through by `isCronPath`: middleware is billed as a function
+  // invocation, so matching a request only to call `next()` doubled the cost
+  // of every fan-out worker and chained hop. The guard above stays as the
+  // backstop if this matcher is ever widened again.
+  //
+  // Must stay in sync with CRON_PATH_PREFIXES; the middleware test builds this
+  // pattern and fails if a scheduled path is still matched.
+  matcher: [
+    "/((?!_next/static|_next/image|favicon\\.ico|icons/|sw\\.js|api/cron/|api/v2/sync|api/v2/read|api/v2/accounts/|api/v3/outbox/|api/webhooks/).*)",
+  ],
 };
