@@ -17,6 +17,10 @@ export type ReadBatchResult = {
   decided: number;
   /** Model/content failures left unclassified for a later retry. */
   failed: number;
+  /** How many the queue handed back, under the cap it was asked for. A short
+   * queue means this hop emptied the mailbox and nothing is left to chain. */
+  queued: number;
+  limit: number;
 };
 
 async function loadConversation(
@@ -147,5 +151,5 @@ export async function readBatch(
   await Promise.all(
     Array.from({ length: Math.min(concurrency, ids.length) }, worker),
   );
-  return { attempted, decided, failed };
+  return { attempted, decided, failed, queued: ids.length, limit };
 }

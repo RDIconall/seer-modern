@@ -32,6 +32,9 @@ export type ReadTickReport = {
   attempted?: number;
   decided?: number;
   failed?: number;
+  /** Queue depth and the cap it was read under — the chaining decision. */
+  queued?: number;
+  limit?: number;
   filing?: unknown;
   error?: string;
   skipped?: string;
