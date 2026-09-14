@@ -64,7 +64,13 @@ try {
     },
     { limit: 10, concurrency: 1 },
   );
-  assert.deepEqual(failed, { attempted: 1, decided: 0, failed: 1 });
+  assert.deepEqual(failed, {
+    attempted: 1,
+    decided: 0,
+    failed: 1,
+    queued: 1,
+    limit: 10,
+  });
   const decisionsAfterFailure = await db.pool.query<{ n: number }>(
     `select count(*)::int as n from seer.conversation_decisions
       where conversation_id = $1`,
@@ -98,7 +104,13 @@ try {
     async () => archive,
     { limit: 10, concurrency: 1 },
   );
-  assert.deepEqual(recovered, { attempted: 1, decided: 1, failed: 0 });
+  assert.deepEqual(recovered, {
+    attempted: 1,
+    decided: 1,
+    failed: 0,
+    queued: 1,
+    limit: 10,
+  });
   const final = await db.pool.query<{ home: string }>(
     `select home from seer.conversation_decisions
       where conversation_id = $1 and is_current`,
