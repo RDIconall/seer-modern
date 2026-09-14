@@ -1,6 +1,10 @@
 import { NextResponse, after } from "next/server";
 import { cronUnauthorized } from "@/lib/v2/cron/auth";
-import { kickNextHop, shouldContinueRead } from "@/lib/v2/cron/continue";
+import {
+  kickNextHop,
+  nextHopUrl,
+  shouldContinueRead,
+} from "@/lib/v2/cron/continue";
 import { fanOutPerAccount } from "@/lib/v2/cron/fan-out";
 import {
   claimWorkerLease,
@@ -9,6 +13,7 @@ import {
 import { listAccountsForRead } from "@/lib/v2/db/list-accounts";
 import { asAccountId, isUuid } from "@/lib/v2/db/types";
 import { defaultReaderModel } from "@/lib/v2/intelligence/model";
+import { accountIdsNeedingRead } from "@/lib/v2/intelligence/queue";
 import {
   READ_TICK_MS,
   runReadAccount,
@@ -19,8 +24,9 @@ export const maxDuration = 300;
 
 /**
  * Read cron. The schedule hits this URL once; with no accountId it starts one
- * worker invocation per mailbox so each inbox has its own 250s pipe. A worker
- * that still has unread mail kicks the next hop so a large desk drains today.
+ * worker invocation per mailbox that has mail waiting, so each of those inboxes
+ * has its own 250s pipe and an idle desk costs nothing. A worker still holding
+ * a full queue kicks the next hop so a large desk drains today.
  */
 export async function GET(request: Request) {
   const denied = cronUnauthorized(request);
@@ -51,14 +57,16 @@ export async function GET(request: Request) {
         deadlineMs,
         model: defaultReaderModel,
       });
-      const continued = shouldContinueRead(report);
-      if (continued) {
+      const next = shouldContinueRead(report)
+        ? nextHopUrl(request.url)
+        : null;
+      if (next) {
         const auth = request.headers.get("authorization");
-        after(() => kickNextHop(request.url, auth));
+        after(() => kickNextHop(next, auth));
       }
       return NextResponse.json({
         ok: !report.error,
-        continued,
+        continued: next !== null,
         report: [report],
       });
     } finally {
@@ -67,8 +75,16 @@ export async function GET(request: Request) {
   }
 
   const accounts = await listAccountsForRead();
+  const waiting = new Set(
+    (await accountIdsNeedingRead()).map((id) => String(id)),
+  );
+  const due = accounts.filter((account) => waiting.has(String(account.id)));
+  if (due.length === 0) {
+    return NextResponse.json({ ok: true, pipes: 0, idle: accounts.length });
+  }
+
   const pipes = await fanOutPerAccount({
-    accounts,
+    accounts: due,
     path: "/api/v2/read",
     authorization: request.headers.get("authorization"),
     runLocal: async (accountId) => {

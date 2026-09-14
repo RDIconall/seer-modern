@@ -1,12 +1,16 @@
 import { NextResponse, after } from "next/server";
 import { cronUnauthorized } from "@/lib/v2/cron/auth";
-import { kickNextHop, shouldContinueSync } from "@/lib/v2/cron/continue";
+import {
+  kickNextHop,
+  nextHopUrl,
+  shouldContinueSync,
+} from "@/lib/v2/cron/continue";
 import { fanOutPerAccount } from "@/lib/v2/cron/fan-out";
 import {
   claimWorkerLease,
   releaseWorkerLease,
 } from "@/lib/v2/cron/lease";
-import { listAllAccounts } from "@/lib/v2/db/list-accounts";
+import { listAccountsForSync } from "@/lib/v2/db/list-accounts";
 import { asAccountId, isUuid } from "@/lib/v2/db/types";
 import { providerFor } from "@/lib/v2/providers/provider";
 import {
@@ -24,9 +28,9 @@ const SYNC_TICK_MS = 250_000;
 
 /**
  * Authenticated v2 sync. The schedule hits this URL once; with no accountId
- * it starts one worker per mailbox. Each worker owns the full tick — outbox,
- * push repair, and folder sync — so one large backfill cannot stall another
- * desk. Auth is mandatory in production.
+ * it starts one worker per mailbox that can actually sync. Each worker owns
+ * the full tick — outbox, push repair, and folder sync — so one large backfill
+ * cannot stall another desk. Auth is mandatory in production.
  */
 export async function GET(request: Request) {
   const denied = cronUnauthorized(request);
@@ -57,18 +61,27 @@ export async function GET(request: Request) {
     }
     try {
       const report = await syncOneAccount(account, mode, deadlineMs);
-      const continued = shouldContinueSync(report);
-      if (continued) {
+      const next = shouldContinueSync(report) ? nextHopUrl(request.url) : null;
+      if (next) {
         const auth = request.headers.get("authorization");
-        after(() => kickNextHop(request.url, auth));
+        after(() => kickNextHop(next, auth));
       }
-      return NextResponse.json({ ok: true, mode, continued, report });
+      return NextResponse.json({
+        ok: true,
+        mode,
+        continued: next !== null,
+        report,
+      });
     } finally {
       await releaseWorkerLease(account.id, "sync");
     }
   }
 
-  const accounts = await listAllAccounts();
+  const accounts = await listAccountsForSync();
+  if (accounts.length === 0) {
+    return NextResponse.json({ ok: true, mode, pipes: 0, report: [] });
+  }
+
   const pipes = await fanOutPerAccount({
     accounts,
     path: "/api/v2/sync",
