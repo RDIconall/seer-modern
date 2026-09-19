@@ -16,11 +16,20 @@ export async function GET() {
     return NextResponse.json({ error: "no active v2 account" }, { status: 404 });
   }
   try {
-    const catchingUp = await kickInboxCatchUp(account, (work) => {
-      after(() => {
-        void work();
+    let catchingUp = false;
+    try {
+      catchingUp = await kickInboxCatchUp(account, (work) => {
+        after(() => {
+          void work();
+        });
       });
-    });
+    } catch (cause) {
+      console.error(
+        "[seer] inbox catch-up kick failed",
+        account.email,
+        cause instanceof Error ? cause.message : cause,
+      );
+    }
     const view = await buildInboxView(account.id, account.provider);
     return NextResponse.json({ view, catchingUp });
   } catch (cause) {

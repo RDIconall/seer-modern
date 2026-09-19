@@ -1,7 +1,7 @@
 "use client";
 
 import type { FormEvent, ReactNode } from "react";
-import { clearMailboxCaches } from "@/components/v3/useMailbox";
+import { clearPersistedMailboxCaches } from "@/lib/v3/mailbox/cache";
 
 /**
  * Login and reconnect forms run as server actions. The previous session's
@@ -11,7 +11,7 @@ import { clearMailboxCaches } from "@/components/v3/useMailbox";
 export function ForgetCachedInbox({ children }: { children: ReactNode }) {
   function forget(event: FormEvent) {
     if (!(event.target instanceof HTMLFormElement)) return;
-    clearMailboxCaches();
+    clearPersistedMailboxCaches();
   }
 
   return <div onSubmitCapture={forget}>{children}</div>;

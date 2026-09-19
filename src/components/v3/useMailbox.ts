@@ -17,6 +17,7 @@ import {
   viewForFolder,
 } from "./mailbox-state";
 import {
+  MAILBOX_CACHE_KEY_PREFIX,
   unwrapMailboxCache,
   wrapMailboxCache,
   type MailboxCacheEnvelope,
@@ -48,7 +49,7 @@ function cacheKey(
   folder: MailboxFolder,
   sort: MailboxSort,
 ): string {
-  return `seer.v3.mailbox.${CACHE_VERSION}.${accountId}.${folder}.${sort}`;
+  return `${MAILBOX_CACHE_KEY_PREFIX}${CACHE_VERSION}.${accountId}.${folder}.${sort}`;
 }
 
 function mapKey(
@@ -104,7 +105,7 @@ export function clearMailboxCaches(): void {
   try {
     for (let i = window.localStorage.length - 1; i >= 0; i--) {
       const key = window.localStorage.key(i);
-      if (key?.startsWith("seer.v3.mailbox.")) window.localStorage.removeItem(key);
+      if (key?.startsWith(MAILBOX_CACHE_KEY_PREFIX)) window.localStorage.removeItem(key);
     }
   } catch {
     // Cache cleanup must never block an account switch.

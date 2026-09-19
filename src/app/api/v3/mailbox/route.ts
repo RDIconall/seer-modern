@@ -30,14 +30,22 @@ export async function GET(request: Request) {
   const limit = parseMailboxLimit(searchParams.get("limit"));
   const before = searchParams.get("before") ?? undefined;
 
-  const catchingUp =
-    folder === "inbox" && !before
-      ? await kickInboxCatchUp(account, (work) => {
-          after(() => {
-            void work();
-          });
-        })
-      : false;
+  let catchingUp = false;
+  if (folder === "inbox" && !before) {
+    try {
+      catchingUp = await kickInboxCatchUp(account, (work) => {
+        after(() => {
+          void work();
+        });
+      });
+    } catch (cause) {
+      console.error(
+        "[seer] inbox catch-up kick failed",
+        account.email,
+        cause instanceof Error ? cause.message : cause,
+      );
+    }
+  }
 
   const view = await getMailboxView(account.id, folder, limit, before, sort);
   return NextResponse.json({ view, catchingUp });

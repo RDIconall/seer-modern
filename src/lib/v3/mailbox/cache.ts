@@ -50,3 +50,20 @@ export function unwrapMailboxCache(
   }
   return view;
 }
+
+/** Login cannot import the mailbox hook just to drop last week's rows. */
+export const MAILBOX_CACHE_KEY_PREFIX = "seer.v3.mailbox.";
+
+export function clearPersistedMailboxCaches(): void {
+  if (typeof window === "undefined") return;
+  try {
+    for (let i = window.localStorage.length - 1; i >= 0; i--) {
+      const key = window.localStorage.key(i);
+      if (key?.startsWith(MAILBOX_CACHE_KEY_PREFIX)) {
+        window.localStorage.removeItem(key);
+      }
+    }
+  } catch {
+    // Cache cleanup must never block sign-in.
+  }
+}
