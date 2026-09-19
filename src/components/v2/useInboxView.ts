@@ -22,19 +22,34 @@ export function useInboxView(
   const snapshot = useRef<InboxView | null>(null);
   const accountGeneration = useRef(0);
 
+  const catchUpAttempts = useRef(0);
+
   const load = useCallback(async () => {
     const requestGeneration = accountGeneration.current;
     try {
       const res = await fetchFresh("/api/v2/inbox");
       // A failed response may not be JSON at all; falling back to the status is
       // better than replacing the real problem with a parse error.
-      const json = await readJsonBody<{ view?: InboxView; error?: string }>(res);
+      const json = await readJsonBody<{
+        view?: InboxView;
+        catchingUp?: boolean;
+        error?: string;
+      }>(res);
       if (!res.ok || !json?.view) {
         throw new Error(json?.error ?? describeHttpFailure(res.status));
       }
       if (requestGeneration !== accountGeneration.current) return;
       setView(json.view);
       setError(null);
+      if (json.catchingUp && catchUpAttempts.current < 4) {
+        catchUpAttempts.current += 1;
+        globalThis.setTimeout(() => {
+          if (requestGeneration !== accountGeneration.current) return;
+          void load();
+        }, 1500 * catchUpAttempts.current);
+      } else if (!json.catchingUp) {
+        catchUpAttempts.current = 0;
+      }
     } catch (e) {
       if (requestGeneration !== accountGeneration.current) return;
       setError(e instanceof Error ? e.message : "failed to load");
@@ -48,6 +63,7 @@ export function useInboxView(
     window.addEventListener("focus", onFocus);
     const onAccountChanged = () => {
       accountGeneration.current += 1;
+      catchUpAttempts.current = 0;
       snapshot.current = null;
       setView(null);
       setError(null);

@@ -6,6 +6,7 @@ import {
   logout,
   logoutMobile,
 } from "@/app/actions";
+import { ForgetCachedInbox } from "./ForgetCachedInbox";
 import Image from "next/image";
 import Link from "next/link";
 
@@ -45,14 +46,16 @@ export function SessionExpiredScreen({ mobile }: { mobile?: boolean }) {
         <p className="mt-2 text-sm text-[var(--muted)]">
           Sign in again to keep reading and sending mail.
         </p>
-        <form action={mobile ? logoutMobile : logout} className="mt-8">
-          <button
-            type="submit"
-            className="w-full rounded-md bg-[var(--brand)] py-3.5 text-sm text-white"
-          >
-            Sign out and reconnect
-          </button>
-        </form>
+        <ForgetCachedInbox>
+          <form action={mobile ? logoutMobile : logout} className="mt-8">
+            <button
+              type="submit"
+              className="w-full rounded-md bg-[var(--brand)] py-3.5 text-sm text-white"
+            >
+              Sign out and reconnect
+            </button>
+          </form>
+        </ForgetCachedInbox>
       </div>
     </div>
   );
@@ -134,7 +137,7 @@ function ProviderButtons({ mobile }: { mobile?: boolean }) {
   const googleAction = mobile ? loginGoogleMobile : loginGoogle;
   const microsoftAction = mobile ? loginMicrosoftMobile : loginMicrosoft;
   return (
-    <>
+    <ForgetCachedInbox>
       {google ? (
         <form action={googleAction}>
           <button
@@ -160,6 +163,6 @@ function ProviderButtons({ mobile }: { mobile?: boolean }) {
           Set OAuth credentials in .env.local — see .env.example
         </p>
       ) : null}
-    </>
+    </ForgetCachedInbox>
   );
 }

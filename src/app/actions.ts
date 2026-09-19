@@ -17,18 +17,22 @@ import { asAccountId } from "@/lib/v2/db/types";
 import { setActiveAccountId } from "@/lib/store/accounts";
 
 export async function loginGoogle() {
+  await setActiveAccountId(null);
   await signIn("google", { redirectTo: "/" });
 }
 
 export async function loginMicrosoft() {
+  await setActiveAccountId(null);
   await signIn("microsoft-entra-id", { redirectTo: "/" });
 }
 
 export async function loginGoogleMobile() {
+  await setActiveAccountId(null);
   await signIn("google", { redirectTo: "/m" });
 }
 
 export async function loginMicrosoftMobile() {
+  await setActiveAccountId(null);
   await signIn("microsoft-entra-id", { redirectTo: "/m" });
 }
 
@@ -113,9 +117,11 @@ export async function reconnectAccount(id: string, mobile?: boolean) {
 }
 
 export async function logout() {
+  await setActiveAccountId(null);
   await signOut({ redirectTo: "/" });
 }
 
 export async function logoutMobile() {
+  await setActiveAccountId(null);
   await signOut({ redirectTo: "/m" });
 }

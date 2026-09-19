@@ -1,6 +1,9 @@
 import { auth } from "@/auth";
 import { revokeProviderGrant } from "@/lib/mail/revoke";
-import { effectiveActiveAccountId } from "@/lib/v2/session";
+import {
+  isV2Enabled,
+  resolveMailboxAccount,
+} from "@/lib/v2/session";
 import {
   deleteOwnedAccount,
   getCredentials,
@@ -13,7 +16,6 @@ import {
   getActiveAccountId,
   setActiveAccountId,
 } from "@/lib/store/accounts";
-import { isV2Enabled } from "@/lib/v2/session";
 import { originAllowed } from "@/lib/security/origin";
 import { NextResponse } from "next/server";
 
@@ -84,11 +86,12 @@ export async function GET() {
     return NextResponse.json({ error: "V3 account management is unavailable" }, { status: 404 });
   }
   const accounts = await listOwnedAccounts(current.userId);
-  const activeId = await getActiveAccountId();
-  const active =
-    accounts.find((account) => account.id === activeId) ??
-    accounts.find((account) => account.email === current.email) ??
-    null;
+  const active = resolveMailboxAccount(
+    accounts,
+    await getActiveAccountId(),
+    current.session?.activeAccountId,
+    current.email,
+  );
   const effectiveActiveId = active?.id ?? null;
   return NextResponse.json({
     active: active ? publicAccount(active, effectiveActiveId) : null,
@@ -137,11 +140,12 @@ export async function POST(request: Request) {
     );
   }
   const requiresSignOut =
-    effectiveActiveAccountId(
+    resolveMailboxAccount(
       ownedAccounts,
       await getActiveAccountId(),
+      current.session?.activeAccountId,
       current.email,
-    ) === owned.id;
+    )?.id === owned.id;
   const credentials = await getCredentials(owned.id);
   if (credentials) {
     await revokeProviderGrant({

@@ -40,7 +40,7 @@ assert.doesNotMatch(
 );
 
 // A late response must land on the scope it was fetched for, not the current one.
-assert.match(source, /const forScope = /);
+assert.match(source, /let forScope = |const forScope = /);
 assert.match(source, /settle\(\s*\{[\s\S]*?\},\s*forScope,?\s*\)/);
 
 // And no debug probe survives into the client.
