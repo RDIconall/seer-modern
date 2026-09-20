@@ -1,4 +1,4 @@
-import { providerFetch, type ProviderHttpOptions } from "./http";
+import { providerFetch, ProviderHttpError, type ProviderHttpOptions } from "./http";
 import {
   conversationFetchNotFound,
   gmailMutationAlreadyApplied,
@@ -6,28 +6,39 @@ import {
 } from "./mutation-idempotent";
 import { nativeUrlFor } from "./native-url";
 import { gmailForwardHtml } from "./forward-html";
-import type {
-  Address,
-  AttachmentContent,
-  Conversation,
-  ForwardCommand,
-  MailProvider,
-  Message,
-  MutationAction,
-  MutationReceipt,
-  MoveReceipt,
-  ProviderFolder,
-  ProviderKind,
-  ReplyCommand,
-  SearchResult,
-  SendCommand,
-  SendReceipt,
-  SyncContext,
-  SyncFolder,
-  SyncPage,
+import {
+  assertSyncBudget,
+  SyncDeadlineError,
+  type Address,
+  type AttachmentContent,
+  type Conversation,
+  type ForwardCommand,
+  type MailProvider,
+  type Message,
+  type MutationAction,
+  type MutationReceipt,
+  type MoveReceipt,
+  type ProviderFolder,
+  type ProviderKind,
+  type ReplyCommand,
+  type SearchResult,
+  type SendCommand,
+  type SendReceipt,
+  type SyncContext,
+  type SyncFolder,
+  type SyncPage,
 } from "./types";
 import { compileGmailSearch, parseMailSearch } from "@/lib/v3/search/parser";
-import { assertSyncBudget } from "./types";
+
+/** Gmail's per-user minute is a 403, not a 429. The window resets shortly. */
+function isTransientGmailReadError(error: unknown): boolean {
+  if (error instanceof SyncDeadlineError) return true;
+  if (!(error instanceof ProviderHttpError)) return false;
+  if (error.status === 429) return true;
+  return (
+    error.status === 403 && /quota exceeded|rate ?limit/i.test(error.message)
+  );
+}
 
 /**
  * Gmail adapter. Translates Gmail REST v1 payloads into the neutral model and
@@ -211,7 +222,16 @@ export class GmailProvider implements MailProvider {
     const conversations: Conversation[] = [];
     for (const t of list.threads ?? []) {
       assertSyncBudget(context);
-      conversations.push(await this.thread(t.id, context));
+      try {
+        conversations.push(await this.thread(t.id, context));
+      } catch (error) {
+        // Keep newest threads already hydrated. Dropping the whole page on a
+        // mid-page quota 403 is how a live Gmail inbox stays a week behind.
+        if (conversations.length > 0 && isTransientGmailReadError(error)) {
+          break;
+        }
+        throw error;
+      }
     }
     return {
       conversations,

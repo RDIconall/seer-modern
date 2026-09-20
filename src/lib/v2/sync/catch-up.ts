@@ -50,7 +50,12 @@ export async function inboxNeedsCatchUp(
   now = Date.now(),
 ): Promise<boolean> {
   const state = await loadFolderSyncState(accountId, "inbox");
-  if (!state.backfillComplete) return true;
+  if (!state.backfillComplete) {
+    // A stuck historical scan still needs a newest-first poll — but only
+    // until the last successful head poll, or every refresh re-kicks Gmail
+    // and burns the per-user minute before new mail can land.
+    return inboxCatchUpDue(state.lastReconciledAt, now);
+  }
   return inboxCatchUpDue(await latestInboxSyncAt(accountId), now);
 }
 
@@ -88,6 +93,12 @@ export async function catchUpInbox(account: MailAccount): Promise<void> {
       pageSize:
         account.provider === "google" ? GMAIL_CATCH_UP_PAGE_SIZE : undefined,
     });
+  } catch (cause) {
+    console.error(
+      "[seer] inbox catch-up failed",
+      account.email,
+      cause instanceof Error ? cause.message : cause,
+    );
   } finally {
     recentlyKicked.delete(account.id);
   }
