@@ -17,7 +17,6 @@ import {
   RSVP_RECEIPT_SUBJECT,
   type PersonalContext,
 } from "@/lib/inbox/personal-context";
-import type { SeerLabelStore } from "@/lib/mail/seer-labels";
 import { intelBreakdown, intelContainsAny } from "@/lib/nlp/intel";
 import {
   learnedPrior,
@@ -73,8 +72,8 @@ const ACTIONS = [
 
 /**
  * Verdicts that make an email disappear without the user's eyes.
- * EVERY memory layer (taught, learned, decision cache, Gmail labels,
- * rules) must clear the same needs-you bar before one of these sticks —
+ * EVERY memory layer (taught, learned, decision cache, rules) must
+ * clear the same needs-you bar before one of these sticks —
  * a saved "ignore" from last week must never outrank what THIS email
  * says today.
  */
@@ -116,8 +115,6 @@ export type GeminiTriageItem = {
   fromName: string;
   subject: string;
   snippet: string;
-  /** Gmail label ids — may carry a saved Seer decision */
-  labelIds?: string[];
   /** Thread + arrival time — used to spot "you already replied" */
   threadId?: string;
   receivedAt?: string;
@@ -164,8 +161,8 @@ const FAST_EXPIRE =
   /(verification code|one.?time (code|passcode)|security code|log.?in code)/i;
 
 /**
- * Post-guard over EVERY decision source (cache, Gmail labels, Gemini,
- * rules): an act_today from days ago whose moment has passed is dead.
+ * Post-guard over EVERY decision source (cache, Gemini, rules): an
+ * act_today from days ago whose moment has passed is dead.
  * This is how a flight check-in stops screaming after the flight.
  */
 function applyUrgencyDecay(
@@ -198,10 +195,6 @@ function applyUrgencyDecay(
     task: "Nothing — it expired",
   };
 }
-
-/** Looks like a record worth keeping (used to trust old archive labels). */
-const RECORD_HINT =
-  /(receipt|invoice|statement|confirm(?:ed|ation)|order\s*(?:#|no|number)|reference|booking|itinerary|ticket|policy|tax|W-?2|1099)/i;
 
 // Free-tier Gemini caps REQUESTS per day, not emails — bigger batches
 // stretch the same quota over more mail.
@@ -551,12 +544,10 @@ export type TriageExtras = {
    * implicit prompt caching still reuses the shared static prefix.
    */
   profile?: UserProfile | null;
-  /** Gmail: read/write decisions as native Seer/<action> labels */
-  labels?: SeerLabelStore | null;
   /**
    * Set false for single-message paths (reader/prefetch) — those must be
-   * served by cache/label/rules only, never burn API quota one email at
-   * a time. Inbox batch loads are the only place Gemini is called.
+   * served by cache/rules only, never burn API quota one email at a
+   * time. Inbox batch loads are the only place Gemini is called.
    */
   geminiEnabled?: boolean;
   /** Threads replied to from inside Seer (threadId → ISO time). */
@@ -579,13 +570,13 @@ export type TriageExtras = {
    * Superhuman rule: the response never waits for intelligence. When
    * set, ungraded mail returns provisional rules grades (marked
    * `pending`) and the Gemini reads run via onDeferred (e.g. Vercel's
-   * after()) — persisted to cache/labels for the next fetch.
+   * after()) — persisted to the decision cache for the next fetch.
    */
   deferAi?: boolean;
   onDeferred?: (run: () => Promise<void>) => void;
   /**
    * Deep read: fetch the FULL body text for a message about to be sent
-   * to Gemini. Each email is read once (decision cached + labeled), so
+   * to Gemini. Each email is read once (decision cached), so
    * the whole inbox costs pennies — snippets are only the fallback.
    */
   fetchBody?: (id: string) => Promise<string | null>;
@@ -778,15 +769,13 @@ function toCached(r: AssistantClassifyResult): CachedDecision {
  * 2. Learned priors — the user's own repeated archive/trash actions on
  *    a sender ARE the classifier (free, and self-correcting).
  * 3. Persistent decision cache — already-classified mail costs zero tokens.
- * 4. Native Gmail labels — Gemini reviewed once, its call was saved as a
- *    Seer/<action> label on the message itself (free, survives restarts).
- * 5. Rules pre-filter — obvious junk decided locally without an API call
+ * 4. Rules pre-filter — obvious junk decided locally without an API call
  *    (never for contacts or people you're about to meet).
- * 6. Gemini decides the gray zone, fed relationship + contacts + calendar
+ * 5. Gemini decides the gray zone, fed relationship + contacts + calendar
  *    + past-action predictors, in large batches with a static system
  *    prompt (implicit prompt caching) and trimmed payloads. New calls are
- *    written back as Gmail labels so they're never paid for again.
- * 7. Rules fallback if Gemini is unavailable or misses an id.
+ *    written back to the decision cache so they're never paid for again.
+ * 6. Rules fallback if Gemini is unavailable or misses an id.
  */
 export async function classifyInboxWithAssistant(
   accountEmail: string,
@@ -1134,15 +1123,6 @@ export async function classifyInboxWithAssistant(
     PROMPT_VERSION,
   ).catch(() => new Map<string, CachedDecision>());
 
-  // Gmail labels carry no version — after a prompt bump, every label is
-  // a previous era's opinion. Until one full load re-grades cleanly
-  // under the current version, label lookups are ignored (the LA28
-  // presale sat on a stale read_and_delete label this way).
-  const eraKey = `labels-era:${accountEmail.toLowerCase()}`;
-  const labelsTrusted = extras?.labels
-    ? (await kvGet<number>(eraKey).catch(() => null)) === PROMPT_VERSION
-    : false;
-
   const forGemini: GeminiTriageItem[] = [];
   const toSave = new Map<string, CachedDecision>();
 
@@ -1160,9 +1140,9 @@ export async function classifyInboxWithAssistant(
 
     const hit = cachedHits.get(item.id);
     // A cached dismissal that came from RULES (a snippet-level shortcut,
-    // never a full read) must survive the same challenges a Gmail label
-    // does: needs-you language or person mail → send to the AI instead.
-    // Gemini's own current-version verdicts are the trusted AI memory.
+    // never a full read) must survive the same challenges: needs-you
+    // language or person mail → send to the AI instead. Gemini's own
+    // current-version verdicts are the trusted AI memory.
     const staleCachedDismissal =
       hit &&
       hit.source === "rules" &&
@@ -1185,64 +1165,7 @@ export async function classifyInboxWithAssistant(
       continue;
     }
 
-    const ctx = contextSignals(extras?.personal, item.fromEmail);
-
-    // 4. Native Gmail label: reviewed once earlier, call saved on the message.
-    // Exception: an "urgent" label on a non-person sender (bulk/known robot,
-    // not a contact, no meeting) may be an older prompt's mistake — re-review.
-    // Also skipped briefly after the user edits their "about me" memory so
-    // new self-knowledge gets applied to already-labeled mail once.
-    const profileFresh =
-      extras?.profile &&
-      Date.now() - new Date(extras.profile.updatedAt).getTime() <
-        30 * 60 * 1000;
-    const labeled =
-      profileFresh || !labelsTrusted ? null : extras?.labels?.lookup(item);
-    if (labeled) {
-      const rel = historySignals(history, item.fromEmail).relationship;
-      const suspiciousUrgent =
-        (labeled === "act_today" || labeled === "respond") &&
-        !ctx.inContacts &&
-        !ctx.meeting &&
-        rel !== "engaged";
-      // "Archive" from a robot that isn't a record (no receipt/reference
-      // in sight) predates the delete-beats-archive philosophy — re-review.
-      const suspiciousArchive =
-        labeled === "read_and_archive" &&
-        !ctx.inContacts &&
-        !ctx.meeting &&
-        rel !== "engaged" &&
-        !RECORD_HINT.test(`${item.subject} ${item.snippet}`);
-      // A PERSON's mail never trusts a dismissive label: an old prompt
-      // filing Rebecca's follow-up as "archive" must not stick — real
-      // people always get a current judgment.
-      const personDismissed = personTier && DISMISSIVE.has(labeled);
-      // Labels aren't versioned — an old prompt's "ignore" lives on the
-      // message forever. When the TEXT says needs-you (unpaid bill,
-      // payment failed, signature required), the label loses and the
-      // email gets a fresh full read. This is how the $140 pool invoice
-      // sat filed as a "record" for 3 weeks: "invoice" matched
-      // RECORD_HINT, and the escape hatch never challenged labels.
-      const labelDismissedNeedsYou = DISMISSIVE.has(labeled) && escape;
-      if (
-        !suspiciousUrgent &&
-        !suspiciousArchive &&
-        !personDismissed &&
-        !labelDismissedNeedsYou
-      ) {
-        results.set(item.id, {
-          action: labeled,
-          confidence: "HIGH",
-          reason: "Reviewed earlier — decision saved as a Gmail label",
-          debug: debugFor(item, history, `label:Seer/${labeled}`),
-          source: "gemini",
-          cached: true,
-        });
-        continue;
-      }
-    }
-
-    // 5. Everything ungraded gets the full AI read. (The old rules
+    // 4. Everything ungraded gets the full AI read. (The old rules
     // pre-filter that skipped Gemini for "obvious junk" is gone — it
     // judged by sender shape and binned a plumber's "arriving 9am-1pm
     // TODAY" as bulk noise. Paid gateway: content decides, not cost.)
@@ -1410,10 +1333,9 @@ export async function classifyInboxWithAssistant(
   ) {
     if (extras?.deferAi && extras.onDeferred) {
       // Respond NOW with provisional grades; read in the background and
-      // persist to the decision cache + Gmail labels. The client
-      // silently refetches and the fresh grades appear seconds later.
+      // persist to the decision cache. The client silently refetches
+      // and the fresh grades appear seconds later.
       for (const it of forGemini) pendingAi.add(it.id);
-      const labelsRef = extras.labels;
       extras.onDeferred(async () => {
         const bgResults = new Map<string, AssistantClassifyResult>();
         const bgSave = new Map<string, CachedDecision>();
@@ -1428,11 +1350,6 @@ export async function classifyInboxWithAssistant(
         applyMerchantPass(forGemini, bgResults, bgSave);
         if (bgSave.size > 0) {
           await saveDecisions(accountEmail, bgSave).catch(() => {});
-          await labelsRef
-            ?.persist(
-              [...bgSave.entries()].map(([id, d]) => ({ id, action: d.action })),
-            )
-            .catch(() => {});
         }
         if (peopleDirty) await savePeople(accountEmail, people).catch(() => {});
         if (merchantsDirty) {
@@ -1447,9 +1364,8 @@ export async function classifyInboxWithAssistant(
     }
   }
 
-  // 7. Rules fallback for anything Gemini missed (not cached, so Gemini
+  // 6. Rules fallback for anything Gemini missed (not cached, so Gemini
   //    gets another shot on the next load)
-  let uncachedRulesLeftovers = 0;
   for (const item of forGemini) {
     if (results.has(item.id)) continue;
     const ctx = contextSignals(extras?.personal, item.fromEmail);
@@ -1489,7 +1405,6 @@ export async function classifyInboxWithAssistant(
       });
       continue;
     }
-    uncachedRulesLeftovers += 1;
     results.set(item.id, {
       ...r,
       source: "rules",
@@ -1649,21 +1564,6 @@ export async function classifyInboxWithAssistant(
 
   if (peopleDirty) await savePeople(accountEmail, people).catch(() => {});
   await saveDecisions(accountEmail, toSave).catch(() => {});
-
-  // Save fresh calls as native Gmail labels — reviewed once, never re-paid
-  if (extras?.labels && toSave.size > 0) {
-    const labelWrites = [...toSave.entries()].map(([id, d]) => ({
-      id,
-      action: d.action,
-    }));
-    await extras.labels.persist(labelWrites).catch(() => {});
-  }
-
-  // A clean load under the current prompt version (nothing left on
-  // uncached rules fallbacks) re-earns label trust for this era.
-  if (extras?.labels && !labelsTrusted && uncachedRulesLeftovers === 0) {
-    await kvSet(eraKey, PROMPT_VERSION).catch(() => {});
-  }
 
   return results;
 }

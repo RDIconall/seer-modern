@@ -21,7 +21,6 @@ import {
   getGraphMessage,
   listGraphFolder,
 } from "@/lib/mail/graph";
-import { makeGmailLabelStore } from "@/lib/mail/seer-labels";
 import { requireMailSession } from "@/lib/mail/session";
 import { getSenderOverride } from "@/lib/store/senders";
 import type { RsvpStatus } from "@/lib/inbox/personal-context";
@@ -98,38 +97,34 @@ export async function GET(
             message.threadId,
           );
 
-    const [history, personal, actionMemory, labels, replied] =
-      await Promise.all([
-        getOrBuildMailHistory(
-          session.email,
-          session.accessToken,
-          {
-            listFolder: (token, folder, max) =>
-              session.provider === "google"
-                ? listGmailFolder(token, folder, max)
-                : listGraphFolder(token, folder, max),
-            listArchive:
-              session.provider === "google"
-                ? (token, max) =>
-                    searchGmail(
-                      token,
-                      "-in:inbox -in:sent -in:trash -in:spam is:read",
-                      max,
-                    )
-                : undefined,
-          },
-        ),
-        getPersonalContext({
-          accountEmail: session.email,
-          accessToken: session.accessToken,
-          provider: session.provider,
-        }),
-        loadActionMemory(session.email),
-        session.provider === "google"
-          ? makeGmailLabelStore(session.accessToken, session.email)
-          : Promise.resolve(null),
-        loadRepliedThreads(session.email),
-      ]);
+    const [history, personal, actionMemory, replied] = await Promise.all([
+      getOrBuildMailHistory(
+        session.email,
+        session.accessToken,
+        {
+          listFolder: (token, folder, max) =>
+            session.provider === "google"
+              ? listGmailFolder(token, folder, max)
+              : listGraphFolder(token, folder, max),
+          listArchive:
+            session.provider === "google"
+              ? (token, max) =>
+                  searchGmail(
+                    token,
+                    "-in:inbox -in:sent -in:trash -in:spam is:read",
+                    max,
+                  )
+              : undefined,
+        },
+      ),
+      getPersonalContext({
+        accountEmail: session.email,
+        accessToken: session.accessToken,
+        provider: session.provider,
+      }),
+      loadActionMemory(session.email),
+      loadRepliedThreads(session.email),
+    ]);
 
     const bodyText =
       message.textBody ||
@@ -145,7 +140,6 @@ export async function GET(
           subject: message.subject,
           // Full-body depth: "amount due" on page two still counts
           snippet: (bodyText || message.snippet).slice(0, 2000),
-          labelIds: message.labelIds,
           threadId: message.threadId,
           receivedAt: message.receivedAt,
         },
@@ -153,7 +147,7 @@ export async function GET(
       history,
       (email) => getSenderOverride(email),
       classifyMessage,
-      // Single-message path: cache/label/rules only. Gemini runs on batch
+      // Single-message path: cache/rules only. Gemini runs on batch
       // inbox loads — never one email at a time (that burns quota fast).
       // threadLast MUST match the list path: the reader saying "awaiting
       // their reply" while triage says "Reply to Rebecca" was the two
@@ -161,7 +155,6 @@ export async function GET(
       {
         personal,
         actionMemory,
-        labels,
         geminiEnabled: false,
         replied,
         threadLast:

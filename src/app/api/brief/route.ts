@@ -14,7 +14,6 @@ import {
   searchGmail,
 } from "@/lib/mail/gmail";
 import { getGraphInboxTotals, listGraphFolder } from "@/lib/mail/graph";
-import { makeGmailLabelStore } from "@/lib/mail/seer-labels";
 import { requireMailSession } from "@/lib/mail/session";
 import { loadUnderstanding } from "@/lib/store/understanding-store";
 import { loadUserProfile } from "@/lib/store/user-profile";
@@ -83,7 +82,7 @@ export async function POST() {
         : listGraphFolder(session.accessToken, "inbox", INBOX_DEPTH),
     );
 
-    const [history, labels, profile] = await Promise.all([
+    const [history, profile] = await Promise.all([
       getOrBuildMailHistory(
         session.email,
         session.accessToken,
@@ -104,13 +103,10 @@ export async function POST() {
         },
         raw,
       ),
-      session.provider === "google"
-        ? makeGmailLabelStore(session.accessToken, session.email)
-        : Promise.resolve(null),
       loadUserProfile(session.email),
     ]);
 
-    // Grades from cache/labels — instant; the matters call is the only
+    // Grades from cache — instant; the matters call is the only
     // AI work and it runs after the response.
     const decisions = await classifyInboxWithAssistant(
       session.email,
@@ -120,7 +116,6 @@ export async function POST() {
         fromName: m.fromName,
         subject: m.subject,
         snippet: m.snippet,
-        labelIds: m.labelIds,
         threadId: m.threadId,
         receivedAt: m.receivedAt,
       })),
@@ -128,7 +123,6 @@ export async function POST() {
       (email) => getSenderOverride(email),
       classifyMessage,
       {
-        labels,
         geminiEnabled: false,
         threadLast:
           session.provider === "google"

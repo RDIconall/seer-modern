@@ -1001,7 +1001,7 @@ export function useMailbox(initialTab: ViewTab = "inbox") {
 
   /**
    * Correct / train Seer: saves a taught override (top of the
-   * precedence chain — beats Gemini, labels, everything, forever) and
+   * precedence chain — beats Gemini, cache, everything, forever) and
    * applies the correction to THIS email right now. Teaching
    * "unsubscribe" actually unsubscribes.
    */

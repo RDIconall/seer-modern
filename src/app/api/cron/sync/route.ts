@@ -23,7 +23,6 @@ import {
   getGraphMessage,
   listGraphFolder,
 } from "@/lib/mail/graph";
-import { makeGmailLabelStore } from "@/lib/mail/seer-labels";
 import { withFreshToken } from "@/lib/mail/vault";
 import { listAccountsWithTokens } from "@/lib/store/accounts";
 import { loadActionMemory } from "@/lib/store/action-memory";
@@ -121,34 +120,30 @@ export async function GET(request: Request) {
         { force: true },
       );
 
-      const [history, labels, profile, actionMemory, replied] =
-        await Promise.all([
-          getOrBuildMailHistory(
-            acct.email,
-            token,
-            {
-              listFolder: (t, f, max) =>
-                isGoogle
-                  ? listGmailFolder(t, f, max)
-                  : listGraphFolder(t, f, max),
-              listArchive: isGoogle
-                ? (t, max) =>
-                    searchGmail(
-                      t,
-                      "-in:inbox -in:sent -in:trash -in:spam is:read",
-                      max,
-                    )
-                : undefined,
-            },
-            raw,
-          ),
-          isGoogle
-            ? makeGmailLabelStore(token, acct.email)
-            : Promise.resolve(null),
-          loadUserProfile(acct.email),
-          loadActionMemory(acct.email),
-          loadRepliedThreads(acct.email),
-        ]);
+      const [history, profile, actionMemory, replied] = await Promise.all([
+        getOrBuildMailHistory(
+          acct.email,
+          token,
+          {
+            listFolder: (t, f, max) =>
+              isGoogle
+                ? listGmailFolder(t, f, max)
+                : listGraphFolder(t, f, max),
+            listArchive: isGoogle
+              ? (t, max) =>
+                  searchGmail(
+                    t,
+                    "-in:inbox -in:sent -in:trash -in:spam is:read",
+                    max,
+                  )
+              : undefined,
+          },
+          raw,
+        ),
+        loadUserProfile(acct.email),
+        loadActionMemory(acct.email),
+        loadRepliedThreads(acct.email),
+      ]);
 
       // Inline grading — this IS the background, blocking is the point
       const decisions = await classifyInboxWithAssistant(
@@ -159,7 +154,6 @@ export async function GET(request: Request) {
           fromName: m.fromName,
           subject: m.subject,
           snippet: m.snippet,
-          labelIds: m.labelIds,
           threadId: m.threadId,
           receivedAt: m.receivedAt,
         })),
@@ -170,7 +164,6 @@ export async function GET(request: Request) {
           profile,
           actionMemory,
           replied,
-          labels,
           geminiEnabled: true,
           threadLast: isGoogle
             ? (tid) => getGmailThreadLast(token, tid)
