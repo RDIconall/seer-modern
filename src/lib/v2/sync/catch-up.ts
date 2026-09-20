@@ -2,7 +2,7 @@ import { db } from "@/lib/v2/db/pool";
 import type { MailAccount } from "@/lib/v2/db/accounts";
 import type { AccountId } from "@/lib/v2/db/types";
 import { providerFor } from "@/lib/v2/providers/provider";
-import { claimWorkerLease, releaseWorkerLease } from "@/lib/v2/cron/lease";
+import { loadFolderSyncState } from "@/lib/v2/sync/repository";
 import { syncFolder } from "@/lib/v2/sync/engine";
 
 /**
@@ -12,6 +12,12 @@ import { syncFolder } from "@/lib/v2/sync/engine";
 export const INBOX_CATCH_UP_STALE_MS = 15 * 60 * 1000;
 /** Login must not wait out a historical backfill. One head page is the catch-up. */
 export const INBOX_CATCH_UP_DEADLINE_MS = 25_000;
+/**
+ * Gmail charges ~40 units per full thread. A 100-thread page blows the
+ * per-user minute and cannot finish inside the login deadline, so catch-up
+ * reads a short newest-first page instead.
+ */
+export const GMAIL_CATCH_UP_PAGE_SIZE = 15;
 
 export function inboxCatchUpDue(
   lastSyncedAt: Date | string | null | undefined,
@@ -39,13 +45,21 @@ export async function latestInboxSyncAt(
   return value instanceof Date ? value : new Date(value);
 }
 
+export async function inboxNeedsCatchUp(
+  accountId: AccountId,
+  now = Date.now(),
+): Promise<boolean> {
+  const state = await loadFolderSyncState(accountId, "inbox");
+  if (!state.backfillComplete) return true;
+  return inboxCatchUpDue(await latestInboxSyncAt(accountId), now);
+}
+
 const recentlyKicked = new Map<string, number>();
 
 /**
- * Schedule a provider head-poll when the corpus is older than the stale
- * window. Returns whether the client should keep reloading. A kick already
- * in flight on this instance is treated as in progress so login polling
- * does not start a second historical scan.
+ * Schedule a newest-first provider head-poll when the corpus is stale or the
+ * historical scan is still running. A Gmail backfill that never finished must
+ * not hide new mail behind the next old page.
  */
 export async function kickInboxCatchUp(
   account: MailAccount,
@@ -55,8 +69,7 @@ export async function kickInboxCatchUp(
   if (account.status !== "active") return false;
   const lastKick = recentlyKicked.get(account.id);
   if (lastKick != null && now - lastKick < 60_000) return true;
-  const lastSynced = await latestInboxSyncAt(account.id);
-  if (!inboxCatchUpDue(lastSynced, now)) return false;
+  if (!(await inboxNeedsCatchUp(account.id, now))) return false;
   recentlyKicked.set(account.id, now);
   schedule(() => catchUpInbox(account));
   return true;
@@ -64,24 +77,18 @@ export async function kickInboxCatchUp(
 
 export async function catchUpInbox(account: MailAccount): Promise<void> {
   if (account.status !== "active") return;
-  const lastSynced = await latestInboxSyncAt(account.id);
-  if (!inboxCatchUpDue(lastSynced)) return;
-
-  const held = await claimWorkerLease(
-    account.id,
-    "sync",
-    INBOX_CATCH_UP_DEADLINE_MS + 15_000,
-  );
-  if (!held) return;
+  if (!(await inboxNeedsCatchUp(account.id))) return;
 
   try {
     const provider = await providerFor(account);
     await syncFolder(account.id, provider, "inbox", "incremental", {
       maxPages: 1,
+      headOnly: true,
       deadlineMs: Date.now() + INBOX_CATCH_UP_DEADLINE_MS,
+      pageSize:
+        account.provider === "google" ? GMAIL_CATCH_UP_PAGE_SIZE : undefined,
     });
   } finally {
-    await releaseWorkerLease(account.id, "sync");
     recentlyKicked.delete(account.id);
   }
 }

@@ -68,13 +68,18 @@ export class FakeProvider implements MailProvider {
     return this.syncFolder("inbox", cursor);
   }
 
-  async syncFolder(folder: SyncFolder, cursor?: string | null): Promise<SyncPage> {
+  async syncFolder(
+    folder: SyncFolder,
+    cursor?: string | null,
+    context?: { pageSize?: number },
+  ): Promise<SyncPage> {
     const start = cursor ? Number(cursor) : 0;
+    const pageSize = context?.pageSize ?? this.pageSize;
     const folderConvos = this.convos.filter((c) =>
       c.messages.some((m) => m.folder === folder),
     );
-    const slice = folderConvos.slice(start, start + this.pageSize);
-    const next = start + this.pageSize;
+    const slice = folderConvos.slice(start, start + pageSize);
+    const next = start + pageSize;
     return {
       conversations: slice.map((c) => this.live(c)),
       deletedConversationIds:

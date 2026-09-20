@@ -15,6 +15,8 @@ export type SyncContext = {
   deadlineMs?: number;
   /** Optional caller cancellation signal. */
   signal?: AbortSignal;
+  /** Override the adapter page size for this call only (login catch-up). */
+  pageSize?: number;
 };
 
 export class SyncDeadlineError extends Error {

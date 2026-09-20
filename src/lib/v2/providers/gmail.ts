@@ -198,12 +198,13 @@ export class GmailProvider implements MailProvider {
     context?: SyncContext,
   ): Promise<SyncPage> {
     assertSyncBudget(context);
+    const pageSize = context?.pageSize ?? this.pageSize;
     const list = await this.get<{
       threads?: { id: string }[];
       nextPageToken?: string;
       resultSizeEstimate?: number;
     }>(
-      `/threads?q=${encodeURIComponent(this.folderQuery(folder))}&maxResults=${this.pageSize}` +
+      `/threads?q=${encodeURIComponent(this.folderQuery(folder))}&maxResults=${pageSize}` +
         (cursor ? `&pageToken=${encodeURIComponent(cursor)}` : ""),
       context,
     );
