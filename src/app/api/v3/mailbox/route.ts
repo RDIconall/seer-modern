@@ -1,5 +1,6 @@
-import { NextResponse } from "next/server";
+import { after, NextResponse } from "next/server";
 import { getActiveV2Account } from "@/lib/v2/session";
+import { kickInboxCatchUp } from "@/lib/v2/sync/catch-up";
 import { parseMailboxLimit } from "@/lib/v3/mailbox/limit";
 import { getMailboxView } from "@/lib/v3/mailbox/repository";
 import type { MailboxFolder, MailboxSort } from "@/lib/v3/mailbox/types";
@@ -11,7 +12,9 @@ export const dynamic = "force-dynamic";
 
 /**
  * Corpus-backed mailbox list for inbox, sent, and trash. Rows carry Seer
- * decision metadata where a current decision exists.
+ * decision metadata where a current decision exists. The first page of Inbox
+ * also kicks a provider catch-up when the corpus is stale, so signing in
+ * after being away cannot leave last week's mail on screen.
  */
 export async function GET(request: Request) {
   const account = await getActiveV2Account();
@@ -27,6 +30,23 @@ export async function GET(request: Request) {
   const limit = parseMailboxLimit(searchParams.get("limit"));
   const before = searchParams.get("before") ?? undefined;
 
+  let catchingUp = false;
+  if (folder === "inbox" && !before) {
+    try {
+      catchingUp = await kickInboxCatchUp(account, (work) => {
+        after(() => {
+          void work();
+        });
+      });
+    } catch (cause) {
+      console.error(
+        "[seer] inbox catch-up kick failed",
+        account.email,
+        cause instanceof Error ? cause.message : cause,
+      );
+    }
+  }
+
   const view = await getMailboxView(account.id, folder, limit, before, sort);
-  return NextResponse.json({ view });
+  return NextResponse.json({ view, catchingUp });
 }

@@ -16,9 +16,15 @@ import {
   prefetchAdjacentIds,
   viewForFolder,
 } from "./mailbox-state";
+import {
+  MAILBOX_CACHE_KEY_PREFIX,
+  unwrapMailboxCache,
+  wrapMailboxCache,
+  type MailboxCacheEnvelope,
+} from "@/lib/v3/mailbox/cache";
 
-const CACHE_VERSION = 6;
-const mailboxCache = new Map<string, MailboxView>();
+const CACHE_VERSION = 7;
+const mailboxCache = new Map<string, MailboxCacheEnvelope>();
 const bodyCache = new Map<string, unknown>();
 
 /**
@@ -43,7 +49,7 @@ function cacheKey(
   folder: MailboxFolder,
   sort: MailboxSort,
 ): string {
-  return `seer.v3.mailbox.${CACHE_VERSION}.${accountId}.${folder}.${sort}`;
+  return `${MAILBOX_CACHE_KEY_PREFIX}${CACHE_VERSION}.${accountId}.${folder}.${sort}`;
 }
 
 function mapKey(
@@ -60,34 +66,31 @@ function readCache(
   sort: MailboxSort,
 ): MailboxView | null {
   const memory = mailboxCache.get(mapKey(accountId, folder, sort));
-  if (memory) return memory;
+  const fromMemory = unwrapMailboxCache(memory, accountId, folder, sort);
+  if (fromMemory) return fromMemory;
+  if (memory) mailboxCache.delete(mapKey(accountId, folder, sort));
   if (typeof window === "undefined") return null;
   try {
     const raw = window.localStorage.getItem(cacheKey(accountId, folder, sort));
     if (!raw) return null;
-    const parsed = JSON.parse(raw) as MailboxView;
-    if (
-      parsed.accountId !== accountId ||
-      parsed.folder !== folder ||
-      parsed.sort !== sort ||
-      !Array.isArray(parsed.rows)
-    ) {
-      return null;
-    }
+    const parsed = JSON.parse(raw) as MailboxCacheEnvelope;
+    const view = unwrapMailboxCache(parsed, accountId, folder, sort);
+    if (!view) return null;
     mailboxCache.set(mapKey(accountId, folder, sort), parsed);
-    return parsed;
+    return view;
   } catch {
     return null;
   }
 }
 
 function writeCache(view: MailboxView): void {
-  mailboxCache.set(mapKey(view.accountId, view.folder, view.sort), view);
+  const envelope = wrapMailboxCache(view);
+  mailboxCache.set(mapKey(view.accountId, view.folder, view.sort), envelope);
   if (typeof window === "undefined") return;
   try {
     window.localStorage.setItem(
       cacheKey(view.accountId, view.folder, view.sort),
-      JSON.stringify(view),
+      JSON.stringify(envelope),
     );
   } catch {
     // A full or disabled browser cache must never block the mailbox.
@@ -102,7 +105,7 @@ export function clearMailboxCaches(): void {
   try {
     for (let i = window.localStorage.length - 1; i >= 0; i--) {
       const key = window.localStorage.key(i);
-      if (key?.startsWith("seer.v3.mailbox.")) window.localStorage.removeItem(key);
+      if (key?.startsWith(MAILBOX_CACHE_KEY_PREFIX)) window.localStorage.removeItem(key);
     }
   } catch {
     // Cache cleanup must never block an account switch.
@@ -198,6 +201,7 @@ export function useMailbox(
   const scope = `${accountId ?? ""}:${folder}:${sort}`;
   const [loaded, setLoaded] = useState<Loaded | null>(null);
   const viewRef = useRef<MailboxView | null>(initial);
+  const catchUpAttempts = useRef(0);
 
   const current: Loaded =
     loaded && loaded.scope === scope
@@ -229,8 +233,10 @@ export function useMailbox(
   const reload = useCallback(async () => {
     if (options.disabled) return;
     // The scope this fetch belongs to. A folder switch mid-flight must not let
-    // the older response land on the newer list.
-    const forScope = `${accountId ?? ""}:${folder}:${sort}`;
+    // the older response land on the newer list. Account identity is resolved
+    // inside the fetch, so a login starting with no accountId must still settle
+    // against the mailbox that came back — otherwise the leftover cache paints.
+    let forScope = `${accountId ?? ""}:${folder}:${sort}`;
     try {
       const accountResponse = await fetchFresh("/api/v3/accounts");
       const accountJson = (await accountResponse.json()) as {
@@ -241,10 +247,11 @@ export function useMailbox(
       }
       const activeAccountId = accountJson.active.id;
       setAccountId(activeAccountId);
-      const scope = `${activeAccountId}:${folder}:${sort}`;
+      forScope = `${activeAccountId}:${folder}:${sort}`;
       const pageSize = isWorkQueue(sort) ? TRIAGE_PAGE : FOLDER_PAGE;
       let merged: MailboxView | null = null;
       let before: string | null = null;
+      let catchingUp = false;
 
       for (let page = 0; page < MAX_TRIAGE_PAGES; page += 1) {
         const response = await fetchFresh(
@@ -253,7 +260,10 @@ export function useMailbox(
             (before ? `&before=${encodeURIComponent(before)}` : ""),
         );
         if (!response.ok) throw new Error(`mailbox ${response.status}`);
-        const json = (await response.json()) as { view: MailboxView };
+        const json = (await response.json()) as {
+          view: MailboxView;
+          catchingUp?: boolean;
+        };
         if (
           json.view.folder !== folder ||
           json.view.sort !== sort ||
@@ -262,6 +272,7 @@ export function useMailbox(
           throw new Error("mailbox response scope mismatch");
         }
         merged = merged ? appendPage(merged, json.view) : json.view;
+        if (page === 0) catchingUp = Boolean(json.catchingUp);
         // The first page paints straight away; the tail of the queue arrives
         // behind it rather than holding the whole screen back.
         if (page === 0) {
@@ -270,10 +281,12 @@ export function useMailbox(
             {
               view: merged,
               loading: false,
-              refreshing: Boolean(json.view.nextCursor) && isWorkQueue(sort),
+              refreshing:
+                catchingUp ||
+                (Boolean(json.view.nextCursor) && isWorkQueue(sort)),
               error: null,
             },
-            scope,
+            forScope,
           );
         }
         before = json.view.nextCursor;
@@ -284,9 +297,22 @@ export function useMailbox(
       writeCache(merged);
       viewRef.current = merged;
       settle(
-        { view: merged, loading: false, refreshing: false, error: null },
-        scope,
+        {
+          view: merged,
+          loading: false,
+          refreshing: catchingUp,
+          error: null,
+        },
+        forScope,
       );
+      if (catchingUp && catchUpAttempts.current < 4) {
+        catchUpAttempts.current += 1;
+        globalThis.setTimeout(() => {
+          void reload();
+        }, 1500 * catchUpAttempts.current);
+      } else if (!catchingUp) {
+        catchUpAttempts.current = 0;
+      }
     } catch (cause) {
       viewRef.current = null;
       settle(
@@ -312,6 +338,7 @@ export function useMailbox(
   useEffect(() => {
     if (options.disabled || typeof window === "undefined") return;
     const onAccountChanged = () => {
+      catchUpAttempts.current = 0;
       clearMailboxCaches();
       setAccountId(null);
       viewRef.current = null;

@@ -268,7 +268,11 @@ export function Settings({ mobile = false }: { mobile?: boolean }) {
 
       <AtlasSettings />
 
-      <form className="mail-settings-signout" action={logout}>
+      <form
+        className="mail-settings-signout"
+        action={logout}
+        onSubmit={() => clearMailboxCaches()}
+      >
         <button className="mail-settings-button" type="submit">
           <LogOut className="mail-settings-button-icon" aria-hidden="true" />
           Sign out

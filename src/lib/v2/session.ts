@@ -36,6 +36,29 @@ export function selectV2Account(
   );
 }
 
+/**
+ * Cookie is the explicit switch from Settings. When it is missing — a fresh
+ * login, or the Auth.js jwt callback failing to write cookies — the mailbox
+ * signed into (JWT / session) is the one that must appear, not another owned
+ * account leftover from last week.
+ */
+export function resolveMailboxAccount(
+  accounts: MailAccount[],
+  cookieId: string | null | undefined,
+  sessionAccountId: string | null | undefined,
+  sessionEmail: string,
+): MailAccount | null {
+  const fromCookie = cookieId
+    ? accounts.find((account) => account.id === cookieId)
+    : undefined;
+  if (fromCookie) return fromCookie;
+  const fromSession = sessionAccountId
+    ? accounts.find((account) => account.id === sessionAccountId)
+    : undefined;
+  if (fromSession) return fromSession;
+  return selectV2Account(accounts, null, sessionEmail);
+}
+
 export function effectiveActiveAccountId(
   accounts: MailAccount[],
   activeId: string | null,
@@ -54,5 +77,10 @@ export async function getActiveV2Account(): Promise<MailAccount | null> {
   // The cookie is absent or invalid/foreign: only the signed-in identity's
   // mailbox is eligible as the fallback. The list is owner-scoped before the
   // cookie is applied, so a foreign id can never switch users.
-  return selectV2Account(accounts, await getActiveAccountId(), email);
+  return resolveMailboxAccount(
+    accounts,
+    await getActiveAccountId(),
+    session?.activeAccountId,
+    email,
+  );
 }

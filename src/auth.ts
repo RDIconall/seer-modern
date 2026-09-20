@@ -254,6 +254,7 @@ export const { handlers, auth, signIn, signOut } = NextAuth({
       session.accessToken = undefined;
       session.provider = token.provider as string | undefined;
       session.error = token.error as string | undefined;
+      session.activeAccountId = token.activeAccountId;
       if (token.email && session.user) {
         session.user.email = token.email as string;
       }
