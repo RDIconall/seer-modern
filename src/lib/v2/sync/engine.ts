@@ -179,6 +179,7 @@ export async function syncFolder(
 
     if (headPoll) {
       polledHead = true;
+      const reconciledAt = new Date();
       if (!headOnly || durableState.backfillComplete) {
         backfillComplete = true;
         providerCursor = null;
@@ -188,7 +189,16 @@ export async function syncFolder(
           providerTotal,
           snapshotGeneration: workingState.snapshotGeneration,
           scanStartedAt: workingState.scanStartedAt,
-          lastReconciledAt: workingState.lastReconciledAt,
+          lastReconciledAt: reconciledAt,
+        });
+      } else {
+        await persistFolderState(accountId, folder, {
+          cursor: workingState.cursor,
+          backfillComplete: false,
+          providerTotal,
+          snapshotGeneration: workingState.snapshotGeneration,
+          scanStartedAt: workingState.scanStartedAt,
+          lastReconciledAt: reconciledAt,
         });
       }
       break;
