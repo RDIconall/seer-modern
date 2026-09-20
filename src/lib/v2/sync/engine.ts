@@ -33,6 +33,13 @@ export type SyncFolderOptions = {
   /** Absolute wall-clock deadline; stops before starting a page that would exceed it. */
   deadlineMs?: number;
   signal?: AbortSignal;
+  /**
+   * Poll the newest page even when historical backfill is still running.
+   * Login catch-up uses this so a stuck Gmail scan cannot hide new mail.
+   */
+  headOnly?: boolean;
+  /** Passed through to the provider for this call only. */
+  pageSize?: number;
 };
 
 /** Safety margin for provider latency and per-page persistence before deadline. */
@@ -99,11 +106,11 @@ export async function syncFolder(
 ): Promise<SyncRun> {
   const traceId = randomUUID();
   const started = new Date();
-  const { maxPages, deadlineMs } = options;
+  const { maxPages, deadlineMs, headOnly } = options;
 
   const durableState = await loadFolderSyncState(accountId, folder);
   let workingState = durableState;
-  const canStartSnapshot = !isPastSyncDeadline(deadlineMs);
+  const canStartSnapshot = !headOnly && !isPastSyncDeadline(deadlineMs);
   const startSnapshot =
     canStartSnapshot &&
     ((mode === "full" && durableState.backfillComplete) ||
@@ -111,16 +118,21 @@ export async function syncFolder(
       (!durableState.backfillComplete && durableState.snapshotGeneration === null));
   if (startSnapshot) {
     workingState = await beginFolderSnapshot(accountId, folder);
-  } else if (!durableState.backfillComplete && workingState.snapshotGeneration) {
+  } else if (
+    !headOnly &&
+    !durableState.backfillComplete &&
+    workingState.snapshotGeneration
+  ) {
     // Legacy inbox cursors and interrupted generations need a state row before
     // their first resumed page can publish a UUID-keyed seen membership.
     await persistFolderState(accountId, folder, workingState);
   }
 
   const headPoll =
-    mode === "incremental" &&
-    durableState.backfillComplete &&
-    !startSnapshot;
+    Boolean(headOnly) ||
+    (mode === "incremental" &&
+      durableState.backfillComplete &&
+      !startSnapshot);
   const effectiveMaxPages = headPoll ? 1 : maxPages;
 
   let failed = 0;
@@ -140,6 +152,7 @@ export async function syncFolder(
       page = await provider.syncFolder(folder, providerCursor, {
         deadlineMs,
         signal: options.signal,
+        pageSize: options.pageSize,
       });
     } catch (error) {
       if (
@@ -157,23 +170,27 @@ export async function syncFolder(
       folder,
       page.conversations,
       headPoll ? [] : page.deletedConversationIds,
-      headPoll ? undefined : workingState.snapshotGeneration,
+      headPoll && durableState.backfillComplete
+        ? undefined
+        : workingState.snapshotGeneration,
     );
     failed += result.failed;
     pages++;
 
     if (headPoll) {
       polledHead = true;
-      backfillComplete = true;
-      providerCursor = null;
-      await persistFolderState(accountId, folder, {
-        cursor: null,
-        backfillComplete: true,
-        providerTotal,
-        snapshotGeneration: workingState.snapshotGeneration,
-        scanStartedAt: workingState.scanStartedAt,
-        lastReconciledAt: workingState.lastReconciledAt,
-      });
+      if (!headOnly || durableState.backfillComplete) {
+        backfillComplete = true;
+        providerCursor = null;
+        await persistFolderState(accountId, folder, {
+          cursor: null,
+          backfillComplete: true,
+          providerTotal,
+          snapshotGeneration: workingState.snapshotGeneration,
+          scanStartedAt: workingState.scanStartedAt,
+          lastReconciledAt: workingState.lastReconciledAt,
+        });
+      }
       break;
     }
 
