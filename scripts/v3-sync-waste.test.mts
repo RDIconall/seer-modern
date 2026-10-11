@@ -72,6 +72,38 @@ try {
   );
   assert.equal(afterChange.rows[0].body_html, "<p>two</p>");
 
+  // HTML-only provider payloads (Outlook) must persist derived text so later
+  // intelligence reads can skip body_html.
+  const htmlOnly = convo("w-html", "<p>Please countersign the CDA.</p>");
+  htmlOnly.messages[0].bodyText = null;
+  await writeConversationPage(accountId, "inbox", [htmlOnly], []);
+  const derived = await db.pool.query<{ body_text: string | null }>(
+    `select body_text from seer.messages where provider_message_id = 'w-html-m1'`,
+  );
+  assert.equal(derived.rows[0].body_text, "Please countersign the CDA.");
+
+  const htmlCtid = await db.pool.query<{ c: string }>(
+    `select ctid::text as c from seer.messages where provider_message_id = 'w-html-m1'`,
+  );
+  await writeConversationPage(accountId, "inbox", [htmlOnly], []);
+  const htmlCtidAfter = await db.pool.query<{ c: string }>(
+    `select ctid::text as c from seer.messages where provider_message_id = 'w-html-m1'`,
+  );
+  assert.equal(
+    htmlCtidAfter.rows[0].c,
+    htmlCtid.rows[0].c,
+    "unchanged html-only message must not be re-upserted after text is derived",
+  );
+
+  // Unread-only changes must not rewrite the toasted body.
+  const unread = convo("w1", "<p>two</p>", true);
+  await writeConversationPage(accountId, "inbox", [unread], []);
+  const afterUnread = await db.pool.query<{ c: string; is_unread: boolean }>(
+    `select ctid::text as c, is_unread from seer.messages where provider_message_id = 'w1-m1'`,
+  );
+  assert.equal(afterUnread.rows[0].c, afterChange.rows[0].c, "unread-only must keep body ctid");
+  assert.equal(afterUnread.rows[0].is_unread, true);
+
   // Snapshot prune: old generations must not accumulate.
   const gen1 = await beginFolderSnapshot(accountId, "inbox");
   await writeConversationPage(

@@ -1,10 +1,21 @@
 import type { PoolClient } from "pg";
-import { randomUUID } from "node:crypto";
+import { createHash, randomUUID } from "node:crypto";
 import { db } from "../db/pool";
 import { inTransaction } from "../db/transaction";
 import type { AccountId } from "../db/types";
 import { getSyncMask } from "../../v3/outbox/sync-mask";
-import type { Conversation, SyncFolder } from "../providers/types";
+import type { Conversation, Message, SyncFolder } from "../providers/types";
+import { storedBodyText } from "../intelligence/html-text";
+
+function md5(value: string | null | undefined): string {
+  return createHash("md5").update(value ?? "", "utf8").digest("hex");
+}
+
+function sameTextArray(stored: string[] | null, incoming: string[]): boolean {
+  const a = stored ?? [];
+  if (a.length !== incoming.length) return false;
+  return a.every((item, i) => item === incoming[i]);
+}
 
 /**
  * Persistence for the sync engine. One page of conversations is written in a
@@ -87,67 +98,41 @@ export async function writeConversationPage(
   });
 }
 
-async function writeConversation(
+function sameTimestamp(
+  stored: Date | string | null,
+  incoming: string | null,
+): boolean {
+  if (!stored && !incoming) return true;
+  if (!stored || !incoming) return false;
+  const a = stored instanceof Date ? stored.getTime() : Date.parse(String(stored));
+  const b = Date.parse(incoming);
+  return Number.isFinite(a) && Number.isFinite(b) && a === b;
+}
+
+async function refreshConversationUnread(
+  client: PoolClient,
+  conversationId: string,
+): Promise<void> {
+  await client.query(
+    `update seer.conversations c
+        set is_unread = (
+          select coalesce(bool_or(m.is_unread), false)
+            from seer.messages m
+           where m.conversation_id = c.id
+        )
+      where c.id = $1`,
+    [conversationId],
+  );
+}
+
+async function upsertMessageBodies(
   client: PoolClient,
   accountId: AccountId,
-  folder: SyncFolder,
-  convo: Conversation,
-): Promise<void> {
-  const isUnread = convo.messages.some((m) => m.isUnread);
-  const conv = await client.query<{ id: string }>(
-    `insert into seer.conversations
-       (account_id, provider_conversation_id, subject, last_message_at, message_count,
-        is_deleted, folders, is_unread, last_synced_at, updated_at)
-       values ($1, $2, $3, $4, $5, false, array[$6]::text[], $7, now(), now())
-       on conflict (account_id, provider_conversation_id) do update
-         set subject = excluded.subject,
-             last_message_at = excluded.last_message_at,
-             message_count = excluded.message_count,
-             is_deleted = false,
-             last_synced_at = now(),
-             updated_at = case
-               when seer.conversations.subject is distinct from excluded.subject
-                 or seer.conversations.last_message_at is distinct from excluded.last_message_at
-                 or seer.conversations.message_count is distinct from excluded.message_count
-                 or seer.conversations.is_deleted
-               then now()
-               else seer.conversations.updated_at
-             end
-       returning id`,
-    [
-      accountId,
-      convo.providerConversationId,
-      convo.subject,
-      convo.lastMessageAt || null,
-      convo.messages.length,
-      folder,
-      isUnread,
-    ],
-  );
-  const conversationId = conv.rows[0].id;
-  const mask = await getSyncMask(
-    client,
-    accountId,
-    conversationId,
-    convo.lastMessageAt || null,
-  );
-  if (!mask.blockedFolders.has(folder)) {
-    // Skip the rewrite when this folder is already on the row.
-    await client.query(
-      `update seer.conversations
-          set folders = (
-                select coalesce(array_agg(distinct f), '{}')
-                  from unnest(folders || array[$2]::text[]) as f
-              ),
-              updated_at = now()
-        where id = $1
-          and not (folders @> array[$2]::text[])`,
-      [conversationId, folder],
-    );
-  }
-
+  conversationId: string,
+  messages: Message[],
+): Promise<boolean> {
   let messagesTouched = false;
-  for (const m of convo.messages) {
+  for (const m of messages) {
     const written = await client.query(
       `insert into seer.messages
          (account_id, conversation_id, provider_message_id, from_email, from_name,
@@ -185,7 +170,7 @@ async function writeConversation(
         m.sentAt || null,
         m.snippet,
         m.bodyHtml,
-        m.bodyText,
+        storedBodyText(m),
         m.isUnread,
         m.isOutgoing,
         m.attachments.map((a) => a.filename),
@@ -193,18 +178,213 @@ async function writeConversation(
     );
     if ((written.rowCount ?? 0) > 0) messagesTouched = true;
   }
+  return messagesTouched;
+}
+
+async function syncMessageUnread(
+  client: PoolClient,
+  accountId: AccountId,
+  messages: Message[],
+): Promise<boolean> {
+  if (messages.length === 0) return false;
+  const written = await client.query(
+    `update seer.messages m
+        set is_unread = v.is_unread
+       from unnest($1::text[], $2::boolean[]) as v(provider_message_id, is_unread)
+      where m.account_id = $3
+        and m.provider_message_id = v.provider_message_id
+        and m.is_unread is distinct from v.is_unread
+      returning m.provider_message_id`,
+    [
+      messages.map((m) => m.providerMessageId),
+      messages.map((m) => m.isUnread),
+      accountId,
+    ],
+  );
+  return (written.rowCount ?? 0) > 0;
+}
+
+async function writeConversation(
+  client: PoolClient,
+  accountId: AccountId,
+  folder: SyncFolder,
+  convo: Conversation,
+): Promise<void> {
+  const isUnread = convo.messages.some((m) => m.isUnread);
+  const incomingLast = convo.lastMessageAt || null;
+
+  const existing = await client.query<{
+    id: string;
+    subject: string | null;
+    last_message_at: Date | null;
+    message_count: number;
+    is_deleted: boolean;
+  }>(
+    `select id, subject, last_message_at, message_count, is_deleted
+       from seer.conversations
+      where account_id = $1 and provider_conversation_id = $2
+      for update`,
+    [accountId, convo.providerConversationId],
+  );
+
+  let conversationId: string;
+  let metadataUnchanged = false;
+
+  if ((existing.rowCount ?? 0) === 0) {
+    const conv = await client.query<{ id: string }>(
+      `insert into seer.conversations
+         (account_id, provider_conversation_id, subject, last_message_at, message_count,
+          is_deleted, folders, is_unread, last_synced_at, updated_at)
+         values ($1, $2, $3, $4, $5, false, array[$6]::text[], $7, now(), now())
+         on conflict (account_id, provider_conversation_id) do update
+           set subject = excluded.subject,
+               last_message_at = excluded.last_message_at,
+               message_count = excluded.message_count,
+               is_deleted = false,
+               last_synced_at = now(),
+               updated_at = case
+                 when seer.conversations.subject is distinct from excluded.subject
+                   or seer.conversations.last_message_at is distinct from excluded.last_message_at
+                   or seer.conversations.message_count is distinct from excluded.message_count
+                   or seer.conversations.is_deleted
+                 then now()
+                 else seer.conversations.updated_at
+               end
+         returning id`,
+      [
+        accountId,
+        convo.providerConversationId,
+        convo.subject,
+        incomingLast,
+        convo.messages.length,
+        folder,
+        isUnread,
+      ],
+    );
+    conversationId = conv.rows[0].id;
+  } else {
+    const row = existing.rows[0];
+    conversationId = row.id;
+    metadataUnchanged =
+      (row.subject ?? "") === (convo.subject ?? "") &&
+      sameTimestamp(row.last_message_at, incomingLast) &&
+      row.message_count === convo.messages.length &&
+      !row.is_deleted;
+    if (metadataUnchanged) {
+      // Catch-up uses max(last_synced_at); bump the stamp without rewriting
+      // subject/count so identical hourly rescans are not 6M conversation inserts.
+      await client.query(
+        `update seer.conversations
+            set last_synced_at = now()
+          where id = $1`,
+        [conversationId],
+      );
+    } else {
+      await client.query(
+        `update seer.conversations
+            set subject = $2,
+                last_message_at = $3,
+                message_count = $4,
+                is_deleted = false,
+                last_synced_at = now(),
+                updated_at = now()
+          where id = $1`,
+        [conversationId, convo.subject, incomingLast, convo.messages.length],
+      );
+    }
+  }
+
+  const mask = await getSyncMask(
+    client,
+    accountId,
+    conversationId,
+    incomingLast,
+  );
+  if (!mask.blockedFolders.has(folder)) {
+    // Skip the rewrite when this folder is already on the row.
+    await client.query(
+      `update seer.conversations
+          set folders = (
+                select coalesce(array_agg(distinct f), '{}')
+                  from unnest(folders || array[$2]::text[]) as f
+              ),
+              updated_at = now()
+        where id = $1
+          and not (folders @> array[$2]::text[])`,
+      [conversationId, folder],
+    );
+  }
+
+  const storedMessages = await client.query<{
+    provider_message_id: string;
+    html_md5: string;
+    text_md5: string;
+    is_unread: boolean;
+    snippet: string | null;
+    from_email: string | null;
+    from_name: string | null;
+    to_emails: string[] | null;
+    cc_emails: string[] | null;
+    attachment_names: string[] | null;
+  }>(
+    `select provider_message_id,
+            md5(coalesce(body_html, '')) as html_md5,
+            md5(coalesce(body_text, '')) as text_md5,
+            is_unread, snippet, from_email, from_name, to_emails, cc_emails,
+            attachment_names
+       from seer.messages
+      where conversation_id = $1`,
+    [conversationId],
+  );
+  const storedById = new Map(
+    storedMessages.rows.map((row) => [row.provider_message_id, row]),
+  );
+
+  const toUpsert: Message[] = [];
+  const unreadOnly: Message[] = [];
+  for (const m of convo.messages) {
+    const stored = storedById.get(m.providerMessageId);
+    if (!stored) {
+      toUpsert.push(m);
+      continue;
+    }
+    const text = storedBodyText(m);
+    const bodyChanged =
+      stored.html_md5 !== md5(m.bodyHtml) || stored.text_md5 !== md5(text);
+    const metaChanged =
+      (stored.snippet ?? "") !== (m.snippet ?? "") ||
+      (stored.from_email ?? null) !== (m.from.email || null) ||
+      (stored.from_name ?? null) !== (m.from.name || null) ||
+      !sameTextArray(stored.to_emails, m.to.map((a) => a.email)) ||
+      !sameTextArray(stored.cc_emails, m.cc.map((a) => a.email)) ||
+      !sameTextArray(
+        stored.attachment_names,
+        m.attachments.map((a) => a.filename),
+      );
+    if (bodyChanged || metaChanged) {
+      toUpsert.push(m);
+    } else if (stored.is_unread !== m.isUnread) {
+      unreadOnly.push(m);
+    }
+  }
+
+  let messagesTouched = false;
+  if (toUpsert.length > 0) {
+    messagesTouched = await upsertMessageBodies(
+      client,
+      accountId,
+      conversationId,
+      toUpsert,
+    );
+  }
+  if (unreadOnly.length > 0) {
+    if (await syncMessageUnread(client, accountId, unreadOnly)) {
+      messagesTouched = true;
+    }
+  }
 
   if (!mask.protectUnread && messagesTouched) {
-    await client.query(
-      `update seer.conversations c
-          set is_unread = (
-            select coalesce(bool_or(m.is_unread), false)
-              from seer.messages m
-             where m.conversation_id = c.id
-          )
-        where c.id = $1`,
-      [conversationId],
-    );
+    await refreshConversationUnread(client, conversationId);
   }
 }
 

@@ -13,6 +13,7 @@ import { fileURLToPath } from "node:url";
 import EmbeddedPostgres from "embedded-postgres";
 import { Pool } from "pg";
 import { setPoolForTesting } from "../src/lib/v2/db/pool.ts";
+import { clearContextInputCache } from "../src/lib/v2/intelligence/context-loader.ts";
 
 const HERE = path.dirname(fileURLToPath(import.meta.url));
 const MIGRATIONS_DIR = path.join(HERE, "..", "supabase", "migrations");
@@ -57,6 +58,7 @@ export async function startTestDb(): Promise<TestDb> {
   await pool.query("create role authenticated nologin");
   await applyMigrations(pool);
   setPoolForTesting(pool);
+  clearContextInputCache();
 
   return {
     pool,

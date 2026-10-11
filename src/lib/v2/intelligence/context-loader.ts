@@ -4,6 +4,16 @@ import type { ContextInput } from "./context";
 import { loadGuidance } from "./operating-model";
 import { guidanceFor, loadMailboxStyle } from "./mailbox-style-store";
 
+/** People/matters/placements change slowly relative to a read tick. */
+export const CONTEXT_INPUT_TTL_MS = 60_000;
+
+type CachedContext = { expiresAt: number; value: ContextInput };
+const contextInputCache = new Map<string, CachedContext>();
+
+export function clearContextInputCache(): void {
+  contextInputCache.clear();
+}
+
 /**
  * Operating-model and mailbox-style rows are additive. A lagging migration
  * used to reject the whole Promise.all and skip every conversation on the
@@ -35,6 +45,10 @@ export async function loadContextInput(
   accountId: AccountId,
   ownEmail: string,
 ): Promise<ContextInput> {
+  const cacheKey = `${accountId}:${ownEmail.toLowerCase()}`;
+  const cached = contextInputCache.get(cacheKey);
+  if (cached && cached.expiresAt > Date.now()) return cached.value;
+
   const [people, matters, interests, placements, operatingGuidance, mailboxStyle] = await Promise.all([
     db().query<{ email: string; tier: string; vip: boolean }>(
       "select email, tier, vip from seer.people where account_id = $1",
@@ -129,7 +143,7 @@ export async function loadContextInput(
     optionalContext("mailbox style", () => loadMailboxStyle(accountId), null),
   ]);
 
-  return {
+  const value: ContextInput = {
     ownDomain: ownEmail.split("@")[1] ?? "",
     ownEmail,
     people: people.rows.map((p) => ({ email: p.email, tier: p.tier, vip: p.vip })),
@@ -149,4 +163,9 @@ export async function loadContextInput(
     operatingGuidance,
     mailboxStyleGuidance: guidanceFor(mailboxStyle),
   };
+  contextInputCache.set(cacheKey, {
+    expiresAt: Date.now() + CONTEXT_INPUT_TTL_MS,
+    value,
+  });
+  return value;
 }

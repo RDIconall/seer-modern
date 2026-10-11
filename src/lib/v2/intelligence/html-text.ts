@@ -54,17 +54,32 @@ export function htmlToText(html: string): string {
     .trim();
 }
 
+/**
+ * Persistable plain text for a message. Prefers the provider's text part;
+ * otherwise derives it from HTML so later reads do not have to detoast
+ * `body_html`. Empty HTML (style-only mail) falls through to the original
+ * text part, which may still be null.
+ */
+export function storedBodyText(message: {
+  bodyText: string | null;
+  bodyHtml: string | null;
+}): string | null {
+  const text = message.bodyText?.trim();
+  if (text) return message.bodyText;
+  if (message.bodyHtml) {
+    const converted = htmlToText(message.bodyHtml);
+    if (converted) return converted;
+  }
+  return message.bodyText;
+}
+
 /** The readable body of a message, preferring real text over derived text. */
 export function readableBody(message: {
   bodyText: string | null;
   bodyHtml: string | null;
   snippet: string;
 }): string {
-  const text = message.bodyText?.trim();
+  const text = storedBodyText(message)?.trim();
   if (text) return text;
-  if (message.bodyHtml) {
-    const converted = htmlToText(message.bodyHtml);
-    if (converted) return converted;
-  }
   return message.snippet ?? "";
 }
