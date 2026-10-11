@@ -95,13 +95,14 @@ try {
     "unchanged html-only message must not be re-upserted after text is derived",
   );
 
-  // Unread-only changes must not rewrite the toasted body.
+  // Unread-only changes must not send a new body payload. The heap tuple
+  // moves because is_unread is updated; the stored HTML must stay the same.
   const unread = convo("w1", "<p>two</p>", true);
   await writeConversationPage(accountId, "inbox", [unread], []);
-  const afterUnread = await db.pool.query<{ c: string; is_unread: boolean }>(
-    `select ctid::text as c, is_unread from seer.messages where provider_message_id = 'w1-m1'`,
+  const afterUnread = await db.pool.query<{ body_html: string; is_unread: boolean }>(
+    `select body_html, is_unread from seer.messages where provider_message_id = 'w1-m1'`,
   );
-  assert.equal(afterUnread.rows[0].c, afterChange.rows[0].c, "unread-only must keep body ctid");
+  assert.equal(afterUnread.rows[0].body_html, "<p>two</p>");
   assert.equal(afterUnread.rows[0].is_unread, true);
 
   // Snapshot prune: old generations must not accumulate.

@@ -130,7 +130,9 @@ try {
     readableBody(loadedText!.messages[0]),
     "Please countersign the CDA by Friday.",
   );
-  assert.equal(loadedHtml?.messages[0]?.bodyHtml, "<p>From html only.</p>");
+  // HTML is fetched (body_text was empty) then converted in-process so the
+  // model payload never holds the markup.
+  assert.equal(loadedHtml?.messages[0]?.bodyHtml, null);
   assert.equal(loadedHtml?.messages[0]?.bodyText, "From html only.");
   assert.equal(readableBody(loadedHtml!.messages[0]), "From html only.");
 
