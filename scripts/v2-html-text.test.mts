@@ -4,7 +4,11 @@
  * "reads" style rules as if they were the message.
  */
 import assert from "node:assert/strict";
-import { htmlToText, readableBody } from "../src/lib/v2/intelligence/html-text.ts";
+import {
+  htmlToText,
+  readableBody,
+  storedBodyText,
+} from "../src/lib/v2/intelligence/html-text.ts";
 
 // Style and script CONTENT must be gone, not just their tags.
 {
@@ -57,6 +61,23 @@ assert.equal(htmlToText("<!-- hidden preheader --><p>Hello</p>"), "Hello");
   assert.equal(
     readableBody({ bodyText: null, bodyHtml: "<style>.a{color:red}</style>", snippet: "snip" }),
     "snip",
+  );
+}
+
+// storedBodyText persists derived text so later reads can skip body_html.
+{
+  assert.equal(
+    storedBodyText({ bodyText: "plain wins", bodyHtml: "<p>html</p>" }),
+    "plain wins",
+  );
+  assert.equal(
+    storedBodyText({ bodyText: null, bodyHtml: "<p>from html</p>" }),
+    "from html",
+  );
+  assert.equal(storedBodyText({ bodyText: null, bodyHtml: null }), null);
+  assert.equal(
+    storedBodyText({ bodyText: null, bodyHtml: "<style>.a{color:red}</style>" }),
+    null,
   );
 }
 

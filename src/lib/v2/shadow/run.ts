@@ -2,8 +2,8 @@ import { db } from "../db/pool";
 import { asConversationId, type AccountId } from "../db/types";
 import { coverage } from "../sync/repository";
 import { readConversation, type ReaderModel } from "../intelligence/reader";
+import { loadStoredConversations } from "../intelligence/load-conversation";
 import type { ContextInput } from "../intelligence/context";
-import type { Conversation } from "../providers/types";
 import type { ShadowReport } from "./report";
 import type { ReleaseVerdict } from "../eval/types";
 
@@ -22,58 +22,6 @@ export type ShadowInput = {
   benchmark: ReleaseVerdict | null;
   providerParityPassed: boolean;
 };
-
-async function loadStoredConversations(accountId: AccountId): Promise<
-  { conversationId: string; conversation: Conversation }[]
-> {
-  const convs = await db().query<{
-    id: string;
-    provider_conversation_id: string;
-    subject: string;
-    last_message_at: string | null;
-  }>(
-    "select id, provider_conversation_id, subject, last_message_at from seer.conversations where account_id = $1 and is_deleted = false",
-    [accountId],
-  );
-  const out: { conversationId: string; conversation: Conversation }[] = [];
-  for (const c of convs.rows) {
-    const msgs = await db().query<{
-      provider_message_id: string;
-      from_email: string | null;
-      to_emails: string[] | null;
-      cc_emails: string[] | null;
-      sent_at: string | null;
-      body_html: string | null;
-      body_text: string | null;
-      snippet: string | null;
-    }>(
-      "select provider_message_id, from_email, to_emails, cc_emails, sent_at, body_html, body_text, snippet from seer.messages where conversation_id = $1 order by sent_at",
-      [c.id],
-    );
-    out.push({
-      conversationId: c.id,
-      conversation: {
-        providerConversationId: c.provider_conversation_id,
-        subject: c.subject ?? "",
-        messages: msgs.rows.map((m) => ({
-          providerMessageId: m.provider_message_id,
-        from: { email: m.from_email ?? "" },
-        to: (m.to_emails ?? []).map((email) => ({ email })),
-        cc: (m.cc_emails ?? []).map((email) => ({ email })),
-        sentAt: m.sent_at ?? "",
-          snippet: m.snippet ?? "",
-          bodyHtml: m.body_html,
-          bodyText: m.body_text,
-          isUnread: false,
-          isOutgoing: false,
-          attachments: [],
-        })),
-        lastMessageAt: c.last_message_at ?? "",
-      },
-    });
-  }
-  return out;
-}
 
 export async function runShadow(input: ShadowInput): Promise<ShadowReport> {
   // Shadow never hands a provider to the reader, so a mutation is impossible by
