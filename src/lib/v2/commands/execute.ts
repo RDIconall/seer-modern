@@ -41,6 +41,7 @@ import {
   normalizeCues,
   relevanceOutcome,
 } from "../intelligence/mailbox-style";
+import { runStaffCommand } from "../staff/commands";
 
 /**
  * Execute one command. Ownership and idempotency are checked first. A delete is
@@ -623,6 +624,13 @@ async function run(
       await dismissStyleDrift(ctx.accountId);
       return { ok: true, replayed: false };
     }
+
+    case "createBotTask":
+    case "updateBotTask":
+    case "commentBotTask":
+    case "postBotMessage":
+    case "decideTriageProposal":
+      return runStaffCommand(ctx, command, idempotencyKey);
 
     case "trainRelevance": {
       if (

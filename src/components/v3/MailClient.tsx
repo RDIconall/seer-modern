@@ -12,6 +12,9 @@ import {
 } from "react";
 import { Atlas, type MatterMove } from "@/components/v2/Atlas";
 import { WorthReading } from "@/components/v2/WorthReading";
+import { StaffPane } from "@/components/v2/StaffPane";
+import { useStaffView } from "@/components/v2/useStaffView";
+import type { StaffView } from "@/lib/v2/staff/types";
 import type { ConversationRow, InboxView, MatterCard } from "@/lib/v2/view/types";
 import type { Command, CommandResult } from "@/lib/v2/commands/types";
 import type { Conversation, ProviderKind } from "@/lib/v2/providers/types";
@@ -59,6 +62,7 @@ export type MailClientPreview = {
   triageInbox?: MailboxView;
   inboxView: InboxView;
   reader: PreviewReader;
+  staffView?: StaffView | null;
   initialSection?: MailSection;
   initialConversationId?: string;
   initialCompose?: boolean;
@@ -321,6 +325,8 @@ export function MailClient({
   const [notice, setNotice] = useState<ActionNotice | null>(null);
   const [paletteOpen, setPaletteOpen] = useState(false);
   const [mobileSearchOpen, setMobileSearchOpen] = useState(false);
+  const [staffTaskId, setStaffTaskId] = useState<string | null>(null);
+  const [staffChatOpen, setStaffChatOpen] = useState(false);
   const [hashReady, setHashReady] = useState(false);
   const restoredSearchRef = useRef<string | null>(null);
   /** The last hash this client wrote, so it does not read its own writing. */
@@ -348,9 +354,11 @@ export function MailClient({
     compose && compose.mode !== "send" && !compose.expanded
       ? { mode: compose.mode }
       : null;
+  const staffOpen = Boolean(staffTaskId || staffChatOpen);
   const { modalOpen } = modalBackgroundState({
     isMobile,
-    conversationId: conversationId ?? pendingHashConversation,
+    conversationId:
+      conversationId ?? pendingHashConversation ?? (staffOpen ? "staff" : null),
     composing: isFullCompose,
   });
   const mobileModalOpen = isMobile && modalOpen;
@@ -382,6 +390,11 @@ export function MailClient({
     preview?.inboxView,
     Boolean(preview) || section !== "atlas",
   );
+  const staff = useStaffView({
+    enabled: !preview && section === "atlas",
+    taskId: staffTaskId,
+    initial: preview?.staffView ?? null,
+  });
 
   /**
    * Optimistic actions are not provider confirmation. Track every queued row
@@ -583,6 +596,8 @@ export function MailClient({
     setConversationId(null);
     setFocusedMessageId(null);
     setProviderConversationId(null);
+    setStaffTaskId(null);
+    setStaffChatOpen(false);
     setCompose(null);
     setSearchRows(null);
     setQuery("");
@@ -598,6 +613,8 @@ export function MailClient({
   };
 
   const openAtlasConversation = useCallback((row: ConversationRow) => {
+    setStaffTaskId(null);
+    setStaffChatOpen(false);
     setConversationId(row.conversationId);
     setFocusedMessageId(null);
     setProviderConversationId(row.providerConversationId);
@@ -940,6 +957,18 @@ export function MailClient({
       onProviderConversationId={rememberProviderConversationId}
       preview={readerPreview}
     />
+  ) : staffOpen ? (
+    <StaffPane
+      mode={staffChatOpen && !staffTaskId ? "chat" : "task"}
+      view={staff.view}
+      taskId={staffTaskId}
+      error={staff.error}
+      onBack={() => {
+        setStaffTaskId(null);
+        setStaffChatOpen(false);
+      }}
+      onCommand={(command) => staff.dispatch(command)}
+    />
   ) : null;
 
   const folderContent = searchRows ? (
@@ -1011,8 +1040,35 @@ export function MailClient({
           currentConversationId={conversationId}
           onArchiveConversation={archiveAtlasConversation}
           onDeleteConversation={deleteAtlasConversation}
+          staff={staff.view}
+          selectedTaskId={staffTaskId}
+          staffChatOpen={staffChatOpen}
+          onOpenStaffTask={(taskId) => {
+            setConversationId(null);
+            setFocusedMessageId(null);
+            setProviderConversationId(null);
+            setStaffChatOpen(false);
+            setStaffTaskId(taskId);
+          }}
+          onOpenStaffChat={() => {
+            setConversationId(null);
+            setFocusedMessageId(null);
+            setProviderConversationId(null);
+            setStaffTaskId(null);
+            setStaffChatOpen(true);
+          }}
+          onCreateStaffTask={(title, botSlug) => {
+            void staff.dispatch({ type: "createBotTask", title, botSlug });
+          }}
+          onDecideProposal={(proposalId, decision) => {
+            void staff.dispatch({
+              type: "decideTriageProposal",
+              proposalId,
+              decision,
+            });
+          }}
         />
-        {!conversationId ? <WorthReading view={inbox.view} /> : null}
+        {!conversationId && !staffOpen ? <WorthReading view={inbox.view} /> : null}
       </>
     ) : (
       <p className="mail-empty">{inbox.error ?? "Reading Atlas…"}</p>
@@ -1049,7 +1105,7 @@ export function MailClient({
   );
 
   return (
-    <div className="mail-client" data-reader-open={conversationId ? "true" : "false"}>
+    <div className="mail-client" data-reader-open={conversationId || staffOpen ? "true" : "false"}>
       <Navigation
         active={section}
         onNavigate={navigate}

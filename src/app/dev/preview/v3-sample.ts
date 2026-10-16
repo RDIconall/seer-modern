@@ -1,7 +1,94 @@
 import type { Conversation, ProviderKind } from "@/lib/v2/providers/types";
 import type { MailboxFolder, MailboxRow, MailboxView } from "@/lib/v3/mailbox/types";
 import type { MailClientPreview } from "@/components/v3/MailClient";
+import type { StaffView } from "@/lib/v2/staff/types";
+import { asAccountId } from "@/lib/v2/db/types";
 import { sampleView } from "./sample";
+
+const previewStaff: StaffView = {
+  asOf: "2026-10-16T00:00:00.000Z",
+  bots: [
+    { id: "preview-bot", slug: "chief-of-staff", displayName: "Chief of staff" },
+    { id: "preview-snak", slug: "snak-bot", displayName: "SnaK-Bot" },
+  ],
+  tasks: [
+    {
+      id: "11111111-1111-4111-8111-111111111111",
+      accountId: asAccountId("preview"),
+      botId: "preview-bot",
+      botSlug: "chief-of-staff",
+      botName: "Chief of staff",
+      externalKey: "B01",
+      title: "Log in to Divvy and pull Czarina's expenses",
+      status: "waiting_on_user",
+      priority: 1,
+      dueAt: null,
+      notes: "Needs the pre-merger Divvy login.",
+      hisWords: "login to divvy and pull all expenses that czarina Grace had on her card",
+      currentState: "Stuck at sign-in.",
+      nextAction: "Pull date/vendor/amount after sign-in",
+      source: "bot",
+      createdAt: "2026-10-15T12:00:00.000Z",
+      updatedAt: "2026-10-16T12:00:00.000Z",
+      events: [
+        {
+          id: "e1",
+          taskId: "11111111-1111-4111-8111-111111111111",
+          actor: "bot",
+          actorName: "Chief of staff",
+          kind: "created",
+          body: "Logged from Conall's ask",
+          payload: {},
+          createdAt: "2026-10-15T12:00:00.000Z",
+        },
+      ],
+    },
+  ],
+  proposals: [
+    {
+      id: "22222222-2222-4222-8222-222222222222",
+      botId: "preview-bot",
+      botSlug: "chief-of-staff",
+      botName: "Chief of staff",
+      conversationId: "preview-c-delete",
+      providerConversationId: "preview-p-delete",
+      senderEmail: "scribe@example.com",
+      subject: "Your Monthly Scribe Activity",
+      action: "delete",
+      destinationId: null,
+      destinationName: null,
+      rationale: "Vendor digest. Trash, recoverable.",
+      status: "pending",
+      lastError: null,
+      outboxId: null,
+      createdAt: "2026-10-16T08:00:00.000Z",
+      decidedAt: null,
+    },
+  ],
+  generalMessages: [
+    {
+      id: "m1",
+      botId: "preview-bot",
+      botSlug: "chief-of-staff",
+      botName: "Chief of staff",
+      taskId: null,
+      author: "user",
+      body: "What's still blocked on me?",
+      createdAt: "2026-10-16T09:00:00.000Z",
+    },
+    {
+      id: "m2",
+      botId: "preview-bot",
+      botSlug: "chief-of-staff",
+      botName: "Chief of staff",
+      taskId: null,
+      author: "bot",
+      body: "Divvy sign-in, and the three SharePoint uploads.",
+      createdAt: "2026-10-16T09:01:00.000Z",
+    },
+  ],
+  taskMessages: [],
+};
 
 const previewRows: Record<MailboxFolder, MailboxRow[]> = {
   inbox: [
@@ -262,5 +349,6 @@ export const v3Preview: MailClientPreview = {
   },
   triageInbox: v3TriageInboxView,
   inboxView: sampleView,
+  staffView: previewStaff,
   reader: { conversation: reader, provider },
 };

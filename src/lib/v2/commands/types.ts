@@ -104,7 +104,45 @@ export type Command =
       relevant: boolean;
       reason?: "taken_care_of" | "ended" | "never_was" | "not_for_me" | null;
     }
-  | { type: "dismissStyleDrift" };
+  | { type: "dismissStyleDrift" }
+  | {
+      type: "createBotTask";
+      title: string;
+      botSlug?: string;
+      notes?: string;
+      dueAt?: string | null;
+      hisWords?: string;
+      nextAction?: string;
+    }
+  | {
+      type: "updateBotTask";
+      taskId: string;
+      status?:
+        | "open"
+        | "in_progress"
+        | "blocked"
+        | "waiting_on_user"
+        | "done"
+        | "dropped";
+      title?: string;
+      notes?: string | null;
+      dueAt?: string | null;
+      nextAction?: string | null;
+      priority?: number;
+      botSlug?: string;
+    }
+  | { type: "commentBotTask"; taskId: string; body: string }
+  | {
+      type: "postBotMessage";
+      body: string;
+      taskId?: string | null;
+      botSlug?: string;
+    }
+  | {
+      type: "decideTriageProposal";
+      proposalId: string;
+      decision: "approved" | "rejected";
+    };
 
 export type CommandResult = {
   ok: boolean;

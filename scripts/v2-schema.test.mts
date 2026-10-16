@@ -31,6 +31,11 @@ const EXPECTED_TABLES = [
   "mailbox_styles",
   "training_events",
   "worker_leases",
+  "bots",
+  "bot_tasks",
+  "bot_task_events",
+  "bot_messages",
+  "triage_proposals",
 ].sort();
 
 const RLS_TABLES = [
@@ -50,6 +55,11 @@ const RLS_TABLES = [
   "mailbox_styles",
   "training_events",
   "worker_leases",
+  "bots",
+  "bot_tasks",
+  "bot_task_events",
+  "bot_messages",
+  "triage_proposals",
 ];
 
 const db = await startTestDb();
