@@ -1,6 +1,8 @@
 -- Reverse of 20261017140000_harden_rls_and_retention.sql
 -- Restores open seer_bot / seer_app policies. Does not undelete purged events.
 
+drop trigger if exists triage_proposals_bot_cannot_approve on seer.triage_proposals;
+drop function if exists seer.triage_proposal_bot_cannot_approve();
 drop function if exists seer.purge_old_events(integer);
 drop index if exists seer.events_created_at_idx;
 

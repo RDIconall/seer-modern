@@ -22,9 +22,10 @@ try {
     email: "app-rls-b@rditrials.com",
   });
 
-  await db.pool.query("set role seer_app");
+  const app = await db.pool.connect();
+  await app.query("set role seer_app");
   try {
-    const open = await db.pool.query<{ email: string }>(
+    const open = await app.query<{ email: string }>(
       "select email from seer.mail_accounts where email like 'app-rls-%' order by email",
     );
     assert.deepEqual(
@@ -33,10 +34,10 @@ try {
       "unset seer.account_id must keep seeing every mailbox",
     );
 
-    await db.pool.query("begin");
+    await app.query("begin");
     try {
-      await db.pool.query("select set_config('seer.account_id', $1, true)", [accountA]);
-      const scoped = await db.pool.query<{ email: string }>(
+      await app.query("select set_config('seer.account_id', $1, true)", [accountA]);
+      const scoped = await app.query<{ email: string }>(
         "select email from seer.mail_accounts where email like 'app-rls-%' order by email",
       );
       assert.deepEqual(
@@ -44,7 +45,7 @@ try {
         ["app-rls-a@rditrials.com"],
         "SET LOCAL seer.account_id must hide the other mailbox",
       );
-      const otherConv = await db.pool.query(
+      const otherConv = await app.query(
         `insert into seer.conversations (account_id, provider_conversation_id, subject, folders, is_unread)
          values ($1, 'other-app-rls', 'nope', array['inbox'], false)`,
         [accountB],
@@ -54,10 +55,11 @@ try {
       );
       assert.equal(otherConv, true, "cannot insert a conversation for another account when scoped");
     } finally {
-      await db.pool.query("rollback");
+      await app.query("rollback");
     }
   } finally {
-    await db.pool.query("reset role");
+    await app.query("reset role");
+    app.release();
   }
 
   console.log("v2-app-rls: OK");

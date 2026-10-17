@@ -55,9 +55,10 @@ try {
     [CONALL, conallConv, otherAccount, otherConv],
   );
 
-  await db.pool.query("set role seer_bot");
+  const botClient = await db.pool.connect();
+  await botClient.query("set role seer_bot");
   try {
-    const mailboxes = await db.pool.query<{ email: string }>(
+    const mailboxes = await botClient.query<{ email: string }>(
       "select email from seer.mail_accounts",
     );
     assert.deepEqual(
@@ -66,7 +67,7 @@ try {
       "seer_bot must not list other mailboxes",
     );
 
-    const threads = await db.pool.query<{ provider_conversation_id: string }>(
+    const threads = await botClient.query<{ provider_conversation_id: string }>(
       "select provider_conversation_id from seer.conversations",
     );
     assert.deepEqual(
@@ -75,7 +76,7 @@ try {
       "seer_bot must not see another account's conversations",
     );
 
-    const canSelectMessages = await db.pool.query<{ allowed: boolean }>(
+    const canSelectMessages = await botClient.query<{ allowed: boolean }>(
       "select has_table_privilege(current_user, 'seer.messages', 'select') as allowed",
     );
     assert.equal(
@@ -83,7 +84,7 @@ try {
       false,
       "seer_bot must not SELECT seer.messages",
     );
-    const canSelectMatters = await db.pool.query<{ allowed: boolean }>(
+    const canSelectMatters = await botClient.query<{ allowed: boolean }>(
       "select has_table_privilege(current_user, 'seer.matters', 'select') as allowed",
     );
     assert.equal(
@@ -92,7 +93,7 @@ try {
       "seer_bot must not SELECT seer.matters",
     );
 
-    await db.pool.query(
+    await botClient.query(
       `insert into seer.bot_tasks (account_id, bot_id, title, source)
        values ($1, $2, 'Allowed task', 'bot')`,
       [CONALL, botId],
@@ -100,7 +101,7 @@ try {
 
     let otherTaskDenied = false;
     try {
-      await db.pool.query(
+      await botClient.query(
         `insert into seer.bot_tasks (account_id, bot_id, title, source)
          values ($1, $2, 'Spy task', 'bot')`,
         [otherAccount, botId],
@@ -110,7 +111,7 @@ try {
     }
     assert.equal(otherTaskDenied, true, "seer_bot cannot insert tasks for another account");
 
-    const pending = await db.pool.query<{ id: string }>(
+    const pending = await botClient.query<{ id: string }>(
       `insert into seer.triage_proposals
          (account_id, bot_id, conversation_id, action, status)
        values ($1, $2, $3, 'archive', 'pending')
@@ -121,7 +122,7 @@ try {
 
     let approvedDenied = false;
     try {
-      await db.pool.query(
+      await botClient.query(
         `update seer.triage_proposals set status = 'approved', decided_by = 'bot'
           where id = $1`,
         [proposalId],
@@ -137,7 +138,7 @@ try {
 
     let executedDenied = false;
     try {
-      await db.pool.query(
+      await botClient.query(
         `update seer.triage_proposals set status = 'executed', decided_by = 'bot'
           where id = $1`,
         [proposalId],
@@ -151,13 +152,14 @@ try {
       "seer_bot must not set triage_proposals.status to executed",
     );
 
-    await db.pool.query(
+    await botClient.query(
       `update seer.triage_proposals set status = 'rejected', decided_by = 'bot'
         where id = $1`,
       [proposalId],
     );
   } finally {
-    await db.pool.query("reset role");
+    await botClient.query("reset role");
+    botClient.release();
   }
 
   console.log("v2-staff-rls: OK");

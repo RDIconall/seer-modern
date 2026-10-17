@@ -97,6 +97,28 @@ grant execute on function seer.purge_old_events(integer) to seer_app;
 
 create index if not exists events_created_at_idx on seer.events (created_at);
 
+-- Belt and suspenders: even if a login role bypasses the RLS WITH CHECK,
+-- seer_bot (and members) cannot mark a proposal approved/executed.
+create or replace function seer.triage_proposal_bot_cannot_approve()
+returns trigger
+language plpgsql
+set search_path = seer, pg_temp
+as $$
+begin
+  if new.status in ('approved', 'executed')
+     and current_user = 'seer_bot' then
+    raise exception 'seer_bot cannot set triage_proposals.status to %', new.status;
+  end if;
+  return new;
+end;
+$$;
+
+drop trigger if exists triage_proposals_bot_cannot_approve on seer.triage_proposals;
+create trigger triage_proposals_bot_cannot_approve
+  before insert or update on seer.triage_proposals
+  for each row
+  execute procedure seer.triage_proposal_bot_cannot_approve();
+
 do $$
 declare
   staff_tables text[] := array[
