@@ -26,7 +26,6 @@ function needsProvider(command: Command): boolean {
     command.type === "send" ||
     command.type === "reply" ||
     command.type === "forward" ||
-    command.type === "move" ||
     command.type === "decideTriageProposal"
   );
 }
