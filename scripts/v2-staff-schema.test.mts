@@ -49,6 +49,11 @@ try {
     "select id from seer.bots where slug = 'chief-of-staff'",
   );
 
+  await db.pool.query(
+    "insert into seer.bot_allowed_accounts (account_id) values ($1) on conflict do nothing",
+    [accountId],
+  );
+
   await db.pool.query("set role seer_bot");
   try {
     await db.pool.query(

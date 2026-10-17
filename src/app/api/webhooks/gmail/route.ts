@@ -2,6 +2,7 @@ import { NextResponse, after } from "next/server";
 import { claimWake } from "@/lib/v2/push/repository";
 import { getAccountByEmail, wakeAccount } from "@/lib/v2/sync/wake-account";
 import { asAccountId } from "@/lib/v2/db/types";
+import { gmailPushAuthorized } from "@/lib/v2/push/gmail-push-auth";
 
 export const maxDuration = 30;
 
@@ -17,8 +18,17 @@ type PubSubPushBody = {
  * Returns 200 quickly so Pub/Sub does not retry; wake runs in the background.
  *
  * Requires GMAIL_PUBSUB_TOPIC and a GCP push subscription aimed at this URL.
+ * Unsigned POSTs are accepted until GMAIL_PUBSUB_VERIFICATION_TOKEN or
+ * GMAIL_PUSH_AUDIENCE is set, so the current subscription keeps working.
  */
 export async function POST(request: Request) {
+  const auth = await gmailPushAuthorized(request, {
+    production: process.env.NODE_ENV === "production",
+  });
+  if (!auth.ok) {
+    return NextResponse.json({ error: "unauthorized" }, { status: 401 });
+  }
+
   const body = (await request.json().catch(() => null)) as PubSubPushBody | null;
   const data = body?.message?.data;
   if (!data) {

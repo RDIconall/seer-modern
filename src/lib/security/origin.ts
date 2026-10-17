@@ -20,3 +20,13 @@ export function originAllowed(input: {
     return false;
   }
 }
+
+/** Origin check against this request's host (or SEER_ALLOWED_ORIGIN). */
+export function requestOriginAllowed(request: Request): boolean {
+  return originAllowed({
+    origin: request.headers.get("origin"),
+    requestOrigin: new URL(request.url).origin,
+    allowedOrigin: process.env.SEER_ALLOWED_ORIGIN,
+    production: process.env.NODE_ENV === "production",
+  });
+}

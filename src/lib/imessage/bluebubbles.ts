@@ -1,4 +1,5 @@
 import { accountKey, kvGet, kvSet, kvDelete } from "@/lib/store/kv";
+import { isSealed, open, seal, type StoredSecret } from "@/lib/store/secret-at-rest";
 
 /**
  * BlueBubbles = the user's real texting life (iMessage), self-hosted on
@@ -12,6 +13,12 @@ import { accountKey, kvGet, kvSet, kvDelete } from "@/lib/store/kv";
 export type BlueBubblesConfig = {
   url: string;
   password: string;
+  savedAt: string;
+};
+
+type StoredBlueBubbles = {
+  url: string;
+  password: StoredSecret;
   savedAt: string;
 };
 
@@ -36,18 +43,28 @@ function statsKey(accountEmail: string) {
 export async function loadBlueBubbles(
   accountEmail: string,
 ): Promise<BlueBubblesConfig | null> {
-  return await kvGet<BlueBubblesConfig>(cfgKey(accountEmail));
+  const stored = await kvGet<StoredBlueBubbles>(cfgKey(accountEmail));
+  if (!stored?.url) return null;
+  const password = open(stored.password, accountEmail);
+  if (!password) return null;
+  return { url: stored.url, password, savedAt: stored.savedAt };
 }
 
 export async function saveBlueBubbles(
   accountEmail: string,
   cfg: { url: string; password: string },
 ): Promise<void> {
+  const password = seal(cfg.password, accountEmail);
+  if (!password) throw new Error("BlueBubbles password is required");
   await kvSet(cfgKey(accountEmail), {
     url: cfg.url.replace(/\/+$/, ""),
-    password: cfg.password,
+    password,
     savedAt: new Date().toISOString(),
-  });
+  } satisfies StoredBlueBubbles);
+}
+
+export function blueBubblesPasswordIsSealed(value: unknown): boolean {
+  return isSealed(value);
 }
 
 export async function clearBlueBubbles(accountEmail: string): Promise<void> {
