@@ -4,6 +4,7 @@ import { requireMailSession } from "@/lib/mail/session";
 import { recordAccepted } from "@/lib/store/autonomy";
 import { appendLedger } from "@/lib/store/triage-ledger";
 import { NextResponse } from "next/server";
+import { requestOriginAllowed } from "@/lib/security/origin";
 
 export const maxDuration = 60;
 
@@ -11,6 +12,9 @@ export const maxDuration = 60;
 const CONCURRENCY = 15;
 
 export async function POST(request: Request) {
+  if (!requestOriginAllowed(request)) {
+    return NextResponse.json({ error: "invalid request origin" }, { status: 403 });
+  }
   try {
     const session = await requireMailSession();
     if (!session) {

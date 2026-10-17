@@ -1,9 +1,7 @@
 /**
  * Seer is an RDI desk: any @rditrials.com account can sign in.
- * There is no per-person allowlist, and none is required — but a mailbox that
- * belongs on this desk from outside the org can be named by the deployment,
- * because gating on the domain alone locked the owner's own Gmail out of their
- * own mail client with nothing but "Access Denied" to go on.
+ * Extra mailboxes from outside the org are named by SEER_ALLOWED_EMAILS,
+ * not hardcoded in git.
  */
 import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
@@ -16,7 +14,6 @@ import {
   isAllowedOrgEmail,
   LEGACY_EMAIL_ENV,
   ORG_DOMAIN,
-  OWNER_EMAIL,
 } from "../src/lib/auth/org.ts";
 
 assert.equal(ORG_DOMAIN, "rditrials.com");
@@ -28,22 +25,22 @@ assert.equal(isAllowedOrgEmail("ceo@rditrials.com.evil.example"), false);
 assert.equal(isAllowedOrgEmail("rditrials.com"), false);
 assert.equal(isAllowedOrgEmail(null), false);
 assert.equal(isAllowedOrgEmail(""), false);
+assert.equal(
+  isAllowedOrgEmail("cpa2002@gmail.com"),
+  false,
+  "the owner's Gmail is not hardcoded; name it in SEER_ALLOWED_EMAILS",
+);
 
-// Nothing configured: the org domain, plus the desk's own mailbox by name.
+const orgSource = readFileSync(new URL("../src/lib/auth/org.ts", import.meta.url), "utf8");
+assert.doesNotMatch(
+  orgSource,
+  /cpa2002@gmail\.com/,
+  "owner mailbox must not be committed",
+);
+
+// Nothing configured: the org domain only.
 assert.deepEqual(allowedDomains(), [ORG_DOMAIN]);
-assert.deepEqual(allowedEmails(), [OWNER_EMAIL]);
-assert.equal(isAllowedOrgEmail(OWNER_EMAIL), true, "the owner is not shut out");
-assert.equal(isAllowedOrgEmail(OWNER_EMAIL.toUpperCase()), true);
-assert.equal(
-  isAllowedOrgEmail(`x${OWNER_EMAIL}`),
-  false,
-  "the owner's address is matched whole, not as a suffix",
-);
-assert.equal(
-  isAllowedOrgEmail(`someone.else@${OWNER_EMAIL.split("@")[1]}`),
-  false,
-  "the address is named, its provider is not a domain gate",
-);
+assert.deepEqual(allowedEmails(), []);
 
 // A refusal names the address and the setting that would admit it.
 const refusal = describeAccessRefusal("you@gmail.com");
@@ -58,22 +55,26 @@ try {
   assert.equal(isAllowedOrgEmail("YOU@gmail.com"), true);
   assert.equal(isAllowedOrgEmail("second@example.com"), true);
   assert.equal(isAllowedOrgEmail("stranger@gmail.com"), false, "named, not the domain");
-  assert.deepEqual(allowedEmails(), [
-    OWNER_EMAIL,
-    "you@gmail.com",
-    "second@example.com",
-  ]);
+  assert.deepEqual(allowedEmails(), ["you@gmail.com", "second@example.com"]);
 } finally {
   delete process.env[EMAILS_ENV];
 }
 assert.equal(isAllowedOrgEmail("you@gmail.com"), false, "the setting is not sticky");
+
+process.env[EMAILS_ENV] = "cpa2002@gmail.com";
+try {
+  assert.equal(isAllowedOrgEmail("cpa2002@gmail.com"), true);
+  assert.equal(isAllowedOrgEmail("CPA2002@gmail.com"), true);
+} finally {
+  delete process.env[EMAILS_ENV];
+}
 
 // A deployment still carrying the pre-org single-address gate is still naming
 // its owner, and is not locked out of its own mail client by an upgrade.
 process.env[LEGACY_EMAIL_ENV] = "Owner@gmail.com";
 try {
   assert.equal(isAllowedOrgEmail("owner@gmail.com"), true);
-  assert.deepEqual(allowedEmails(), [OWNER_EMAIL, "owner@gmail.com"]);
+  assert.deepEqual(allowedEmails(), ["owner@gmail.com"]);
 } finally {
   delete process.env[LEGACY_EMAIL_ENV];
 }
@@ -115,5 +116,6 @@ assert.doesNotMatch(v2, /SEER_V2_ACCOUNT_ALLOWLIST/);
 const env = readFileSync(new URL("../.env.example", import.meta.url), "utf8");
 assert.doesNotMatch(env, /ALLOWED_EMAIL=/);
 assert.doesNotMatch(env, /SEER_V2_ACCOUNT_ALLOWLIST=/);
+assert.match(env, /SEER_ALLOWED_EMAILS=/);
 
 console.log("org-access: OK");

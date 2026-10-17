@@ -49,14 +49,20 @@ try {
     "select id from seer.bots where slug = 'chief-of-staff'",
   );
 
-  await db.pool.query("set role seer_bot");
+  await db.pool.query(
+    "insert into seer.bot_allowed_accounts (account_id) values ($1) on conflict do nothing",
+    [accountId],
+  );
+
+  const botClient = await db.pool.connect();
+  await botClient.query("set role seer_bot");
   try {
-    await db.pool.query(
+    await botClient.query(
       `insert into seer.bot_tasks (account_id, bot_id, title, source)
        values ($1, $2, 'From the bot', 'bot')`,
       [accountId, bot.rows[0].id],
     );
-    const canInsertMail = await db.pool.query<{ allowed: boolean }>(
+    const canInsertMail = await botClient.query<{ allowed: boolean }>(
       "select has_table_privilege(current_user, 'seer.conversations', 'insert') as allowed",
     );
     assert.equal(
@@ -66,7 +72,7 @@ try {
     );
     let denied = false;
     try {
-      await db.pool.query(
+      await botClient.query(
         `insert into seer.conversations
            (account_id, provider_conversation_id, subject, folders, is_unread)
          values ($1, 'pc-bot-forbidden', 'nope', array['inbox'], false)`,
@@ -77,7 +83,8 @@ try {
     }
     assert.equal(denied, true, "seer_bot must not write the mail corpus");
   } finally {
-    await db.pool.query("reset role");
+    await botClient.query("reset role");
+    botClient.release();
   }
 
   let badStatus = false;

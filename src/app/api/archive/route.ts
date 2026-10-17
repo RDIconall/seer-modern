@@ -2,9 +2,13 @@ import { gmailAction } from "@/lib/mail/gmail";
 import { graphAction } from "@/lib/mail/graph";
 import { requireMailSession } from "@/lib/mail/session";
 import { NextResponse } from "next/server";
+import { requestOriginAllowed } from "@/lib/security/origin";
 
 /** Legacy parity: archive one or more messages. Body: { id } or { ids: string[] } */
 export async function POST(request: Request) {
+  if (!requestOriginAllowed(request)) {
+    return NextResponse.json({ error: "invalid request origin" }, { status: 403 });
+  }
   try {
     const session = await requireMailSession();
     if (!session) {
