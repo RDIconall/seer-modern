@@ -10,6 +10,8 @@ import type {
 } from "@/lib/v2/view/types";
 import { reorderMatterSections } from "@/lib/v2/view/matter-order";
 import { MobileMailRow } from "@/components/v3/MobileMailRow";
+import type { StaffView } from "@/lib/v2/staff/types";
+import { StaffBoard } from "./StaffBoard";
 
 export type MatterMove = {
   matterId: string;
@@ -243,6 +245,13 @@ export function Atlas({
   currentConversationId,
   onArchiveConversation,
   onDeleteConversation,
+  staff,
+  selectedTaskId,
+  staffChatOpen,
+  onOpenStaffTask,
+  onOpenStaffChat,
+  onCreateStaffTask,
+  onDecideProposal,
 }: {
   view: InboxView;
   onArchiveMatter?: (matter: MatterCard) => void | Promise<unknown>;
@@ -257,6 +266,16 @@ export function Atlas({
   currentConversationId?: string | null;
   onArchiveConversation?: (conversation: ConversationRow) => void;
   onDeleteConversation?: (conversation: ConversationRow) => void;
+  staff?: StaffView | null;
+  selectedTaskId?: string | null;
+  staffChatOpen?: boolean;
+  onOpenStaffTask?: (taskId: string) => void;
+  onOpenStaffChat?: () => void;
+  onCreateStaffTask?: (title: string, botSlug: string) => void;
+  onDecideProposal?: (
+    proposalId: string,
+    decision: "approved" | "rejected",
+  ) => void;
 }) {
   // Only "mine" narrows the board. A matter row opens its latest real email in
   // the shared reader; Atlas is an index of work, not a second detail view.
@@ -550,7 +569,15 @@ export function Atlas({
     dropMatter(section, target.beforeMatterId);
   };
 
-  if (sections.length === 0) {
+  const hasStaff = Boolean(
+    staff &&
+      (staff.tasks.length > 0 ||
+        staff.proposals.length > 0 ||
+        onOpenStaffChat ||
+        onCreateStaffTask),
+  );
+
+  if (sections.length === 0 && !hasStaff) {
     return (
       <section className="wb-empty" aria-label="Atlas — the whiteboard">
         No live matters yet. Open Settings and propose Atlas sections from this
@@ -594,8 +621,22 @@ export function Atlas({
         <span className="wb-dense tabular">{rowCount} rows</span>
       </div>
 
+      {staff ? (
+        <StaffBoard
+          view={staff}
+          selectedTaskId={selectedTaskId}
+          chatOpen={staffChatOpen}
+          onOpenTask={onOpenStaffTask}
+          onOpenChat={onOpenStaffChat}
+          onCreateTask={onCreateStaffTask}
+          onDecideProposal={onDecideProposal}
+        />
+      ) : null}
+
       {shown === 0 ? (
+        hasStaff ? null : (
         <p className="wb-empty">Nothing is yours right now.</p>
+        )
       ) : (
         <div className="wb-columns">
           {shaped.map((section) => {

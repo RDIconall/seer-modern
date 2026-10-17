@@ -22,7 +22,12 @@ function requestOriginAllowed(request: Request): boolean {
 }
 
 function needsProvider(command: Command): boolean {
-  return command.type === "send" || command.type === "reply" || command.type === "forward";
+  return (
+    command.type === "send" ||
+    command.type === "reply" ||
+    command.type === "forward" ||
+    command.type === "decideTriageProposal"
+  );
 }
 
 /**

@@ -1158,3 +1158,189 @@ body {
 }
 
 /* Participants, and the people who quietly stopped being on it. */
+
+/* Delegated bot work on the Atlas whiteboard. */
+.staff-board {
+  padding: 0 0 18px;
+}
+.staff-board-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 10px 14px 8px;
+}
+.staff-chat-open {
+  min-height: 44px;
+}
+.staff-kicker {
+  margin: 12px 14px 6px;
+  font-size: 12px;
+  font-weight: 700;
+  color: var(--fg-strong);
+}
+.staff-proposal-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+}
+.staff-proposal {
+  display: flex;
+  gap: 12px;
+  align-items: flex-start;
+  justify-content: space-between;
+  padding: 10px 14px;
+  border-bottom: 1px solid var(--wb-hair);
+}
+.staff-proposal-main {
+  display: grid;
+  gap: 4px;
+  min-width: 0;
+}
+.staff-proposal-action,
+.staff-proposal-mail,
+.staff-proposal-why {
+  display: block;
+}
+.staff-proposal-action {
+  font-size: 14px;
+  font-weight: 700;
+  color: var(--fg-strong);
+}
+.staff-proposal-mail,
+.staff-proposal-why,
+.staff-state,
+.staff-empty,
+.staff-settled {
+  font-size: 14px;
+  color: var(--fg);
+}
+.staff-proposal-acts {
+  display: flex;
+  gap: 7px;
+  flex: none;
+}
+.staff-proposal-acts .wb-btn {
+  min-height: 44px;
+}
+.staff-sec .wb-mhead,
+.staff-task {
+  min-height: 44px;
+  height: auto;
+  padding-top: 8px;
+  padding-bottom: 8px;
+  padding-left: 14px;
+}
+.staff-task-title {
+  white-space: normal;
+  overflow: visible;
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
+}
+.staff-settled {
+  padding: 8px 14px;
+}
+.staff-create,
+.staff-comment,
+.staff-fields {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  align-items: flex-end;
+  padding: 10px 14px;
+}
+.staff-create-label {
+  display: grid;
+  gap: 4px;
+  min-width: 0;
+  flex: 1;
+  font-size: 12px;
+  font-weight: 700;
+  color: var(--fg-strong);
+}
+.staff-input {
+  width: 100%;
+  min-height: 44px;
+  border: 1px solid var(--border);
+  border-radius: 5px;
+  padding: 8px 10px;
+  font: inherit;
+  font-size: 14px;
+  font-weight: 400;
+  background: var(--card);
+  color: var(--fg);
+}
+.staff-notes {
+  min-height: 96px;
+  resize: vertical;
+}
+.staff-pane {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  padding-bottom: 24px;
+}
+.staff-pane-top {
+  padding: 0 20px;
+}
+.staff-pane-title {
+  margin: 0;
+  font-size: 17px;
+  font-weight: 700;
+  color: var(--fg-strong);
+  overflow-wrap: anywhere;
+}
+.staff-pane-sub,
+.staff-quote,
+.staff-state {
+  margin: 4px 20px 0;
+  font-size: 14px;
+}
+.staff-quote {
+  margin-top: 10px;
+  font-weight: 400;
+  color: var(--fg);
+}
+.staff-pane .staff-create-label,
+.staff-pane .staff-fields,
+.staff-pane .staff-comment,
+.staff-pane .wb-acts,
+.staff-pane .staff-kicker,
+.staff-pane .staff-empty,
+.staff-pane .staff-error,
+.staff-pane .staff-chat,
+.staff-pane .staff-history {
+  margin-left: 20px;
+  margin-right: 20px;
+  padding-left: 0;
+  padding-right: 0;
+}
+.staff-chat,
+.staff-history {
+  list-style: none;
+  margin: 0 20px;
+  padding: 0;
+  display: grid;
+  gap: 10px;
+}
+.staff-chat-who {
+  display: flex;
+  gap: 8px;
+  font-size: 12px;
+  font-weight: 700;
+}
+.staff-chat-body,
+.staff-history p {
+  margin: 2px 0 0;
+  font-size: 14px;
+  overflow-wrap: anywhere;
+}
+.staff-chat-line[data-author="bot"] .staff-chat-body {
+  color: var(--fg-strong);
+}
+.staff-error {
+  color: var(--danger, #b00020);
+  font-size: 14px;
+}
+
