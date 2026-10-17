@@ -4,6 +4,8 @@ import { kickInboxCatchUp } from "@/lib/v2/sync/catch-up";
 import { buildInboxView } from "@/lib/v2/view/build";
 
 export const dynamic = "force-dynamic";
+/** after() is bound to this window; a Gmail head poll cannot finish in 10s. */
+export const maxDuration = 60;
 
 /**
  * The one inbox read for the v2 client. Everything the UI shows — Atlas,
@@ -19,9 +21,7 @@ export async function GET() {
     let catchingUp = false;
     try {
       catchingUp = await kickInboxCatchUp(account, (work) => {
-        after(() => {
-          void work();
-        });
+        after(work);
       });
     } catch (cause) {
       console.error(

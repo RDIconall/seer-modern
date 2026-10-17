@@ -9,6 +9,8 @@ const FOLDERS = new Set<MailboxFolder>(["inbox", "sent", "trash"]);
 const SORTS = new Set<MailboxSort>(["date", "triage", "focus"]);
 
 export const dynamic = "force-dynamic";
+/** after() is bound to this window; a Gmail head poll cannot finish in 10s. */
+export const maxDuration = 60;
 
 /**
  * Corpus-backed mailbox list for inbox, sent, and trash. Rows carry Seer
@@ -34,9 +36,7 @@ export async function GET(request: Request) {
   if (folder === "inbox" && !before) {
     try {
       catchingUp = await kickInboxCatchUp(account, (work) => {
-        after(() => {
-          void work();
-        });
+        after(work);
       });
     } catch (cause) {
       console.error(

@@ -108,12 +108,14 @@ try {
     ids: string[];
     complete: boolean;
     cursor: string | null;
+    reconciled: Date | string | null;
   }>(
     `select
        (select coalesce(array_agg(provider_conversation_id), '{}')
           from seer.conversations where account_id = $1) as ids,
        s.backfill_complete as complete,
-       s.cursor
+       s.cursor,
+       s.last_reconciled_at as reconciled
        from seer.folder_sync_state s
       where s.account_id = $1 and s.folder = 'inbox'`,
     [accountId],
@@ -121,6 +123,16 @@ try {
   assert.equal(afterCatchUp.rows[0].ids.includes("fresh-1"), true);
   assert.equal(afterCatchUp.rows[0].complete, false);
   assert.notEqual(afterCatchUp.rows[0].cursor, null);
+  assert.equal(
+    afterCatchUp.rows[0].reconciled != null,
+    true,
+    "a successful Gmail head poll must stamp last_reconciled_at so login stops re-kicking",
+  );
+  assert.equal(
+    await inboxNeedsCatchUp(accountId),
+    false,
+    "an unfinished backfill that just head-polled must not stampede Gmail on every refresh",
+  );
 
   const catchUpSource = await fs.readFile(
     path.join(process.cwd(), "src/lib/v2/sync/catch-up.ts"),
@@ -134,6 +146,33 @@ try {
     "a stuck Gmail cron lease must not block the login head poll",
   );
   assert.match(catchUpSource, /inboxNeedsCatchUp|!.*backfillComplete/);
+  assert.match(
+    catchUpSource,
+    /lastReconciledAt/,
+    "stuck Gmail backfill freshness is the last head poll, not 'backfill still running'",
+  );
+
+  for (const route of [
+    "src/app/api/v3/mailbox/route.ts",
+    "src/app/api/v2/inbox/route.ts",
+  ]) {
+    const source = await fs.readFile(path.join(process.cwd(), route), "utf8");
+    assert.match(
+      source,
+      /after\(\s*work\s*\)/,
+      `${route} must keep the function alive until Gmail catch-up finishes`,
+    );
+    assert.doesNotMatch(
+      source,
+      /void work\(\)/,
+      `${route} must not fire-and-forget catch-up — Vercel kills that promise`,
+    );
+    assert.match(
+      source,
+      /export const maxDuration = [3-9][0-9]/,
+      `${route} must outlive a Gmail head poll, not the default 10–15s function window`,
+    );
+  }
 } finally {
   await db.stop();
 }

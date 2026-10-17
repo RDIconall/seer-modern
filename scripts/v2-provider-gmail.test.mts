@@ -227,4 +227,29 @@ await assert.rejects(
     (err instanceof ProviderHttpError && err.status === 404),
 );
 
+// Login catch-up must keep the threads already hydrated when Gmail's per-user
+// minute returns 403 mid-page. Throwing away the whole page is how a live
+// mailbox stays frozen on last week's mail.
+const quotaFetch: typeof fetch = async (url, init) => {
+  const u = String(url);
+  if ((init?.method ?? "GET") === "GET" && u.includes("/threads/c1?")) {
+    return new Response("Quota exceeded for quota metric 'Queries per minute'", {
+      status: 403,
+    });
+  }
+  return mockFetch(url, init);
+};
+const quotaProvider = new GmailProvider({
+  accessToken: "t",
+  accountEmail: "me@example.com",
+  fetchImpl: quotaFetch,
+  pageSize: 2,
+});
+const partial = await quotaProvider.syncFolder("inbox");
+assert.deepEqual(
+  partial.conversations.map((c) => c.providerConversationId),
+  ["c0"],
+  "a Gmail quota 403 mid-page must still return the newest threads already fetched",
+);
+
 console.log("v2-provider-gmail: OK");
