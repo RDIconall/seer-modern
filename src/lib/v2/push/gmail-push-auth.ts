@@ -72,7 +72,6 @@ async function googleOidcAuthorized(
  */
 export async function gmailPushAuthorized(
   request: Request,
-  _opts?: { production?: boolean },
 ): Promise<GmailPushAuthResult> {
   const expectedToken = configuredSecret(GMAIL_PUSH_TOKEN_ENV);
   const audience = configuredSecret(GMAIL_PUSH_AUDIENCE_ENV);

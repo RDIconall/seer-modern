@@ -22,9 +22,7 @@ type PubSubPushBody = {
  * GMAIL_PUSH_AUDIENCE is set, so the current subscription keeps working.
  */
 export async function POST(request: Request) {
-  const auth = await gmailPushAuthorized(request, {
-    production: process.env.NODE_ENV === "production",
-  });
+  const auth = await gmailPushAuthorized(request);
   if (!auth.ok) {
     return NextResponse.json({ error: "unauthorized" }, { status: 401 });
   }
