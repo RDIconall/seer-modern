@@ -5,6 +5,7 @@ import {
   type RsvpStatus,
 } from "@/lib/inbox/personal-context";
 import { NextResponse } from "next/server";
+import { requestOriginAllowed } from "@/lib/security/origin";
 
 export const maxDuration = 30;
 
@@ -16,6 +17,9 @@ const RESPONSES = new Set<RsvpStatus>(["accepted", "declined", "tentative"]);
  * cached context so cards flip instantly, and archives the invite email.
  */
 export async function POST(request: Request) {
+  if (!requestOriginAllowed(request)) {
+    return NextResponse.json({ error: "invalid request origin" }, { status: 403 });
+  }
   try {
     const session = await requireMailSession();
     if (!session) {

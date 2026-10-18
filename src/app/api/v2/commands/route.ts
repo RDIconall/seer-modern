@@ -5,30 +5,13 @@ import { executeCommand } from "@/lib/v2/commands/execute";
 import { buildInboxView } from "@/lib/v2/view/build";
 import { parseMailboxLimit } from "@/lib/v3/mailbox/limit";
 import { getMailboxView } from "@/lib/v3/mailbox/repository";
-import { originAllowed } from "@/lib/security/origin";
+import { requestOriginAllowed } from "@/lib/security/origin";
 import type { Command, CommandResult } from "@/lib/v2/commands/types";
+import { needsProvider } from "@/lib/v2/commands/needs-provider";
 import { drainOutbox } from "@/lib/v3/outbox/drain";
 
 export const dynamic = "force-dynamic";
 export const maxDuration = 60;
-
-function requestOriginAllowed(request: Request): boolean {
-  return originAllowed({
-    origin: request.headers.get("origin"),
-    requestOrigin: new URL(request.url).origin,
-    allowedOrigin: process.env.SEER_ALLOWED_ORIGIN,
-    production: process.env.NODE_ENV === "production",
-  });
-}
-
-function needsProvider(command: Command): boolean {
-  return (
-    command.type === "send" ||
-    command.type === "reply" ||
-    command.type === "forward" ||
-    command.type === "decideTriageProposal"
-  );
-}
 
 /**
  * The one write endpoint for the v2 client. Every mutation is a command with an

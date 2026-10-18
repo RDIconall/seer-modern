@@ -6,6 +6,7 @@ import {
   resolveActiveAccount,
 } from "@/lib/store/accounts";
 import { NextResponse } from "next/server";
+import { requestOriginAllowed } from "@/lib/security/origin";
 
 function providersAvailable() {
   return {
@@ -59,7 +60,10 @@ export async function GET() {
   });
 }
 
-export async function POST() {
+export async function POST(request: Request) {
+  if (!requestOriginAllowed(request)) {
+    return NextResponse.json({ error: "invalid request origin" }, { status: 403 });
+  }
   return NextResponse.json(
     { error: "legacy account switching and removal are retired" },
     { status: 410 },

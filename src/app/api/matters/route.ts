@@ -20,6 +20,7 @@ import {
 } from "@/lib/store/manual-matters";
 import { loadMatterOrder, saveMatterOrder } from "@/lib/store/matter-order";
 import { NextResponse } from "next/server";
+import { requestOriginAllowed } from "@/lib/security/origin";
 
 /**
  * The user's own matters: rename anything, create their own, add emails to
@@ -46,6 +47,9 @@ export async function GET() {
 }
 
 export async function POST(req: Request) {
+  if (!requestOriginAllowed(req)) {
+    return NextResponse.json({ error: "invalid request origin" }, { status: 403 });
+  }
   const session = await requireMailSession();
   if (!session) {
     return NextResponse.json({ error: "Not signed in" }, { status: 401 });

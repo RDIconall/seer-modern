@@ -23,6 +23,7 @@ import { knownSenders } from "@/lib/brain/relationships";
 import { loadPeople } from "@/lib/store/people";
 import { getPersonalContext } from "@/lib/inbox/personal-context";
 import { NextResponse, after } from "next/server";
+import { requestOriginAllowed } from "@/lib/security/origin";
 
 /** Deep enough to cover a real 500+ inbox in one pass */
 const INBOX_DEPTH = 1200;
@@ -31,6 +32,9 @@ export const maxDuration = 60;
 
 /** PATCH: fix a matter's org placement — the user's call is ground truth. */
 export async function PATCH(req: Request) {
+  if (!requestOriginAllowed(req)) {
+    return NextResponse.json({ error: "invalid request origin" }, { status: 403 });
+  }
   const session = await requireMailSession();
   if (!session) {
     return NextResponse.json({ error: "Not signed in" }, { status: 401 });
@@ -70,7 +74,10 @@ export async function GET() {
   return NextResponse.json({ brief });
 }
 
-export async function POST() {
+export async function POST(request: Request) {
+  if (!requestOriginAllowed(request)) {
+    return NextResponse.json({ error: "invalid request origin" }, { status: 403 });
+  }
   try {
     const session = await requireMailSession();
     if (!session) {

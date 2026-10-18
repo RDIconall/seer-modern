@@ -6,23 +6,11 @@
  * The organization is not the whole story, though. This desk was a personal
  * mailbox before it was a company's, and gating on one hardcoded domain locked
  * the owner's own Gmail out of their own mail client — sign-in, account
- * linking and the v3 client all read this one function. So that mailbox is
- * named below, and a deployment can name further addresses or an alias domain
- * of the same company without a code change.
+ * linking and the v3 client all read this one function. Extra addresses and
+ * alias domains belong in the deployment environment, not in git.
  */
 
 export const ORG_DOMAIN = "rditrials.com";
-
-/**
- * The desk's own mailbox, allowed by name.
- *
- * Seer was this Gmail's mail client before it was the company's, and it is the
- * account the app is used and developed against, so it is named in the code
- * rather than left to an environment variable that a redeploy can lose or a
- * dashboard edit can drop. This repository is public, so this address is
- * public with it; move it to `SEER_ALLOWED_EMAILS` to keep it out of git.
- */
-export const OWNER_EMAIL = "cpa2002@gmail.com";
 
 /** Extra addresses, comma-separated. `SEER_ALLOWED_EMAILS=you@gmail.com` */
 export const EMAILS_ENV = "SEER_ALLOWED_EMAILS";
@@ -30,9 +18,8 @@ export const EMAILS_ENV = "SEER_ALLOWED_EMAILS";
 /**
  * The single-address gate this app used before the organization existed. The
  * code that read it was removed, but a deployment that still carries it in its
- * environment is still naming its owner, so it is honored — one address, and
- * the same one that used to be the only address allowed in. Setting
- * `SEER_ALLOWED_EMAILS` supersedes it and it can then be deleted.
+ * environment is still naming its owner, so it is honored. Prefer
+ * `SEER_ALLOWED_EMAILS`.
  */
 export const LEGACY_EMAIL_ENV = "ALLOWED_EMAIL";
 
@@ -67,13 +54,7 @@ export function allowedDomains(): string[] {
 
 /** Addresses allowed on their own, outside any allowed domain. */
 export function allowedEmails(): string[] {
-  return [
-    ...new Set([
-      OWNER_EMAIL,
-      ...configured(EMAILS_ENV),
-      ...configured(LEGACY_EMAIL_ENV),
-    ]),
-  ];
+  return [...new Set([...configured(EMAILS_ENV), ...configured(LEGACY_EMAIL_ENV)])];
 }
 
 export function isAllowedOrgEmail(email: string | null | undefined): boolean {

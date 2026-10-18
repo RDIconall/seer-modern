@@ -8,6 +8,7 @@ import {
   type CachedDecision,
 } from "@/lib/store/decision-cache";
 import { NextResponse } from "next/server";
+import { requestOriginAllowed } from "@/lib/security/origin";
 
 const ALLOWED = new Set<TriageAction>([
   "act_today",
@@ -25,6 +26,9 @@ const ALLOWED = new Set<TriageAction>([
  * the message's Gmail label.
  */
 export async function POST(request: Request) {
+  if (!requestOriginAllowed(request)) {
+    return NextResponse.json({ error: "invalid request origin" }, { status: 403 });
+  }
   try {
     const session = await requireMailSession();
     if (!session) {

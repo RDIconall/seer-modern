@@ -5,6 +5,7 @@ import { reopenMatter } from "@/lib/store/closed-matters";
 import { recordReversal } from "@/lib/store/autonomy";
 import { getLedgerEntry, markUndone } from "@/lib/store/triage-ledger";
 import { NextResponse } from "next/server";
+import { requestOriginAllowed } from "@/lib/security/origin";
 
 /**
  * Undo one Cleaned-ledger action: put the mail back, and — when it was a
@@ -13,6 +14,9 @@ import { NextResponse } from "next/server";
  * autonomy.
  */
 export async function POST(request: Request) {
+  if (!requestOriginAllowed(request)) {
+    return NextResponse.json({ error: "invalid request origin" }, { status: 403 });
+  }
   const session = await requireMailSession();
   if (!session) {
     return NextResponse.json({ error: "Not signed in" }, { status: 401 });

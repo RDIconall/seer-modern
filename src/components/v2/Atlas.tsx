@@ -12,6 +12,7 @@ import { reorderMatterSections } from "@/lib/v2/view/matter-order";
 import { MobileMailRow } from "@/components/v3/MobileMailRow";
 import type { StaffView } from "@/lib/v2/staff/types";
 import { StaffBoard } from "./StaffBoard";
+import { AutoTriageAudit } from "./AutoTriageAudit";
 
 export type MatterMove = {
   matterId: string;
@@ -580,6 +581,7 @@ export function Atlas({
   if (sections.length === 0 && !hasStaff) {
     return (
       <section className="wb-empty" aria-label="Atlas — the whiteboard">
+        <AutoTriageAudit />
         No live matters yet. Open Settings and propose Atlas sections from this
         mailbox.
       </section>
@@ -620,6 +622,8 @@ export function Atlas({
         </button>
         <span className="wb-dense tabular">{rowCount} rows</span>
       </div>
+
+      <AutoTriageAudit />
 
       {staff ? (
         <StaffBoard

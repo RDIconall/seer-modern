@@ -15,10 +15,11 @@ permanent purge.
 
 ## Enablement
 
-1. Apply the repo migration `supabase/migrations/20261016220000_bot_staff.sql`
-   to the **preview** database (or a local test database). Do not apply to
-   production from this PR.
-2. Seed Conall's 27 open tasks:
+Staff tables are already on production. Further RLS hardening lives in
+`supabase/migrations/20261017140000_harden_rls_and_retention.sql` (reversible
+via `supabase/migrations/down/20261017140000_harden_rls_and_retention.sql`).
+
+1. Seed Conall's open tasks if they are missing:
 
    ```bash
    npx tsx scripts/seed-bot-tasks.mts --email <mailbox@rditrials.com>
@@ -26,18 +27,24 @@ permanent purge.
 
    Uses `SEER_V2_DATABASE_URL` or `POSTGRES_URL`. Idempotent on
    `(account_id, external_key)` (`B01`…`B31`).
-3. Optional, so the bot is poked instead of polling:
+2. Allowlist the mailbox the bot may see (`seer.bot_allowed_accounts`).
+   Conall's account `70122bd2-0c14-49db-b2c7-48111828fb68` is seeded when that
+   `mail_accounts` row exists.
+3. **Webhook is optional. Polling is the current production mode.**
+   `SEER_BOT_WEBHOOK_URL` / `SEER_BOT_WEBHOOK_SECRET` are **not** set on Vercel.
+   The bot should poll `seer.bot_tasks`, `seer.bot_messages`, and
+   `seer.triage_proposals`. Do not configure the webhook until the bot
+   endpoint is ready and the secret is stored as a Vercel secret.
 
    | Env var | Purpose |
    |---|---|
    | `SEER_BOT_WEBHOOK_URL` | HTTPS endpoint the bot exposes |
    | `SEER_BOT_WEBHOOK_SECRET` | HMAC secret (32+ random bytes) |
 
-   Set these on the Vercel **preview** environment for project `seer-modern`,
-   not production, until this is accepted.
 4. Point the bot's Supabase SQL connector at the same project. Prefer a
    Postgres role that is a member of `seer_bot` (see Roles). The bot must not
-   use the `seer_app` database password.
+   use the `seer_app` database password. Rotate any bot credential that was
+   issued while `seer_bot` policies were `USING (true)`.
 
 ---
 
@@ -48,8 +55,8 @@ schema `seer` (unchanged).
 
 | Role | Access |
 |---|---|
-| `seer_app` | Full DML on all `seer` tables (the Next.js server) |
-| `seer_bot` | DML on `bots`, `bot_tasks`, `bot_task_events`, `bot_messages`, `triage_proposals`. **SELECT only** on `mail_accounts`, `conversations`, `matters`, `messages`. No DML on mail/outbox/commands |
+| `seer_app` | Full DML on all `seer` tables (the Next.js server). Policies are dual-mode: unset `seer.account_id` keeps today's open access; `SET LOCAL seer.account_id` inside a transaction scopes that connection to one mailbox |
+| `seer_bot` | DML on `bots` (catalog) and on `bot_tasks`, `bot_task_events`, `bot_messages`, `triage_proposals` **only for allowlisted accounts**. **SELECT** on `mail_accounts` and `conversations` for those accounts only. **No SELECT** on `messages` or `matters`. Cannot set `triage_proposals.status` to `approved` or `executed` (database enforced). No DML on mail/outbox/commands |
 | `anon` / `authenticated` | None |
 
 `seer_bot` is created `NOLOGIN`. In Supabase, create a login role (or use a
@@ -69,7 +76,7 @@ touch the tables below.
 | `seer.bot_messages` | Insert replies with `author = 'bot'` | `postBotMessage` with `author = 'user'` |
 | `seer.triage_proposals` | Insert `status = 'pending'` proposals. Never set `approved`/`executed` itself | `decideTriageProposal` — the only path that executes mail |
 | `seer.outbox` / `command_receipts` | **Never** | Seer enqueues trash/archive after approval |
-| Mail corpus (`conversations`, …) | **Read only** (to fill `conversation_id`) | Unchanged sync |
+| Mail corpus (`conversations`, …) | **SELECT conversations** (allowlisted account only) to fill `conversation_id`. No message bodies or matters | Unchanged sync |
 
 The bot must **not** `UPDATE seer.triage_proposals.status` to `approved` or
 `executed`. That would skip Conall's approval. If it needs to withdraw a

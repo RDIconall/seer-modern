@@ -9,6 +9,7 @@ import {
 import { loadPeople, savePeople } from "@/lib/store/people";
 import { requireMailSession } from "@/lib/mail/session";
 import { NextResponse } from "next/server";
+import { requestOriginAllowed } from "@/lib/security/origin";
 
 export const maxDuration = 60;
 
@@ -42,6 +43,9 @@ export async function GET() {
 }
 
 export async function POST(request: Request) {
+  if (!requestOriginAllowed(request)) {
+    return NextResponse.json({ error: "invalid request origin" }, { status: 403 });
+  }
   try {
     const session = await requireMailSession();
     if (!session) {

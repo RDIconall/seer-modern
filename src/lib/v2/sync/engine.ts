@@ -62,6 +62,7 @@ export type SyncRun = {
   polledHead: boolean;
   nextCursor: string | null;
   telemetryWarning?: string;
+  inboxConversationIds: string[];
 };
 
 export function isPastSyncDeadline(deadlineMs: number | undefined): boolean {
@@ -137,6 +138,7 @@ export async function syncFolder(
 
   let failed = 0;
   let pages = 0;
+  const inboxConversationIds: string[] = [];
   let providerTotal = workingState.providerTotal;
   let providerCursor: string | null = headPoll ? null : workingState.cursor;
   let backfillComplete = workingState.backfillComplete;
@@ -176,6 +178,7 @@ export async function syncFolder(
     );
     failed += result.failed;
     pages++;
+    inboxConversationIds.push(...result.inboxConversationIds);
 
     if (headPoll) {
       polledHead = true;
@@ -271,6 +274,7 @@ export async function syncFolder(
     polledHead,
     nextCursor: backfillComplete ? null : providerCursor,
     telemetryWarning,
+    inboxConversationIds,
   };
 }
 

@@ -23,7 +23,11 @@ function sameTextArray(stored: string[] | null, incoming: string[]): boolean {
  * is saved by the engine only after the page transaction commits.
  */
 
-export type PageWriteResult = { stored: number; failed: number };
+export type PageWriteResult = {
+  stored: number;
+  failed: number;
+  inboxConversationIds: string[];
+};
 
 export type FolderSyncState = {
   cursor: string | null;
@@ -44,6 +48,7 @@ export async function writeConversationPage(
   return inTransaction(async (client) => {
     let stored = 0;
     let failed = 0;
+    const inboxConversationIds: string[] = [];
     for (const [index, convo] of conversations.entries()) {
       const savepoint = `v3_conversation_row_${index}`;
       if (snapshotGeneration) {
@@ -60,9 +65,15 @@ export async function writeConversationPage(
       }
       await client.query(`savepoint ${savepoint}`);
       try {
-        await writeConversation(client, accountId, folder, convo);
+        const conversationId = await writeConversation(
+          client,
+          accountId,
+          folder,
+          convo,
+        );
         await client.query(`release savepoint ${savepoint}`);
         stored++;
+        if (folder === "inbox") inboxConversationIds.push(conversationId);
       } catch {
         // A single malformed conversation must not sink the page; it is
         // counted as failed and retried on the next sync.
@@ -94,7 +105,7 @@ export async function writeConversationPage(
         [accountId, providerId, folder],
       );
     }
-    return { stored, failed };
+    return { stored, failed, inboxConversationIds };
   });
 }
 
@@ -209,7 +220,7 @@ async function writeConversation(
   accountId: AccountId,
   folder: SyncFolder,
   convo: Conversation,
-): Promise<void> {
+): Promise<string> {
   const isUnread = convo.messages.some((m) => m.isUnread);
   const incomingLast = convo.lastMessageAt || null;
 
@@ -386,6 +397,7 @@ async function writeConversation(
   if (!mask.protectUnread && messagesTouched) {
     await refreshConversationUnread(client, conversationId);
   }
+  return conversationId;
 }
 
 export async function saveFolderSyncState(

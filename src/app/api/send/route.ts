@@ -8,6 +8,7 @@ import {
 import { requireMailSession } from "@/lib/mail/session";
 import { recordRepliedThread } from "@/lib/store/replied-threads";
 import { NextResponse } from "next/server";
+import { requestOriginAllowed } from "@/lib/security/origin";
 
 type Mode = "compose" | "reply" | "replyAll" | "forward";
 
@@ -53,6 +54,9 @@ function quotedHtml(text: string): string {
 }
 
 export async function POST(request: Request) {
+  if (!requestOriginAllowed(request)) {
+    return NextResponse.json({ error: "invalid request origin" }, { status: 403 });
+  }
   try {
     const session = await requireMailSession();
     if (!session) {

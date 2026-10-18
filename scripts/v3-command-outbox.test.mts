@@ -325,9 +325,16 @@ try {
     path.join(HERE, "../src/app/api/v2/commands/route.ts"),
     "utf8",
   );
-  assert.match(commandRoute, /originAllowed/);
+  assert.match(commandRoute, /requestOriginAllowed|originAllowed/);
   assert.match(commandRoute, /providerFor/);
-  assert.match(commandRoute, /send|reply|forward/);
+  const needsProviderSource = readFileSync(
+    path.join(HERE, "../src/lib/v2/commands/needs-provider.ts"),
+    "utf8",
+  );
+  assert.match(needsProviderSource, /send/);
+  assert.match(needsProviderSource, /reply/);
+  assert.match(needsProviderSource, /forward/);
+  assert.match(needsProviderSource, /move/);
   // A command answers with its result. The whiteboard's two projections are
   // opt-in, because building them per row made a bulk action pay for a hundred
   // rebuilds nobody read.

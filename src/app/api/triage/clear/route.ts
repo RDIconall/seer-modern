@@ -10,6 +10,7 @@ import {
 import { appendLedger } from "@/lib/store/triage-ledger";
 import { recordAccepted } from "@/lib/store/autonomy";
 import { NextResponse } from "next/server";
+import { requestOriginAllowed } from "@/lib/security/origin";
 
 export const maxDuration = 60;
 
@@ -21,6 +22,9 @@ export const maxDuration = 60;
  * 4. Recompute the same accounting object Atlas and Triage both render.
  */
 export async function POST(request: Request) {
+  if (!requestOriginAllowed(request)) {
+    return NextResponse.json({ error: "invalid request origin" }, { status: 403 });
+  }
   const session = await requireMailSession();
   if (!session) {
     return NextResponse.json({ error: "Not signed in" }, { status: 401 });
