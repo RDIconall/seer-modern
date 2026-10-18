@@ -142,7 +142,10 @@ export type Command =
       type: "decideTriageProposal";
       proposalId: string;
       decision: "approved" | "rejected";
-    };
+    }
+  | { type: "undoAutoTriage"; logId: string }
+  | { type: "alwaysKeepSender"; sender: string; logId?: string | null }
+  | { type: "setAutoTriageMode"; mode: "off" | "dry_run" | "live" };
 
 export type CommandResult = {
   ok: boolean;

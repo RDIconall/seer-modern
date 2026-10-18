@@ -80,6 +80,10 @@ export function StaffBoard({
                   <strong className="staff-proposal-action">
                     {ACTION_LABEL[proposal.action]}
                     {proposal.destinationName ? ` → ${proposal.destinationName}` : ""}
+                    {proposal.action === "file" ||
+                    /save pdf/i.test(proposal.destinationName ?? "") ? (
+                      <span className="staff-save-pdf"> Save PDF</span>
+                    ) : null}
                   </strong>
                   <span className="staff-proposal-mail">
                     {proposal.senderEmail || proposal.botName}

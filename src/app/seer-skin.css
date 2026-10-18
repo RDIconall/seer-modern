@@ -1223,6 +1223,33 @@ body {
 .staff-proposal-acts .wb-btn {
   min-height: 44px;
 }
+.staff-save-pdf {
+  display: inline-block;
+  margin-left: 8px;
+  padding: 1px 7px;
+  border-radius: 999px;
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 0.02em;
+  color: var(--fg-strong);
+  background: color-mix(in srgb, var(--fg-strong) 12%, transparent);
+}
+.autotriage-audit .staff-kicker {
+  margin-left: 0;
+}
+.autotriage-mode {
+  display: flex;
+  gap: 8px;
+  align-items: center;
+  margin: 0 14px 0 auto;
+  font-size: 12px;
+}
+.autotriage-mode select {
+  min-height: 32px;
+}
+.autotriage-mode-effective {
+  color: var(--fg);
+}
 .staff-sec .wb-mhead,
 .staff-task {
   min-height: 44px;

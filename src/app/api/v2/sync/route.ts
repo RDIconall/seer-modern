@@ -15,6 +15,7 @@ import {
 } from "@/lib/v2/sync/report";
 import { getAccountById } from "@/lib/v2/sync/wake-account";
 import { drainOutbox } from "@/lib/v3/outbox/drain";
+import { autotriageAccount } from "@/lib/v2/autotriage/run";
 import type { MailAccount } from "@/lib/v2/db/accounts";
 import type { SyncMode } from "@/lib/v2/sync/engine";
 
@@ -134,14 +135,29 @@ async function syncOneAccount(
     }
   }
 
-  report.push(
-    ...(await syncAccountFolders(
-      account,
-      provider,
-      mode,
-      activeSyncFolders(),
-      { deadlineMs },
-    )),
+  const folderReport = await syncAccountFolders(
+    account,
+    provider,
+    mode,
+    activeSyncFolders(),
+    { deadlineMs },
   );
+  report.push(...folderReport);
+
+  const inboxConversationIds = folderReport.flatMap(
+    (row) => row.inboxConversationIds ?? [],
+  );
+  try {
+    const triage = await autotriageAccount(account, inboxConversationIds);
+    report.push({ email: account.email, autotriage: triage });
+    const after = await drainOutbox(account.id, provider);
+    report.push({ email: account.email, outboxAfterTriage: after });
+  } catch (e) {
+    report.push({
+      email: account.email,
+      autotriageError:
+        e instanceof Error ? e.message.slice(0, 160) : "autotriage failed",
+    });
+  }
   return report;
 }

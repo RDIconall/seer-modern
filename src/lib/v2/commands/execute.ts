@@ -42,6 +42,11 @@ import {
   relevanceOutcome,
 } from "../intelligence/mailbox-style";
 import { runStaffCommand } from "../staff/commands";
+import {
+  alwaysKeepSenderCommand,
+  setAutoTriageModeCommand,
+  undoAutoTriageCommand,
+} from "../autotriage/commands";
 
 /**
  * Execute one command. Ownership and idempotency are checked first. A delete is
@@ -631,6 +636,13 @@ async function run(
     case "postBotMessage":
     case "decideTriageProposal":
       return runStaffCommand(ctx, command, idempotencyKey);
+
+    case "undoAutoTriage":
+      return undoAutoTriageCommand(ctx.accountId, command.logId);
+    case "alwaysKeepSender":
+      return alwaysKeepSenderCommand(ctx.accountId, command.sender, command.logId);
+    case "setAutoTriageMode":
+      return setAutoTriageModeCommand(ctx.accountId, command.mode);
 
     case "trainRelevance": {
       if (

@@ -22,6 +22,7 @@ export type SyncFolderReport = {
   pending?: number;
   failed?: number;
   telemetryWarning?: string;
+  inboxConversationIds?: string[];
 };
 
 export type SyncBudgetOptions = {
@@ -61,6 +62,8 @@ function runToReport(email: string, run: SyncRun): SyncFolderReport {
     polledHead: run.polledHead,
     nextCursor: run.nextCursor,
     telemetryWarning: run.telemetryWarning,
+    inboxConversationIds:
+      run.folder === "inbox" ? run.inboxConversationIds : undefined,
     ...run.coverage,
   };
 }

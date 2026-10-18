@@ -9,6 +9,12 @@ const STAFF = [
   "bot_messages",
   "triage_proposals",
 ];
+const AUTOTRIAGE = [
+  "autotriage_settings",
+  "autotriage_state",
+  "autotriage_log",
+  "triage_sender_rules",
+];
 
 const db = await startTestDb();
 try {
@@ -16,7 +22,7 @@ try {
     "select table_name from information_schema.tables where table_schema = 'seer'",
   );
   const names = new Set(tables.rows.map((row) => row.table_name));
-  for (const table of STAFF) {
+  for (const table of [...STAFF, ...AUTOTRIAGE]) {
     assert.ok(names.has(table), `missing seer.${table}`);
   }
 
@@ -25,7 +31,7 @@ try {
        from pg_class c
        join pg_namespace n on n.oid = c.relnamespace
       where n.nspname = 'seer' and c.relkind = 'r' and c.relname = any($1::text[])`,
-    [STAFF],
+    [[...STAFF, ...AUTOTRIAGE]],
   );
   for (const row of rls.rows) {
     assert.equal(row.relrowsecurity, true, `RLS on seer.${row.relname}`);
@@ -82,6 +88,28 @@ try {
       denied = true;
     }
     assert.equal(denied, true, "seer_bot must not write the mail corpus");
+    let autotriageWrite = false;
+    try {
+      await botClient.query(
+        `insert into seer.autotriage_log
+           (account_id, provider_message_id, action, decider, mode)
+         values ($1, 'm-bot', 'keep', 'rule', 'dry_run')`,
+        [accountId],
+      );
+    } catch {
+      autotriageWrite = true;
+    }
+    assert.equal(autotriageWrite, true, "seer_bot must not write autotriage_log");
+    let settingsWrite = false;
+    try {
+      await botClient.query(
+        `insert into seer.autotriage_settings (account_id, mode) values ($1, 'live')`,
+        [accountId],
+      );
+    } catch {
+      settingsWrite = true;
+    }
+    assert.equal(settingsWrite, true, "seer_bot must not write autotriage_settings");
   } finally {
     await botClient.query("reset role");
     botClient.release();
