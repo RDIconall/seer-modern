@@ -11,10 +11,19 @@ import {
   useSyncExternalStore,
 } from "react";
 import { Atlas, type MatterMove } from "@/components/v2/Atlas";
+import { AtlasAnchorDock } from "@/components/v2/AtlasAnchorDock";
 import { WorthReading } from "@/components/v2/WorthReading";
 import { StaffPane } from "@/components/v2/StaffPane";
 import { useStaffView } from "@/components/v2/useStaffView";
+import { useWhiteboard } from "@/components/v2/useWhiteboard";
 import type { StaffView } from "@/lib/v2/staff/types";
+import { findAnchorForConversation } from "@/lib/v2/whiteboard/anchor";
+import { seedWhiteboardView } from "@/lib/v2/whiteboard/seed";
+import type {
+  AtlasLens,
+  WhiteboardItem,
+  WhiteboardView,
+} from "@/lib/v2/whiteboard/types";
 import type { ConversationRow, InboxView, MatterCard } from "@/lib/v2/view/types";
 import type { Command, CommandResult } from "@/lib/v2/commands/types";
 import type { Conversation, ProviderKind } from "@/lib/v2/providers/types";
@@ -63,8 +72,10 @@ export type MailClientPreview = {
   inboxView: InboxView;
   reader: PreviewReader;
   staffView?: StaffView | null;
+  whiteboardView?: WhiteboardView | null;
   initialSection?: MailSection;
   initialConversationId?: string;
+  initialAtlasLens?: AtlasLens;
   initialCompose?: boolean;
 };
 
@@ -92,6 +103,7 @@ function buildHash(
   section: MailSection,
   conversation: string | null,
   query: string,
+  atlas?: AtlasLens | null,
 ): string {
   const params = new URLSearchParams();
   // The section says whether this is the inbox or triage, so there is no
@@ -99,6 +111,7 @@ function buildHash(
   params.set("section", section);
   if (conversation) params.set("conversation", conversation);
   if (query) params.set("q", query);
+  if (section === "atlas" && atlas && atlas !== "board") params.set("atlas", atlas);
   return `#${params.toString()}`;
 }
 
@@ -106,8 +119,9 @@ function writeHash(
   section: MailSection,
   conversation: string | null,
   query: string,
+  atlas?: AtlasLens | null,
 ): string {
-  const next = buildHash(section, conversation, query);
+  const next = buildHash(section, conversation, query, atlas);
   if (typeof window === "undefined") return next;
   if (window.location.hash === next) return next;
   window.history.replaceState(null, "", next);
@@ -327,8 +341,14 @@ export function MailClient({
   const [mobileSearchOpen, setMobileSearchOpen] = useState(false);
   const [staffTaskId, setStaffTaskId] = useState<string | null>(null);
   const [staffChatOpen, setStaffChatOpen] = useState(false);
+  const [atlasLens, setAtlasLens] = useState<AtlasLens>(
+    preview?.initialAtlasLens ?? "board",
+  );
+  const [selectedItemId, setSelectedItemId] = useState<string | null>(null);
   const [hashReady, setHashReady] = useState(false);
   const restoredSearchRef = useRef<string | null>(null);
+  /** Infer Board/Mail/Bots from a conversation hash exactly once. */
+  const pendingAtlasInfer = useRef(false);
   /** The last hash this client wrote, so it does not read its own writing. */
   const selfWrittenHash = useRef<string | null>(null);
   const searchGuard = useRef(new SearchRequestGuard());
@@ -344,6 +364,7 @@ export function MailClient({
     section: hashSection,
     conversation: hashConversation,
     query: hashQuery,
+    atlas: hashAtlas,
   } = parseMailHash(hashSnapshot);
   const pendingHashConversation =
     hashConversation && !hashAppliedRef.current ? hashConversation : null;
@@ -394,6 +415,10 @@ export function MailClient({
     enabled: !preview && section === "atlas",
     taskId: staffTaskId,
     initial: preview?.staffView ?? null,
+  });
+  const whiteboard = useWhiteboard({
+    enabled: !preview && section === "atlas",
+    initial: preview?.whiteboardView ?? seedWhiteboardView(),
   });
 
   /**
@@ -528,15 +553,18 @@ export function MailClient({
   useEffect(() => {
     if (hashSnapshot && hashSnapshot === selfWrittenHash.current) return;
     if (hashSection) setSection(hashSection);
+    if (hashAtlas) setAtlasLens(hashAtlas);
     if (hashConversation) {
       hashAppliedRef.current = true;
       setConversationId(hashConversation);
+      pendingAtlasInfer.current = !hashAtlas;
     } else {
       hashAppliedRef.current = false;
     }
     if (hashQuery) void restoreSearch(hashQuery);
     setHashReady(true);
   }, [
+    hashAtlas,
     hashConversation,
     hashQuery,
     hashSection,
@@ -546,8 +574,13 @@ export function MailClient({
 
   useEffect(() => {
     if (!hashReady) return;
-    selfWrittenHash.current = writeHash(section, conversationId, query);
-  }, [conversationId, hashReady, query, section]);
+    selfWrittenHash.current = writeHash(
+      section,
+      conversationId,
+      query,
+      section === "atlas" ? atlasLens : null,
+    );
+  }, [atlasLens, conversationId, hashReady, query, section]);
 
   useEffect(() => {
     if (typeof window === "undefined") return;
@@ -566,29 +599,73 @@ export function MailClient({
   }, []);
 
   const activeMailbox = mailbox.view;
-  const previewProviderConversationId = useMemo(() => {
+  const previewThread = useMemo(() => {
     if (!preview || !conversationId) return null;
     const mailboxRows = Object.values(preview.mailbox).flatMap(
       (view) => view.rows,
     );
     const triageRows = preview.triageInbox?.rows ?? [];
-    const atlasRows = preview.inboxView.atlas.flatMap(
-      (matter) => matter.conversations,
-    );
-    return [...mailboxRows, ...triageRows, ...atlasRows].find(
+    const mailboxMatch = [...mailboxRows, ...triageRows].find(
       (row) => row.conversationId === conversationId,
-    )?.providerConversationId;
+    );
+    if (mailboxMatch) {
+      return {
+        conversationId: mailboxMatch.conversationId,
+        providerConversationId: mailboxMatch.providerConversationId,
+        subject: mailboxMatch.subject,
+        from: mailboxMatch.senderDisplayName,
+        at: mailboxMatch.timestamp,
+        summary: mailboxMatch.snippet,
+      };
+    }
+    const atlasMatch = preview.inboxView.atlas
+      .flatMap((matter) => matter.conversations)
+      .find((row) => row.conversationId === conversationId);
+    if (!atlasMatch) return null;
+    return {
+      conversationId: atlasMatch.conversationId,
+      providerConversationId: atlasMatch.providerConversationId,
+      subject: atlasMatch.subject,
+      from: atlasMatch.from,
+      at: atlasMatch.at,
+      summary: atlasMatch.summary,
+    };
   }, [conversationId, preview]);
-  const readerPreview = useMemo(
-    () =>
-      preview &&
-      conversationId &&
+  const previewProviderConversationId =
+    previewThread?.providerConversationId ?? null;
+  const readerPreview = useMemo((): PreviewReader | undefined => {
+    if (!preview || !conversationId) return undefined;
+    if (
       previewProviderConversationId ===
-        preview.reader.conversation.providerConversationId
-        ? preview.reader
-        : undefined,
-    [conversationId, preview, previewProviderConversationId],
-  );
+      preview.reader.conversation.providerConversationId
+    ) {
+      return preview.reader;
+    }
+    if (!previewThread) return undefined;
+    return {
+      provider: preview.reader.provider,
+      conversation: {
+        providerConversationId: previewThread.providerConversationId,
+        subject: previewThread.subject,
+        lastMessageAt: previewThread.at,
+        messages: [
+          {
+            providerMessageId: `${previewThread.providerConversationId}-preview`,
+            from: { name: previewThread.from, email: "" },
+            to: [{ name: "You", email: "you@example.com" }],
+            cc: [],
+            sentAt: previewThread.at,
+            snippet: previewThread.summary,
+            bodyHtml: `<p>${previewThread.summary}</p>`,
+            bodyText: previewThread.summary,
+            isUnread: false,
+            isOutgoing: false,
+            attachments: [],
+          },
+        ],
+      },
+    };
+  }, [conversationId, preview, previewProviderConversationId, previewThread]);
 
   const navigate = (next: MailSection) => {
     searchGuard.current.cancel();
@@ -598,6 +675,8 @@ export function MailClient({
     setProviderConversationId(null);
     setStaffTaskId(null);
     setStaffChatOpen(false);
+    setSelectedItemId(null);
+    setAtlasLens("board");
     setCompose(null);
     setSearchRows(null);
     setQuery("");
@@ -615,17 +694,83 @@ export function MailClient({
   const openAtlasConversation = useCallback((row: ConversationRow) => {
     setStaffTaskId(null);
     setStaffChatOpen(false);
+    setSelectedItemId(null);
     setConversationId(row.conversationId);
     setFocusedMessageId(null);
     setProviderConversationId(row.providerConversationId);
     setCompose(null);
   }, []);
 
+  const openStaffTask = useCallback(
+    (taskId: string, conversationIdForTask?: string | null) => {
+      setStaffChatOpen(false);
+      setStaffTaskId(taskId);
+      setSelectedItemId(null);
+      setCompose(null);
+      if (conversationIdForTask) {
+        const row = inbox.view?.atlas
+          .flatMap((matter) => matter.conversations)
+          .find((conversation) => conversation.conversationId === conversationIdForTask);
+        setConversationId(conversationIdForTask);
+        setFocusedMessageId(null);
+        setProviderConversationId(row?.providerConversationId ?? null);
+      } else {
+        setConversationId(null);
+        setFocusedMessageId(null);
+        setProviderConversationId(null);
+      }
+    },
+    [inbox.view],
+  );
+
+  const openWhiteboardItem = useCallback(
+    (item: WhiteboardItem) => {
+      setSelectedItemId(item.id);
+      setStaffTaskId(null);
+      setStaffChatOpen(false);
+      setAtlasLens("board");
+      setCompose(null);
+      if (item.conversationId) {
+        const row = inbox.view?.atlas
+          .flatMap((matter) => matter.conversations)
+          .find((conversation) => conversation.conversationId === item.conversationId);
+        setConversationId(item.conversationId);
+        setFocusedMessageId(null);
+        setProviderConversationId(row?.providerConversationId ?? null);
+      }
+    },
+    [inbox.view],
+  );
+
   /**
    * A matter is a bundle of conversations, so acting on one from the board acts
    * on the thread that moved most recently: that is the one a reply belongs to
    * and the one a nudge answers.
    */
+  const atlasAnchor = useMemo(
+    () =>
+      findAnchorForConversation({
+        conversationId,
+        matters: inbox.view?.atlas ?? [],
+        whiteboard: whiteboard.view,
+        staff: staff.view,
+      }),
+    [conversationId, inbox.view, staff.view, whiteboard.view],
+  );
+
+  useEffect(() => {
+    if (!pendingAtlasInfer.current || !conversationId) return;
+    if (atlasAnchor) {
+      setAtlasLens(atlasAnchor.lens);
+      pendingAtlasInfer.current = false;
+      return;
+    }
+    if (inbox.view) {
+      setAtlasLens("mail");
+      pendingAtlasInfer.current = false;
+    }
+  }, [atlasAnchor, conversationId, inbox.view]);
+
   const latestConversation = useCallback((matter: MatterCard) => {
     let latest: ConversationRow | null = null;
     let latestAt = -1;
@@ -932,6 +1077,10 @@ export function MailClient({
   };
 
   const readerContent = conversationId ? (
+    <>
+      {section === "atlas" && atlasAnchor ? (
+        <AtlasAnchorDock anchor={atlasAnchor} placement="reader" />
+      ) : null}
     <ReaderPane
       key={`${conversationId}:${focusedMessageId ?? ""}`}
       conversationId={conversationId}
@@ -957,6 +1106,7 @@ export function MailClient({
       onProviderConversationId={rememberProviderConversationId}
       preview={readerPreview}
     />
+    </>
   ) : staffOpen ? (
     <StaffPane
       mode={staffChatOpen && !staffTaskId ? "chat" : "task"}
@@ -968,6 +1118,15 @@ export function MailClient({
         setStaffChatOpen(false);
       }}
       onCommand={(command) => staff.dispatch(command)}
+      onOpenConversation={(id) => {
+        const conversation = inbox.view?.atlas
+          .flatMap((matter) => matter.conversations)
+          .find((row) => row.conversationId === id);
+        if (!conversation) return;
+        setConversationId(id);
+        setProviderConversationId(conversation.providerConversationId);
+        setFocusedMessageId(null);
+      }}
     />
   ) : null;
 
@@ -1043,20 +1202,36 @@ export function MailClient({
           staff={staff.view}
           selectedTaskId={staffTaskId}
           staffChatOpen={staffChatOpen}
-          onOpenStaffTask={(taskId) => {
-            setConversationId(null);
-            setFocusedMessageId(null);
-            setProviderConversationId(null);
-            setStaffChatOpen(false);
-            setStaffTaskId(taskId);
-          }}
+          onOpenStaffTask={openStaffTask}
           onOpenStaffChat={() => {
             setConversationId(null);
             setFocusedMessageId(null);
             setProviderConversationId(null);
             setStaffTaskId(null);
             setStaffChatOpen(true);
+            setAtlasLens("bots");
           }}
+          whiteboard={whiteboard.view}
+          initialLens={atlasLens}
+          selectedItemId={selectedItemId}
+          onOpenWhiteboardItem={openWhiteboardItem}
+          onToggleWhiteboardItem={(item, done) => {
+            void whiteboard.dispatch({
+              type: "updateWhiteboardItem",
+              itemId: item.id,
+              status: done ? "done" : "open",
+              sectionSlug: done ? "done" : item.sectionSlug === "done" ? "due-now" : undefined,
+            });
+          }}
+          onCreateWhiteboardItem={(sectionSlug, title) => {
+            void whiteboard.dispatch({
+              type: "createWhiteboardItem",
+              sectionSlug,
+              title,
+            });
+          }}
+          onLensChange={setAtlasLens}
+          anchor={atlasAnchor}
           onCreateStaffTask={(title, botSlug) => {
             void staff.dispatch({ type: "createBotTask", title, botSlug });
           }}

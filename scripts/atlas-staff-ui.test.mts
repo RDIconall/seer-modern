@@ -87,14 +87,33 @@ const html = renderToString(
 );
 
 assert.match(html, /Whiteboard/);
-assert.match(html, /Delegated/);
+assert.match(html, />Bots/);
 assert.match(html, /Chief of staff/);
 assert.match(html, /Log in to Divvy/);
 assert.match(html, /Waiting on Conall/);
-assert.match(html, /Triage proposals/);
-assert.match(html, /Approve/);
-assert.match(html, /Reject/);
-assert.match(html, /Chat with Chief of staff/);
+assert.match(html, /triage proposal/);
 assert.doesNotMatch(html, /role="dialog"/);
+assert.doesNotMatch(
+  html,
+  /Chat with Chief of staff/,
+  "the 41-row Delegated dump is no longer on the default board",
+);
+
+const bots = renderToString(
+  createElement(Atlas, {
+    view: sampleView,
+    staff,
+    initialLens: "bots",
+    onOpenConversation: () => {},
+    onOpenStaffTask: () => {},
+    onOpenStaffChat: () => {},
+    onCreateStaffTask: () => {},
+    onDecideProposal: () => {},
+  } as never),
+);
+assert.match(bots, /Chat with Chief of staff/);
+assert.match(bots, /Triage proposals/);
+assert.match(bots, /Approve/);
+assert.match(bots, /Reject/);
 
 console.log("atlas-staff-ui: OK");

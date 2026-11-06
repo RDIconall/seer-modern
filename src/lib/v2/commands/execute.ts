@@ -42,6 +42,7 @@ import {
   relevanceOutcome,
 } from "../intelligence/mailbox-style";
 import { runStaffCommand } from "../staff/commands";
+import { runWhiteboardCommand } from "../whiteboard/commands";
 
 /**
  * Execute one command. Ownership and idempotency are checked first. A delete is
@@ -631,6 +632,10 @@ async function run(
     case "postBotMessage":
     case "decideTriageProposal":
       return runStaffCommand(ctx, command, idempotencyKey);
+
+    case "createWhiteboardItem":
+    case "updateWhiteboardItem":
+      return runWhiteboardCommand(ctx, command);
 
     case "trainRelevance": {
       if (

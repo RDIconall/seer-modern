@@ -80,6 +80,10 @@ export type StaffTask = {
   createdAt: string;
   updatedAt: string;
   events: StaffEvent[];
+  /** Optional CEO Whiteboard domain this task belongs under. */
+  whiteboardSlug?: string | null;
+  /** Optional Atlas conversation this task is working. */
+  conversationId?: string | null;
 };
 
 export type StaffProposal = {

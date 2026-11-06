@@ -188,6 +188,11 @@ enforcement is auditable.
 
 ## Changelog
 
+- 2026-11-06 — Atlas CEO Whiteboard: Board / Mail / Bots lenses. Delegated no
+  longer dumps every open bot task onto the board. Selected Atlas rows expand
+  and stay anchored next to the open email. Additive `whiteboard_*` tables and
+  bot-writable contract; Oct 30 seed.
+
 - 2026-08-09 — Relationship floor: known senders (VIP / written-to / saved
   contact / inner-known tier) are excluded from bulk delete in code, not just
   in the prompt; Triage buckets them under review; export gains a
