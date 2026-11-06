@@ -62,6 +62,7 @@ export function StaffPane({
   taskId,
   onBack,
   onCommand,
+  onOpenConversation,
   error,
 }: {
   mode: "task" | "chat";
@@ -69,6 +70,7 @@ export function StaffPane({
   taskId?: string | null;
   onBack: () => void;
   onCommand: (command: Command) => void | Promise<unknown>;
+  onOpenConversation?: (conversationId: string) => void;
   error?: string | null;
 }) {
   const task = useMemo(
@@ -158,6 +160,21 @@ export function StaffPane({
           ) : null}
           {task.nextAction ? (
             <p className="wb-next">{task.nextAction}</p>
+          ) : null}
+
+          {task.conversationId && onOpenConversation ? (
+            <div className="wb-acts">
+              <button
+                type="button"
+                className="wb-btn wb-btn-primary"
+                onClick={() => {
+                  const conversationId = task.conversationId;
+                  if (conversationId) onOpenConversation(conversationId);
+                }}
+              >
+                Open linked email
+              </button>
+            </div>
           ) : null}
 
           <div className="staff-fields">

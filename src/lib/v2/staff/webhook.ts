@@ -5,7 +5,9 @@ export type StaffWebhookEvent =
   | "bot_task.updated"
   | "bot_task.commented"
   | "bot_message.created"
-  | "triage_proposal.decided";
+  | "triage_proposal.decided"
+  | "whiteboard_item.created"
+  | "whiteboard_item.updated";
 
 export type StaffWebhookPayload = {
   event: StaffWebhookEvent;
@@ -15,9 +17,11 @@ export type StaffWebhookPayload = {
   taskId?: string | null;
   messageId?: string | null;
   proposalId?: string | null;
+  itemId?: string | null;
   task?: Record<string, unknown> | null;
   message?: Record<string, unknown> | null;
   proposal?: Record<string, unknown> | null;
+  item?: Record<string, unknown> | null;
 };
 
 export function staffWebhookConfig(env: NodeJS.ProcessEnv = process.env): {

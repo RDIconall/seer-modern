@@ -10,8 +10,15 @@ import type {
 } from "@/lib/v2/view/types";
 import { reorderMatterSections } from "@/lib/v2/view/matter-order";
 import { MobileMailRow } from "@/components/v3/MobileMailRow";
-import type { StaffView } from "@/lib/v2/staff/types";
+import type { StaffTask, StaffView } from "@/lib/v2/staff/types";
+import { STATUS_LABEL } from "@/lib/v2/staff/types";
+import type { AtlasAnchor } from "@/lib/v2/whiteboard/anchor";
+import { findAnchorForConversation } from "@/lib/v2/whiteboard/anchor";
+import { seedWhiteboardView } from "@/lib/v2/whiteboard/seed";
+import type { AtlasLens, WhiteboardItem, WhiteboardView } from "@/lib/v2/whiteboard/types";
 import { StaffBoard } from "./StaffBoard";
+import { CeoWhiteboard } from "./CeoWhiteboard";
+import { AtlasAnchorDock } from "./AtlasAnchorDock";
 
 export type MatterMove = {
   matterId: string;
@@ -252,6 +259,14 @@ export function Atlas({
   onOpenStaffChat,
   onCreateStaffTask,
   onDecideProposal,
+  whiteboard,
+  initialLens = "board",
+  selectedItemId,
+  onOpenWhiteboardItem,
+  onToggleWhiteboardItem,
+  onCreateWhiteboardItem,
+  onLensChange,
+  anchor,
 }: {
   view: InboxView;
   onArchiveMatter?: (matter: MatterCard) => void | Promise<unknown>;
@@ -269,13 +284,21 @@ export function Atlas({
   staff?: StaffView | null;
   selectedTaskId?: string | null;
   staffChatOpen?: boolean;
-  onOpenStaffTask?: (taskId: string) => void;
+  onOpenStaffTask?: (taskId: string, conversationId?: string | null) => void;
   onOpenStaffChat?: () => void;
   onCreateStaffTask?: (title: string, botSlug: string) => void;
   onDecideProposal?: (
     proposalId: string,
     decision: "approved" | "rejected",
   ) => void;
+  whiteboard?: WhiteboardView | null;
+  initialLens?: AtlasLens;
+  selectedItemId?: string | null;
+  onOpenWhiteboardItem?: (item: WhiteboardItem) => void;
+  onToggleWhiteboardItem?: (item: WhiteboardItem, done: boolean) => void;
+  onCreateWhiteboardItem?: (sectionSlug: string, title: string) => void;
+  onLensChange?: (lens: AtlasLens) => void;
+  anchor?: AtlasAnchor | null;
 }) {
   // Only "mine" narrows the board. A matter row opens its latest real email in
   // the shared reader; Atlas is an index of work, not a second detail view.
@@ -307,11 +330,44 @@ export function Atlas({
   // back the incoming view still describes the old order, and letting it repaint
   // the board is what snapped a dragged matter back to where it started.
   const [pendingMoves, setPendingMoves] = useState(0);
+  const [lens, setLens] = useState<AtlasLens>(initialLens);
+
+  useEffect(() => {
+    setLens(initialLens);
+  }, [initialLens]);
+
+  const setAtlasLens = (next: AtlasLens) => {
+    setLens(next);
+    onLensChange?.(next);
+  };
 
   useEffect(() => {
     if (pendingMoves > 0) return;
     setBoardSections(view.sections);
   }, [view.sections, pendingMoves]);
+
+  const allMatters = useMemo(
+    () => view.sections.flatMap((section) => section.matters),
+    [view.sections],
+  );
+  const inferredAnchor = useMemo(
+    () =>
+      anchor ??
+      findAnchorForConversation({
+        conversationId: currentConversationId,
+        matters: allMatters,
+        whiteboard,
+        staff,
+      }),
+    [anchor, allMatters, currentConversationId, staff, whiteboard],
+  );
+
+  useEffect(() => {
+    const current = boardRef.current?.querySelector<HTMLElement>(
+      ".wb-m-current, [data-current='true'], [data-atlas-item][data-current='true']",
+    );
+    current?.scrollIntoView({ block: "nearest", inline: "nearest" });
+  }, [currentConversationId, selectedTaskId, selectedItemId, lens]);
 
   useEffect(
     () => () => {
@@ -576,8 +632,16 @@ export function Atlas({
         onOpenStaffChat ||
         onCreateStaffTask),
   );
+  const waitingOnYou = staff?.tasks.filter(
+    (task) => task.status === "waiting_on_user",
+  ) ?? [];
+  const boardView = whiteboard ?? seedWhiteboardView();
 
-  if (sections.length === 0 && !hasStaff) {
+  if (
+    sections.length === 0 &&
+    !hasStaff &&
+    boardView.sections.every((section) => section.items.length === 0)
+  ) {
     return (
       <section className="wb-empty" aria-label="Atlas — the whiteboard">
         No live matters yet. Open Settings and propose Atlas sections from this
@@ -611,17 +675,61 @@ export function Atlas({
           ) : null}
         </span>
       </header>
-      <div className="wb-seg" role="group" aria-label="Filter the board">
-        <button type="button" aria-pressed={!mineOnly} onClick={() => setMineOnly(false)}>
-          All
+      <div className="wb-seg" role="group" aria-label="Atlas lens">
+        <button
+          type="button"
+          aria-pressed={lens === "board"}
+          onClick={() => setAtlasLens("board")}
+        >
+          Board
         </button>
-        <button type="button" aria-pressed={mineOnly} onClick={() => setMineOnly(true)}>
-          Mine
+        <button
+          type="button"
+          aria-pressed={lens === "mail"}
+          onClick={() => setAtlasLens("mail")}
+        >
+          Mail
         </button>
-        <span className="wb-dense tabular">{rowCount} rows</span>
+        <button
+          type="button"
+          aria-pressed={lens === "bots"}
+          onClick={() => setAtlasLens("bots")}
+        >
+          Bots
+          {waitingOnYou.length > 0 ? (
+            <span className="wb-lens-count tabular">{waitingOnYou.length}</span>
+          ) : null}
+        </button>
+        {lens !== "bots" ? (
+          <>
+            <button
+              type="button"
+              aria-pressed={!mineOnly}
+              onClick={() => setMineOnly(false)}
+            >
+              All
+            </button>
+            <button
+              type="button"
+              aria-pressed={mineOnly}
+              onClick={() => setMineOnly(true)}
+            >
+              Mine
+            </button>
+          </>
+        ) : null}
+        <span className="wb-dense tabular">
+          {lens === "bots"
+            ? `${staff?.tasks.length ?? 0} tasks`
+            : `${rowCount} rows`}
+        </span>
       </div>
 
-      {staff ? (
+      {inferredAnchor && currentConversationId ? (
+        <AtlasAnchorDock anchor={inferredAnchor} placement="list" />
+      ) : null}
+
+      {lens === "bots" && staff ? (
         <StaffBoard
           view={staff}
           selectedTaskId={selectedTaskId}
@@ -633,13 +741,70 @@ export function Atlas({
         />
       ) : null}
 
-      {shown === 0 ? (
+      {lens === "board" ? (
+        <>
+          {staff && staff.proposals.length > 0 ? (
+            <button
+              type="button"
+              className="atlas-proposal-chip"
+              onClick={() => setAtlasLens("bots")}
+            >
+              {staff.proposals.length} triage proposal
+              {staff.proposals.length === 1 ? "" : "s"} on Bots
+            </button>
+          ) : null}
+          <NeedsYou
+            tasks={waitingOnYou}
+            selectedTaskId={selectedTaskId}
+            onOpenTask={onOpenStaffTask}
+            onOpenBots={() => setAtlasLens("bots")}
+          />
+          {boardView.sections.length > 0 ? (
+            <CeoWhiteboard
+              view={boardView}
+              matters={mineOnly ? live.filter(isYours) : live}
+              tasks={staff?.tasks ?? []}
+              currentConversationId={currentConversationId}
+              selectedItemId={selectedItemId}
+              selectedMatterId={inferredAnchor?.kind === "matter" ? inferredAnchor.id : null}
+              onOpenItem={onOpenWhiteboardItem}
+              onToggleItem={onToggleWhiteboardItem}
+              onCreateItem={onCreateWhiteboardItem}
+              onOpenMatter={(matter) => {
+                const conversation = latestConversation(matter);
+                if (conversation) onOpenConversation?.(conversation);
+              }}
+              onOpenTask={onOpenStaffTask}
+            />
+          ) : null}
+        </>
+      ) : null}
+
+      {lens === "mail" && shown === 0 ? (
         hasStaff ? null : (
         <p className="wb-empty">Nothing is yours right now.</p>
         )
-      ) : (
+      ) : lens === "mail" ? (
         <div className="wb-columns">
-          {shaped.map((section) => {
+          {[...shaped]
+            .sort((a, b) => {
+              if (!currentConversationId) return 0;
+              const aHit = a.matters.some((matter) =>
+                matter.conversations.some(
+                  (conversation) =>
+                    conversation.conversationId === currentConversationId,
+                ),
+              );
+              const bHit = b.matters.some((matter) =>
+                matter.conversations.some(
+                  (conversation) =>
+                    conversation.conversationId === currentConversationId,
+                ),
+              );
+              if (aHit === bHit) return 0;
+              return aHit ? -1 : 1;
+            })
+            .map((section) => {
             if (section.matters.length === 0 && section.parked.length === 0) return null;
             const sectionStale = section.matters.filter((matter) =>
               isStalled(matter, now),
@@ -672,17 +837,19 @@ export function Atlas({
                     : undefined
                 }
               >
-                {section.matters.map((matter) => (
+                {section.matters.map((matter) => {
+                  const isCurrent = matter.conversations.some(
+                    (conversation) =>
+                      conversation.conversationId === currentConversationId,
+                  );
+                  return (
                   <BoardMatter
                     key={matter.matterId}
                     matter={matter}
                     now={now}
-                    open={false}
+                    open={isCurrent}
                     archived={archived.has(matter.matterId)}
-                    current={matter.conversations.some(
-                      (conversation) =>
-                        conversation.conversationId === currentConversationId,
-                    )}
+                    current={isCurrent}
                     dragging={dragged?.matterId === matter.matterId}
                     dropBefore={
                       hover?.section === section.name &&
@@ -716,7 +883,8 @@ export function Atlas({
                       )
                     }
                   />
-                ))}
+                  );
+                })}
                 {section.parked.length > 0 && (
                   <div className="wb-roll">
                     <button
@@ -764,13 +932,60 @@ export function Atlas({
             );
           })}
         </div>
-      )}
+      ) : null}
 
       <p className="wb-foot tabular">
         {`${rowCount} rows · ${view.coverage.stored - view.coverage.read} unread by Seer`}
         {`\nAccounted ${view.coverage.read} of ${view.coverage.providerTotal}`}
       </p>
 
+    </section>
+  );
+}
+
+function NeedsYou({
+  tasks,
+  selectedTaskId,
+  onOpenTask,
+  onOpenBots,
+}: {
+  tasks: StaffTask[];
+  selectedTaskId?: string | null;
+  onOpenTask?: (taskId: string, conversationId?: string | null) => void;
+  onOpenBots?: () => void;
+}) {
+  if (tasks.length === 0) return null;
+  const shown = tasks.slice(0, 8);
+  const extra = tasks.length - shown.length;
+  return (
+    <section className="wb-column atlas-needs" data-atlas-section="needs-you">
+      <div className="wb-shead">
+        <span className="wb-sname atlas-heading">Needs you</span>
+        <span className="wb-scount tabular">{tasks.length} waiting</span>
+      </div>
+      <div className="wb-sec">
+        {shown.map((task) => (
+          <button
+            key={task.id}
+            type="button"
+            className={`wb-mhead staff-task${
+              selectedTaskId === task.id ? " wb-m-current" : ""
+            }`}
+            data-atlas-task={task.id}
+            aria-label={`Open delegated task ${task.title}`}
+            onClick={() => onOpenTask?.(task.id, task.conversationId)}
+          >
+            <span className="wb-mt staff-task-title">{task.title}</span>
+            <span className="wb-own tabular">{task.botName}</span>
+            <span className="wb-age tabular">{STATUS_LABEL[task.status]}</span>
+          </button>
+        ))}
+        {extra > 0 || onOpenBots ? (
+          <button type="button" className="wb-rrow atlas-needs-more" onClick={onOpenBots}>
+            <span>{extra > 0 ? `${extra} more on Bots` : "All bot work"}</span>
+          </button>
+        ) : null}
+      </div>
     </section>
   );
 }

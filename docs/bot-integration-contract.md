@@ -15,9 +15,11 @@ permanent purge.
 
 ## Enablement
 
-1. Apply the repo migration `supabase/migrations/20261016220000_bot_staff.sql`
-   to the **preview** database (or a local test database). Do not apply to
-   production from this PR.
+1. Apply the repo migrations `supabase/migrations/20261016220000_bot_staff.sql`
+   and `supabase/migrations/20261106200000_ceo_whiteboard.sql` to the
+   **preview** database (or a local test database). Both are additive. Do not
+   apply to production from this PR. If the whiteboard migration is not applied
+   yet, Atlas still renders the Oct 30 seed locally (`persisted: false`).
 2. Seed Conall's 27 open tasks:
 
    ```bash
@@ -26,7 +28,13 @@ permanent purge.
 
    Uses `SEER_V2_DATABASE_URL` or `POSTGRES_URL`. Idempotent on
    `(account_id, external_key)` (`B01`…`B31`).
-3. Optional, so the bot is poked instead of polling:
+3. Seed the CEO Whiteboard (idempotent; also happens on first `GET /api/v2/whiteboard`):
+
+   ```bash
+   npx tsx scripts/seed-whiteboard.mts --email <mailbox@rditrials.com>
+   ```
+
+4. Optional, so the bot is poked instead of polling:
 
    | Env var | Purpose |
    |---|---|
@@ -35,7 +43,7 @@ permanent purge.
 
    Set these on the Vercel **preview** environment for project `seer-modern`,
    not production, until this is accepted.
-4. Point the bot's Supabase SQL connector at the same project. Prefer a
+5. Point the bot's Supabase SQL connector at the same project. Prefer a
    Postgres role that is a member of `seer_bot` (see Roles). The bot must not
    use the `seer_app` database password.
 
@@ -49,7 +57,7 @@ schema `seer` (unchanged).
 | Role | Access |
 |---|---|
 | `seer_app` | Full DML on all `seer` tables (the Next.js server) |
-| `seer_bot` | DML on `bots`, `bot_tasks`, `bot_task_events`, `bot_messages`, `triage_proposals`. **SELECT only** on `mail_accounts`, `conversations`, `matters`, `messages`. No DML on mail/outbox/commands |
+| `seer_bot` | DML on `bots`, `bot_tasks`, `bot_task_events`, `bot_messages`, `triage_proposals`, `whiteboard_sections`, `whiteboard_items`. **SELECT only** on `mail_accounts`, `conversations`, `matters`, `messages`. No DML on mail/outbox/commands |
 | `anon` / `authenticated` | None |
 
 `seer_bot` is created `NOLOGIN`. In Supabase, create a login role (or use a
@@ -68,6 +76,8 @@ touch the tables below.
 | `seer.bot_task_events` | Append `status`, `note`, `comment` as it works | Appends on every user create/update/comment |
 | `seer.bot_messages` | Insert replies with `author = 'bot'` | `postBotMessage` with `author = 'user'` |
 | `seer.triage_proposals` | Insert `status = 'pending'` proposals. Never set `approved`/`executed` itself | `decideTriageProposal` — the only path that executes mail |
+| `seer.whiteboard_sections` | Insert a row only if a new slug appears. Prefer the seeded catalog | Seeded on first Atlas load |
+| `seer.whiteboard_items` | Insert/update checklist rows. Set `source = 'bot'`. Upsert on `(account_id, external_key)` | `createWhiteboardItem` / `updateWhiteboardItem`. `source = 'user'` |
 | `seer.outbox` / `command_receipts` | **Never** | Seer enqueues trash/archive after approval |
 | Mail corpus (`conversations`, …) | **Read only** (to fill `conversation_id`) | Unchanged sync |
 
@@ -109,6 +119,8 @@ Seeded slugs: `chief-of-staff`, `personal-chief-of-staff`, `snak-bot`,
 | `current_state` | text | Bot's latest state sentence |
 | `next_action` | text | |
 | `source` | text not null | `user` \| `bot` |
+| `whiteboard_slug` | text | Optional CEO domain (`due-now`, `cash-lender`, `sales-marketing`, `board`, `ops`, `company-future`, `contracts`, `security`, `relationships`, `done`) |
+| `conversation_id` | uuid FK `conversations` | Optional Atlas thread this task is working. Opening the task in Atlas shows that email beside it |
 | `created_at` / `updated_at` | timestamptz | `updated_at` maintained by trigger |
 
 **Status values** (check constraint):
@@ -194,6 +206,47 @@ A proposal without a resolvable conversation cannot execute `delete` /
 `archive` / `file`. Leave it `pending` until you can set `conversation_id` or
 `provider_conversation_id` that exists in `seer.conversations`.
 
+### `seer.whiteboard_sections`
+
+Per-account catalog of Conall's CEO domains. Seeded slugs, in order:
+
+`due-now`, `cash-lender`, `sales-marketing`, `board`, `ops`,
+`company-future`, `contracts`, `security`, `relationships`, `done`.
+
+| Column | Type | Notes |
+|---|---|---|
+| `id` | uuid PK | |
+| `account_id` | uuid FK | |
+| `slug` | text | Unique per account |
+| `title` | text | Shown in Atlas: `Due Now` |
+| `subtitle` | text | Optional (`Lara owns`, `Monthly`) |
+| `sort_order` | int | Lower first |
+| `created_at` | timestamptz | |
+
+### `seer.whiteboard_items`
+
+Checklist rows on the CEO Whiteboard. Upsert by `(account_id, external_key)`
+(`W001`…). Link a row to mail with `conversation_id` so Atlas opens that
+thread beside the item.
+
+| Column | Type | Notes |
+|---|---|---|
+| `id` | uuid PK | |
+| `account_id` | uuid FK | |
+| `section_id` | uuid FK `whiteboard_sections` | |
+| `external_key` | text | Bot idempotency key (`W001`). Unique per account when set |
+| `title` | text not null | One line, Conall's words |
+| `body` | text | Optional note |
+| `status` | text | `open` \| `done` \| `dropped` |
+| `priority` | int | Lower sorts first |
+| `due_at` | timestamptz | |
+| `owner_label` | text | `Lara`, `Conall`, … |
+| `conversation_id` | uuid FK `conversations` | Optional. Opens the email beside the row |
+| `matter_id` | uuid | Optional Atlas matter |
+| `bot_task_id` | uuid FK `bot_tasks` | Optional delegated task |
+| `source` | text | `user` \| `bot` |
+| `created_at` / `updated_at` | timestamptz | `updated_at` maintained by trigger |
+
 Suggested lookup:
 
 ```sql
@@ -261,6 +314,8 @@ match (timing-safe compare). `rawBody` is the exact JSON bytes posted.
 - `bot_task.commented`
 - `bot_message.created`
 - `triage_proposal.decided`
+- `whiteboard_item.created`
+- `whiteboard_item.updated`
 
 Webhook delivery is best-effort (5s timeout). A failed ping does not roll back
 the command. The durable record is always the row in Postgres.
@@ -279,6 +334,8 @@ The browser never talks to these tables. Conall's actions are commands on
 | `commentBotTask` | Event `kind=comment`; webhook `bot_task.commented` |
 | `postBotMessage` | Insert `author=user` message; webhook `bot_message.created` |
 | `decideTriageProposal` | `approved` → execute mail; `rejected` → close. Webhook `triage_proposal.decided` |
+| `createWhiteboardItem` | Insert checklist row; webhook `whiteboard_item.created` |
+| `updateWhiteboardItem` | Patch title/status/section/due/owner/conversation; webhook `whiteboard_item.updated` |
 
 The bot does not call this HTTP API (SSO). It writes SQL instead.
 
@@ -308,6 +365,14 @@ select *
   from seer.triage_proposals
  where account_id = $account_id
    and status = 'pending';
+
+-- Open whiteboard items
+select i.*, s.slug
+  from seer.whiteboard_items i
+  join seer.whiteboard_sections s on s.id = i.section_id
+ where i.account_id = $account_id
+   and i.status = 'open'
+ order by s.sort_order, i.priority, i.created_at;
 ```
 
 ---

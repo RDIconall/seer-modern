@@ -4,6 +4,7 @@ import * as React from "react";
 import { useMemo, useState } from "react";
 import type { StaffTask, StaffView } from "@/lib/v2/staff/types";
 import { ACTION_LABEL, DEFAULT_BOT_SLUG, STATUS_LABEL } from "@/lib/v2/staff/types";
+import type { BotTaskStatus } from "@/lib/v2/staff/types";
 
 function daysAgo(iso: string | null, now: number): number {
   if (!iso) return 0;
@@ -12,12 +13,33 @@ function daysAgo(iso: string | null, now: number): number {
   return Math.max(0, Math.floor((now - at) / 86_400_000));
 }
 
-const ACTIVE = new Set(["open", "in_progress", "blocked", "waiting_on_user"]);
+const ACTIVE = new Set<BotTaskStatus>([
+  "open",
+  "in_progress",
+  "blocked",
+  "waiting_on_user",
+]);
+
+type BotFilter = "active" | "waiting_on_user" | "blocked" | "done";
+
+const FILTERS: { id: BotFilter; label: string }[] = [
+  { id: "active", label: "Open" },
+  { id: "waiting_on_user", label: "Waiting" },
+  { id: "blocked", label: "Blocked" },
+  { id: "done", label: "Done" },
+];
+
+function matchesFilter(task: StaffTask, filter: BotFilter): boolean {
+  if (filter === "active") return ACTIVE.has(task.status);
+  if (filter === "done") return task.status === "done" || task.status === "dropped";
+  return task.status === filter;
+}
 
 export function StaffBoard({
   view,
   selectedTaskId,
   chatOpen,
+  collapsedDefault = true,
   onOpenTask,
   onOpenChat,
   onCreateTask,
@@ -26,26 +48,32 @@ export function StaffBoard({
   view: StaffView;
   selectedTaskId?: string | null;
   chatOpen?: boolean;
-  onOpenTask?: (taskId: string) => void;
-  onOpenChat?: () => void;
+  /** When true, bot groups start collapsed so 41 rows cannot bury Atlas. */
+  collapsedDefault?: boolean;
+  onOpenTask?: (taskId: string, conversationId?: string | null) => void;
+  onOpenChat?: (botSlug?: string) => void;
   onCreateTask?: (title: string, botSlug: string) => void;
   onDecideProposal?: (proposalId: string, decision: "approved" | "rejected") => void;
 }) {
   const now = Date.now();
   const [title, setTitle] = useState("");
   const [botSlug, setBotSlug] = useState(DEFAULT_BOT_SLUG);
+  const [filter, setFilter] = useState<BotFilter>("active");
+  const [openBots, setOpenBots] = useState<ReadonlySet<string>>(() => new Set());
+
   const grouped = useMemo(() => {
-    const active = view.tasks.filter((task) => ACTIVE.has(task.status));
-    const settled = view.tasks.filter((task) => !ACTIVE.has(task.status));
+    const visible = view.tasks.filter((task) => matchesFilter(task, filter));
     const byBot = new Map<string, StaffTask[]>();
-    for (const task of active) {
+    for (const task of visible) {
       const key = task.botName;
       const list = byBot.get(key) ?? [];
       list.push(task);
       byBot.set(key, list);
     }
-    return { byBot, settled };
-  }, [view.tasks]);
+    const waiting = view.tasks.filter((task) => task.status === "waiting_on_user");
+    const active = view.tasks.filter((task) => ACTIVE.has(task.status));
+    return { byBot, waiting, active };
+  }, [view.tasks, filter]);
 
   const submit = () => {
     const next = title.trim();
@@ -54,21 +82,45 @@ export function StaffBoard({
     setTitle("");
   };
 
+  const isOpen = (botName: string, tasks: StaffTask[]) => {
+    if (openBots.has(botName)) return true;
+    if (openBots.has(`!${botName}`)) return false;
+    if (!collapsedDefault) return true;
+    if (selectedTaskId && tasks.some((task) => task.id === selectedTaskId)) {
+      return true;
+    }
+    return false;
+  };
+
+  const toggleBot = (botName: string, currentlyOpen: boolean) => {
+    setOpenBots((prev) => {
+      const next = new Set(prev);
+      next.delete(botName);
+      next.delete(`!${botName}`);
+      next.add(currentlyOpen ? `!${botName}` : botName);
+      return next;
+    });
+  };
+
   return (
     <div className="staff-board" data-staff-board="true">
       <div className="staff-board-head">
-        <span className="wb-sname atlas-heading">Delegated</span>
+        <span className="wb-sname atlas-heading">Bots</span>
         {onOpenChat ? (
           <button
             type="button"
             className="wb-btn wb-btn-primary staff-chat-open"
             aria-pressed={chatOpen ? true : false}
-            onClick={onOpenChat}
+            onClick={() => onOpenChat()}
           >
             Chat with Chief of staff
           </button>
         ) : null}
       </div>
+      <p className="staff-board-ledger tabular">
+        {grouped.active.length} open
+        {grouped.waiting.length > 0 ? ` · ${grouped.waiting.length} waiting on you` : ""}
+      </p>
 
       {view.proposals.length > 0 ? (
         <section className="staff-proposals" aria-label="Triage proposals">
@@ -111,36 +163,62 @@ export function StaffBoard({
         </section>
       ) : null}
 
-      {[...grouped.byBot.entries()].map(([botName, tasks]) => (
-        <section key={botName} className="wb-sec staff-sec" data-staff-bot={botName}>
-          <div className="wb-shead">
-            <span className="wb-sname atlas-heading">{botName}</span>
-            <span className="wb-scount tabular">{tasks.length}</span>
-          </div>
-          {tasks.map((task) => (
-            <button
-              key={task.id}
-              type="button"
-              className={`wb-mhead staff-task${
-                selectedTaskId === task.id ? " wb-m-current" : ""
-              }`}
-              data-atlas-task={task.id}
-              aria-label={`Open delegated task ${task.title}`}
-              onClick={() => onOpenTask?.(task.id)}
-            >
-              <span className="wb-mt staff-task-title">{task.title}</span>
-              <span className="wb-own tabular">{STATUS_LABEL[task.status]}</span>
-              <span className="wb-age tabular">{daysAgo(task.updatedAt, now)}d</span>
-            </button>
-          ))}
-        </section>
-      ))}
+      <div className="wb-seg staff-filters" role="group" aria-label="Filter bot tasks">
+        {FILTERS.map((entry) => (
+          <button
+            key={entry.id}
+            type="button"
+            aria-pressed={filter === entry.id}
+            onClick={() => setFilter(entry.id)}
+          >
+            {entry.label}
+          </button>
+        ))}
+      </div>
 
-      {grouped.settled.length > 0 ? (
-        <p className="staff-settled tabular">
-          {grouped.settled.length} done or dropped
-        </p>
-      ) : null}
+      {[...grouped.byBot.entries()].map(([botName, tasks]) => {
+        const open = isOpen(botName, tasks);
+        const waiting = tasks.filter((task) => task.status === "waiting_on_user").length;
+        return (
+          <section
+            key={botName}
+            className="wb-sec staff-sec"
+            data-staff-bot={botName}
+            data-expanded={open ? "true" : "false"}
+          >
+            <button
+              type="button"
+              className="wb-shead staff-bot-toggle"
+              aria-expanded={open}
+              onClick={() => toggleBot(botName, open)}
+            >
+              <span className="wb-sname atlas-heading">{botName}</span>
+              <span className="wb-scount tabular">
+                {tasks.length}
+                {waiting > 0 ? ` · ${waiting} waiting` : ""}
+              </span>
+            </button>
+            {open
+              ? tasks.map((task) => (
+                  <button
+                    key={task.id}
+                    type="button"
+                    className={`wb-mhead staff-task${
+                      selectedTaskId === task.id ? " wb-m-current" : ""
+                    }`}
+                    data-atlas-task={task.id}
+                    aria-label={`Open delegated task ${task.title}`}
+                    onClick={() => onOpenTask?.(task.id, task.conversationId)}
+                  >
+                    <span className="wb-mt staff-task-title">{task.title}</span>
+                    <span className="wb-own tabular">{STATUS_LABEL[task.status]}</span>
+                    <span className="wb-age tabular">{daysAgo(task.updatedAt, now)}d</span>
+                  </button>
+                ))
+              : null}
+          </section>
+        );
+      })}
 
       {onCreateTask ? (
         <form

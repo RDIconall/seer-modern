@@ -20,6 +20,7 @@ import type {
   TriageProposalStatus,
 } from "./types";
 import { isBotTaskStatus, isTriageAction } from "./types";
+import { isMissingRelation } from "../db/missing";
 
 type Runner = Pool | PoolClient;
 
@@ -97,7 +98,39 @@ type TaskRow = {
   source: string;
   created_at: Date;
   updated_at: Date;
+  whiteboard_slug?: string | null;
+  conversation_id?: string | null;
 };
+
+let botTaskExtras: boolean | null = null;
+
+export async function botTasksHaveWhiteboardColumns(
+  client: Runner = runner(),
+): Promise<boolean> {
+  if (botTaskExtras !== null) return botTaskExtras;
+  try {
+    const r = await client.query<{ exists: boolean }>(
+      `select exists (
+         select 1 from information_schema.columns
+          where table_schema = 'seer'
+            and table_name = 'bot_tasks'
+            and column_name = 'whiteboard_slug'
+       ) as exists`,
+    );
+    botTaskExtras = Boolean(r.rows[0]?.exists);
+  } catch (error) {
+    if (isMissingRelation(error)) {
+      botTaskExtras = false;
+      return false;
+    }
+    throw error;
+  }
+  return botTaskExtras;
+}
+
+export function resetBotTaskColumnCache(): void {
+  botTaskExtras = null;
+}
 
 function asTask(row: TaskRow, events: StaffEvent[]): StaffTask {
   return {
@@ -119,17 +152,33 @@ function asTask(row: TaskRow, events: StaffEvent[]): StaffTask {
     createdAt: requireIso(row.created_at),
     updatedAt: requireIso(row.updated_at),
     events,
+    whiteboardSlug: row.whiteboard_slug ?? null,
+    conversationId: row.conversation_id ?? null,
   };
 }
 
-const TASK_SELECT = `
+const TASK_SELECT_BASE = `
   select t.id, t.account_id, t.bot_id, b.slug as bot_slug, b.display_name as bot_name,
          t.external_key, t.title, t.status, t.priority, t.due_at, t.notes,
          t.his_words, t.current_state, t.next_action, t.source,
          t.created_at, t.updated_at
+`;
+
+const TASK_SELECT_EXTRAS = `
+  select t.id, t.account_id, t.bot_id, b.slug as bot_slug, b.display_name as bot_name,
+         t.external_key, t.title, t.status, t.priority, t.due_at, t.notes,
+         t.his_words, t.current_state, t.next_action, t.source,
+         t.created_at, t.updated_at, t.whiteboard_slug, t.conversation_id
+`;
+
+async function taskSelect(client: Runner = runner()): Promise<string> {
+  const extras = await botTasksHaveWhiteboardColumns(client);
+  const head = extras ? TASK_SELECT_EXTRAS : TASK_SELECT_BASE;
+  return `${head}
     from seer.bot_tasks t
     join seer.bots b on b.id = t.bot_id
 `;
+}
 
 export async function getTask(
   accountId: AccountId,
@@ -137,8 +186,9 @@ export async function getTask(
   client: Runner = runner(),
 ): Promise<StaffTask | null> {
   if (!isUuid(taskId)) return null;
+  const select = await taskSelect(client);
   const r = await client.query<TaskRow>(
-    `${TASK_SELECT} where t.account_id = $1 and t.id = $2`,
+    `${select} where t.account_id = $1 and t.id = $2`,
     [accountId, taskId],
   );
   const row = r.rows[0];
@@ -804,8 +854,9 @@ export async function loadStaffView(
   options: { taskId?: string | null } = {},
 ): Promise<StaffView> {
   const bots = await listBots();
+  const select = await taskSelect();
   const tasksRes = await db().query<TaskRow>(
-    `${TASK_SELECT} where t.account_id = $1
+    `${select} where t.account_id = $1
      order by t.priority asc, t.created_at asc`,
     [accountId],
   );

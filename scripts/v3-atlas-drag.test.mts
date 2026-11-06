@@ -180,6 +180,7 @@ function mount(
       root.render(
         createElement(Atlas, {
           view,
+          initialLens: "mail",
           onReorderMatters: (section: string, matterIds: string[]) => {
             reorders.push({ section, matterIds });
             return options.onReorder?.() ?? Promise.resolve();

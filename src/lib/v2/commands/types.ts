@@ -142,6 +142,30 @@ export type Command =
       type: "decideTriageProposal";
       proposalId: string;
       decision: "approved" | "rejected";
+    }
+  | {
+      type: "createWhiteboardItem";
+      sectionSlug: string;
+      title: string;
+      body?: string | null;
+      status?: "open" | "done" | "dropped";
+      priority?: number;
+      dueAt?: string | null;
+      ownerLabel?: string | null;
+      conversationId?: string | null;
+      externalKey?: string | null;
+    }
+  | {
+      type: "updateWhiteboardItem";
+      itemId: string;
+      title?: string;
+      body?: string | null;
+      status?: "open" | "done" | "dropped";
+      sectionSlug?: string;
+      priority?: number;
+      dueAt?: string | null;
+      ownerLabel?: string | null;
+      conversationId?: string | null;
     };
 
 export type CommandResult = {

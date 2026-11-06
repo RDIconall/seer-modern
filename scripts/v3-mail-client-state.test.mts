@@ -11,18 +11,21 @@ assert.deepEqual(parseMailHash("#section=sent&q=amendment&conversation=c1"), {
   query: "amendment",
   conversation: "c1",
   sort: undefined,
+  atlas: undefined,
 });
 assert.deepEqual(parseMailHash("#q=amendment"), {
   section: undefined,
   query: "amendment",
   conversation: undefined,
   sort: undefined,
+  atlas: undefined,
 });
 assert.deepEqual(parseMailHash("#section=inbox&sort=triage"), {
   section: "inbox",
   query: undefined,
   conversation: undefined,
   sort: "triage",
+  atlas: undefined,
 });
 // Triage is its own section now, not a lens on the inbox.
 assert.deepEqual(parseMailHash("#section=triage"), {
@@ -30,6 +33,7 @@ assert.deepEqual(parseMailHash("#section=triage"), {
   query: undefined,
   conversation: undefined,
   sort: undefined,
+  atlas: undefined,
 });
 // Anything that is not a section is still refused.
 assert.deepEqual(parseMailHash("#section=nowhere"), {
@@ -37,6 +41,14 @@ assert.deepEqual(parseMailHash("#section=nowhere"), {
   query: undefined,
   conversation: undefined,
   sort: undefined,
+  atlas: undefined,
+});
+assert.deepEqual(parseMailHash("#section=atlas&atlas=bots&conversation=c1"), {
+  section: "atlas",
+  query: undefined,
+  conversation: "c1",
+  sort: undefined,
+  atlas: "bots",
 });
 assert.deepEqual(clearSearchState("sent"), {
   section: "sent",
