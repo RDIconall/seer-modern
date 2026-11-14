@@ -377,6 +377,119 @@ try {
     assert.equal(decisions.rows[0].n, 0);
   }
 
+  // Already replied: the model may still say owner=you; the overlay parks the
+  // ball with them and the verdict says waiting.
+  {
+    const { conversation, conversationId } = await newConversation(
+      db.pool,
+      accountId,
+      "replied-1",
+      "Re: quote",
+      [
+        message("new@vendor.com", "Can you confirm the quote?", "quote"),
+        {
+          ...message("me@rditrials.com", "Thanks — looping back Monday.", "quote"),
+          isOutgoing: true,
+        },
+      ],
+    );
+    const decision = await readConversation({
+      accountId,
+      conversationId,
+      conversation,
+      context,
+      model: modelFor({
+        home: "matter",
+        summary: "Waiting on the vendor",
+        rationale: "we asked",
+        owner: "you",
+        ask: "nothing — informational",
+        obligation: false,
+        matterRef: "Vendor quote",
+        yields: [],
+        evidence: [],
+      }),
+    });
+    assert.equal(decision.owner, "them");
+    assert.equal(decision.verdict?.care, "waiting");
+    assert.match(decision.verdict?.why ?? "", /already replied/i);
+  }
+
+  // A saved Outlook contact is a known person: safety still vetoes delete.
+  {
+    const { conversation, conversationId } = await newConversation(
+      db.pool,
+      accountId,
+      "contact-1",
+      "Quick hello",
+      [message("coleen@example.com", "Just checking in this week.", "hello")],
+    );
+    const decision = await readConversation({
+      accountId,
+      conversationId,
+      conversation,
+      context: {
+        ...context,
+        personal: {
+          contacts: ["coleen@example.com"],
+          autoContacts: [],
+          events: [],
+          timezone: "Pacific Standard Time",
+          health: { people: "ok", calendar: "ok" },
+          contactsBuiltAt: null,
+          eventsBuiltAt: null,
+        },
+      },
+      model: modelFor({
+        home: "delete",
+        summary: "Casual note",
+        rationale: "noise",
+        owner: "nobody",
+        ask: "nothing — informational",
+        obligation: false,
+        yields: [],
+        evidence: [],
+      }),
+    });
+    assert.equal(decision.home, "record");
+    assert.ok(decision.vetoReasons.includes("known_sender"));
+  }
+
+  // Unusual charge is flagged on the verdict without a second model call.
+  {
+    const { conversation, conversationId } = await newConversation(
+      db.pool,
+      accountId,
+      "charge-1",
+      "Invoice $480",
+      [message("billing@vendor.com", "Please pay $480 by Friday.", "invoice")],
+    );
+    const merchants = {};
+    const { recordCharge } = await import("../src/lib/v2/intelligence/amounts.ts");
+    recordCharge(merchants, "billing@vendor.com", "Vendor", 140);
+    recordCharge(merchants, "billing@vendor.com", "Vendor", 140);
+    recordCharge(merchants, "billing@vendor.com", "Vendor", 145);
+    const decision = await readConversation({
+      accountId,
+      conversationId,
+      conversation,
+      context: { ...context, merchants },
+      model: modelFor({
+        home: "record",
+        summary: "Vendor invoice",
+        rationale: "bill",
+        owner: "nobody",
+        ask: "nothing — informational",
+        obligation: false,
+        yields: [],
+        evidence: [],
+      }),
+    });
+    assert.equal(decision.verdict?.care, "review_charge");
+    assert.equal(decision.verdict?.anomalousAmount, true);
+    assert.equal(decision.home, "record");
+  }
+
   console.log("v2-reader: OK");
 } finally {
   await db.stop();

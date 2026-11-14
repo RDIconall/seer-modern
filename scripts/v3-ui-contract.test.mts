@@ -96,6 +96,7 @@ assert.match(
   "a view built for another sort must never reach the active list",
 );
 
+assert.match(reader, /verdict/);
 assert.match(reader, /Reader/);
 assert.match(reader, /native|provider/i);
 assert.match(reader, /aria-label/);

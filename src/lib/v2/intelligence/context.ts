@@ -4,6 +4,26 @@ import {
   ownTokens,
   resolveMatterMatch,
 } from "./matter-key";
+import {
+  extractAmount,
+  isAnomalousCharge,
+  usualAmount,
+  usualLabel,
+  type MerchantDb,
+} from "./amounts";
+import {
+  contextSignals,
+  inviteAnswered,
+  nextFreeSlot,
+  type PersonalContext,
+} from "./personal-context";
+import {
+  learnedPrior,
+  type ActionMemory,
+  type SenderActionStats,
+} from "./history";
+import { meetingLabel, type MeetingLite } from "./verdict";
+import { CODE_PATTERN, normalizeCode } from "@/lib/crm/registry";
 
 /**
  * The context packet fed alongside the full conversation. It is the smallest
@@ -46,6 +66,14 @@ export type ContextInput = {
   operatingGuidance?: string;
   /** How this person clears mail and what should become a matter. */
   mailboxStyleGuidance?: string;
+  /** About-me block, already labeled [explicit]. */
+  profileBlock?: string | null;
+  personal?: PersonalContext | null;
+  writtenTo?: Set<string> | string[];
+  actionMemory?: ActionMemory;
+  merchants?: MerchantDb;
+  /** Normalized study/opportunity code → CRM label. */
+  crmLabels?: Record<string, string>;
 };
 
 export type CompiledContext = {
@@ -55,14 +83,28 @@ export type CompiledContext = {
   senderIsKnown: boolean;
   senderIsInternal: boolean;
   candidateMatterId: string | null;
+  candidateMatterTitle: string | null;
   /** The sender's tier and VIP flag, for salience. */
   senderTier: string;
   senderVip: boolean;
   /** Exact-sender corrections away from Atlas, used by the promotion gate. */
   priorMatterRejections: number;
+  inContacts: boolean;
+  writtenTo: boolean;
+  meeting: MeetingLite | null;
+  inviteAnswered: boolean;
+  weSpokeLast: boolean;
+  amount: number | null;
+  usualAmount: number | null;
+  usualLabel: string | null;
+  anomalousAmount: boolean;
+  behavior: SenderActionStats | null;
+  freeSlot: string | null;
+  senderEmail: string;
+  senderName: string;
 };
 
-const MAX_CHARS = 1200;
+const MAX_CHARS = 1600;
 
 function tokens(s: string): Set<string> {
   return new Set(
@@ -74,6 +116,23 @@ function tokens(s: string): Set<string> {
   );
 }
 
+function crmLabelFor(
+  hay: string,
+  labels: Record<string, string> | undefined,
+): string | null {
+  if (!labels) return null;
+  for (const raw of hay.match(CODE_PATTERN) ?? []) {
+    const hit = labels[normalizeCode(raw)];
+    if (hit) return hit;
+  }
+  return null;
+}
+
+function asSet(value: Set<string> | string[] | undefined): Set<string> {
+  if (!value) return new Set();
+  return value instanceof Set ? value : new Set(value.map((item) => item.toLowerCase()));
+}
+
 export function compileContext(
   conversation: Conversation,
   input: ContextInput,
@@ -81,27 +140,49 @@ export function compileContext(
   const lines: string[] = [];
   const refs: string[] = [];
 
+  const profile = input.profileBlock?.trim();
+  if (profile) {
+    lines.push(profile);
+  }
+
   const guidance = input.operatingGuidance?.trim();
   if (guidance) {
     lines.push(
-      `[explicit] how this desk is organised (user): ${guidance.slice(0, 500)}`,
+      `[explicit] how this desk is organised (user): ${guidance.slice(0, 400)}`,
     );
   }
   const mailboxStyle = input.mailboxStyleGuidance?.trim();
   if (mailboxStyle) {
     lines.push(
-      `[explicit] how this person uses mail (user): ${mailboxStyle.slice(0, 400)}`,
+      `[explicit] how this person uses mail (user): ${mailboxStyle.slice(0, 300)}`,
     );
   }
 
-  const senderEmail = conversation.messages[0]?.from.email?.toLowerCase() ?? "";
+  const inbound = [...conversation.messages].reverse().find((m) => !m.isOutgoing);
+  const last = conversation.messages[conversation.messages.length - 1];
+  const senderEmail = (
+    inbound?.from.email ??
+    conversation.messages[0]?.from.email ??
+    ""
+  ).toLowerCase();
+  const senderName = inbound?.from.name ?? conversation.messages[0]?.from.name ?? "";
   const senderDomain = senderEmail.split("@")[1] ?? "";
   const senderIsInternal =
     Boolean(input.ownDomain) && senderDomain === input.ownDomain.toLowerCase();
+  const weSpokeLast = Boolean(last?.isOutgoing);
+  const written = asSet(input.writtenTo);
+  const writtenTo = written.has(senderEmail);
+  const signals = contextSignals(input.personal, senderEmail);
+  const inContacts = signals.inContacts;
+  const meeting = signals.meeting;
+  const inviteDone = inviteAnswered(input.personal, conversation.subject);
+  const freeSlot = nextFreeSlot(input.personal);
 
   const person = input.people.find((p) => p.email.toLowerCase() === senderEmail);
   const senderIsKnown = Boolean(
-    person && (person.vip || person.tier === "inner" || person.tier === "known"),
+    (person && (person.vip || person.tier === "inner" || person.tier === "known")) ||
+      inContacts ||
+      writtenTo,
   );
 
   if (person) {
@@ -109,11 +190,33 @@ export function compileContext(
       `[observed] sender ${senderEmail} is tier=${person.tier}${person.vip ? " (VIP)" : ""}`,
     );
     refs.push(`person:${senderEmail}`);
+  } else if (inContacts) {
+    lines.push(`[explicit] sender ${senderEmail} is in your saved contacts`);
+    refs.push(`person:${senderEmail}`);
+  } else if (writtenTo) {
+    lines.push(`[observed] you have written to ${senderEmail}`);
+    refs.push(`person:${senderEmail}`);
   } else if (senderEmail) {
     lines.push(`[observed] sender ${senderEmail} has no prior relationship on record`);
   }
   if (senderIsInternal) {
     lines.push(`[system] sender is inside your organization (${input.ownDomain})`);
+  }
+  if (weSpokeLast) {
+    lines.push(`[observed] you already replied — you wrote last in this thread`);
+    refs.push("thread:we-spoke-last");
+  }
+
+  const meet = meetingLabel(meeting);
+  if (meet) {
+    lines.push(`[calendar] MEETING: ${meet}`);
+    refs.push(`calendar:${meeting?.subject ?? ""}`);
+  }
+  if (inviteDone) {
+    lines.push(`[calendar] you already RSVP'd to this invitation`);
+  }
+  if (freeSlot && /time|schedul|availab|meet|call|cap\b/i.test(conversation.subject)) {
+    lines.push(`[calendar] you look free ${freeSlot}`);
   }
 
   const placement = (input.placements ?? []).filter(
@@ -132,11 +235,6 @@ export function compileContext(
     refs.push(`placement:${senderEmail}`);
   }
 
-  // Existing-matter continuity used to mean "one shared word". That made
-  // every Roche email continue the first Roche matter and then bypass matter
-  // promotion safety as known work. Use the conservative resolver instead:
-  // shared study/event code is proof; otherwise counterparty AND meaningful
-  // request words must overlap.
   const matterText = `${conversation.subject} ${conversation.messages
     .map((m) => m.bodyText ?? m.snippet)
     .join(" ")}`;
@@ -148,23 +246,52 @@ export function compileContext(
       counterparty,
       own: ownTokens(input.ownEmail ?? `x@${input.ownDomain}`),
     },
-    input.matters.map((matter) => ({
-      matterId: matter.id,
-      title: matter.title,
-      codes: matter.codes ?? [],
-      counterparty: matter.counterparty ?? "",
-      userAuthored: Boolean(matter.userAuthored),
+    input.matters.map((matterRow) => ({
+      matterId: matterRow.id,
+      title: matterRow.title,
+      codes: matterRow.codes ?? [],
+      counterparty: matterRow.counterparty ?? "",
+      userAuthored: Boolean(matterRow.userAuthored),
     })),
   );
+  const candidateMatter = matterMatch
+    ? input.matters.find((item) => item.id === matterMatch.matterId)
+    : undefined;
   const candidateMatterId = matterMatch?.matterId ?? null;
-  if (matterMatch) {
-    const matter = input.matters.find((item) => item.id === matterMatch.matterId);
-    if (matter) {
-      lines.push(
-        `[inference] may continue the live matter "${matter.title}" (conservative relation match)`,
-      );
-      refs.push(`matter:${matter.id}`);
-    }
+  if (candidateMatter) {
+    lines.push(
+      `[inference] may continue the live matter "${candidateMatter.title}" (conservative relation match)`,
+    );
+    refs.push(`matter:${candidateMatter.id}`);
+  }
+
+  const crmHit = crmLabelFor(matterText, input.crmLabels);
+  if (crmHit) {
+    lines.push(`[system] CRM: ${crmHit}`);
+    refs.push("crm");
+  }
+
+  const amount = extractAmount(matterText);
+  const merchants = input.merchants ?? {};
+  const usual = amount != null ? usualLabel(merchants, senderEmail) : null;
+  const usualAmt = amount != null ? usualAmount(merchants, senderEmail) : null;
+  const anomalous =
+    amount != null ? isAnomalousCharge(merchants, senderEmail, amount) : false;
+  if (amount != null) {
+    lines.push(
+      `[observed] amount ${usual ? `$${Math.round(amount)} — ${usual}` : `$${Math.round(amount)}`}${
+        anomalous ? " — UNUSUAL vs this biller's baseline" : ""
+      }`,
+    );
+    refs.push(`amount:${amount}`);
+  }
+
+  const behavior = input.actionMemory?.[senderEmail] ?? null;
+  const prior = learnedPrior(input.actionMemory, senderEmail);
+  if (prior) {
+    lines.push(
+      `[observed] BEHAVIOR: you ${prior.dominant} their mail (${prior.count}/${prior.total})`,
+    );
   }
 
   const interestHaystack = tokens(matterText);
@@ -182,8 +309,22 @@ export function compileContext(
     senderIsKnown,
     senderIsInternal,
     candidateMatterId,
-    senderTier: person?.tier ?? "unknown",
+    candidateMatterTitle: candidateMatter?.title ?? null,
+    senderTier: person?.tier ?? (inContacts || writtenTo ? "known" : "unknown"),
     senderVip: Boolean(person?.vip),
     priorMatterRejections,
+    inContacts,
+    writtenTo,
+    meeting,
+    inviteAnswered: inviteDone,
+    weSpokeLast,
+    amount,
+    usualAmount: usualAmt,
+    usualLabel: usual,
+    anomalousAmount: anomalous,
+    behavior,
+    freeSlot,
+    senderEmail,
+    senderName,
   };
 }

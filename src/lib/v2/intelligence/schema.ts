@@ -1,5 +1,6 @@
 import { z } from "zod";
 import type { Home, Owner } from "../db/types";
+import type { GroundedVerdict } from "./verdict";
 
 /**
  * The one decision the chief of staff produces per conversation, plus the
@@ -128,8 +129,9 @@ export type ConversationDecision = {
   modelVersion: string;
   contextVersion: string;
   decidedAt: string;
+  verdict?: GroundedVerdict;
 };
 
 /** Bump when the read prompt or schema changes; invalidates cached reads. */
 export const MODEL_VERSION = "v2-read-3-strict-three-way";
-export const CONTEXT_VERSION = "v2-ctx-3-total-placement";
+export const CONTEXT_VERSION = "v2-ctx-4-grounded-verdict";

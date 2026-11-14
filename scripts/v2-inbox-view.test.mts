@@ -315,6 +315,44 @@ try {
   assert.equal(detailMatter.owner, "team");
   assert.equal(detailMatter.dueDate, "2026-08-14");
 
+  assert.equal(
+    view.needsYou.length,
+    0,
+    "needs-you is empty until a verdict says it",
+  );
+  await saveDecision({
+    accountId,
+    conversationId: cRecord,
+    home: "record",
+    proposedHome: "record",
+    summary: "Invoice",
+    rationale: "keep",
+    owner: "you",
+    vetoReasons: [],
+    yields: [],
+    evidence: [],
+    verdict: {
+      care: "needs_you",
+      why: "Pay by Dec 13, same as last year's renewal",
+      what: "Pay $140 by Dec 13",
+      who: "Vendor is a biller.",
+      harm: "A payment is outstanding.",
+      ask: "Pay the renewal",
+      task: "Pay $140 by Dec 13",
+      importance: 2,
+      evidence: [],
+      replied: false,
+      urgencyExpired: false,
+      anomalousAmount: false,
+      amount: 140,
+      usualAmount: 140,
+    },
+  });
+  const withVerdict = await buildInboxView(accountId, "google");
+  assert.equal(withVerdict.needsYou.length, 1);
+  assert.equal(withVerdict.needsYou[0].why, "Pay by Dec 13, same as last year's renewal");
+  assert.equal(withVerdict.records[0].what, "Pay $140 by Dec 13");
+
   console.log("v2-inbox-view: OK");
 } finally {
   await db.stop();

@@ -52,12 +52,21 @@ const row = (
   at: new Date(Date.now() - hoursAgo * 3600_000).toISOString(),
   weSpokeLast,
   summary,
-  owner: "you",
+  owner: weSpokeLast ? "them" : "you",
   priority: 2,
   dueDate: null,
   category,
   counterparty,
   nativeUrl: "https://outlook.office.com/mail/",
+  care: weSpokeLast ? "waiting" : "needs_you",
+  why: weSpokeLast ? "You already replied — ball is with them" : summary,
+  what: weSpokeLast ? "Ignore until they answer" : summary,
+  who: `${from} is on a live thread.`,
+  harm: weSpokeLast
+    ? "Nothing is required of you until they answer."
+    : "They're waiting on you.",
+  importance: weSpokeLast ? 1 : 2,
+  evidence: [],
 });
 
 const deletable = (r: ConversationRow): DeleteRow => ({
@@ -88,9 +97,12 @@ const matter = (
   orgUnit,
   section,
   summary: conversations[0]?.summary ?? "",
-  nextAction: conversations[0]?.summary ?? "",
+  nextAction: conversations[0]?.what || conversations[0]?.summary || "",
   owner: conversations[0]?.owner ?? "nobody",
   dueDate: conversations[0]?.dueDate ?? null,
+  care: conversations[0]?.care ?? null,
+  why: conversations[0]?.why ?? null,
+  what: conversations[0]?.what ?? null,
   conversations,
   yields: yieldLine
     ? [
@@ -453,4 +465,7 @@ export const sampleView: InboxView = {
   safeToDelete,
   undecided,
   worthReading: [],
+  needsYou: [...atlas.flatMap((m) => m.conversations), ...undecided].filter(
+    (row) => row.care === "needs_you" || row.care === "review_charge",
+  ),
 };

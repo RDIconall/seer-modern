@@ -105,4 +105,38 @@ function convo(messages: Message[]): Conversation {
   assert.equal(validDueDate("2099-01-01", now), null, "a far-future date is a misread");
 }
 
+// Stale urgency decays; an unusual charge raises a hand.
+{
+  const c = convo([msg("billing@vendor.com", ["conall@rditrials.com"], "Pay $480")]);
+  const stale = computeSalience({
+    read: { owner: "nobody", obligation: false, ask: "nothing — informational" },
+    conversation: c,
+    ownEmail: "conall@rditrials.com",
+    senderTier: "unknown",
+    senderVip: false,
+    urgencyExpired: true,
+  });
+  assert.equal(stale, 0, "a closed window does not stay loud");
+
+  const charge = computeSalience({
+    read: { owner: "nobody", obligation: false, ask: "nothing — informational" },
+    conversation: c,
+    ownEmail: "conall@rditrials.com",
+    senderTier: "unknown",
+    senderVip: false,
+    anomalousAmount: true,
+  });
+  assert.equal(charge, 2, "an unusual charge plus being addressed is louder");
+
+  const replied = computeSalience({
+    read: { owner: "them", obligation: false, ask: "nothing — informational" },
+    conversation: c,
+    ownEmail: "conall@rditrials.com",
+    senderTier: "unknown",
+    senderVip: false,
+    weSpokeLast: true,
+  });
+  assert.equal(replied, 0, "we already wrote last, so this is quieter");
+}
+
 console.log("v2-salience: OK");

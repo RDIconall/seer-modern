@@ -15,7 +15,8 @@ permanent purge.
 
 ## Enablement
 
-1. Apply the repo migration `supabase/migrations/20261016220000_bot_staff.sql`
+1. Apply the repo migrations `supabase/migrations/20261016220000_bot_staff.sql`
+   and `supabase/migrations/20261114200000_grounded_verdicts.sql`
    to the **preview** database (or a local test database). Do not apply to
    production from this PR.
 2. Seed Conall's 27 open tasks:
@@ -49,7 +50,7 @@ schema `seer` (unchanged).
 | Role | Access |
 |---|---|
 | `seer_app` | Full DML on all `seer` tables (the Next.js server) |
-| `seer_bot` | DML on `bots`, `bot_tasks`, `bot_task_events`, `bot_messages`, `triage_proposals`. **SELECT only** on `mail_accounts`, `conversations`, `matters`, `messages`. No DML on mail/outbox/commands |
+| `seer_bot` | DML on `bots`, `bot_tasks`, `bot_task_events`, `bot_messages`, `triage_proposals`. **SELECT only** on `mail_accounts`, `conversations`, `matters`, `messages`, plus the read-only views `bot_conversation_verdicts` and `bot_learning_signals`. No DML on mail/outbox/commands/events |
 | `anon` / `authenticated` | None |
 
 `seer_bot` is created `NOLOGIN`. In Supabase, create a login role (or use a
@@ -70,6 +71,8 @@ touch the tables below.
 | `seer.triage_proposals` | Insert `status = 'pending'` proposals. Never set `approved`/`executed` itself | `decideTriageProposal` — the only path that executes mail |
 | `seer.outbox` / `command_receipts` | **Never** | Seer enqueues trash/archive after approval |
 | Mail corpus (`conversations`, …) | **Read only** (to fill `conversation_id`) | Unchanged sync |
+| `seer.bot_conversation_verdicts` | **SELECT only** — care / why / what-to-do plus evidence | Written by the chief-of-staff read |
+| `seer.bot_learning_signals` | **SELECT only** — archive/trash/undo/teach/reply | Derived from `events`, `outbox`, `training_events`. No write path |
 
 The bot must **not** `UPDATE seer.triage_proposals.status` to `approved` or
 `executed`. That would skip Conall's approval. If it needs to withdraw a
@@ -308,7 +311,26 @@ select *
   from seer.triage_proposals
  where account_id = $account_id
    and status = 'pending';
+
+-- Grounded verdicts (does this need him, why, what to do)
+select conversation_id, subject, care, why, what_to_do, who, harm,
+       importance, verdict, owner, ask, due_date, veto_reasons
+  from seer.bot_conversation_verdicts
+ where account_id = $account_id
+   and care in ('needs_you', 'review_charge')
+ order by importance desc, due_date asc nulls last;
+
+-- What he archived, trashed, undid, or taught — so the inbox bot can learn
+select signal_kind, sender_email, conversation_id, instruction, home, created_at, payload
+  from seer.bot_learning_signals
+ where account_id = $account_id
+   and created_at > $cursor
+ order by created_at;
 ```
+
+`bot_learning_signals` is account-scoped in the row (`account_id`) and **read-only**. Do not grant the bot `SELECT` on `seer.events`, `seer.outbox`, or `seer.training_events`; the view is the contract. Filter every query by `account_id`.
+
+`care` is one of `needs_you`, `waiting`, `record`, `ignore`, `review_charge`. `verdict` JSON carries evidence (relationship, calendar, amount, matter, behavior, replied) so a bot can cite why, not just the sentence.
 
 ---
 
@@ -321,3 +343,5 @@ select *
    `seer.conversations`.
 5. Keep `account_id` on every row. This mailbox is single-owner; still filter
    every query by account.
+6. Learning signals and verdicts are read-only. Never write `seer.events`,
+   `seer.outbox`, or `seer.conversation_decisions`.

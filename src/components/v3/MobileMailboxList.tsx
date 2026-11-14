@@ -246,7 +246,7 @@ export function MobileMailboxList({
         from: row.senderDisplayName,
         subject: row.subject,
         preview:
-          (triage ? row.decisionSummary : null) ||
+          (triage ? row.why || row.decisionSummary : null) ||
           row.snippet ||
           "No preview available",
         when: mobileTime(row.timestamp),

@@ -80,6 +80,16 @@ assert.ok(
   "FolderList must show the server-provided category",
 );
 assert.ok(
+  folderList.includes("row.why"),
+  "FolderList must show the grounded why, not re-derive it",
+);
+const reader = await fs.readFile(
+  path.join(process.cwd(), "src", "components", "v2", "Reader.tsx"),
+  "utf8",
+);
+assert.ok(reader.includes("VerdictBanner"), "the reader shows the grounded verdict");
+assert.ok(reader.includes("data-care"), "the verdict is labeled by care");
+assert.ok(
   !/counterpartyOf|split\(["']@["']\)/.test(folderList),
   "FolderList must not re-derive the category from the sender",
 );

@@ -13,6 +13,10 @@ import {
   type Evidence,
   type Yield,
 } from "./schema";
+import {
+  verdictToJson,
+  type GroundedVerdict,
+} from "./verdict";
 
 /**
  * Persistence for conversation decisions. A decision, its evidence, and its
@@ -41,6 +45,7 @@ export type SaveDecisionInput = {
   evidence: Evidence[];
   modelVersion?: string;
   contextVersion?: string;
+  verdict?: GroundedVerdict | null;
 };
 
 export async function saveDecision(
@@ -89,8 +94,10 @@ export async function saveDecision(
       `insert into seer.conversation_decisions
          (account_id, conversation_id, home, proposed_home, summary, rationale,
           owner, ask, matter_id, veto_reasons, priority, due_date, model_version,
-          context_version, is_current, decided_at)
-         values ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,true,$15)
+          context_version, is_current, decided_at,
+          care, why, what_to_do, who, harm, importance, verdict)
+         values ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,true,$15,
+                 $16,$17,$18,$19,$20,$21,$22::jsonb)
          returning id`,
       [
         input.accountId,
@@ -108,6 +115,13 @@ export async function saveDecision(
         input.modelVersion ?? MODEL_VERSION,
         input.contextVersion ?? CONTEXT_VERSION,
         decided,
+        input.verdict?.care ?? null,
+        input.verdict?.why ?? null,
+        input.verdict?.what ?? null,
+        input.verdict?.who ?? null,
+        input.verdict?.harm ?? null,
+        input.verdict?.importance ?? 0,
+        JSON.stringify(input.verdict ? verdictToJson(input.verdict) : {}),
       ],
     );
     const decisionId = decisionRow.rows[0].id;
@@ -155,6 +169,7 @@ export async function saveDecision(
       modelVersion: input.modelVersion ?? MODEL_VERSION,
       contextVersion: input.contextVersion ?? CONTEXT_VERSION,
       decidedAt: decided,
+      verdict: input.verdict ?? undefined,
     };
   });
 }
