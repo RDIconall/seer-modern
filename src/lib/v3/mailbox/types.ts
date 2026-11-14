@@ -1,4 +1,5 @@
 import type { Disposition } from "./triage-rank";
+import type { Care, VerdictEvidence } from "@/lib/v2/intelligence/verdict";
 
 export type MailboxFolder = "inbox" | "sent" | "trash";
 
@@ -47,6 +48,12 @@ export type MailboxRow = {
    * say what it pulled out of the clear pile rather than silently moving it.
    */
   vetoReasons: string[];
+  care?: Care | null;
+  why?: string | null;
+  what?: string | null;
+  who?: string | null;
+  harm?: string | null;
+  evidence?: VerdictEvidence[];
 };
 
 export type MailboxView = {

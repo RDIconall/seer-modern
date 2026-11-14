@@ -64,6 +64,8 @@ const microsoftRefresh: RefreshFn = async (refreshToken) => {
         client_secret: process.env.AUTH_MICROSOFT_ENTRA_ID_SECRET ?? "",
         grant_type: "refresh_token",
         refresh_token: refreshToken,
+        scope:
+          "openid profile email offline_access User.Read Mail.ReadWrite Mail.Send Contacts.Read Calendars.Read",
       }),
     },
   );

@@ -1,4 +1,5 @@
 import type { Owner } from "../db/types";
+import type { Care, VerdictEvidence } from "../intelligence/verdict";
 
 /**
  * The one server-produced inbox model. Atlas, Triage, records, undecided, and
@@ -32,6 +33,13 @@ export type ConversationRow = {
    */
   weSpokeLast: boolean;
   nativeUrl: string;
+  care: Care | null;
+  why: string | null;
+  what: string | null;
+  who: string | null;
+  harm: string | null;
+  importance: number;
+  evidence: VerdictEvidence[];
 };
 
 export type DeleteRow = ConversationRow & {
@@ -66,6 +74,9 @@ export type MatterCard = {
   dueDate: string | null;
   conversations: ConversationRow[];
   yields: YieldRow[];
+  care: Care | null;
+  why: string | null;
+  what: string | null;
 };
 
 /** A whiteboard section with the matters filed under it, in registry order. */
@@ -93,4 +104,6 @@ export type InboxView = {
   safeToDelete: DeleteRow[];
   undecided: ConversationRow[];
   worthReading: YieldRow[];
+  /** Conversations that still need Conall, loudest first. */
+  needsYou: ConversationRow[];
 };

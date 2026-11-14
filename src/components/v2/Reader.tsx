@@ -19,6 +19,7 @@ import {
   ReplyAll,
   Trash2,
 } from "lucide-react";
+import type { GroundedVerdict } from "@/lib/v2/intelligence/verdict";
 
 /** Build a v3 attachment download URL for a provider message attachment. */
 export function attachmentUrl(providerMessageId: string, attachmentId: string): string {
@@ -72,11 +73,13 @@ export function Reader({
   onMove,
   replySlot,
   replying = false,
+  verdict = null,
 }: {
   provider: ProviderKind;
   conversation: Conversation;
   focusMessageId?: string;
   ownEmail?: string | null;
+  verdict?: GroundedVerdict | null;
   onReply: () => void;
   onReplyAll: () => void;
   onForward: () => void;
@@ -149,7 +152,9 @@ export function Reader({
           {summary.external + summary.internal} messages · {summary.people} people
           {summary.internal > 0 ? ` · ${summary.internal} internal` : ""}
         </p>
-        {summary.waitingOn && summary.daysUnanswered !== null && (
+        {verdict ? (
+          <VerdictBanner verdict={verdict} onReply={onReply} />
+        ) : summary.waitingOn && summary.daysUnanswered !== null ? (
           <div className="reader-ball">
             <span>
               {summary.waitingOn} wrote {summary.daysUnanswered === 0
@@ -161,7 +166,7 @@ export function Reader({
               Reply
             </button>
           </div>
-        )}
+        ) : null}
       </header>
 
       <ConversationActions
@@ -324,6 +329,42 @@ export function Reader({
       ) : null}
 
     </article>
+  );
+}
+
+const CARE_LABEL: Record<GroundedVerdict["care"], string> = {
+  needs_you: "Needs you",
+  waiting: "Waiting on them",
+  record: "Keep for the record",
+  ignore: "Ignore",
+  review_charge: "Check the charge",
+};
+
+export function VerdictBanner({
+  verdict,
+  onReply,
+}: {
+  verdict: GroundedVerdict;
+  onReply?: () => void;
+}) {
+  const showReply = verdict.care === "needs_you" || verdict.care === "review_charge";
+  return (
+    <div className={`reader-verdict reader-verdict-${verdict.care}`} data-care={verdict.care}>
+      <p className="reader-verdict-kicker tabular">{CARE_LABEL[verdict.care]}</p>
+      <p className="reader-verdict-why">{verdict.why}</p>
+      {verdict.what ? <p className="reader-verdict-what">{verdict.what}</p> : null}
+      {verdict.who ? <p className="reader-verdict-who">{verdict.who}</p> : null}
+      {verdict.evidence.length > 0 ? (
+        <p className="reader-verdict-evidence tabular">
+          {verdict.evidence.map((item) => item.detail).join(" · ")}
+        </p>
+      ) : null}
+      {showReply && onReply ? (
+        <button type="button" className="reader-ball-action mail-focus-ring" onClick={onReply}>
+          {verdict.care === "review_charge" ? "Open" : "Reply"}
+        </button>
+      ) : null}
+    </div>
   );
 }
 

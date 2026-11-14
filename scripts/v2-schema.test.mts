@@ -36,6 +36,8 @@ const EXPECTED_TABLES = [
   "bot_task_events",
   "bot_messages",
   "triage_proposals",
+  "user_profiles",
+  "personal_context_cache",
 ].sort();
 
 const RLS_TABLES = [
@@ -60,6 +62,8 @@ const RLS_TABLES = [
   "bot_task_events",
   "bot_messages",
   "triage_proposals",
+  "user_profiles",
+  "personal_context_cache",
 ];
 
 const db = await startTestDb();

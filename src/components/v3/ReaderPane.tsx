@@ -4,6 +4,7 @@ import * as React from "react";
 import { ArrowLeft, LoaderCircle } from "lucide-react";
 import { useEffect, useState } from "react";
 import type { Conversation, ProviderKind } from "@/lib/v2/providers/types";
+import type { GroundedVerdict } from "@/lib/v2/intelligence/verdict";
 import type { CommandResult } from "@/lib/v2/commands/types";
 import { fetchDefault } from "@/lib/v3/net/fetch";
 import { describeHttpFailure, readJsonBody } from "@/lib/v3/net/json";
@@ -19,6 +20,7 @@ type ReaderResponse = {
   provider: ProviderKind;
   /** The account's own address, which tells the two lanes of a thread apart. */
   ownEmail?: string | null;
+  verdict?: GroundedVerdict | null;
 };
 
 export function ReaderPane({
@@ -183,6 +185,7 @@ export function ReaderPane({
         conversation={data.conversation}
         focusMessageId={focusMessageId}
         ownEmail={data.ownEmail}
+        verdict={data.verdict ?? null}
         onReply={() => onCompose({ mode: "reply" })}
         onReplyAll={() => onCompose({ mode: "replyAll" })}
         onForward={() => onCompose({ mode: "forward" })}

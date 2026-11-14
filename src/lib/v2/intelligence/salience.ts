@@ -21,6 +21,12 @@ export type SalienceInputs = {
   /** Sender tier from the relationship graph: inner | known | ... */
   senderTier: string;
   senderVip: boolean;
+  /** Stated due date has passed and nothing is still owed. */
+  urgencyExpired?: boolean;
+  /** Charge is far above this biller's baseline. */
+  anomalousAmount?: boolean;
+  /** We wrote last — the ball is not on this side. */
+  weSpokeLast?: boolean;
 };
 
 /**
@@ -64,6 +70,12 @@ export function computeSalience(input: SalienceInputs): number {
 
   // From someone senior / in the user's circle, not a portal robot.
   if (input.senderVip || input.senderTier === "inner") score += 1;
+
+  if (input.anomalousAmount) score += 1;
+  if (input.weSpokeLast && input.read.owner !== "you") {
+    score = Math.max(0, score - 1);
+  }
+  if (input.urgencyExpired) score = Math.max(0, score - 2);
 
   return Math.min(3, score);
 }

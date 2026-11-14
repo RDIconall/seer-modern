@@ -594,6 +594,47 @@ body {
   line-height: var(--lh-body);
   color: var(--fg-strong);
 }
+.wb-needs {
+  margin: 0 0 14px;
+  padding: 0 4px 12px;
+  border-bottom: 1px solid var(--border);
+}
+.wb-needs-title {
+  margin: 0 0 8px;
+  font-size: var(--t-micro);
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  color: var(--danger);
+}
+.wb-needs ul {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+.wb-needs-row {
+  appearance: none;
+  width: 100%;
+  text-align: left;
+  border: 0;
+  background: transparent;
+  padding: 6px 2px;
+  cursor: pointer;
+  font: inherit;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+.wb-needs-from {
+  font-size: var(--t-small);
+  color: var(--fg-strong);
+}
+.wb-needs-why {
+  font-size: var(--t-small);
+  color: var(--muted);
+}
 .wb-meta {
   margin-top: 7px;
   color: var(--muted);
@@ -864,6 +905,49 @@ body {
   padding: 8px 13px;
   cursor: pointer;
   min-height: 34px;
+}
+.reader-verdict {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 4px;
+  margin-top: 14px;
+  padding: 11px 14px;
+  background: var(--brand-soft);
+  border-left: 2px solid var(--brand);
+}
+.reader-verdict-ignore,
+.reader-verdict-waiting,
+.reader-verdict-record {
+  background: var(--row-hover);
+  border-left-color: var(--border-strong);
+}
+.reader-verdict-review_charge {
+  background: var(--danger-soft);
+  border-left-color: var(--danger);
+}
+.reader-verdict-kicker {
+  margin: 0;
+  font-size: var(--t-micro);
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  color: var(--muted);
+}
+.reader-verdict-why {
+  margin: 0;
+  font-size: var(--t-body);
+  line-height: var(--lh-body);
+  color: var(--fg-strong);
+}
+.reader-verdict-what,
+.reader-verdict-who,
+.reader-verdict-evidence {
+  margin: 0;
+  font-size: var(--t-small);
+  color: var(--muted);
+}
+.reader-verdict .reader-ball-action {
+  margin-top: 8px;
 }
 
 /* Everything attached, once, instead of hunting turn by turn. */

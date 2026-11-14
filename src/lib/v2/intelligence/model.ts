@@ -52,7 +52,9 @@ Set dueDate ONLY when the email states a real date by which something must happe
 
 Distinguish a GENERIC BROADCAST from a DIRECT DEMAND. A sourcing/procurement notice sent to every vendor ("open for bidding", "event opens in 1 hour", "response time revised"), a portal digest, or an automated status update is ambient — owner is usually "nobody" or "them". But the SAME channel can carry a message addressed to the user by name, quoting them, or explicitly asking them to respond, decide, approve, or sign — especially from a senior or named counterparty contact. That is owner "you" with a real ask. Judge from the recipients (is the user in To, or is this a broadcast?) and the body (is the user personally being asked?), never from the sender's address alone.
 
-Use the CONTEXT block as sourced evidence: [explicit]/[system] outrank your reading; [inference] is a hint. Absence of relationship is itself evidence toward fyi/disposable — but a real ask, signature, or deadline in the body always wins.`;
+Use the CONTEXT block as sourced evidence: [explicit]/[system] outrank your reading; [inference] is a hint. Absence of relationship is itself evidence toward fyi/disposable — but a real ask, signature, or deadline in the body always wins.
+
+When CONTEXT names a shared calendar event, an amount vs this biller's usual charge, that you already replied, or a learned archive/trash habit, use those facts in ask/owner/dueDate. Do not restate the context block. An unusual charge (flagged UNUSUAL) is obligation=true. If you already replied and nothing new is asked, owner is "them" or "nobody", not "you".`;
 
 /** "Raiane Sousa Gaspar <raiane@roche.com>" — what a paste would show. */
 function addressLine(a: { email: string; name?: string }): string {

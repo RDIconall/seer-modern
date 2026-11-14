@@ -2,10 +2,12 @@ import { db } from "@/lib/v2/db/pool";
 import type { AccountId } from "@/lib/v2/db/types";
 import { nativeUrlFor } from "@/lib/v2/providers/native-url";
 import type { Conversation, ProviderKind } from "@/lib/v2/providers/types";
+import { verdictFromRow, type GroundedVerdict } from "@/lib/v2/intelligence/verdict";
 
 export type CorpusConversationView = {
   conversation: Conversation;
   nativeUrl: string;
+  verdict: GroundedVerdict | null;
 };
 
 /**
@@ -28,6 +30,23 @@ export async function getCorpusConversation(
     [conversationId, accountId],
   );
   if (c.rowCount === 0) return null;
+
+  const decision = await db().query<{
+    care: GroundedVerdict["care"] | null;
+    why: string | null;
+    what_to_do: string | null;
+    who: string | null;
+    harm: string | null;
+    importance: number | null;
+    ask: string | null;
+    verdict: unknown;
+  }>(
+    `select care, why, what_to_do, who, harm, importance, ask, verdict
+       from seer.conversation_decisions
+      where conversation_id = $1 and account_id = $2 and is_current
+      limit 1`,
+    [conversationId, accountId],
+  );
 
   const msgs = await db().query<{
     provider_message_id: string;
@@ -77,6 +96,7 @@ export async function getCorpusConversation(
       lastMessageAt: c.rows[0].last_message_at ?? "",
       messages,
     },
+    verdict: decision.rows[0] ? verdictFromRow(decision.rows[0]) : null,
     nativeUrl: nativeUrlFor(provider, providerConversationId, {
       messageId: messages[messages.length - 1]?.providerMessageId,
     }),

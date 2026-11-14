@@ -621,7 +621,7 @@ export function FolderList({
                       </span>
                       <span className="mail-list-line">
                         <span className="mail-list-decision">
-                          {row.decisionSummary || row.snippet || ""}
+                          {row.why || row.decisionSummary || row.snippet || ""}
                         </span>
                         {row.category && (
                           <span className="mail-list-category tabular">{row.category}</span>

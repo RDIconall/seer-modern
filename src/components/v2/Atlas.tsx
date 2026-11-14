@@ -621,6 +621,26 @@ export function Atlas({
         <span className="wb-dense tabular">{rowCount} rows</span>
       </div>
 
+      {(view.needsYou ?? []).length > 0 ? (
+        <section className="wb-needs" aria-label="Needs you">
+          <h2 className="wb-needs-title tabular">Needs you</h2>
+          <ul>
+            {(view.needsYou ?? []).slice(0, 8).map((row) => (
+              <li key={row.conversationId}>
+                <button
+                  type="button"
+                  className="wb-needs-row"
+                  onClick={() => onOpenConversation?.(row)}
+                >
+                  <span className="wb-needs-from">{row.from}</span>
+                  <span className="wb-needs-why">{row.why || row.what || row.summary}</span>
+                </button>
+              </li>
+            ))}
+          </ul>
+        </section>
+      ) : null}
+
       {staff ? (
         <StaffBoard
           view={staff}
@@ -907,8 +927,11 @@ function BoardMatter({
         open && (
           <div className="wb-body">
             <p className="wb-next">
-              {matter.nextAction || "Review the latest conversation."}
+              {matter.what || matter.nextAction || "Review the latest conversation."}
             </p>
+            {matter.why && matter.why !== matter.what ? (
+              <p className="wb-meta tabular">{matter.why}</p>
+            ) : null}
             <p className="wb-meta tabular">
               {yours ? "yours" : `with ${owner}`}
               {" · "}

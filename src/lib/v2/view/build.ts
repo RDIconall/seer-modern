@@ -17,6 +17,7 @@ import type {
   MatterCard,
   YieldRow,
 } from "./types";
+import type { Care, VerdictEvidence } from "../intelligence/verdict";
 
 /**
  * Build the inbox view for one account from its durable decisions. This is the
@@ -44,6 +45,13 @@ type DecisionRow = {
   decision_id: string;
   matter_id: string | null;
   function_name: string | null;
+  care: Care | null;
+  why: string | null;
+  what_to_do: string | null;
+  who: string | null;
+  harm: string | null;
+  importance: number | null;
+  verdict: unknown;
 };
 
 /** Who the work is with. Shown on a row; never what groups it. */
@@ -82,6 +90,13 @@ export async function buildInboxView(
             d.due_date,
             d.veto_reasons,
             d.matter_id,
+            d.care,
+            d.why,
+            d.what_to_do,
+            d.who,
+            d.harm,
+            d.importance,
+            d.verdict,
             (select m.from_email from seer.messages m
               where m.conversation_id = c.id
               order by m.sent_at desc nulls last limit 1) as from_email,
@@ -209,6 +224,13 @@ export async function buildInboxView(
     nativeUrl: nativeUrlFor(provider, r.provider_conversation_id, {
       messageId: r.latest_message_id,
     }),
+    care: r.care,
+    why: r.why,
+    what: r.what_to_do,
+    who: r.who,
+    harm: r.harm,
+    importance: r.importance ?? 0,
+    evidence: verdictEvidence(r.verdict),
   });
 
   const yieldsByConversation = new Map<string, YieldRow[]>();
@@ -266,8 +288,11 @@ export async function buildInboxView(
       orgUnit: m.org_unit,
       section: m.function_name ?? UNFILED,
       summary: best?.summary ?? convs[0]?.summary ?? "",
-      nextAction: best?.ask ?? "",
+      nextAction: best?.what_to_do || best?.ask || convs[0]?.what || "",
       owner: (best?.owner ?? convs[0]?.owner ?? "nobody") as MatterCard["owner"],
+      care: (best?.care ?? convs[0]?.care ?? null) as MatterCard["care"],
+      why: best?.why ?? convs[0]?.why ?? null,
+      what: best?.what_to_do ?? convs[0]?.what ?? null,
       dueDate: best?.due_date
         ? new Date(best.due_date).toISOString().slice(0, 10)
         : convs[0]?.dueDate ?? null,
@@ -303,7 +328,16 @@ export async function buildInboxView(
     safeToDelete,
     undecided,
     worthReading,
+    needsYou: [...records, ...undecided, ...atlas.flatMap((m) => m.conversations)]
+      .filter((row) => row.care === "needs_you" || row.care === "review_charge")
+      .sort((a, b) => b.priority - a.priority || (a.dueDate ?? "").localeCompare(b.dueDate ?? "")),
   };
+}
+
+function verdictEvidence(raw: unknown): VerdictEvidence[] {
+  if (!raw || typeof raw !== "object") return [];
+  const evidence = (raw as { evidence?: unknown }).evidence;
+  return Array.isArray(evidence) ? (evidence as VerdictEvidence[]) : [];
 }
 
 /**

@@ -77,6 +77,8 @@ assert.doesNotMatch(html, /role="dialog"/, "the board opens no dialog of its own
  * filter, and sections of matters set as lines on paper.
  */
 assert.match(html, /class="wb-ledger/, "the board states yours/out/stalled");
+assert.match(html, /Needs you/, "the board lists conversations that still need him");
+assert.match(atlasSource, /wb-needs/, "needs-you is a first-class strip, not a client guess");
 assert.match(html, /yours ·/);
 assert.match(html, /aria-pressed="true">All</, "All is the default filter");
 assert.match(html, /aria-pressed="false">Mine</);

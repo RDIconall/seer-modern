@@ -3,6 +3,13 @@ import type { AccountId } from "../db/types";
 import type { ContextInput } from "./context";
 import { loadGuidance } from "./operating-model";
 import { guidanceFor, loadMailboxStyle } from "./mailbox-style-store";
+import { loadUserProfile, profilePromptBlock } from "./user-profile";
+import { loadPersonalContext } from "./personal-context";
+import {
+  loadActionMemory,
+  loadMerchantDb,
+  loadWrittenTo,
+} from "./history";
 
 /** People/matters/placements change slowly relative to a read tick. */
 export const CONTEXT_INPUT_TTL_MS = 60_000;
@@ -49,7 +56,19 @@ export async function loadContextInput(
   const cached = contextInputCache.get(cacheKey);
   if (cached && cached.expiresAt > Date.now()) return cached.value;
 
-  const [people, matters, interests, placements, operatingGuidance, mailboxStyle] = await Promise.all([
+  const [
+    people,
+    matters,
+    interests,
+    placements,
+    operatingGuidance,
+    mailboxStyle,
+    profile,
+    personal,
+    writtenTo,
+    actionMemory,
+    merchants,
+  ] = await Promise.all([
     db().query<{ email: string; tier: string; vip: boolean }>(
       "select email, tier, vip from seer.people where account_id = $1",
       [accountId],
@@ -141,6 +160,11 @@ export async function loadContextInput(
     ),
     optionalContext("operating guidance", () => loadGuidance(accountId), ""),
     optionalContext("mailbox style", () => loadMailboxStyle(accountId), null),
+    optionalContext("user profile", () => loadUserProfile(accountId), null),
+    optionalContext("personal context", () => loadPersonalContext(accountId), null),
+    optionalContext("written-to", () => loadWrittenTo(accountId), new Set<string>()),
+    optionalContext("action memory", () => loadActionMemory(accountId), {}),
+    optionalContext("merchant graph", () => loadMerchantDb(accountId), {}),
   ]);
 
   const value: ContextInput = {
@@ -162,6 +186,14 @@ export async function loadContextInput(
     })),
     operatingGuidance,
     mailboxStyleGuidance: guidanceFor(mailboxStyle),
+    profileBlock: profilePromptBlock(profile),
+    personal,
+    writtenTo,
+    actionMemory,
+    merchants,
+    // Live Salesforce OAuth/sync is deferred. compileContext still accepts
+    // compact CRM labels when a later loader plugs them in.
+    crmLabels: {},
   };
   contextInputCache.set(cacheKey, {
     expiresAt: Date.now() + CONTEXT_INPUT_TTL_MS,
@@ -169,3 +201,4 @@ export async function loadContextInput(
   });
   return value;
 }
+

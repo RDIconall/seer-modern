@@ -30,6 +30,8 @@ import {
   type ConversationDecision,
   type ReadResult,
 } from "./schema";
+import { composeVerdict } from "./verdict";
+import { extractAmount } from "./amounts";
 
 /**
  * The chief-of-staff read. One conversation in, one persisted decision out. The
@@ -185,12 +187,51 @@ export async function readConversation(
   // Grounded salience: how loudly this should raise its hand, from facts —
   // a direct demand addressed to you from someone senior outranks a broadcast
   // sourcing notice, regardless of what the prose sounds like.
+  const today = new Date().toISOString().slice(0, 10);
+  const dueDate = validDueDate(read.dueDate);
+  const urgencyExpired = Boolean(
+    dueDate && dueDate < today && !read.obligation && read.owner !== "you",
+  );
   const priority = computeSalience({
     read,
     conversation: input.conversation,
     ownEmail: input.context.ownEmail ?? `x@${input.context.ownDomain}`,
     senderTier: compiled.senderTier,
     senderVip: compiled.senderVip,
+    urgencyExpired,
+    anomalousAmount: compiled.anomalousAmount,
+    weSpokeLast: compiled.weSpokeLast,
+  });
+  const amount =
+    compiled.amount ??
+    extractAmount(
+      `${input.conversation.subject} ${input.conversation.messages.map((m) => m.bodyText ?? m.snippet).join(" ")}`,
+    );
+  const verdict = composeVerdict({
+    home: safety.home,
+    owner: compiled.weSpokeLast && read.owner === "you" && !read.obligation
+      ? "them"
+      : read.owner,
+    ask: read.ask,
+    summary: read.summary,
+    obligation: read.obligation,
+    dueDate,
+    senderName: compiled.senderName,
+    senderEmail: compiled.senderEmail,
+    senderTier: compiled.senderTier,
+    senderVip: compiled.senderVip,
+    inContacts: compiled.inContacts,
+    writtenTo: compiled.writtenTo,
+    meeting: compiled.meeting,
+    inviteAnswered: compiled.inviteAnswered,
+    weSpokeLast: compiled.weSpokeLast,
+    behavior: compiled.behavior,
+    amount,
+    usualAmount: compiled.usualAmount,
+    usualLabel: compiled.usualLabel,
+    anomalousAmount: compiled.anomalousAmount,
+    candidateMatterTitle: compiled.candidateMatterTitle,
+    freeSlot: compiled.freeSlot,
   });
 
   // Promotion: live work must land on the board. Reuse the matched matter, or
@@ -243,17 +284,21 @@ export async function readConversation(
     proposedHome: read.home,
     summary: read.summary,
     rationale: read.rationale,
-    owner: read.owner,
+    owner:
+      compiled.weSpokeLast && read.owner === "you" && !read.obligation
+        ? "them"
+        : read.owner,
     ask: read.ask,
     matterId,
     vetoReasons: safety.vetoReasons,
     priority,
-    dueDate: validDueDate(read.dueDate),
+    dueDate,
     yields: resolvedYields,
     evidence: read.evidence.length
       ? read.evidence
       : compiled.refs.map((ref) => ({ ref, provenance: "inference" as const })),
     modelVersion: MODEL_VERSION,
     contextVersion: CONTEXT_VERSION,
+    verdict,
   });
 }

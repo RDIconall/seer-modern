@@ -5,6 +5,7 @@ import { decodeMailboxCursor, encodeMailboxCursor } from "./cursor";
 import { effectiveUnread, mailboxListLabel } from "./list-label";
 import { TRIAGE_ORDER, deleteRank, dispositionFromHome } from "./triage-rank";
 import type { MailboxFolder, MailboxRow, MailboxSort, MailboxView } from "./types";
+import type { Care, VerdictEvidence } from "@/lib/v2/intelligence/verdict";
 
 /**
  * The rank the triage sort orders by, generated from TRIAGE_ORDER so the SQL
@@ -45,6 +46,12 @@ type MailboxRowDb = {
   veto_reasons: string[] | null;
   delete_rank: number;
   function_name: string | null;
+  care: string | null;
+  why: string | null;
+  what_to_do: string | null;
+  who: string | null;
+  harm: string | null;
+  verdict: unknown;
 };
 
 function listLabel(row: MailboxRowDb): string {
@@ -105,7 +112,19 @@ function mapRow(row: MailboxRowDb): MailboxRow {
     category: row.function_name,
     owner: (row.owner ?? "nobody") as MailboxRow["owner"],
     vetoReasons: row.veto_reasons ?? [],
+    care: (row.care as Care | null) ?? null,
+    why: row.why,
+    what: row.what_to_do,
+    who: row.who,
+    harm: row.harm,
+    evidence: verdictEvidence(row.verdict),
   };
+}
+
+function verdictEvidence(raw: unknown): VerdictEvidence[] {
+  if (!raw || typeof raw !== "object") return [];
+  const evidence = (raw as { evidence?: unknown }).evidence;
+  return Array.isArray(evidence) ? (evidence as VerdictEvidence[]) : [];
 }
 
 const MAILBOX_SELECT = `select c.id as conversation_id,
@@ -130,6 +149,12 @@ const MAILBOX_SELECT = `select c.id as conversation_id,
             d.veto_reasons,
             d.priority,
             d.due_date,
+            d.care,
+            d.why,
+            d.what_to_do,
+            d.who,
+            d.harm,
+            d.verdict,
             mt.title as matter_title,
             p.display_name as person_display,
             rp.display_name as recipient_display,
@@ -160,6 +185,23 @@ const MAILBOX_SELECT = `select c.id as conversation_id,
       where c.account_id = $1
         and c.is_deleted = false
         and c.folders @> array[$2]::text[]`;
+
+async function countNeedsYou(accountId: AccountId): Promise<number> {
+  const result = await db().query<{ n: number }>(
+    `select count(*)::int as n
+       from seer.conversations c
+       join seer.conversation_decisions d
+         on d.conversation_id = c.id
+        and d.account_id = c.account_id
+        and d.is_current
+      where c.account_id = $1
+        and c.is_deleted = false
+        and c.folders @> array['inbox']::text[]
+        and d.care in ('needs_you', 'review_charge')`,
+    [accountId],
+  );
+  return result.rows[0]?.n ?? 0;
+}
 
 export async function getMailboxView(
   accountId: AccountId,
@@ -341,7 +383,7 @@ export async function getMailboxView(
     sort,
     rows: page.map(mapRow),
     total: totalRow.rows[0]?.n ?? 0,
-    needsYou: 0,
+    needsYou: (await countNeedsYou(accountId)),
     processing: processingRow.rows[0]?.n ?? 0,
     nextCursor,
   };
