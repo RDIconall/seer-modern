@@ -25,12 +25,27 @@ const ENTITIES: Record<string, string> = {
   rdquo: "”",
 };
 
+/**
+ * Mail is attacker-controlled, so a reference may name any integer. Like the
+ * HTML parser, anything that is not a Unicode scalar becomes U+FFFD; NUL does
+ * too, because Postgres text columns reject it.
+ */
+function decodeCodePoint(code: number): string {
+  if (
+    !Number.isInteger(code) ||
+    code <= 0 ||
+    code > 0x10ffff ||
+    (code >= 0xd800 && code <= 0xdfff)
+  ) {
+    return "\ufffd";
+  }
+  return String.fromCodePoint(code);
+}
+
 function decodeEntities(s: string): string {
   return s
-    .replace(/&#(\d+);/g, (_, code: string) => String.fromCodePoint(Number(code)))
-    .replace(/&#x([0-9a-f]+);/gi, (_, hex: string) =>
-      String.fromCodePoint(parseInt(hex, 16)),
-    )
+    .replace(/&#(\d+);/g, (_, code: string) => decodeCodePoint(Number(code)))
+    .replace(/&#x([0-9a-f]+);/gi, (_, hex: string) => decodeCodePoint(parseInt(hex, 16)))
     .replace(/&([a-z]+);/gi, (match, name: string) => ENTITIES[name.toLowerCase()] ?? match);
 }
 
