@@ -44,8 +44,18 @@ function categoryRoot(orgUnit: string, functions: string[]): string {
   return best || orgUnit || "unsorted";
 }
 
+/**
+ * Subjects, names, and summaries come from inbound mail. A cell whose text
+ * opens with a formula character (after any whitespace or invisible
+ * characters a spreadsheet may trim) is evaluated by Excel and Google Sheets
+ * on open, so it is forced to text with a leading apostrophe. The check runs
+ * on the logical value, before quoting: CSV quotes do not stop evaluation.
+ */
+const FORMULA_START = /^[\s\p{Cc}\p{Cf}]*[=+\-@\uFF1D\uFF0B\uFF0D\uFF20]/u;
+
 function csvCell(value: string | number): string {
-  const s = String(value ?? "");
+  let s = String(value ?? "");
+  if (FORMULA_START.test(s)) s = `'${s}`;
   return /[",\n\r]/.test(s) ? `"${s.replace(/"/g, '""')}"` : s;
 }
 
