@@ -1,4 +1,5 @@
 import { accountKey, kvGet, kvSet, kvDelete } from "@/lib/store/kv";
+import { open, seal, type StoredSecret } from "@/lib/store/secret-at-rest";
 
 /**
  * BlueBubbles = the user's real texting life (iMessage), self-hosted on
@@ -33,19 +34,38 @@ function statsKey(accountEmail: string) {
   return `imessage:${accountKey(accountEmail)}`;
 }
 
+/** On disk the server password is sealed to the account it belongs to. */
+type PersistedConfig = Omit<BlueBubblesConfig, "password"> & {
+  password?: StoredSecret;
+};
+
+/** What binds the ciphertext to its owner, so it cannot be replayed. */
+const scope = (accountEmail: string) => accountKey(accountEmail);
+
 export async function loadBlueBubbles(
   accountEmail: string,
 ): Promise<BlueBubblesConfig | null> {
-  return await kvGet<BlueBubblesConfig>(cfgKey(accountEmail));
+  const stored = await kvGet<PersistedConfig>(cfgKey(accountEmail));
+  if (!stored?.url) return null;
+  const password = open(stored.password, scope(accountEmail));
+  if (!password) return null;
+  if (typeof stored.password === "string") {
+    // Written before sealing existed: seal it now so the plaintext is gone.
+    await kvSet<PersistedConfig>(cfgKey(accountEmail), {
+      ...stored,
+      password: seal(password, scope(accountEmail)),
+    });
+  }
+  return { url: stored.url, password, savedAt: stored.savedAt };
 }
 
 export async function saveBlueBubbles(
   accountEmail: string,
   cfg: { url: string; password: string },
 ): Promise<void> {
-  await kvSet(cfgKey(accountEmail), {
+  await kvSet<PersistedConfig>(cfgKey(accountEmail), {
     url: cfg.url.replace(/\/+$/, ""),
-    password: cfg.password,
+    password: seal(cfg.password, scope(accountEmail)),
     savedAt: new Date().toISOString(),
   });
 }
