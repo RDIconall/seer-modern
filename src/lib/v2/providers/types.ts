@@ -26,6 +26,14 @@ export class SyncDeadlineError extends Error {
   }
 }
 
+/** A page cursor the adapter will not follow; nothing was requested. */
+export class InvalidProviderCursorError extends Error {
+  constructor(message = "provider cursor is not a valid page link") {
+    super(message);
+    this.name = "InvalidProviderCursorError";
+  }
+}
+
 export function assertSyncBudget(context?: SyncContext): void {
   if (context?.signal?.aborted || (context?.deadlineMs !== undefined && Date.now() >= context.deadlineMs)) {
     throw new SyncDeadlineError();

@@ -27,7 +27,11 @@ import type {
   SyncPage,
 } from "./types";
 import { compileOutlookSearch, parseMailSearch } from "@/lib/v3/search/parser";
-import { SyncDeadlineError, assertSyncBudget } from "./types";
+import {
+  InvalidProviderCursorError,
+  SyncDeadlineError,
+  assertSyncBudget,
+} from "./types";
 
 /**
  * Outlook / Microsoft Graph adapter. Translates Graph message payloads into the
@@ -36,7 +40,34 @@ import { SyncDeadlineError, assertSyncBudget } from "./types";
  * completely and per-message failures are reported.
  */
 
-const API = "https://graph.microsoft.com/v1.0/me";
+const GRAPH_ORIGIN = "https://graph.microsoft.com";
+const MAILBOX_PATH = "/v1.0/me";
+const API = `${GRAPH_ORIGIN}${MAILBOX_PATH}`;
+
+/**
+ * Reads carry the mailbox bearer token, and cursors are caller-supplied, so a
+ * URL is only fetched when it is a Graph request for the signed-in user. The
+ * parsed form is what gets fetched, so the checked URL is the requested URL.
+ */
+function mailboxGraphUrl(raw: string): string {
+  let url: URL;
+  try {
+    url = new URL(raw);
+  } catch {
+    throw new InvalidProviderCursorError();
+  }
+  if (
+    url.origin !== GRAPH_ORIGIN ||
+    url.username !== "" ||
+    url.password !== "" ||
+    !url.pathname.startsWith(`${MAILBOX_PATH}/`) ||
+    // Encoded separators, dots, or escapes could be decoded into another path.
+    /%(2f|5c|2e|25)/i.test(url.pathname)
+  ) {
+    throw new InvalidProviderCursorError();
+  }
+  return url.href;
+}
 
 type GraphRecipient = { emailAddress?: { address?: string; name?: string } };
 type GraphMessage = {
@@ -110,9 +141,10 @@ export class OutlookProvider implements MailProvider {
   }
 
   private async get<T>(url: string, context?: SyncContext): Promise<T> {
+    const target = mailboxGraphUrl(url);
     assertSyncBudget(context);
     return (await providerFetch(
-      url,
+      target,
       { headers: this.auth() },
       { ...this.http, deadlineMs: context?.deadlineMs, signal: context?.signal },
     )) as T;
