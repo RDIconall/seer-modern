@@ -3,9 +3,11 @@ import { getActiveV2Account } from "@/lib/v2/session";
 import { providerFor } from "@/lib/v2/providers/provider";
 import { originAllowed } from "@/lib/security/origin";
 import {
+  capNote,
   loadOperatingModel,
   proposeOperatingModel,
 } from "@/lib/v2/intelligence/operating-model";
+import { ModelBudgetError } from "@/lib/v2/intelligence/model-usage";
 
 export const dynamic = "force-dynamic";
 export const maxDuration = 120;
@@ -37,7 +39,7 @@ export async function POST(request: Request) {
     return NextResponse.json({ error: "no active account" }, { status: 404 });
   }
 
-  let body: { action?: string; note?: string };
+  let body: { action?: string; note?: unknown };
   try {
     body = (await request.json()) as typeof body;
   } catch {
@@ -58,7 +60,7 @@ export async function POST(request: Request) {
     const { state, corpus } = await proposeOperatingModel(
       account.id,
       account.email,
-      { provider, note: body.note },
+      { provider, note: capNote(body.note) },
     );
     return NextResponse.json({
       ...state,
@@ -69,6 +71,9 @@ export async function POST(request: Request) {
       },
     });
   } catch (cause) {
+    if (cause instanceof ModelBudgetError) {
+      return NextResponse.json({ error: cause.message }, { status: 429 });
+    }
     return NextResponse.json(
       {
         error:
