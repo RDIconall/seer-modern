@@ -64,9 +64,28 @@ const FRAME_SCRIPT = `
 })();
 `;
 
-function frameDocument(body: string): string {
+/**
+ * Nothing in the frame reaches the network except images and media the reader
+ * has agreed to load. This holds even for an attribute the blocker missed.
+ */
+function framePolicy(allowRemote: boolean): string {
+  const remote = allowRemote ? " http: https:" : "";
+  return [
+    "default-src 'none'",
+    `img-src data: cid:${remote}`,
+    `media-src data:${remote}`,
+    "style-src 'unsafe-inline'",
+    "script-src 'unsafe-inline'",
+    "base-uri 'none'",
+    "form-action 'none'",
+  ].join("; ");
+}
+
+function frameDocument(body: string, allowRemote: boolean): string {
   return (
     `<!doctype html><html><head><meta charset="utf-8">` +
+    `<meta http-equiv="Content-Security-Policy" content="${framePolicy(allowRemote)}">` +
+    `<meta http-equiv="x-dns-prefetch-control" content="off">` +
     `<meta name="viewport" content="width=device-width, initial-scale=1">` +
     `<meta name="referrer" content="no-referrer"><base target="_blank">` +
     `<style>${FRAME_STYLE}</style></head><body>${body}` +
@@ -90,14 +109,16 @@ export function MessageHtml({
   html: string | null;
   text: string | null;
 }) {
-  const [showRemote, setShowRemote] = useState(false);
+  const [remoteAllowedFor, setRemoteAllowedFor] = useState<string | null>(null);
   const [height, setHeight] = useState<number | null>(null);
   const frame = useRef<HTMLIFrameElement | null>(null);
   const safe = useMemo(() => (html ? sanitizeEmailHtml(html) : null), [html]);
   const blocked = useMemo(() => (safe ? stripRemoteImages(safe) : null), [safe]);
   const containsRemote = blocked ? hasRemoteImages(blocked) : false;
+  // Consent covers the body it was given for, not whatever this component shows next.
+  const showRemote = blocked !== null && remoteAllowedFor === blocked;
   const frameHtml = blocked
-    ? frameDocument(showRemote ? restoreRemoteImages(blocked) : blocked)
+    ? frameDocument(showRemote ? restoreRemoteImages(blocked) : blocked, showRemote)
     : null;
 
   useEffect(() => {
@@ -124,7 +145,7 @@ export function MessageHtml({
           <button
             type="button"
             className="mail-remote-images mail-focus-ring"
-            onClick={() => setShowRemote(true)}
+            onClick={() => setRemoteAllowedFor(blocked)}
           >
             Show remote images
           </button>
