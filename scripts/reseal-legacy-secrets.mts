@@ -69,4 +69,15 @@ if (conn && typeof conn.refreshToken === "string" && conn.refreshToken) {
   report.salesforceConnResealed = true;
 }
 
+// --- BlueBubbles (iMessage) ----------------------------------------------
+type BlueBubbles = { password?: unknown; [k: string]: unknown };
+const bb = await kvGet<BlueBubbles>(`bluebubbles:${accountKey(email)}`);
+if (bb && typeof bb.password === "string" && bb.password) {
+  await kvSet(`bluebubbles:${accountKey(email)}`, {
+    ...bb,
+    password: seal(bb.password, accountKey(email)),
+  });
+  report.blueBubblesResealed = true;
+}
+
 console.log(JSON.stringify(report, null, 2));
