@@ -4,7 +4,11 @@ import { db } from "../db/pool";
 import type { AccountId } from "../db/types";
 import type { MailProvider, SyncFolder } from "../providers/types";
 import { loadSalesforce } from "@/lib/store/salesforce";
-import { recordModelUsage } from "./model-usage";
+import {
+  completeModelCall,
+  releaseModelCall,
+  reserveModelCall,
+} from "./model-usage";
 import {
   MAX_FUNCTIONS,
   MAX_TOPICS,
@@ -329,34 +333,94 @@ async function sampleProviderFolder(
   }
 }
 
+export type ProposeUsage = {
+  inputTokens?: number;
+  outputTokens?: number;
+  reasoningTokens?: number;
+  cachedInputTokens?: number;
+  totalTokens?: number;
+  providerMetadata?: Record<string, unknown>;
+};
+
 export type ProposeCaller = (
   corpus: OperatingCorpus,
-  note?: string,
-) => Promise<OperatingProposal>;
+  note: string | undefined,
+  model: string,
+) => Promise<OperatingProposal & { usage?: ProposeUsage }>;
 
-export const defaultProposeCaller: ProposeCaller = async (corpus, note) => {
-  const model =
+export const MAX_NOTE_CHARS = 3000;
+const PROPOSE_TIMEOUT_MS = 90_000;
+/** Longer than the route's maxDuration, so a crashed request cannot lock out the mailbox for long. */
+const PROPOSE_IN_FLIGHT_MS = 150_000;
+const PROPOSE_REASON = "operating_model";
+
+function strongModel(): string {
+  return (
     process.env.SEER_ROUTER_STRONG_MODEL?.trim() ||
-    "anthropic/claude-sonnet-4.6";
+    "anthropic/claude-sonnet-4.6"
+  );
+}
+
+export function capNote(note: unknown): string | undefined {
+  if (typeof note !== "string") return undefined;
+  const capped = note.trim().slice(0, MAX_NOTE_CHARS).trim();
+  return capped || undefined;
+}
+
+export const defaultProposeCaller: ProposeCaller = async (corpus, note, model) => {
   const result = await generateText({
     model,
     temperature: 0.2,
     maxRetries: 0,
-    abortSignal: AbortSignal.timeout(90_000),
+    abortSignal: AbortSignal.timeout(PROPOSE_TIMEOUT_MS),
     output: Output.object({ schema: proposalSchema }),
     providerOptions: {
       gateway: { caching: "auto" },
     },
     system: OPERATING_MODEL_SYSTEM,
     prompt: JSON.stringify({
-      note: note?.trim() || undefined,
+      note: capNote(note),
       salesforce: corpus.salesforce,
       counts: corpus.counts,
       mail: corpus.lines,
     }),
   });
-  return normalizeProposal(result.output);
+  return {
+    ...normalizeProposal(result.output),
+    usage: {
+      inputTokens: result.usage.inputTokens,
+      outputTokens: result.usage.outputTokens,
+      reasoningTokens: result.usage.outputTokenDetails.reasoningTokens,
+      cachedInputTokens: result.usage.inputTokenDetails.cacheReadTokens,
+      totalTokens: result.usage.totalTokens,
+      providerMetadata: result.providerMetadata as
+        | Record<string, unknown>
+        | undefined,
+    },
+  };
 };
+
+function gatewayFields(metadata: Record<string, unknown> | undefined): {
+  gatewayGenerationId?: string;
+  costUsd?: number;
+} {
+  const gateway =
+    metadata?.gateway && typeof metadata.gateway === "object"
+      ? (metadata.gateway as Record<string, unknown>)
+      : {};
+  const rawCost = gateway.cost;
+  const cost =
+    typeof rawCost === "number"
+      ? rawCost
+      : typeof rawCost === "string"
+        ? Number(rawCost)
+        : undefined;
+  return {
+    gatewayGenerationId:
+      typeof gateway.generationId === "string" ? gateway.generationId : undefined,
+    costUsd: cost !== undefined && Number.isFinite(cost) ? cost : undefined,
+  };
+}
 
 export async function proposeOperatingModel(
   accountId: AccountId,
@@ -367,20 +431,55 @@ export async function proposeOperatingModel(
     caller?: ProposeCaller;
   } = {},
 ): Promise<{ state: OperatingModelState; corpus: OperatingCorpus }> {
-  const corpus = await sampleCorpus(accountId, accountEmail, options.provider);
-  const started = Date.now();
-  const caller = options.caller ?? defaultProposeCaller;
-  const proposal = normalizeProposal(await caller(corpus, options.note));
+  const model = strongModel();
+  const note = capNote(options.note);
+  const reservation = await reserveModelCall({
+    accountId,
+    tier: "strong",
+    model,
+    escalationReasons: [PROPOSE_REASON],
+    exclusive: { reason: PROPOSE_REASON, staleAfterMs: PROPOSE_IN_FLIGHT_MS },
+  });
+
+  let attempted = false;
+  let started = Date.now();
+  let corpus: OperatingCorpus;
+  let result: Awaited<ReturnType<ProposeCaller>>;
+  try {
+    corpus = await sampleCorpus(accountId, accountEmail, options.provider);
+    const caller = options.caller ?? defaultProposeCaller;
+    started = Date.now();
+    attempted = true;
+    result = await caller(corpus, note, model);
+  } catch (error) {
+    await releaseModelCall(reservation, {
+      attempted,
+      latencyMs: attempted ? Date.now() - started : 0,
+    }).catch(() => {});
+    throw error;
+  }
+
+  const usage = result.usage ?? {};
+  await completeModelCall(reservation, {
+    latencyMs: Date.now() - started,
+    inputTokens: usage.inputTokens,
+    outputTokens: usage.outputTokens,
+    reasoningTokens: usage.reasoningTokens,
+    cachedInputTokens: usage.cachedInputTokens,
+    totalTokens: usage.totalTokens,
+    ...gatewayFields(usage.providerMetadata),
+    providerMetadata: usage.providerMetadata,
+  }).catch((error) => {
+    console.error(
+      "[seer:v2] operating-model usage persistence failed:",
+      error instanceof Error ? error.message : error,
+    );
+  });
+
+  const proposal = normalizeProposal(result);
   if (proposal.functions.length === 0) {
     throw new Error("The model did not propose any Atlas sections");
   }
   await saveProposal(accountId, proposal);
-  await recordModelUsage({
-    accountId,
-    tier: "strong",
-    model: process.env.SEER_ROUTER_STRONG_MODEL?.trim() || "anthropic/claude-sonnet-4.6",
-    escalationReasons: ["operating_model"],
-    latencyMs: Date.now() - started,
-  }).catch(() => {});
   return { state: await loadOperatingModel(accountId), corpus };
 }
