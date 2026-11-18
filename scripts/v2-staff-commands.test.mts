@@ -5,6 +5,7 @@ import { executeCommand } from "../src/lib/v2/commands/execute.ts";
 import { asConversationId, type AccountId } from "../src/lib/v2/db/types.ts";
 import { insertProposal, loadStaffView } from "../src/lib/v2/staff/repository.ts";
 import { tasksFromCsv } from "../src/lib/v2/staff/seed.ts";
+import { shownProposal } from "../src/lib/v2/staff/types.ts";
 import { upsertSeedTask } from "../src/lib/v2/staff/repository.ts";
 import { promises as fs } from "node:fs";
 import path from "node:path";
@@ -130,7 +131,12 @@ try {
   });
   const approved = await executeCommand(
     ctx,
-    { type: "decideTriageProposal", proposalId: proposal2.id, decision: "approved" },
+    {
+      type: "decideTriageProposal",
+      proposalId: proposal2.id,
+      decision: "approved",
+      ...shownProposal(proposal2),
+    },
     "staff-approve-1",
   );
   assert.equal(approved.ok, true, approved.error);

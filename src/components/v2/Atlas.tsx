@@ -10,7 +10,7 @@ import type {
 } from "@/lib/v2/view/types";
 import { reorderMatterSections } from "@/lib/v2/view/matter-order";
 import { MobileMailRow } from "@/components/v3/MobileMailRow";
-import type { StaffView } from "@/lib/v2/staff/types";
+import type { ShownProposal, StaffView } from "@/lib/v2/staff/types";
 import { StaffBoard } from "./StaffBoard";
 
 export type MatterMove = {
@@ -275,6 +275,7 @@ export function Atlas({
   onDecideProposal?: (
     proposalId: string,
     decision: "approved" | "rejected",
+    shown: ShownProposal,
   ) => void;
 }) {
   // Only "mine" narrows the board. A matter row opens its latest real email in
