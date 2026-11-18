@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 import { getActiveV2Account } from "@/lib/v2/session";
 import { providerFor } from "@/lib/v2/providers/provider";
+import { InvalidProviderCursorError } from "@/lib/v2/providers/types";
 import { searchWithMetadata } from "@/lib/v3/search/repository";
 
 export const dynamic = "force-dynamic";
@@ -24,6 +25,13 @@ export async function GET(request: Request) {
   const cursor = searchParams.get("cursor");
 
   const provider = await providerFor(account);
-  const view = await searchWithMetadata(account.id, provider, query, cursor);
-  return NextResponse.json({ view });
+  try {
+    const view = await searchWithMetadata(account.id, provider, query, cursor);
+    return NextResponse.json({ view });
+  } catch (error) {
+    if (error instanceof InvalidProviderCursorError) {
+      return NextResponse.json({ error: "invalid cursor" }, { status: 400 });
+    }
+    throw error;
+  }
 }
