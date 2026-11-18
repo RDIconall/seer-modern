@@ -1,0 +1,10 @@
+{
+  "extends": "../tsconfig.json",
+  "compilerOptions": {
+    "paths": {
+      "@/*": ["../src/*"],
+      "next/headers": ["./next-headers-request-scope.mjs"]
+    }
+  },
+  "include": ["../**/*.ts", "../**/*.tsx", "./**/*.mts"]
+}
