@@ -23,8 +23,6 @@ export type MatterEdits = {
   manual: ManualMatter[];
 };
 
-const EMPTY: MatterEdits = { renames: {}, manual: [] };
-
 function keyFor(accountEmail: string) {
   return `matter-edits:${accountKey(accountEmail)}`;
 }
@@ -33,7 +31,7 @@ export async function loadMatterEdits(
   accountEmail: string,
 ): Promise<MatterEdits> {
   const stored = await kvGet<MatterEdits>(keyFor(accountEmail));
-  return stored ? { renames: stored.renames ?? {}, manual: stored.manual ?? [] } : EMPTY;
+  return { renames: stored?.renames ?? {}, manual: stored?.manual ?? [] };
 }
 
 async function save(accountEmail: string, edits: MatterEdits) {
