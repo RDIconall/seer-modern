@@ -49,7 +49,7 @@ schema `seer` (unchanged).
 | Role | Access |
 |---|---|
 | `seer_app` | Full DML on all `seer` tables (the Next.js server) |
-| `seer_bot` | DML on `bots`, `bot_tasks`, `bot_task_events`, `bot_messages`, `triage_proposals`. **SELECT only** on `mail_accounts`, `conversations`, `matters`, `messages`. No DML on mail/outbox/commands |
+| `seer_bot` | DML on `bots`, `bot_tasks`, `bot_task_events`, `bot_messages`. On `triage_proposals`: SELECT, INSERT of `pending` rows, UPDATE of `status`/`decided_by`/`decided_at` only to withdraw a pending row (`rejected`, `decided_by = 'bot'`), DELETE of pending rows. **SELECT only** on `mail_accounts`, `conversations`, `matters`, `messages`. No DML on mail/outbox/commands |
 | `anon` / `authenticated` | None |
 
 `seer_bot` is created `NOLOGIN`. In Supabase, create a login role (or use a
@@ -74,7 +74,9 @@ touch the tables below.
 The bot must **not** `UPDATE seer.triage_proposals.status` to `approved` or
 `executed`. That would skip Conall's approval. If it needs to withdraw a
 proposal, set `status = 'rejected'` with `decided_by = 'bot'` or delete the
-pending row.
+pending row. A proposal's action, conversation, subject and destination are
+fixed once inserted; to propose something else, withdraw it and insert a new
+row. The `seer_bot` grants and policies enforce this.
 
 ---
 
@@ -278,7 +280,7 @@ The browser never talks to these tables. Conall's actions are commands on
 | `updateBotTask` | Patch status / notes / due / priority / title / bot; event + webhook |
 | `commentBotTask` | Event `kind=comment`; webhook `bot_task.commented` |
 | `postBotMessage` | Insert `author=user` message; webhook `bot_message.created` |
-| `decideTriageProposal` | `approved` → execute mail; `rejected` → close. Webhook `triage_proposal.decided` |
+| `decideTriageProposal` | `approved` → execute mail; `rejected` → close. Webhook `triage_proposal.decided`. Approve carries the `action`, `conversationId`, `providerConversationId`, `subject` and `destinationId` that were on screen; Seer refuses it unless the pending row still matches |
 
 The bot does not call this HTTP API (SSO). It writes SQL instead.
 
