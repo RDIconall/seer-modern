@@ -21,6 +21,10 @@ import {
 } from "@/lib/auth/account-link";
 import { setActiveAccountId } from "@/lib/store/accounts";
 import { describeAccessRefusal, isAllowedOrgEmail } from "@/lib/auth/org";
+import {
+  microsoftIdentity,
+  microsoftUsername,
+} from "@/lib/auth/microsoft-tenant";
 
 const googleConfigured =
   Boolean(process.env.AUTH_GOOGLE_ID) &&
@@ -82,16 +86,39 @@ export const { handlers, auth, signIn, signOut } = NextAuth({
                   "openid profile email offline_access User.Read Mail.ReadWrite Mail.Send Contacts.Read Calendars.Read",
               },
             },
+            profile(profile) {
+              return {
+                id: profile.sub,
+                name: profile.name,
+                email: microsoftUsername(profile),
+                image: null,
+              };
+            },
           }),
         ]
       : []),
   ],
   callbacks: {
-    async signIn({ user }) {
-      if (isAllowedOrgEmail(user.email)) return true;
+    async signIn({ user, account, profile }) {
+      const identity = providerIdentity(account?.provider, profile);
+      if (!identity.ok) {
+        console.warn("[auth] sign-in refused:", identity.reason);
+        return false;
+      }
+      if (user.email?.trim().toLowerCase() !== identity.email) {
+        console.warn(
+          "[auth] sign-in refused:",
+          "the signed-in user does not carry the provider's verified address",
+        );
+        return false;
+      }
+      if (isAllowedOrgEmail(identity.email)) return true;
       // The Auth.js AccessDenied page cannot name the address it turned away,
       // so nothing but this line says which mailbox was refused and why.
-      console.warn("[auth] sign-in refused:", describeAccessRefusal(user.email));
+      console.warn(
+        "[auth] sign-in refused:",
+        describeAccessRefusal(identity.email),
+      );
       return false;
     },
     async jwt({ token, account, profile }) {
@@ -109,15 +136,11 @@ export const { handlers, auth, signIn, signOut } = NextAuth({
           if (linkState.status === "invalid") {
             throw new Error("Invalid or expired account link state");
           }
-          const profileEmail = (profile as { email?: string } | undefined)?.email;
-          if (linkState.status === "valid" && !profileEmail) {
-            throw new Error("Linked provider email is missing");
+          const identity = providerIdentity(account.provider, profile);
+          if (!identity.ok) {
+            throw new Error(identity.reason);
           }
-          const providerEmail =
-            profileEmail ?? (token.email as string | undefined);
-          if (!providerEmail) {
-            throw new Error("Provider email is missing");
-          }
+          const providerEmail = identity.email;
           if (!isAllowedOrgEmail(providerEmail)) {
             throw new Error(describeAccessRefusal(providerEmail));
           }
@@ -271,6 +294,43 @@ function toV2Provider(
     return "microsoft";
   }
   return undefined;
+}
+
+type ProviderIdentity =
+  | { ok: true; email: string }
+  | { ok: false; reason: string };
+
+/**
+ * The address a provider vouches for. Microsoft is the username inside the
+ * configured tenant; Google is the account address only once Google has
+ * verified it.
+ */
+function providerIdentity(
+  provider: string | undefined,
+  profile: unknown,
+): ProviderIdentity {
+  if (provider === "microsoft-entra-id") {
+    const identity = microsoftIdentity(profile);
+    return identity.ok
+      ? { ok: true, email: identity.username }
+      : { ok: false, reason: identity.reason };
+  }
+  if (provider === "google") {
+    const claims = (profile ?? {}) as {
+      email?: unknown;
+      email_verified?: unknown;
+    };
+    const email =
+      typeof claims.email === "string" ? claims.email.trim().toLowerCase() : "";
+    if (!email) {
+      return { ok: false, reason: describeAccessRefusal(null) };
+    }
+    if (claims.email_verified !== true) {
+      return { ok: false, reason: `${email} is not verified by Google` };
+    }
+    return { ok: true, email };
+  }
+  return { ok: false, reason: "unsupported sign-in provider" };
 }
 
 function toLinkProvider(provider: string): AccountLinkProvider {
