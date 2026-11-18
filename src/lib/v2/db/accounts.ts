@@ -62,6 +62,26 @@ function credentialPayload(
   return payload;
 }
 
+function storedTokensMatch(
+  accountId: AccountId,
+  stored: Record<string, EncryptedValue>,
+  cred: { accessToken?: string; refreshToken?: string },
+): boolean {
+  const fields = (["accessToken", "refreshToken"] as const).filter(
+    (field) => cred[field],
+  );
+  if (fields.length === 0) return false;
+  try {
+    return fields.every(
+      (field) =>
+        stored[field] !== undefined &&
+        decryptCredential(stored[field], accountId) === cred[field],
+    );
+  } catch {
+    return false;
+  }
+}
+
 async function saveCredentialsWithRunner(
   runner: Runner,
   accountId: AccountId,
@@ -71,14 +91,23 @@ async function saveCredentialsWithRunner(
   const current = await runner.query<{
     ciphertext: Record<string, EncryptedValue>;
     expires_at: Date | null;
+    status: CredentialStatus;
   }>(
-    `select ciphertext, expires_at
+    `select ciphertext, expires_at, status
        from seer.oauth_credentials
       where account_id = $1
       for update`,
     [accountId],
   );
   const existing = current.rows[0];
+  // Rewriting identical tokens would only bump the version that guards
+  // concurrent refreshes.
+  if (
+    existing?.status === "active" &&
+    storedTokensMatch(accountId, existing.ciphertext, cred)
+  ) {
+    return;
+  }
   const payload = credentialPayload(accountId, cred, existing?.ciphertext);
   const expiresMs =
     normalizeEpochMs(cred.expiresAt) ??
