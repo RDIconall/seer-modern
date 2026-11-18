@@ -38,6 +38,20 @@ import { assertSyncBudget } from "./types";
 
 const API = "https://gmail.googleapis.com/gmail/v1/users/me";
 
+/**
+ * Subjects and addresses here come from received mail as well as the
+ * composer. A CR or LF in one would end the field and start a new header or
+ * the body, so line breaks fold to a space and other control characters are
+ * dropped.
+ */
+function headerLine(name: string, value: string): string {
+  const clean = value
+    .replace(/[\r\n\u0085\u2028\u2029]+/g, " ")
+    .replace(/[\u0000-\u0008\u000b-\u001f\u007f]/g, "")
+    .trim();
+  return `${name}: ${clean}`;
+}
+
 type GmailHeader = { name: string; value: string };
 type GmailPart = {
   mimeType?: string;
@@ -239,10 +253,11 @@ export class GmailProvider implements MailProvider {
   }
 
   private encodeRaw(
-    headersLines: string[],
+    headers: [name: string, value: string][],
     html: string,
     attachments: SendCommand["attachments"] = [],
   ): string {
+    const headersLines = headers.map(([name, value]) => headerLine(name, value));
     const safeAttachments = attachments ?? [];
     const boundary = `seer_${crypto.randomUUID().replaceAll("-", "")}`;
     const mime =
@@ -266,13 +281,16 @@ export class GmailProvider implements MailProvider {
             html,
             ...safeAttachments.flatMap((attachment) => {
               const filename = attachment.filename.replace(/[\r\n"]/g, "_");
+              const mimeType = /^[\w.+-]+\/[\w.+-]+$/.test(attachment.mimeType)
+                ? attachment.mimeType
+                : "application/octet-stream";
               const base64 = attachment.contentBase64
                 .replace(/\s/g, "")
                 .match(/.{1,76}/g)
                 ?.join("\r\n") ?? "";
               return [
                 `--${boundary}`,
-                `Content-Type: ${attachment.mimeType || "application/octet-stream"}; name="${filename}"`,
+                `Content-Type: ${mimeType}; name="${filename}"`,
                 "Content-Transfer-Encoding: base64",
                 `Content-Disposition: attachment; filename="${filename}"`,
                 "",
@@ -292,10 +310,12 @@ export class GmailProvider implements MailProvider {
     void _key;
     const raw = this.encodeRaw(
       [
-        `To: ${command.to.map((a) => a.email).join(", ")}`,
-        command.cc?.length ? `Cc: ${command.cc.map((a) => a.email).join(", ")}` : "",
-        `Subject: ${command.subject}`,
-      ].filter(Boolean),
+        ["To", command.to.map((a) => a.email).join(", ")],
+        ...(command.cc?.length
+          ? [["Cc", command.cc.map((a) => a.email).join(", ")] as [string, string]]
+          : []),
+        ["Subject", command.subject],
+      ],
       command.bodyHtml,
       command.attachments,
     );
@@ -318,8 +338,8 @@ export class GmailProvider implements MailProvider {
     }
     const raw = this.encodeRaw(
       [
-        `To: ${[...recipients].join(", ")}`,
-        `Subject: Re: ${convo.subject}`,
+        ["To", [...recipients].join(", ")],
+        ["Subject", `Re: ${convo.subject}`],
       ],
       command.bodyHtml,
     );
@@ -335,7 +355,10 @@ export class GmailProvider implements MailProvider {
     const convo = await this.thread(command.conversationId);
     const bodyHtml = gmailForwardHtml(convo, command.bodyHtml);
     const raw = this.encodeRaw(
-      [`To: ${command.to.map((a) => a.email).join(", ")}`, `Subject: Fwd: ${convo.subject}`],
+      [
+        ["To", command.to.map((a) => a.email).join(", ")],
+        ["Subject", `Fwd: ${convo.subject}`],
+      ],
       bodyHtml,
     );
     const r = await this.post<{ id: string; threadId: string }>("/messages/send", {
