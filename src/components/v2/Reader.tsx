@@ -131,7 +131,7 @@ export function Reader({
       .find((node) => node.dataset.messageId === focusMessageId);
     if (!target) return;
     focusedOnce.current = true;
-    target.scrollIntoView({ block: "center" });
+    target.scrollIntoView?.({ block: "center" });
   }, [focusMessageId, open]);
   const toggle = (key: string) =>
     setOpen((prev) => {
