@@ -139,9 +139,19 @@ export type Command =
       botSlug?: string;
     }
   | {
+      /**
+       * Approve must carry the proposal exactly as it was on screen. The bot
+       * can write proposal rows, so the server executes only a pending row
+       * that still matches these fields and refuses otherwise.
+       */
       type: "decideTriageProposal";
       proposalId: string;
       decision: "approved" | "rejected";
+      action?: string;
+      conversationId?: string | null;
+      providerConversationId?: string | null;
+      subject?: string | null;
+      destinationId?: string | null;
     };
 
 export type CommandResult = {

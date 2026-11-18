@@ -2,8 +2,13 @@
 
 import * as React from "react";
 import { useMemo, useState } from "react";
-import type { StaffTask, StaffView } from "@/lib/v2/staff/types";
-import { ACTION_LABEL, DEFAULT_BOT_SLUG, STATUS_LABEL } from "@/lib/v2/staff/types";
+import type { ShownProposal, StaffTask, StaffView } from "@/lib/v2/staff/types";
+import {
+  ACTION_LABEL,
+  DEFAULT_BOT_SLUG,
+  STATUS_LABEL,
+  shownProposal,
+} from "@/lib/v2/staff/types";
 
 function daysAgo(iso: string | null, now: number): number {
   if (!iso) return 0;
@@ -29,7 +34,11 @@ export function StaffBoard({
   onOpenTask?: (taskId: string) => void;
   onOpenChat?: () => void;
   onCreateTask?: (title: string, botSlug: string) => void;
-  onDecideProposal?: (proposalId: string, decision: "approved" | "rejected") => void;
+  onDecideProposal?: (
+    proposalId: string,
+    decision: "approved" | "rejected",
+    shown: ShownProposal,
+  ) => void;
 }) {
   const now = Date.now();
   const [title, setTitle] = useState("");
@@ -93,14 +102,18 @@ export function StaffBoard({
                   <button
                     type="button"
                     className="wb-btn wb-btn-primary"
-                    onClick={() => onDecideProposal?.(proposal.id, "approved")}
+                    onClick={() =>
+                      onDecideProposal?.(proposal.id, "approved", shownProposal(proposal))
+                    }
                   >
                     Approve
                   </button>
                   <button
                     type="button"
                     className="wb-btn"
-                    onClick={() => onDecideProposal?.(proposal.id, "rejected")}
+                    onClick={() =>
+                      onDecideProposal?.(proposal.id, "rejected", shownProposal(proposal))
+                    }
                   >
                     Reject
                   </button>

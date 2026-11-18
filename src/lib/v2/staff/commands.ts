@@ -4,17 +4,19 @@ import { enqueueOptimistic } from "@/lib/v3/outbox/repository";
 import { isUuid, type AccountId } from "../db/types";
 import {
   accountEmail,
+  claimProposalForApproval,
   commentTask,
   createTask,
   getProposal,
   getTask,
   markProposal,
   postMessage,
+  rejectPendingProposal,
   resolveConversation,
   updateTask,
 } from "./repository";
-import type { StaffTask } from "./types";
-import { DEFAULT_BOT_SLUG, isBotTaskStatus } from "./types";
+import type { ShownProposal, StaffProposal, StaffTask } from "./types";
+import { DEFAULT_BOT_SLUG, isBotTaskStatus, isTriageAction } from "./types";
 import { notifyStaffWebhook } from "./webhook";
 import type { StaffWebhookEvent, StaffWebhookPayload } from "./webhook";
 
@@ -170,31 +172,59 @@ export async function runStaffCommand(
       }
     }
     case "decideTriageProposal": {
-      return decideProposal(ctx, command.proposalId, command.decision, idempotencyKey);
+      return decideProposal(ctx, command, idempotencyKey);
     }
     default:
       return fail("not a staff command");
   }
 }
 
+type DecideCommand = Extract<Command, { type: "decideTriageProposal" }>;
+
+function optionalText(value: unknown): string | null | undefined {
+  if (value === undefined || value === null) return null;
+  return typeof value === "string" ? value : undefined;
+}
+
+function shownFromCommand(command: DecideCommand): ShownProposal | null {
+  if (typeof command.action !== "string" || !isTriageAction(command.action)) {
+    return null;
+  }
+  const conversationId = optionalText(command.conversationId);
+  const providerConversationId = optionalText(command.providerConversationId);
+  const subject = optionalText(command.subject);
+  const destinationId = optionalText(command.destinationId);
+  if (
+    conversationId === undefined ||
+    providerConversationId === undefined ||
+    subject === undefined ||
+    destinationId === undefined
+  ) {
+    return null;
+  }
+  return {
+    action: command.action,
+    conversationId,
+    providerConversationId,
+    subject,
+    destinationId,
+  };
+}
+
 async function decideProposal(
   ctx: StaffCommandContext,
-  proposalId: string,
-  decision: "approved" | "rejected",
+  command: DecideCommand,
   idempotencyKey: string,
 ): Promise<CommandResult> {
+  const proposalId = command.proposalId;
   if (!isUuid(proposalId)) return fail("proposal not found");
-  const proposal = await getProposal(ctx.accountId, proposalId);
-  if (!proposal) return fail("proposal not found");
-  if (proposal.status !== "pending") {
-    return fail("proposal already decided");
-  }
+  const current = await getProposal(ctx.accountId, proposalId);
+  if (!current) return fail("proposal not found");
+  if (current.status !== "pending") return fail("proposal already decided");
 
-  if (decision === "rejected") {
-    const updated = await markProposal(ctx.accountId, proposalId, {
-      status: "rejected",
-      decidedBy: "user",
-    });
+  if (command.decision === "rejected") {
+    const updated = await rejectPendingProposal(ctx.accountId, proposalId);
+    if (!updated) return fail("proposal already decided");
     await ping(ctx, "triage_proposal.decided", {
       proposalId,
       proposal: {
@@ -204,6 +234,15 @@ async function decideProposal(
       },
     });
     return ok({ proposalId, status: "rejected" });
+  }
+  if (command.decision !== "approved") return fail("invalid decision");
+
+  const shown = shownFromCommand(command);
+  if (!shown) return fail("approval must carry the proposal as it was shown");
+  // Execute the claimed row, never `current`: the row can change between them.
+  const proposal = await claimProposalForApproval(ctx.accountId, proposalId, shown);
+  if (!proposal) {
+    return fail("proposal changed or was decided since it was shown — review it again");
   }
 
   try {
@@ -246,10 +285,9 @@ async function decideProposal(
 
 async function executeApproved(
   ctx: StaffCommandContext,
-  proposal: Awaited<ReturnType<typeof getProposal>> & {},
+  proposal: StaffProposal,
   idempotencyKey: string,
 ): Promise<CommandResult> {
-  if (!proposal) return fail("proposal not found");
   const action = proposal.action;
 
   if (action === "keep") {

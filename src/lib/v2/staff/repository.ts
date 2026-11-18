@@ -9,6 +9,7 @@ import {
 import { DEFAULT_BOT_SLUG } from "./types";
 import type {
   BotTaskStatus,
+  ShownProposal,
   StaffActor,
   StaffBot,
   StaffEvent,
@@ -705,26 +706,92 @@ export async function markProposal(
   return asProposal(r.rows[0]);
 }
 
+const PROPOSAL_RETURNING = `
+  returning id, bot_id,
+            (select slug from seer.bots where id = bot_id) as bot_slug,
+            (select display_name from seer.bots where id = bot_id) as bot_name,
+            conversation_id, provider_conversation_id, sender_email, subject,
+            action, destination_id, destination_name, rationale, status,
+            last_error, outbox_id, created_at, decided_at
+`;
+
+/**
+ * Moves a pending proposal to `approved` only if every field that decides the
+ * mail change still equals what the user was shown, in one statement. The
+ * returned row is the one the user approved; execute that, never a later read.
+ */
+export async function claimProposalForApproval(
+  accountId: AccountId,
+  proposalId: string,
+  shown: ShownProposal,
+): Promise<StaffProposal | null> {
+  if (!isUuid(proposalId)) return null;
+  if (shown.conversationId !== null && !isUuid(shown.conversationId)) return null;
+  const r = await db().query<ProposalRow>(
+    `update seer.triage_proposals set
+       status = 'approved',
+       decided_at = now(),
+       decided_by = 'user',
+       last_error = null
+     where account_id = $1 and id = $2
+       and status = 'pending'
+       and action = $3
+       and conversation_id is not distinct from $4::uuid
+       and provider_conversation_id is not distinct from $5::text
+       and subject is not distinct from $6::text
+       and destination_id is not distinct from $7::text
+     ${PROPOSAL_RETURNING}`,
+    [
+      accountId,
+      proposalId,
+      shown.action,
+      shown.conversationId,
+      shown.providerConversationId,
+      shown.subject,
+      shown.destinationId,
+    ],
+  );
+  return r.rows[0] ? asProposal(r.rows[0]) : null;
+}
+
+export async function rejectPendingProposal(
+  accountId: AccountId,
+  proposalId: string,
+): Promise<StaffProposal | null> {
+  if (!isUuid(proposalId)) return null;
+  const r = await db().query<ProposalRow>(
+    `update seer.triage_proposals set
+       status = 'rejected',
+       decided_at = now(),
+       decided_by = 'user'
+     where account_id = $1 and id = $2 and status = 'pending'
+     ${PROPOSAL_RETURNING}`,
+    [accountId, proposalId],
+  );
+  return r.rows[0] ? asProposal(r.rows[0]) : null;
+}
+
+/**
+ * A proposal names its conversation by Seer id, provider id, or both. When it
+ * carries both they must be the same conversation; otherwise nothing resolves.
+ */
 export async function resolveConversation(
   accountId: AccountId,
   conversationId: string | null,
   providerConversationId: string | null,
 ): Promise<{ id: string; providerConversationId: string } | null> {
+  if (conversationId !== null && !isUuid(conversationId)) return null;
+  if (conversationId === null && providerConversationId === null) return null;
   const r = await db().query<{ id: string; provider_conversation_id: string }>(
     `select id, provider_conversation_id
        from seer.conversations
       where account_id = $1
-        and (
-          ($2::uuid is not null and id = $2)
-          or ($3::text is not null and provider_conversation_id = $3)
-        )
-      limit 1`,
-    [
-      accountId,
-      conversationId && isUuid(conversationId) ? conversationId : null,
-      providerConversationId,
-    ],
+        and ($2::uuid is null or id = $2)
+        and ($3::text is null or provider_conversation_id = $3)
+      limit 2`,
+    [accountId, conversationId, providerConversationId],
   );
+  if (r.rows.length !== 1) return null;
   const row = r.rows[0];
   return row
     ? { id: row.id, providerConversationId: row.provider_conversation_id }

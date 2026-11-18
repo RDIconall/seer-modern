@@ -102,6 +102,29 @@ export type StaffProposal = {
   decidedAt: string | null;
 };
 
+/**
+ * The parts of a proposal that decide which mail moves where. Approve carries
+ * them as they were on screen; the server executes only a row that still
+ * matches them.
+ */
+export type ShownProposal = {
+  action: TriageAction;
+  conversationId: string | null;
+  providerConversationId: string | null;
+  subject: string | null;
+  destinationId: string | null;
+};
+
+export function shownProposal(proposal: StaffProposal): ShownProposal {
+  return {
+    action: proposal.action,
+    conversationId: proposal.conversationId,
+    providerConversationId: proposal.providerConversationId,
+    subject: proposal.subject,
+    destinationId: proposal.destinationId,
+  };
+}
+
 export type StaffView = {
   asOf: string;
   bots: StaffBot[];

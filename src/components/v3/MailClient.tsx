@@ -1060,11 +1060,12 @@ export function MailClient({
           onCreateStaffTask={(title, botSlug) => {
             void staff.dispatch({ type: "createBotTask", title, botSlug });
           }}
-          onDecideProposal={(proposalId, decision) => {
+          onDecideProposal={(proposalId, decision, shown) => {
             void staff.dispatch({
               type: "decideTriageProposal",
               proposalId,
               decision,
+              ...shown,
             });
           }}
         />
