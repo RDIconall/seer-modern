@@ -411,14 +411,30 @@ export async function getGmailThreadMessages(
   return messages.sort((a, b) => a.receivedAt.localeCompare(b.receivedAt));
 }
 
+/**
+ * Header values come from the composer and from received mail (subjects,
+ * addresses, Message-IDs, List-Unsubscribe). A CR or LF in one would end
+ * the field and start a new header or the body, so line breaks fold to a
+ * space and other control characters are dropped.
+ */
+function headerValue(raw: string): string {
+  return raw
+    .replace(/[\r\n\u0085\u2028\u2029]+/g, " ")
+    .replace(/[\u0000-\u0008\u000b-\u001f\u007f]/g, "")
+    .trim();
+}
+
 function buildMime(input: SendMailInput): string {
+  const cc = input.cc ? headerValue(input.cc) : "";
+  const inReplyTo = input.inReplyTo ? headerValue(input.inReplyTo) : "";
+  const references = input.references ? headerValue(input.references) : "";
   const head = [
-    `To: ${input.to}`,
-    ...(input.cc?.trim() ? [`Cc: ${input.cc.trim()}`] : []),
-    `Subject: ${input.subject}`,
+    `To: ${headerValue(input.to)}`,
+    ...(cc ? [`Cc: ${cc}`] : []),
+    `Subject: ${headerValue(input.subject)}`,
     "MIME-Version: 1.0",
-    ...(input.inReplyTo ? [`In-Reply-To: ${input.inReplyTo}`] : []),
-    ...(input.references ? [`References: ${input.references}`] : []),
+    ...(inReplyTo ? [`In-Reply-To: ${inReplyTo}`] : []),
+    ...(references ? [`References: ${references}`] : []),
   ];
   const attachments = input.attachments ?? [];
   if (attachments.length > 0) {

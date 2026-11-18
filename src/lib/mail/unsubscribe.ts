@@ -17,6 +17,27 @@ export type UnsubscribeResult =
 
 type Parsed = { https?: string; mailto?: string; oneClick: boolean };
 
+const CONTROL = /[\u0000-\u001f\u007f-\u009f\u2028\u2029]/;
+const SINGLE_MAILBOX = /^[^\s@,;:<>()[\]"\\]+@[^\s@,;:<>()[\]"\\]+$/;
+
+/**
+ * The mailto URL is written by whoever sent the message, and the result is
+ * mailed from the user's own account. Only one recipient and a one-line
+ * subject are honoured; anything else is not a mailto we act on.
+ */
+function mailtoTarget(
+  mailto: string,
+): { to: string; subject: string } | null {
+  const u = new URL(mailto);
+  const to = decodeURIComponent(u.pathname).trim();
+  if (CONTROL.test(to) || !SINGLE_MAILBOX.test(to)) return null;
+  const subjects = u.searchParams.getAll("subject");
+  if (subjects.length > 1) return null;
+  const subject = subjects[0]?.trim() || "unsubscribe";
+  if (CONTROL.test(subject)) return null;
+  return { to, subject };
+}
+
 function parseHeaders(
   listUnsub: string | undefined,
   listUnsubPost: string | undefined,
@@ -53,11 +74,9 @@ async function perform(
   // 2. mailto: — send the unsubscribe email as the user
   if (parsed.mailto) {
     try {
-      const u = new URL(parsed.mailto);
-      const to = u.pathname;
-      const subject = u.searchParams.get("subject") ?? "unsubscribe";
-      if (to.includes("@")) {
-        await sendMail(to, subject);
+      const target = mailtoTarget(parsed.mailto);
+      if (target) {
+        await sendMail(target.to, target.subject);
         return { method: "mailto" };
       }
     } catch {
