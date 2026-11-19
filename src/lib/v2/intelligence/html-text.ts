@@ -7,7 +7,16 @@
  * hold this to: what you would see if you pasted the email into a chat.
  */
 
-const BLOCK_LEVEL = /<\/?(p|div|tr|li|h[1-6]|blockquote|table|section|article)\b[^>]*>/gi;
+import { scanHtml } from "./html-scan";
+
+/** Tags that end a line, so sentences either side don't fuse. */
+const BLOCK_LEVEL = new Set([
+  "p", "div", "tr", "li", "h1", "h2", "h3", "h4", "h5", "h6",
+  "blockquote", "table", "section", "article",
+]);
+
+/** Non-content regions, dropped together with everything inside them. */
+const NON_CONTENT = new Set(["script", "style", "head", "noscript"]);
 
 const ENTITIES: Record<string, string> = {
   amp: "&",
@@ -35,17 +44,15 @@ function decodeEntities(s: string): string {
 }
 
 export function htmlToText(html: string): string {
-  return decodeEntities(
-    html
-      // Drop non-content regions entirely, including their contents.
-      .replace(/<!--[\s\S]*?-->/g, " ")
-      .replace(/<(script|style|head|noscript)\b[^>]*>[\s\S]*?<\/\1>/gi, " ")
-      // Preserve document structure as line breaks so sentences don't fuse.
-      .replace(/<br\s*\/?>/gi, "\n")
-      .replace(BLOCK_LEVEL, "\n")
-      // Everything else is markup.
-      .replace(/<[^>]+>/g, " "),
-  )
+  const parts: string[] = [];
+  scanHtml(html, NON_CONTENT, (token) => {
+    if (token.kind === "text") parts.push(token.text);
+    else if (token.kind !== "tag") parts.push(" ");
+    else if (BLOCK_LEVEL.has(token.name)) parts.push("\n");
+    else if (token.name === "br" && !token.close && !token.attrs.trim()) parts.push("\n");
+    else parts.push(" ");
+  });
+  return decodeEntities(parts.join(""))
     .replace(/[ \t\u00a0]+/g, " ")
     .replace(/\n\s*\n\s*\n+/g, "\n\n")
     .split("\n")
