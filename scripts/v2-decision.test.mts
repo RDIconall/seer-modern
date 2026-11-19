@@ -27,6 +27,9 @@ const SAFE: SafetyFacts = {
   isHumanCorrespondence: false,
   addressedDirectly: false,
   priorMatterRejections: 0,
+  messageHasAsk: false,
+  messageHasObligation: false,
+  messageAddressesClassifier: false,
 };
 
 // --- Veto-only safety (pure) -------------------------------------------------
