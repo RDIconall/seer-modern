@@ -35,9 +35,18 @@ permanent purge.
 
    Set these on the Vercel **preview** environment for project `seer-modern`,
    not production, until this is accepted.
-4. Point the bot's Supabase SQL connector at the same project. Prefer a
+4. Point the bot's Supabase SQL connector at the same project, using a
    Postgres role that is a member of `seer_bot` (see Roles). The bot must not
-   use the `seer_app` database password.
+   use the `seer_app` database password, `service_role`, or any role that
+   bypasses RLS.
+5. As the database owner, list each mailbox the bot may work on:
+
+   ```sql
+   insert into seer.bot_account_grants (account_id) values ('<mail_accounts.id>');
+   ```
+
+   `seer_bot` sees nothing from a mailbox that is not listed. Delete the row
+   to withdraw access.
 
 ---
 
@@ -49,13 +58,13 @@ schema `seer` (unchanged).
 | Role | Access |
 |---|---|
 | `seer_app` | Full DML on all `seer` tables (the Next.js server) |
-| `seer_bot` | DML on `bots`, `bot_tasks`, `bot_task_events`, `bot_messages`, `triage_proposals`. **SELECT only** on `mail_accounts`, `conversations`, `matters`, `messages`. No DML on mail/outbox/commands |
+| `seer_bot` | DML on `bots`. DML on `bot_tasks`, `bot_task_events`, `bot_messages`, `triage_proposals` and **SELECT only** on `mail_accounts`, `conversations`, `matters`, limited to mailboxes in `seer.bot_account_grants`. On `messages`, SELECT of `id`, `account_id`, `conversation_id`, `provider_message_id`, `sent_at` only (no bodies, snippets, participants, or attachment names). SELECT only on `bot_account_grants`. No DML on mail/outbox/commands |
 | `anon` / `authenticated` | None |
 
 `seer_bot` is created `NOLOGIN`. In Supabase, create a login role (or use a
-dedicated database user) and `grant seer_bot to <login>`. If the connector
-runs as `service_role`, it bypasses RLS — still obey this contract and only
-touch the tables below.
+dedicated database user) and `grant seer_bot to <login>`. Do not run the
+connector as `service_role` or any `BYPASSRLS` role: the mailbox boundary is
+enforced only by RLS.
 
 ---
 
