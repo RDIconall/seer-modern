@@ -104,7 +104,17 @@ function walkBodies(part: GmailPart | undefined, out: { html?: string; text?: st
   for (const child of part.parts ?? []) walkBodies(child, out);
 }
 
-function toMessage(m: GmailMessage, selfEmail: string): Message {
+/**
+ * Authorship comes from the labels Gmail itself applies to mail this mailbox
+ * sent or is drafting. A From header is written by whoever sent the message,
+ * so a matching From on delivered mail proves nothing.
+ */
+function sentByMailbox(m: GmailMessage): boolean {
+  const labels = m.labelIds ?? [];
+  return labels.includes("SENT") || labels.includes("DRAFT");
+}
+
+function toMessage(m: GmailMessage): Message {
   const headers = m.payload?.headers;
   const bodies: { html?: string; text?: string; attachments: Message["attachments"] } = {
     attachments: [],
@@ -123,7 +133,7 @@ function toMessage(m: GmailMessage, selfEmail: string): Message {
     bodyHtml: bodies.html ?? null,
     bodyText: bodies.text ?? null,
     isUnread: (m.labelIds ?? []).includes("UNREAD"),
-    isOutgoing: from.email === selfEmail.toLowerCase(),
+    isOutgoing: sentByMailbox(m),
     attachments: bodies.attachments,
   };
 }
@@ -167,7 +177,7 @@ export class GmailProvider implements MailProvider {
     assertSyncBudget(context);
     const t = await this.get<GmailThread>(`/threads/${id}?format=full`, context);
     const messages = (t.messages ?? [])
-      .map((m) => toMessage(m, this.deps.accountEmail))
+      .map((m) => toMessage(m))
       .sort((a, b) => a.sentAt.localeCompare(b.sentAt));
     return {
       providerConversationId: id,
@@ -309,12 +319,21 @@ export class GmailProvider implements MailProvider {
     void _key;
     const convo = await this.thread(command.conversationId);
     const last = convo.messages[convo.messages.length - 1];
+    const self = this.deps.accountEmail.toLowerCase();
+    const others = (list: Address[] | undefined) =>
+      (list ?? []).map((a) => a.email).filter((email) => email && email !== self);
     const recipients = new Set<string>();
-    if (last?.from.email) recipients.add(last.from.email);
+    if (last?.from.email && last.from.email !== self) recipients.add(last.from.email);
+    // A last message whose From is the mailbox has no sender to answer; reply
+    // to the people it was addressed to instead of to the mailbox itself.
+    if (command.all || recipients.size === 0) {
+      for (const email of others(last?.to)) recipients.add(email);
+    }
     if (command.all) {
-      for (const a of [...(last?.to ?? []), ...(last?.cc ?? [])]) {
-        if (a.email !== this.deps.accountEmail.toLowerCase()) recipients.add(a.email);
-      }
+      for (const email of others(last?.cc)) recipients.add(email);
+    }
+    if (recipients.size === 0) {
+      throw new Error("reply has no recipient other than the mailbox");
     }
     const raw = this.encodeRaw(
       [

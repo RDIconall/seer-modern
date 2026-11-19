@@ -52,6 +52,7 @@ type GraphMessage = {
   isRead?: boolean;
   hasAttachments?: boolean;
   parentFolderId?: string;
+  isDraft?: boolean;
   attachments?: { id?: string; name?: string; contentType?: string; size?: number }[];
 };
 
@@ -72,7 +73,12 @@ function addrs(list: GraphRecipient[] | undefined): Address[] {
   return (list ?? []).map(addr).filter((a): a is Address => a !== null);
 }
 
-function toMessage(m: GraphMessage, selfEmail: string): Message {
+/**
+ * Authorship comes from where Exchange filed the message: Sent Items, or an
+ * unsent draft. A From address is written by whoever sent the message, so a
+ * matching From on delivered mail proves nothing.
+ */
+function toMessage(m: GraphMessage, sentItemsId: string | null): Message {
   const isHtml = (m.body?.contentType ?? "").toLowerCase() === "html";
   const from = addr(m.from) ?? { email: "" };
   return {
@@ -85,7 +91,9 @@ function toMessage(m: GraphMessage, selfEmail: string): Message {
     bodyHtml: isHtml ? (m.body?.content ?? null) : null,
     bodyText: isHtml ? null : (m.body?.content ?? null),
     isUnread: m.isRead === false,
-    isOutgoing: from.email === selfEmail.toLowerCase(),
+    isOutgoing:
+      m.isDraft === true ||
+      (sentItemsId !== null && m.parentFolderId === sentItemsId),
     attachments: (m.attachments ?? []).map((a) => ({
       id: a.id ?? "",
       filename: a.name ?? "",
@@ -99,6 +107,7 @@ export class OutlookProvider implements MailProvider {
   readonly kind: ProviderKind = "microsoft";
   private http: ProviderHttpOptions;
   private pageSize: number;
+  private sentItemsLookup: Promise<string | null> | null = null;
 
   constructor(private deps: OutlookDeps) {
     this.http = { provider: "outlook", fetchImpl: deps.fetchImpl };
@@ -151,7 +160,7 @@ export class OutlookProvider implements MailProvider {
     let url: string | null =
       `${API}/messages?$filter=${encodeURIComponent(
         `conversationId eq '${conversationId.replace(/'/g, "''")}'`,
-      )}&$top=50&$select=id,conversationId,subject,from,toRecipients,ccRecipients,receivedDateTime,bodyPreview,body,isRead,hasAttachments,parentFolderId` +
+      )}&$top=50&$select=id,conversationId,subject,from,toRecipients,ccRecipients,receivedDateTime,bodyPreview,body,isRead,hasAttachments,parentFolderId,isDraft` +
       // Metadata only — never the file bytes.
       `&$expand=attachments($select=id,name,contentType,size)`;
     while (url) {
@@ -164,9 +173,32 @@ export class OutlookProvider implements MailProvider {
     return messages;
   }
 
-  private toConversation(id: string, msgs: GraphMessage[]): Conversation {
+  /** The opaque id of this mailbox's Sent Items folder, looked up once. */
+  private async sentItemsId(context?: SyncContext): Promise<string | null> {
+    if (!this.sentItemsLookup) {
+      const lookup = this.get<{ id?: string }>(
+        `${API}/mailFolders/sentitems?$select=id`,
+        context,
+      ).then((folder) => folder.id ?? null);
+      this.sentItemsLookup = lookup;
+      lookup.catch(() => {
+        if (this.sentItemsLookup === lookup) this.sentItemsLookup = null;
+      });
+    }
+    return this.sentItemsLookup;
+  }
+
+  private async toConversation(
+    id: string,
+    msgs: GraphMessage[],
+    context?: SyncContext,
+  ): Promise<Conversation> {
+    // Without a folder on any message nothing can be shown to be in Sent Items.
+    const sentItemsId = msgs.some((m) => m.parentFolderId)
+      ? await this.sentItemsId(context)
+      : null;
     const messages = msgs
-      .map((m) => toMessage(m, this.deps.accountEmail))
+      .map((m) => toMessage(m, sentItemsId))
       .sort((a, b) => a.sentAt.localeCompare(b.sentAt));
     return {
       providerConversationId: id,
@@ -227,7 +259,7 @@ export class OutlookProvider implements MailProvider {
     for (const id of conversationIds) {
       assertSyncBudget(context);
       conversations.push(
-        this.toConversation(id, await this.conversationMessages(id, context)),
+        await this.toConversation(id, await this.conversationMessages(id, context), context),
       );
     }
     return {
@@ -248,7 +280,7 @@ export class OutlookProvider implements MailProvider {
     const providerQuery = compileOutlookSearch(parseMailSearch(query));
     const url =
       cursor ??
-      `${API}/messages?$search=${encodeURIComponent(`"${providerQuery}"`)}&$top=${this.pageSize}&$select=id,conversationId,subject,from,toRecipients,ccRecipients,receivedDateTime,bodyPreview,body,isRead`;
+      `${API}/messages?$search=${encodeURIComponent(`"${providerQuery}"`)}&$top=${this.pageSize}&$select=id,conversationId,subject,from,toRecipients,ccRecipients,receivedDateTime,bodyPreview,body,isRead,parentFolderId,isDraft`;
     const page: { value?: GraphMessage[]; "@odata.nextLink"?: string } =
       await this.get(url);
     const byConversation = new Map<string, GraphMessage[]>();
@@ -258,8 +290,8 @@ export class OutlookProvider implements MailProvider {
       byConversation.set(m.conversationId, arr);
     }
     return {
-      conversations: [...byConversation.entries()].map(([id, msgs]) =>
-        this.toConversation(id, msgs),
+      conversations: await Promise.all(
+        [...byConversation.entries()].map(([id, msgs]) => this.toConversation(id, msgs)),
       ),
       nextCursor: page["@odata.nextLink"] ?? null,
     };
@@ -292,8 +324,26 @@ export class OutlookProvider implements MailProvider {
     const msgs = await this.conversationMessages(command.conversationId);
     const last = msgs[msgs.length - 1];
     const endpoint = command.all ? "replyAll" : "reply";
+    const self = this.deps.accountEmail.toLowerCase();
+    const others = (list: GraphRecipient[] | undefined) =>
+      addrs(list)
+        .filter((a) => a.email !== self)
+        .map((a) => ({ emailAddress: { address: a.email, name: a.name } }));
+    // Graph replies to the From address. When that is the mailbox there is no
+    // sender to answer, so address the people the message went to instead.
+    const fromSelf = addr(last.from)?.email === self;
+    const message = fromSelf
+      ? {
+          toRecipients: others(last.toRecipients),
+          ccRecipients: command.all ? others(last.ccRecipients) : [],
+        }
+      : undefined;
+    if (message && message.toRecipients.length === 0 && message.ccRecipients.length === 0) {
+      throw new Error("reply has no recipient other than the mailbox");
+    }
     await this.post(`/messages/${last.id}/${endpoint}`, {
       comment: command.bodyHtml,
+      ...(message ? { message } : {}),
     });
     return {
       providerMessageId: "sent",

@@ -148,7 +148,8 @@ async function upsertMessageBodies(
                from_name = excluded.from_name,
                to_emails = excluded.to_emails,
                cc_emails = excluded.cc_emails,
-               snippet = excluded.snippet
+               snippet = excluded.snippet,
+               is_outgoing = excluded.is_outgoing
          where seer.messages.body_html is distinct from excluded.body_html
             or seer.messages.body_text is distinct from excluded.body_text
             or seer.messages.is_unread is distinct from excluded.is_unread
@@ -158,6 +159,7 @@ async function upsertMessageBodies(
             or seer.messages.to_emails is distinct from excluded.to_emails
             or seer.messages.cc_emails is distinct from excluded.cc_emails
             or seer.messages.snippet is distinct from excluded.snippet
+            or seer.messages.is_outgoing is distinct from excluded.is_outgoing
          returning provider_message_id`,
       [
         accountId,
@@ -320,6 +322,7 @@ async function writeConversation(
     html_md5: string;
     text_md5: string;
     is_unread: boolean;
+    is_outgoing: boolean | null;
     snippet: string | null;
     from_email: string | null;
     from_name: string | null;
@@ -330,7 +333,7 @@ async function writeConversation(
     `select provider_message_id,
             md5(coalesce(body_html, '')) as html_md5,
             md5(coalesce(body_text, '')) as text_md5,
-            is_unread, snippet, from_email, from_name, to_emails, cc_emails,
+            is_unread, is_outgoing, snippet, from_email, from_name, to_emails, cc_emails,
             attachment_names
        from seer.messages
       where conversation_id = $1`,
@@ -353,6 +356,7 @@ async function writeConversation(
       stored.html_md5 !== md5(m.bodyHtml) || stored.text_md5 !== md5(text);
     const metaChanged =
       (stored.snippet ?? "") !== (m.snippet ?? "") ||
+      Boolean(stored.is_outgoing) !== m.isOutgoing ||
       (stored.from_email ?? null) !== (m.from.email || null) ||
       (stored.from_name ?? null) !== (m.from.name || null) ||
       !sameTextArray(stored.to_emails, m.to.map((a) => a.email)) ||
