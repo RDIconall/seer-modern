@@ -88,8 +88,9 @@ export function quoteHeaderLines(
   return lines;
 }
 
-function messageBodyHtml(message: Message): string {
-  if (message.bodyHtml) return message.bodyHtml;
+function messageBodyHtml(message: Message, sanitizeBody: (html: string) => string): string {
+  const html = message.bodyHtml ? sanitizeBody(message.bodyHtml) : "";
+  if (html.trim()) return html;
   if (message.bodyText) return `<pre>${escapeHtml(message.bodyText)}</pre>`;
   return `<p>${escapeHtml(message.snippet)}</p>`;
 }
@@ -107,7 +108,16 @@ export function hasAttachments(conversation: Conversation): boolean {
   return conversation.messages.some((m) => m.attachments.length > 0);
 }
 
-export function quotedThreadHtml(conversation: Conversation): string {
+/**
+ * The quoted thread as one HTML fragment, for a document with no frames
+ * between the sender's note and the quoted mail. Every HTML body is untrusted
+ * markup, so `sanitizeBody` must return a balanced, inert fragment; each body
+ * then sits in its own box, clipped so it cannot paint over what precedes it.
+ */
+export function quotedThreadHtml(
+  conversation: Conversation,
+  sanitizeBody: (html: string) => string,
+): string {
   return quotedMessages(conversation)
     .map((message) => {
       const header = quoteHeaderLines(message, conversation.subject)
@@ -120,7 +130,9 @@ export function quotedThreadHtml(conversation: Conversation): string {
         `<div class="seer-quote">`,
         `<hr />`,
         `<div class="seer-quote-header">${header}</div>`,
-        messageBodyHtml(message),
+        `<div class="seer-quote-body" style="overflow: auto">`,
+        messageBodyHtml(message, sanitizeBody),
+        `</div>`,
         `</div>`,
       ].join("");
     })
