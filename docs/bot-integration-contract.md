@@ -85,12 +85,17 @@ pending row.
 | Column | Type | Notes |
 |---|---|---|
 | `id` | uuid PK | `gen_random_uuid()` |
-| `slug` | text unique | Stable id the bot uses: `chief-of-staff` |
-| `display_name` | text | Shown in Atlas: `Chief of staff` |
+| `slug` | text unique, ≤ 128 chars | Stable id the bot uses: `chief-of-staff` |
+| `display_name` | text, ≤ 128 chars | Shown in Atlas: `Chief of staff` |
 | `created_at` | timestamptz | |
 
 Seeded slugs: `chief-of-staff`, `personal-chief-of-staff`, `snak-bot`,
 `it-admin`, `site-outreach`, `recruiter`, `growth`, `proposals-bids`.
+
+Atlas lists and accepts only these seeded slugs (`STAFF_BOT_SLUGS` in
+`src/lib/v2/staff/types.ts`). Mailbox commands never insert into
+`seer.bots`; an unknown `botSlug` is rejected. A new bot appears in the
+delegate picker only after it is added to the seed and to that list.
 
 ### `seer.bot_tasks`
 
