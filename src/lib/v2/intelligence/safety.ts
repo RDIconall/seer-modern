@@ -38,6 +38,15 @@ export type SafetyFacts = {
   addressedDirectly: boolean;
   /** Exact-sender Triage choices away from Atlas. */
   priorMatterRejections: number;
+  /**
+   * Found in the message text by code (request-signals.ts), never taken from
+   * the read. The read's fields come from a model that was shown the sender's
+   * words, so they may add a delete veto but can never clear one.
+   */
+  messageHasAsk: boolean;
+  messageHasObligation: boolean;
+  /** The message text addresses the classifier or dictates its fields. */
+  messageAddressesClassifier: boolean;
 };
 
 export type SafetyResult = {
@@ -57,8 +66,11 @@ export function validateDelete(
 
   const reasons: string[] = [];
   if (facts.ownerIsYou) reasons.push("owner_is_you");
-  if (facts.hasOpenAsk) reasons.push("open_ask");
-  if (facts.hasPendingObligation) reasons.push("pending_obligation");
+  if (facts.hasOpenAsk || facts.messageHasAsk) reasons.push("open_ask");
+  if (facts.hasPendingObligation || facts.messageHasObligation) {
+    reasons.push("pending_obligation");
+  }
+  if (facts.messageAddressesClassifier) reasons.push("classifier_instruction");
   if (facts.liveMatterId) reasons.push("live_matter");
   if (facts.senderIsKnown) reasons.push("known_sender");
   if (facts.senderIsInternal) reasons.push("internal_sender");
