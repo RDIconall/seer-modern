@@ -1,4 +1,4 @@
-import { hybridClassifyEmailBody } from "@/lib/nlp/hybrid-classify";
+import { hybridClassifyEmailBody, NLP_CHAR_CAP } from "@/lib/nlp/hybrid-classify";
 import { NextResponse } from "next/server";
 
 export const maxDuration = 60;
@@ -17,7 +17,7 @@ export async function POST(request: Request) {
     typeof (body as { text: unknown }).text === "string"
       ? (body as { text: string }).text
       : null;
-  if (!text || text.length > 120_000) {
+  if (!text || text.length > NLP_CHAR_CAP) {
     return NextResponse.json(
       { error: "Provide { text: string } with text under 120k chars" },
       { status: 400 },

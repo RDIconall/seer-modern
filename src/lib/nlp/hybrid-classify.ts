@@ -1,6 +1,18 @@
+import { kvGet, kvSet } from "@/lib/store/kv";
 import type { IntelBreakdown } from "./intel";
 import { intelBreakdown, intelContainsAny } from "./intel";
 import { splitSentences } from "./sentences";
+
+/**
+ * Every caller (public route, message open) reaches OpenAI through
+ * hybridClassifyEmailBody, so these bounds are what keep a sender-chosen
+ * body from turning into an unbounded, slow, billed request.
+ */
+export const NLP_CHAR_CAP = 120_000;
+export const MAX_GRAY_SENTENCES = 32;
+const MAX_LLM_SENTENCE_CHARS = 400;
+const OPENAI_TIMEOUT_MS = 4_000;
+const DEFAULT_DAILY_LLM_CALLS = 1000;
 
 export type NlpLabel =
   | "action"
@@ -64,6 +76,27 @@ function sentenceRulesScore(
 
 type LlmRow = { index: number; label: NlpLabel; confidence: number };
 
+/**
+ * Deployment-wide daily ceiling on chat-completions calls, shared across
+ * instances via KV. Reserves a slot before the call; any failure to read
+ * or write the counter means no call (rules-only is always a safe answer).
+ */
+async function reserveDailyLlmCall(): Promise<boolean> {
+  const limit = Number(
+    process.env.SEER_OPENAI_DAILY_CALL_LIMIT ?? DEFAULT_DAILY_LLM_CALLS,
+  );
+  if (!Number.isFinite(limit) || limit <= 0) return false;
+  const key = `openai-nlp-calls:${new Date().toISOString().slice(0, 10)}`;
+  try {
+    const used = (await kvGet<number>(key)) ?? 0;
+    if (used >= limit) return false;
+    await kvSet(key, used + 1, { ttlSeconds: 2 * 86_400 });
+    return true;
+  } catch {
+    return false;
+  }
+}
+
 async function refineWithLlm(
   sentences: { index: number; text: string }[],
 ): Promise<Map<number, { label: NlpLabel; confidence: number }>> {
@@ -71,6 +104,12 @@ async function refineWithLlm(
   const model = process.env.OPENAI_MODEL ?? "gpt-4o-mini";
   const out = new Map<number, { label: NlpLabel; confidence: number }>();
   if (!apiKey || sentences.length === 0) return out;
+  const batch = sentences.slice(0, MAX_GRAY_SENTENCES).map((s) => ({
+    index: s.index,
+    text: s.text.slice(0, MAX_LLM_SENTENCE_CHARS),
+  }));
+  if (!(await reserveDailyLlmCall())) return out;
+  const allowed = new Set(batch.map((s) => s.index));
 
   const payload = {
     model,
@@ -86,9 +125,7 @@ Only include the listed indices.`,
       },
       {
         role: "user" as const,
-        content: JSON.stringify(
-          sentences.map((s) => ({ index: s.index, text: s.text })),
-        ),
+        content: JSON.stringify(batch),
       },
     ],
   };
@@ -100,6 +137,7 @@ Only include the listed indices.`,
       "Content-Type": "application/json",
     },
     body: JSON.stringify(payload),
+    signal: AbortSignal.timeout(OPENAI_TIMEOUT_MS),
   });
   if (!res.ok) {
     const err = await res.text();
@@ -120,6 +158,7 @@ Only include the listed indices.`,
   for (const row of parsed.items ?? []) {
     if (
       typeof row.index === "number" &&
+      allowed.has(row.index) &&
       typeof row.confidence === "number" &&
       labels.includes(row.label)
     ) {
@@ -133,8 +172,11 @@ export async function hybridClassifyEmailBody(body: string): Promise<{
   emailHint: number;
   sentences: SentenceVerdict[];
 }> {
-  const emailHint = emailHeuristicScore(body);
-  const parts = splitSentences(body);
+  // Over-cap bodies are graded by rules alone, on their leading slice.
+  const llmAllowed = body.length <= NLP_CHAR_CAP;
+  const text = llmAllowed ? body : body.slice(0, NLP_CHAR_CAP);
+  const emailHint = emailHeuristicScore(text);
+  const parts = splitSentences(text);
   if (parts.length === 0) {
     return { emailHint, sentences: [] };
   }
@@ -148,12 +190,14 @@ export async function hybridClassifyEmailBody(body: string): Promise<{
     (p) => p.score >= GRAY_LOW && p.score <= GRAY_HIGH,
   );
   let llmMap = new Map<number, { label: NlpLabel; confidence: number }>();
-  try {
-    llmMap = await refineWithLlm(
-      gray.map((g) => ({ index: g.index, text: g.text })),
-    );
-  } catch {
-    /* rules-only if LLM fails */
+  if (llmAllowed) {
+    try {
+      llmMap = await refineWithLlm(
+        gray.map((g) => ({ index: g.index, text: g.text })),
+      );
+    } catch {
+      /* rules-only if LLM fails */
+    }
   }
 
   const sentences: SentenceVerdict[] = preliminary.map((p) => {
