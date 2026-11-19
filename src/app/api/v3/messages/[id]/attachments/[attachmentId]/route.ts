@@ -70,7 +70,7 @@ export async function GET(
         "Content-Type": headers.contentType,
         "Content-Disposition": headers.contentDisposition,
         "X-Content-Type-Options": headers.xContentTypeOptions,
-        "Cache-Control": "private, max-age=3600",
+        "Cache-Control": "private, no-store",
       },
     });
   } catch (e) {
