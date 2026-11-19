@@ -608,7 +608,7 @@ body {
   background: var(--card);
 }
 
-.legacy-thread-turn summary {
+.legacy-thread-turn > summary {
   display: flex;
   align-items: center;
   justify-content: space-between;
@@ -618,18 +618,18 @@ body {
   list-style: none;
 }
 
-.legacy-thread-turn summary::-webkit-details-marker {
+.legacy-thread-turn > summary::-webkit-details-marker {
   display: none;
 }
 
-.legacy-thread-turn summary span {
+.legacy-thread-turn > summary span {
   overflow: hidden;
   font-weight: 650;
   text-overflow: ellipsis;
   white-space: nowrap;
 }
 
-.legacy-thread-turn summary time {
+.legacy-thread-turn > summary time {
   flex: none;
   color: var(--muted);
   font-size: 11px;

@@ -240,14 +240,19 @@ export type StrippedHtml = { html: string; quotedCount: number };
  * beneath it. The count is of quoted MESSAGES, so the reader is told how much
  * history is under the fold rather than having it silently disappear.
  */
-export function stripQuotedHtml(html: string): StrippedHtml {
-  if (!html) return { html: "", quotedCount: 0 };
-
+function quoteCut(html: string): number {
   let cut = announcedBlockquote(html);
   for (const opener of QUOTE_OPENERS) {
     const found = html.search(opener);
     if (found >= 0 && (cut === -1 || found < cut)) cut = found;
   }
+  return cut;
+}
+
+export function stripQuotedHtml(html: string): StrippedHtml {
+  if (!html) return { html: "", quotedCount: 0 };
+
+  const cut = quoteCut(html);
   if (cut === -1) return { html, quotedCount: 0 };
 
   const head = html.slice(0, cut);
@@ -265,6 +270,18 @@ export function stripQuotedHtml(html: string): StrippedHtml {
   if (!hasVisibleText(head)) return { html, quotedCount: 0 };
 
   return { html: head, quotedCount: Math.max(1, quotedCount) };
+}
+
+/**
+ * The markup `stripQuotedHtml` cuts off, or "" when it keeps the whole body.
+ * The markers that find the cut are classes and lines any sender can write, so
+ * this is a claim of history, not proof of it.
+ */
+export function quotedHtmlTail(html: string | null | undefined): string {
+  if (!html) return "";
+  const cut = quoteCut(html);
+  if (cut === -1 || !hasVisibleText(html.slice(0, cut))) return "";
+  return html.slice(cut);
 }
 
 /**

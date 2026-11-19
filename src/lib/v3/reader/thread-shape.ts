@@ -1,6 +1,6 @@
 import type { Address, Conversation, Message } from "@/lib/v2/providers/types";
 import { htmlToText, readableBody } from "@/lib/v2/intelligence/html-text";
-import { readableHtml } from "@/lib/v3/reader/email-html";
+import { quotedHtmlTail, readableHtml } from "@/lib/v3/reader/email-html";
 
 /**
  * The shape of a conversation, which is not the list of messages it is stored
@@ -42,6 +42,8 @@ export type StrippedText = {
   text: string;
   /** How many earlier messages were quoted underneath it. */
   quotedCount: number;
+  /** Everything cut away from `text`, as text. */
+  quoted: string;
 };
 
 export type StrippedBody = StrippedText & {
@@ -50,6 +52,8 @@ export type StrippedBody = StrippedText & {
    * message had no usable HTML body — the reader then falls back to `text`.
    */
   html: string | null;
+  /** The markup cut away from `html`; `quoted` is the cut from the text. */
+  quotedHtml: string;
 };
 
 /**
@@ -62,6 +66,7 @@ export type StrippedBody = StrippedText & {
 export function stripQuoted(body: string): StrippedText {
   const lines = body.replace(/\r\n/g, "\n").split("\n");
   const fresh: string[] = [];
+  const quoted: string[] = [];
   let quotedCount = 0;
   let inQuote = false;
   // Outlook writes a divider and a "From:" header block back to back; both are
@@ -75,12 +80,14 @@ export function stripQuoted(body: string): StrippedText {
       if (!previousWasBoundary) quotedCount += 1;
       inQuote = true;
       previousWasBoundary = true;
+      quoted.push(line);
       continue;
     }
     if (/^\s*>/.test(line)) {
       if (!inQuote) quotedCount += 1;
       inQuote = true;
       previousWasBoundary = false;
+      quoted.push(line);
       continue;
     }
     if (line.trim() !== "") previousWasBoundary = false;
@@ -89,16 +96,23 @@ export function stripQuoted(body: string): StrippedText {
       if (line.trim() === "") continue;
       // Text after a quote block is usually a signature or a top-post reply
       // to the block below; treat it as quoted so the fresh text stays clean.
+      quoted.push(line);
       continue;
     }
     fresh.push(line);
   }
 
-  return { text: fresh.join("\n").trim(), quotedCount };
+  return {
+    text: fresh.join("\n").trim(),
+    quotedCount,
+    quoted: quoted.join("\n").trim(),
+  };
 }
 
+type BodyParts = Pick<Message, "bodyHtml" | "bodyText" | "snippet">;
+
 /** The readable, newly-written body of one message. */
-export function freshBody(message: Message): StrippedBody {
+export function freshBody(message: BodyParts): StrippedBody {
   const stripped = stripQuoted(readableBody(message));
   const htmlPart = readableHtml(message.bodyHtml);
   // Prefer the HTML quote count when a body was HTML: Outlook and Gmail mark
@@ -116,6 +130,133 @@ export function freshBody(message: Message): StrippedBody {
     text,
     html: htmlPart.html || null,
     quotedCount,
+    quoted: stripped.quoted,
+    quotedHtml: htmlPart.quotedCount > 0 ? quotedHtmlTail(message.bodyHtml) : "",
+  };
+}
+
+/**
+ * What the reader has already been shown of a conversation: the messages above
+ * the one being opened, and the names, addresses and subject on them.
+ */
+export type ThreadHistory = {
+  passages: string[];
+  words: Set<string>;
+};
+
+const normalise = (value: string) =>
+  value.toLowerCase().replace(/[^\p{L}\p{N}]+/gu, " ").trim();
+
+/**
+ * Words a client writes into an attribution or header block ("On Fri, 8 Aug
+ * 2026 at 10:57, Pat wrote:", "From: … Sent: … Subject: …") beyond the names,
+ * addresses and subject already on the thread.
+ */
+const HEADER_WORDS = new Set(
+  (
+    "on at wrote said from sent date to cc bcc subject re fw fwd aw sv reply " +
+    "original message forwarded begin of behalf my iphone ipad android phone " +
+    "mobile device outlook ios mail gmail for am pm utc gmt bst cet cest est " +
+    "edt cst cdt pst pdt ist mailto " +
+    "january february march april may june july august september october " +
+    "november december jan feb mar apr jun jul aug sep sept oct nov dec " +
+    "monday tuesday wednesday thursday friday saturday sunday " +
+    "mon tue tues wed thu thur thurs fri sat sun"
+  ).split(" "),
+);
+
+export function startHistory(subject: string): ThreadHistory {
+  return { passages: [], words: new Set(normalise(subject).split(" ")) };
+}
+
+/**
+ * Add one message the reader can open to the history later messages are
+ * checked against. Only what the pane renders for it counts: its HTML when it
+ * has some, otherwise its text.
+ */
+export function addToHistory(
+  history: ThreadHistory,
+  message: BodyParts,
+  people: ReadonlyArray<string | null | undefined>,
+): void {
+  const passage = normalise(
+    message.bodyHtml ? htmlToText(message.bodyHtml) : readableBody(message),
+  );
+  if (passage) history.passages.push(` ${passage} `);
+  for (const person of people) {
+    for (const word of normalise(person ?? "").split(" ")) {
+      if (word) history.words.add(word);
+    }
+  }
+}
+
+/** An Outlook header block or a wrapped attribution, with room to spare. */
+const MAX_HEADER_LINES = 8;
+
+const isHeaderLine = (line: string, history: ThreadHistory) =>
+  line
+    .split(" ")
+    .every(
+      (word) =>
+        history.words.has(word) ||
+        HEADER_WORDS.has(word) ||
+        /^\d{1,4}(?:st|nd|rd|th)?$/.test(word),
+    );
+
+/**
+ * Is `quoted` a copy of something the reader can already open further up the
+ * thread? Real quoted history is a short attribution or header block made of
+ * the thread's own names, addresses, subject and date words, then one
+ * unbroken run of an earlier message. Anything added to, inserted into, or
+ * standing in for that run is new text from this sender.
+ */
+export function repeatsHistory(quoted: string, history: ThreadHistory): boolean {
+  const lines = quoted.split("\n").map(normalise).filter(Boolean);
+  let start = 0;
+  while (
+    start < lines.length &&
+    start < MAX_HEADER_LINES &&
+    isHeaderLine(lines[start], history)
+  ) {
+    start += 1;
+  }
+  const rest = lines.slice(start).join(" ");
+  if (!rest) return true;
+  return history.passages.some((passage) => passage.includes(` ${rest} `));
+}
+
+export type ShownBody = {
+  /** What the opened turn shows: new text when the quote is folded, else all of it. */
+  text: string;
+  /** `text` as HTML: the stripped markup when folded, else the whole body. */
+  html: string | null;
+  /** Quoted messages folded under the turn; 0 when nothing is folded. */
+  quotedCount: number;
+  /** The whole message as received, for the control that reveals the fold. */
+  fullText: string;
+  /** The first line of new text, for the collapsed row. */
+  peek: string;
+};
+
+/**
+ * Decide what one opened message shows. A quote marker is something any sender
+ * can write, so the history under it is only folded when it repeats what the
+ * thread already shows; otherwise the whole message is the body.
+ */
+export function shownBody(message: BodyParts, history: ThreadHistory): ShownBody {
+  const stripped = freshBody(message);
+  const fullText = readableBody(message) || stripped.text;
+  // Either cut can supply `text`, so both must be history before either folds.
+  const folded =
+    stripped.quotedCount > 0 &&
+    repeatsHistory(htmlToText(stripped.quotedHtml), history) &&
+    repeatsHistory(stripped.quoted, history);
+  return {
+    text: folded ? stripped.text : fullText,
+    html: folded ? stripped.html : message.bodyHtml ?? null,
+    quotedCount: folded ? stripped.quotedCount : 0,
+    fullText,
+    peek: peekOf(stripped.text || fullText),
   };
 }
 
@@ -147,6 +288,7 @@ export type Turn = {
   body: string;
   bodyHtml: string | null;
   quotedCount: number;
+  fullText: string;
 };
 
 export type Branch = {
@@ -160,6 +302,8 @@ export type Branch = {
     isYou: boolean;
     text: string;
     html: string | null;
+    quotedCount: number;
+    fullText: string;
   }[];
 };
 
@@ -187,17 +331,28 @@ export function shapeThread(
     (own.length > 0 && message.from.email?.toLowerCase().trim() === own);
 
   const lanes: Lane[] = [];
+  const history = startHistory(conversation.subject);
   for (const message of conversation.messages) {
     const who = isYou(message) ? "You" : displayName(message.from);
+    const shown = shownBody(message, history);
+    addToHistory(
+      history,
+      message,
+      [message.from, ...message.to, ...message.cc].flatMap((address) => [
+        address.name,
+        address.email,
+      ]),
+    );
     if (isInternal(message, ownDomain)) {
       const previous = lanes[lanes.length - 1];
-      const stripped = freshBody(message);
       const turn = {
         message,
         who,
         isYou: isYou(message),
-        text: stripped.text,
-        html: stripped.html,
+        text: shown.text,
+        html: shown.html,
+        quotedCount: shown.quotedCount,
+        fullText: shown.fullText,
       };
       if (previous && previous.kind === "branch") {
         previous.turns.push(turn);
@@ -214,16 +369,16 @@ export function shapeThread(
       });
       continue;
     }
-    const stripped = freshBody(message);
     lanes.push({
       kind: "turn",
       message,
       who,
       isYou: isYou(message),
-      peek: peekOf(stripped.text),
-      body: stripped.text,
-      bodyHtml: stripped.html,
-      quotedCount: stripped.quotedCount,
+      peek: shown.peek,
+      body: shown.text,
+      bodyHtml: shown.html,
+      quotedCount: shown.quotedCount,
+      fullText: shown.fullText,
     });
   }
   return lanes;
