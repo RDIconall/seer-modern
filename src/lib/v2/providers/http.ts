@@ -18,6 +18,26 @@ export class ProviderHttpError extends Error {
   }
 }
 
+/**
+ * A response body would exceed the caller's byte budget. Raised before the
+ * body is parsed and never retried.
+ */
+export class ProviderResponseTooLargeError extends Error {
+  constructor(
+    readonly provider: string,
+    readonly limitBytes: number,
+  ) {
+    super(`${provider} response exceeds ${limitBytes} bytes`);
+    this.name = "ProviderResponseTooLargeError";
+  }
+}
+
+/**
+ * Raw body bytes the caller may still read. Shared across calls (and retry
+ * attempts) so one budget can bound a multi-page load; decremented in place.
+ */
+export type ResponseByteBudget = { remaining: number };
+
 export type ProviderHttpOptions = {
   provider: string;
   maxRetries?: number;
@@ -29,6 +49,7 @@ export type ProviderHttpOptions = {
   /** Optional sync-slice deadline and cancellation signal. */
   deadlineMs?: number;
   signal?: AbortSignal;
+  responseBudget?: ResponseByteBudget;
 };
 
 const RETRYABLE = new Set([429, 500, 502, 503, 504]);
@@ -82,6 +103,8 @@ export async function providerFetch(
         controller.signal,
         callerSignal,
         opts.deadlineMs,
+        opts.responseBudget,
+        opts.provider,
       );
       if (RETRYABLE.has(res.status) && attempt < attempts) {
         const retryAfter = Number(res.headers.get("retry-after"));
@@ -113,6 +136,7 @@ export async function providerFetch(
       callerSignal?.removeEventListener("abort", abortFromCaller);
       lastError = err;
       if (err instanceof SyncDeadlineError) throw err;
+      if (err instanceof ProviderResponseTooLargeError) throw err;
       if (
         callerSignal?.aborted ||
         (opts.deadlineMs !== undefined && Date.now() >= opts.deadlineMs)
@@ -176,6 +200,8 @@ async function responseText(
   signal: AbortSignal,
   callerSignal: AbortSignal | undefined,
   deadlineMs: number | undefined,
+  budget: ResponseByteBudget | undefined,
+  provider: string,
 ): Promise<string> {
   if (signal.aborted) {
     if (callerSignal?.aborted || (deadlineMs !== undefined && Date.now() >= deadlineMs)) {
@@ -183,8 +209,10 @@ async function responseText(
     }
   }
   return new Promise<string>((resolve, reject) => {
+    let cancelBody: (() => void) | undefined;
     const onAbort = () => {
       signal.removeEventListener("abort", onAbort);
+      cancelBody?.();
       if (callerSignal?.aborted || (deadlineMs !== undefined && Date.now() >= deadlineMs)) {
         reject(new SyncDeadlineError());
       } else {
@@ -192,7 +220,12 @@ async function responseText(
       }
     };
     signal.addEventListener("abort", onAbort, { once: true });
-    res.text().then(
+    const body = budget
+      ? boundedText(res, budget, provider, (cancel) => {
+          cancelBody = cancel;
+        })
+      : res.text();
+    body.then(
       (text) => {
         signal.removeEventListener("abort", onAbort);
         resolve(text);
@@ -203,4 +236,48 @@ async function responseText(
       },
     );
   });
+}
+
+/**
+ * Read the body without ever holding more than the remaining budget: refuse
+ * an over-budget Content-Length before reading, and cancel the stream as soon
+ * as the bytes read pass the budget (chunked or mislabelled responses).
+ */
+async function boundedText(
+  res: Response,
+  budget: ResponseByteBudget,
+  provider: string,
+  onCancel: (cancel: () => void) => void,
+): Promise<string> {
+  const limit = budget.remaining;
+  const declared = Number(res.headers.get("content-length"));
+  if (Number.isFinite(declared) && declared > limit) {
+    await res.body?.cancel().catch(() => undefined);
+    throw new ProviderResponseTooLargeError(provider, limit);
+  }
+  if (!res.body) return "";
+  const reader = res.body.getReader();
+  onCancel(() => {
+    reader.cancel().catch(() => undefined);
+  });
+  const chunks: Uint8Array[] = [];
+  let total = 0;
+  for (;;) {
+    const { done, value } = await reader.read();
+    if (done) break;
+    total += value.byteLength;
+    budget.remaining -= value.byteLength;
+    if (budget.remaining < 0) {
+      await reader.cancel().catch(() => undefined);
+      throw new ProviderResponseTooLargeError(provider, limit);
+    }
+    chunks.push(value);
+  }
+  const bytes = new Uint8Array(total);
+  let offset = 0;
+  for (const chunk of chunks) {
+    bytes.set(chunk, offset);
+    offset += chunk.byteLength;
+  }
+  return new TextDecoder().decode(bytes);
 }

@@ -1,4 +1,9 @@
-import { providerFetch, type ProviderHttpOptions } from "./http";
+import {
+  ProviderResponseTooLargeError,
+  providerFetch,
+  type ProviderHttpOptions,
+  type ResponseByteBudget,
+} from "./http";
 import {
   conversationFetchEmpty,
   conversationFetchNotFound,
@@ -31,12 +36,69 @@ import { SyncDeadlineError, assertSyncBudget } from "./types";
 
 /**
  * Outlook / Microsoft Graph adapter. Translates Graph message payloads into the
- * neutral model. Conversation reads and mutations gather every message in the
- * conversation across folders (via conversationId), so a thread is acted on
- * completely and per-message failures are reported.
+ * neutral model. Conversation reads and mutations gather the conversation's
+ * messages across folders (via conversationId), newest first and bounded by
+ * message count, response bytes, and time, so a sender who keeps growing one
+ * thread cannot make a load unbounded. Per-message failures are reported.
  */
 
 const API = "https://graph.microsoft.com/v1.0/me";
+
+const CONVERSATION_PAGE_SIZE = 50;
+/**
+ * Graph pages one conversation load may request. Counted separately from
+ * messages because Graph may return short pages with a next link.
+ */
+const CONVERSATION_PAGE_CAP = 3;
+/** Messages one conversation load keeps (the newest). */
+const CONVERSATION_MESSAGE_CAP = CONVERSATION_PAGE_SIZE * CONVERSATION_PAGE_CAP;
+/** Raw Graph response bytes one conversation load may read, across pages. */
+const CONVERSATION_RESPONSE_BYTE_CAP = 2 * 1024 * 1024;
+/** Time budget for a conversation load when the caller has no sync deadline. */
+const CONVERSATION_LOAD_BUDGET_MS = 30_000;
+
+const MESSAGE_FIELDS =
+  "id,conversationId,subject,from,toRecipients,ccRecipients,receivedDateTime,bodyPreview,isRead,hasAttachments,parentFolderId";
+
+type ConversationLoad = {
+  select: string;
+  attachments: boolean;
+  limit: number;
+};
+
+const FULL_LOAD: ConversationLoad = {
+  select: `${MESSAGE_FIELDS},body`,
+  attachments: true,
+  limit: CONVERSATION_MESSAGE_CAP,
+};
+/** Same thread without bodies, for when the newest page alone is over the cap. */
+const PREVIEW_LOAD: ConversationLoad = {
+  select: MESSAGE_FIELDS,
+  attachments: true,
+  limit: CONVERSATION_MESSAGE_CAP,
+};
+/** Moves and flag changes only need ids and folders. */
+const ACTION_LOAD: ConversationLoad = {
+  select: "id,conversationId,receivedDateTime,parentFolderId",
+  attachments: false,
+  limit: CONVERSATION_MESSAGE_CAP,
+};
+/** Reply and forward target the newest message only. */
+const NEWEST_LOAD: ConversationLoad = { ...ACTION_LOAD, limit: 1 };
+
+/** One conversation load's remaining Graph pages and response bytes. */
+type LoadBudget = ResponseByteBudget & { pages: number };
+
+function newLoadBudget(): LoadBudget {
+  return { remaining: CONVERSATION_RESPONSE_BYTE_CAP, pages: CONVERSATION_PAGE_CAP };
+}
+
+function withLoadDeadline(context?: SyncContext): SyncContext {
+  return {
+    ...context,
+    deadlineMs: context?.deadlineMs ?? Date.now() + CONVERSATION_LOAD_BUDGET_MS,
+  };
+}
 
 type GraphRecipient = { emailAddress?: { address?: string; name?: string } };
 type GraphMessage = {
@@ -109,12 +171,21 @@ export class OutlookProvider implements MailProvider {
     return { authorization: `Bearer ${this.deps.accessToken}` };
   }
 
-  private async get<T>(url: string, context?: SyncContext): Promise<T> {
+  private async get<T>(
+    url: string,
+    context?: SyncContext,
+    responseBudget?: ResponseByteBudget,
+  ): Promise<T> {
     assertSyncBudget(context);
     return (await providerFetch(
       url,
       { headers: this.auth() },
-      { ...this.http, deadlineMs: context?.deadlineMs, signal: context?.signal },
+      {
+        ...this.http,
+        deadlineMs: context?.deadlineMs,
+        signal: context?.signal,
+        responseBudget,
+      },
     )) as T;
   }
 
@@ -142,26 +213,65 @@ export class OutlookProvider implements MailProvider {
     );
   }
 
-  /** Every message in a conversation, across all folders, paginated. */
+  /**
+   * The newest `load.limit` messages of a conversation, across all folders,
+   * newest first. Stops at the limit, when the page or byte budget runs out,
+   * or at the deadline. Pages read before the byte budget ran out are kept; if
+   * not even the first page fits, ProviderResponseTooLargeError is thrown.
+   */
   private async conversationMessages(
     conversationId: string,
-    context?: SyncContext,
+    load: ConversationLoad,
+    context: SyncContext = withLoadDeadline(),
+    budget: LoadBudget = newLoadBudget(),
   ): Promise<GraphMessage[]> {
     const messages: GraphMessage[] = [];
+    // Graph requires an $orderby property to lead the $filter.
+    const filter = `receivedDateTime ge 1900-01-01T00:00:00Z and conversationId eq '${conversationId.replace(/'/g, "''")}'`;
     let url: string | null =
-      `${API}/messages?$filter=${encodeURIComponent(
-        `conversationId eq '${conversationId.replace(/'/g, "''")}'`,
-      )}&$top=50&$select=id,conversationId,subject,from,toRecipients,ccRecipients,receivedDateTime,bodyPreview,body,isRead,hasAttachments,parentFolderId` +
+      `${API}/messages?$filter=${encodeURIComponent(filter)}` +
+      `&$orderby=${encodeURIComponent("receivedDateTime desc")}` +
+      `&$top=${Math.min(CONVERSATION_PAGE_SIZE, load.limit)}&$select=${load.select}` +
       // Metadata only — never the file bytes.
-      `&$expand=attachments($select=id,name,contentType,size)`;
-    while (url) {
+      (load.attachments ? `&$expand=attachments($select=id,name,contentType,size)` : "");
+    while (url && messages.length < load.limit && budget.pages > 0) {
       assertSyncBudget(context);
-      const page: { value?: GraphMessage[]; "@odata.nextLink"?: string } =
-        await this.get(url, context);
-      messages.push(...(page.value ?? []));
+      if (budget.remaining <= 0) {
+        if (messages.length > 0) break;
+        throw new ProviderResponseTooLargeError("outlook", CONVERSATION_RESPONSE_BYTE_CAP);
+      }
+      let page: { value?: GraphMessage[]; "@odata.nextLink"?: string };
+      budget.pages -= 1;
+      try {
+        page = await this.get(url, context, budget);
+      } catch (error) {
+        if (error instanceof ProviderResponseTooLargeError && messages.length > 0) break;
+        throw error;
+      }
+      messages.push(...(page.value ?? []).slice(0, load.limit - messages.length));
       url = page["@odata.nextLink"] ?? null;
     }
     return messages;
+  }
+
+  /** Bodies when they fit the budget; otherwise the same thread without bodies. */
+  private async readableConversation(
+    conversationId: string,
+    context: SyncContext,
+  ): Promise<GraphMessage[]> {
+    const budget = newLoadBudget();
+    try {
+      return await this.conversationMessages(conversationId, FULL_LOAD, context, budget);
+    } catch (error) {
+      if (!(error instanceof ProviderResponseTooLargeError)) throw error;
+      return this.conversationMessages(conversationId, PREVIEW_LOAD, context, budget);
+    }
+  }
+
+  private async newestMessage(conversationId: string): Promise<GraphMessage> {
+    const [newest] = await this.conversationMessages(conversationId, NEWEST_LOAD);
+    if (!newest) throw new Error(`outlook conversation ${conversationId} has no messages`);
+    return newest;
   }
 
   private toConversation(id: string, msgs: GraphMessage[]): Conversation {
@@ -220,15 +330,20 @@ export class OutlookProvider implements MailProvider {
       "@odata.count"?: number;
     } = await this.get(url, context);
     // Deduplicate conversation ids while preserving first-seen order on this page.
-    const conversationIds = [
-      ...new Set((page.value ?? []).map((m) => m.conversationId)),
-    ];
+    const listed = page.value ?? [];
+    const conversationIds = [...new Set(listed.map((m) => m.conversationId))];
     const conversations: Conversation[] = [];
     for (const id of conversationIds) {
       assertSyncBudget(context);
-      conversations.push(
-        this.toConversation(id, await this.conversationMessages(id, context)),
-      );
+      let messages: GraphMessage[];
+      try {
+        messages = await this.readableConversation(id, withLoadDeadline(context));
+      } catch (error) {
+        if (!(error instanceof ProviderResponseTooLargeError)) throw error;
+        // Keep the folder listing's metadata so this folder page still advances.
+        messages = listed.filter((m) => m.conversationId === id);
+      }
+      conversations.push(this.toConversation(id, messages));
     }
     return {
       conversations,
@@ -241,7 +356,7 @@ export class OutlookProvider implements MailProvider {
   }
 
   async getConversation(id: string): Promise<Conversation> {
-    return this.toConversation(id, await this.conversationMessages(id));
+    return this.toConversation(id, await this.readableConversation(id, withLoadDeadline()));
   }
 
   async search(query: string, cursor?: string | null): Promise<SearchResult> {
@@ -289,10 +404,9 @@ export class OutlookProvider implements MailProvider {
 
   async reply(command: ReplyCommand, _key: string): Promise<SendReceipt> {
     void _key;
-    const msgs = await this.conversationMessages(command.conversationId);
-    const last = msgs[msgs.length - 1];
+    const newest = await this.newestMessage(command.conversationId);
     const endpoint = command.all ? "replyAll" : "reply";
-    await this.post(`/messages/${last.id}/${endpoint}`, {
+    await this.post(`/messages/${newest.id}/${endpoint}`, {
       comment: command.bodyHtml,
     });
     return {
@@ -303,9 +417,8 @@ export class OutlookProvider implements MailProvider {
 
   async forward(command: ForwardCommand, _key: string): Promise<SendReceipt> {
     void _key;
-    const msgs = await this.conversationMessages(command.conversationId);
-    const last = msgs[msgs.length - 1];
-    await this.post(`/messages/${last.id}/forward`, {
+    const newest = await this.newestMessage(command.conversationId);
+    await this.post(`/messages/${newest.id}/forward`, {
       comment: command.bodyHtml,
       toRecipients: command.to.map((a) => ({ emailAddress: { address: a.email } })),
     });
@@ -364,7 +477,7 @@ export class OutlookProvider implements MailProvider {
     _key: string,
   ): Promise<MoveReceipt> {
     void _key;
-    const messages = await this.conversationMessages(id);
+    const messages = await this.conversationMessages(id, ACTION_LOAD);
     const processed: string[] = [];
     const failed: string[] = [];
     for (const message of messages) {
@@ -386,7 +499,7 @@ export class OutlookProvider implements MailProvider {
     void _key;
     let msgs: GraphMessage[];
     try {
-      msgs = await this.conversationMessages(id);
+      msgs = await this.conversationMessages(id, ACTION_LOAD);
     } catch (err) {
       conversationFetchNotFound(err, "outlook", id);
     }
