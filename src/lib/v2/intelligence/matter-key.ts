@@ -6,7 +6,8 @@
  * next move is one action, are one thing on the desk — not four.
  *
  * Mis-tying is worse than not tying, so the join is deliberately conservative:
- * a shared study/event code is treated as proof, and otherwise we require the
+ * a shared study/event code is treated as proof when it comes from the work's
+ * counterparty or a known person, and otherwise we require the
  * same counterparty AND real overlap in the request itself. Loose topic
  * similarity alone never merges.
  */
@@ -92,18 +93,41 @@ export function extractCodes(text: string): string[] {
 }
 
 /** The counterparty a conversation belongs to, from the sender's domain. */
-const FREEMAIL = /^(gmail|googlemail|outlook|hotmail|live|yahoo|icloud|me|aol|proton|protonmail)\./;
+const FREEMAIL = /^(gmail|googlemail|outlook|hotmail|live|yahoo|icloud|me|aol|proton|protonmail)$/;
 
+/** Second-level labels under a country code: "x.co.uk" is x's, not co's. */
+const COUNTRY_SECOND_LEVEL = new Set([
+  "ac", "co", "com", "edu", "gov", "net", "org", "ne", "or", "gv",
+]);
+
+/**
+ * The domain an organisation registered, from a sender address:
+ * "notifications@mail.roche.com" → "roche.com". Hosts in front of it are the
+ * owner's to name, so they say nothing about who the owner is.
+ */
+export function senderDomainOf(fromEmail: string): string {
+  const host = (fromEmail.split("@")[1] ?? "").toLowerCase().replace(/\.$/, "");
+  const labels = host.split(".").filter(Boolean);
+  const n = labels.length;
+  const keep =
+    n >= 3 && labels[n - 1].length === 2 && COUNTRY_SECOND_LEVEL.has(labels[n - 2])
+      ? 3
+      : 2;
+  return labels.slice(-keep).join(".");
+}
+
+/**
+ * The counterparty is the organisation that owns the domain, never a label in
+ * front of it. Anyone can name a host "roche.example.net"; only Roche sends
+ * from "roche.com" or "mail.roche.com".
+ */
 export function counterpartyOf(fromEmail: string, ownDomain: string): string {
-  const domain = (fromEmail.split("@")[1] ?? "").toLowerCase();
+  const domain = (fromEmail.split("@")[1] ?? "").toLowerCase().replace(/\.$/, "");
   if (!domain) return "";
   if (ownDomain && domain === ownDomain.toLowerCase()) return "internal";
-  const bare = domain.replace(
-    /^(mail|email|e|smtp|notifications?|no-?reply|info|reply|bounce|em|mailer|send|go|links?|vendor|global|list|news|newsletters?)\./,
-    "",
-  );
-  if (!bare || FREEMAIL.test(`${bare}.`)) return "";
-  return bare.split(".")[0];
+  const owner = senderDomainOf(fromEmail).split(".")[0] ?? "";
+  if (!owner || FREEMAIL.test(owner)) return "";
+  return owner;
 }
 
 export function significantWords(text: string): Set<string> {
@@ -210,6 +234,12 @@ export type MatterCandidate = {
   /** Codes already associated with this matter. */
   codes: string[];
   counterparty: string;
+  /**
+   * Registered domains (see senderDomainOf) of inbound mail already on this
+   * matter. "roche" is only a label; when the matter has heard from roche.com,
+   * mail from another domain that happens to start with "roche" is not it.
+   */
+  senderDomains?: string[];
   /** The user named this matter themselves, so its scope is their decision. */
   userAuthored?: boolean;
 };
@@ -220,12 +250,28 @@ export type ConversationKey = {
   /** Text to mine for codes: subject + proposed name + body excerpt. */
   text: string;
   counterparty: string;
+  /** The sender's registered domain (see senderDomainOf). */
+  senderDomain?: string;
   /** The user's own name/company tokens — never evidence of shared work. */
   own?: Set<string>;
+  /**
+   * The codes in `text` come from someone whose word ties work: a known
+   * person, or the user filing the mail themselves. Otherwise the sender wrote
+   * them, and a code ties only to a matter with that sender's counterparty.
+   */
+  trustCodes?: boolean;
 };
 
 /** How much request overlap is required to tie two conversations together. */
 const MIN_SHARED_WORDS = 2;
+
+/** The sender is the party this matter's work is with. */
+function sameCounterparty(key: ConversationKey, candidate: MatterCandidate): boolean {
+  if (!key.counterparty || candidate.counterparty !== key.counterparty) return false;
+  const domains = candidate.senderDomains ?? [];
+  if (domains.length === 0) return true;
+  return Boolean(key.senderDomain) && domains.includes(key.senderDomain as string);
+}
 
 /** Compare matter names as work, not as strings: case and spacing are noise. */
 function normalizeTitle(title: string): string {
@@ -237,8 +283,9 @@ function normalizeTitle(title: string): string {
 
 /**
  * Find the existing matter this conversation belongs to, or null to start a new
- * one. A shared code wins outright, then an identical name; otherwise the
- * counterparty must match AND the requests must share real vocabulary.
+ * one. A shared code from the matter's counterparty or a trusted sender wins
+ * outright, then an identical name; otherwise the counterparty must match AND
+ * the requests must share real vocabulary.
  */
 export function resolveMatterMatch(
   key: ConversationKey,
@@ -251,11 +298,16 @@ export function resolveMatterMatch(
   // merged because a model kept proposing the same vague name.
   const words = informativeWords(key.title, key.own);
 
-  // 1. Same code = same work. Strongest and cheapest signal.
+  // 1. Same code = same work. Strongest and cheapest signal — but only from
+  // someone entitled to speak for that work. Codes are short and patterned
+  // ("RD" plus digits), and anyone can type one into a subject line.
   if (codes.length > 0) {
-    for (const candidate of candidates) {
-      if (candidate.codes.some((c) => codes.includes(c))) return candidate;
-    }
+    const coded = candidates.filter((candidate) =>
+      candidate.codes.some((c) => codes.includes(c)),
+    );
+    const fromCounterparty = coded.find((candidate) => sameCounterparty(key, candidate));
+    if (fromCounterparty) return fromCounterparty;
+    if (key.trustCodes && coded[0]) return coded[0];
   }
 
   // 2. A matter the user named themselves is authoritative: they have already
@@ -275,7 +327,7 @@ export function resolveMatterMatch(
   if (!key.counterparty) return null;
   let best: { candidate: MatterCandidate; score: number } | null = null;
   for (const candidate of candidates) {
-    if (candidate.counterparty !== key.counterparty) continue;
+    if (!sameCounterparty(key, candidate)) continue;
     const candidateWords = informativeWords(candidate.title, key.own);
     let shared = 0;
     for (const w of words) if (candidateWords.has(w)) shared++;

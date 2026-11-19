@@ -10,6 +10,7 @@ import {
   matterNameFrom,
   ownTokens,
   resolveMatterMatch,
+  senderDomainOf,
   type MatterCandidate,
 } from "../src/lib/v2/intelligence/matter-key.ts";
 
@@ -28,6 +29,43 @@ assert.equal(counterpartyOf("global.mybuy@roche.com", "rditrials.com"), "roche")
 assert.equal(counterpartyOf("vendor.portal@roche.com", "rditrials.com"), "roche");
 assert.equal(counterpartyOf("claire@rditrials.com", "rditrials.com"), "internal");
 assert.equal(counterpartyOf("someone@gmail.com", "rditrials.com"), "");
+assert.equal(counterpartyOf("notices@mail.roche.com", "rditrials.com"), "roche");
+assert.equal(counterpartyOf("a@lab.co.uk", "rditrials.com"), "lab");
+// A host named after someone else is still the domain owner's.
+assert.equal(counterpartyOf("a@roche.example.net", "rditrials.com"), "example");
+assert.equal(senderDomainOf("notices@mail.roche.com"), "roche.com");
+
+// --- A code ties only from the matter's counterparty or a trusted sender ---
+{
+  const existing: MatterCandidate[] = [
+    {
+      matterId: "m-roche",
+      title: "Sample stability programme",
+      codes: ["RD007704"],
+      counterparty: "roche",
+      senderDomains: ["roche.com"],
+    },
+  ];
+  const key = (counterparty: string, senderDomain: string, trustCodes = false) => ({
+    title: "Approval needed",
+    text: "please approve RD-007704",
+    counterparty,
+    senderDomain,
+    trustCodes,
+  });
+  assert.equal(resolveMatterMatch(key("roche", "roche.com"), existing)?.matterId, "m-roche");
+  assert.equal(resolveMatterMatch(key("other", "other.example"), existing), null);
+  assert.equal(resolveMatterMatch(key("internal", "rditrials.com"), existing), null);
+  assert.equal(
+    resolveMatterMatch(key("roche", "roche.xyz"), existing),
+    null,
+    "a different domain with the same first label is not the counterparty",
+  );
+  assert.equal(
+    resolveMatterMatch(key("clinic", "clinic.example", true), existing)?.matterId,
+    "m-roche",
+  );
+}
 
 const roche = (title: string, codes: string[] = []): MatterCandidate => ({
   matterId: `m-${title}`,

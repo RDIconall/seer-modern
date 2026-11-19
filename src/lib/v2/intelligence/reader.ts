@@ -5,13 +5,14 @@ import {
   type CompiledContext,
   type ContextInput,
 } from "./context";
-import { counterpartyOf, matterNameFrom, ownTokens } from "./matter-key";
+import { matterNameFrom, ownTokens } from "./matter-key";
 import {
   addressedDirectly,
   computeSalience,
   validDueDate,
 } from "./salience";
 import {
+  continueMatter,
   ensureMatter,
   findMatterByRef,
   linkConversationToMatter,
@@ -196,30 +197,38 @@ export async function readConversation(
   // Promotion: live work must land on the board. Reuse the matched matter, or
   // create one from the read's proposed name — otherwise a `matter` decision
   // has no matter to belong to and would be misfiled.
-  let matterId =
-    safety.home === "matter" ? compiled.candidateMatterId : null;
+  let matterId: string | null = null;
   if (safety.home === "matter") {
     // Tie on what this is ABOUT: codes in the subject/name/body plus the
     // counterparty. Sender type is irrelevant — an automated portal notice
-    // about an event belongs to that event's unit of work.
+    // about an event belongs to that event's unit of work — but who sent it
+    // decides whether a code it carries may join someone else's work.
     const tieText = [
       input.conversation.subject,
       read.matterRef ?? "",
       read.summary,
       input.conversation.messages[0]?.bodyText?.slice(0, 400) ?? "",
     ].join(" ");
-    const counterparty = counterpartyOf(
-      input.conversation.messages[input.conversation.messages.length - 1]?.from.email ?? "",
-      input.context.ownDomain,
-    );
-    // The user's own name and company identify nothing: they are in every
-    // matter on this desk, so they neither name work nor tie it together.
-    const own = ownTokens(input.context.ownEmail ?? `x@${input.context.ownDomain}`);
-    matterId = await ensureMatter(
-      input.accountId,
-      matterNameFrom(read.matterRef, input.conversation.subject, counterparty, tieText, own),
-      { text: tieText, counterparty, own },
-    );
+    const { counterparty, senderDomain, trustCodes } = compiled.matterTie;
+    // The matter the context related this conversation to is the one safety
+    // judged; file onto exactly that one rather than resolving again.
+    if (compiled.candidateMatterId) {
+      matterId = await continueMatter(
+        input.accountId,
+        compiled.candidateMatterId,
+        tieText,
+      );
+    }
+    if (!matterId) {
+      // The user's own name and company identify nothing: they are in every
+      // matter on this desk, so they neither name work nor tie it together.
+      const own = ownTokens(input.context.ownEmail ?? `x@${input.context.ownDomain}`);
+      matterId = await ensureMatter(
+        input.accountId,
+        matterNameFrom(read.matterRef, input.conversation.subject, counterparty, tieText, own),
+        { text: tieText, counterparty, senderDomain, own, trustCodes },
+      );
+    }
     await linkConversationToMatter(input.accountId, matterId, input.conversationId);
   }
 
