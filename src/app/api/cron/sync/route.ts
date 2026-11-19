@@ -167,6 +167,7 @@ export async function GET(request: Request) {
         (email) => getSenderOverride(email),
         classifyMessage,
         {
+          accountId: acct.id,
           profile,
           actionMemory,
           replied,
@@ -270,6 +271,7 @@ export async function GET(request: Request) {
         );
 
         const records = await readEmails(queue, {
+          accountId: acct.id,
           functions,
           concurrency: 5,
           contextById,
@@ -350,6 +352,7 @@ export async function GET(request: Request) {
             providerTotal,
             understanding,
             known,
+            acct.id,
           );
           briefRebuilt = true;
         } catch (e) {

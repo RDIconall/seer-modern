@@ -134,6 +134,7 @@ export async function GET(request: Request) {
         (email) => getSenderOverride(email),
         classifyMessage,
         {
+          accountId: session.accountId,
           personal,
           actionMemory,
           labels,

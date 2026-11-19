@@ -3,6 +3,7 @@ import {
   isGeminiConfigured,
   resolveAssistantModel,
 } from "@/lib/inbox/gemini-triage";
+import { ModelBudgetError, withModelBudget } from "@/lib/inbox/model-budget";
 import { historySignals } from "@/lib/inbox/mail-history";
 import { listGmailFolder, listGmailInbox } from "@/lib/mail/gmail";
 import { listGraphFolder, listGraphInbox } from "@/lib/mail/graph";
@@ -126,24 +127,30 @@ export async function GET() {
       return NextResponse.json({ suggestions: [], scanned: bySender.size });
     }
 
-    const { model } = await resolveAssistantModel();
-    const { output } = await generateText({
-      model,
-      temperature: 0,
-      maxRetries: 1,
-      abortSignal: AbortSignal.timeout(30_000),
-      output: Output.object({ schema: agentSchema }),
-      system: AGENT_PROMPT,
-      prompt: JSON.stringify(
-        batch.map((c) => ({
-          email: c.email,
-          name: c.name.slice(0, 50),
-          count: c.count,
-          trashRate: Math.round(c.trashRate * 100) / 100,
-          subjects: c.subjects,
-        })),
-      ),
-    });
+    const prompt = JSON.stringify(
+      batch.map((c) => ({
+        email: c.email,
+        name: c.name.slice(0, 50),
+        count: c.count,
+        trashRate: Math.round(c.trashRate * 100) / 100,
+        subjects: c.subjects,
+      })),
+    );
+    const { model, label } = await resolveAssistantModel();
+    const { output } = await withModelBudget(
+      { accountId: session.accountId, purpose: "unsub-agent" },
+      label,
+      () =>
+        generateText({
+          model,
+          temperature: 0,
+          maxRetries: 0,
+          abortSignal: AbortSignal.timeout(30_000),
+          output: Output.object({ schema: agentSchema }),
+          system: AGENT_PROMPT,
+          prompt,
+        }),
+    );
 
     const verdicts = new Map(
       (output?.senders ?? []).map((s) => [s.email.toLowerCase(), s]),
@@ -170,6 +177,9 @@ export async function GET() {
       considered: batch.length,
     });
   } catch (e) {
+    if (e instanceof ModelBudgetError) {
+      return NextResponse.json({ error: e.message }, { status: e.status });
+    }
     const msg = e instanceof Error ? e.message : "Agent failed";
     return NextResponse.json({ error: msg }, { status: 502 });
   }

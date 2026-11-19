@@ -2,6 +2,7 @@ import {
   isGeminiConfigured,
   resolveAssistantModel,
 } from "@/lib/inbox/gemini-triage";
+import { ModelBudgetError, withModelBudget } from "@/lib/inbox/model-budget";
 import { getGmailMessage } from "@/lib/mail/gmail";
 import { getGraphMessage } from "@/lib/mail/graph";
 import { requireMailSession } from "@/lib/mail/session";
@@ -77,32 +78,39 @@ export async function POST(request: Request) {
     const profile = await loadUserProfile(session.email);
     const profileBlock = profilePromptBlock(profile);
 
-    const { model } = await resolveAssistantModel();
-    const { output } = await generateText({
-      model,
-      temperature: 0.4,
-      maxRetries: 1,
-      output: Output.object({ schema: draftSchema }),
-      system: `You draft email replies for ${firstName} <${session.email}>.
+    const system = `You draft email replies for ${firstName} <${session.email}>.
 Rules:
 - Write ONLY the reply body (no subject, no quoted original).
 - Sound like a busy, warm human: short sentences, no corporate filler, no "I hope this email finds you well".
 - Answer what was actually asked. If information is missing, make the smallest reasonable assumption and move on — do not ask the user questions.
 - 1-4 sentences unless the email genuinely requires more.
-- Sign off with just "${firstName}".${profileBlock ? `\n\n${profileBlock}\nUse this to answer accurately as them (their role, family, commitments) and to match their voice — never contradict it.` : ""}`,
-      prompt: JSON.stringify({
-        from: `${message.fromName} <${message.fromEmail}>`,
-        subject: message.subject,
-        email: bodyText,
-        ...(hint ? { direction: hint } : {}),
-        ...(intent === "delegate" && toName
-          ? { handoffTo: toName }
-          : {}),
-        ...(intent === "delegate" && instruction?.trim()
-          ? { userWants: instruction.trim() }
-          : {}),
-      }),
+- Sign off with just "${firstName}".${profileBlock ? `\n\n${profileBlock}\nUse this to answer accurately as them (their role, family, commitments) and to match their voice — never contradict it.` : ""}`;
+    const prompt = JSON.stringify({
+      from: `${message.fromName} <${message.fromEmail}>`,
+      subject: message.subject,
+      email: bodyText,
+      ...(hint ? { direction: hint } : {}),
+      ...(intent === "delegate" && toName
+        ? { handoffTo: toName }
+        : {}),
+      ...(intent === "delegate" && instruction?.trim()
+        ? { userWants: instruction.trim() }
+        : {}),
     });
+    const { model, label } = await resolveAssistantModel();
+    const { output } = await withModelBudget(
+      { accountId: session.accountId, purpose: "draft" },
+      label,
+      () =>
+        generateText({
+          model,
+          temperature: 0.4,
+          maxRetries: 0,
+          output: Output.object({ schema: draftSchema }),
+          system,
+          prompt,
+        }),
+    );
 
     if (!output?.body) {
       return NextResponse.json({ error: "Draft failed" }, { status: 502 });
@@ -138,6 +146,9 @@ Rules:
       mode: "reply",
     });
   } catch (e) {
+    if (e instanceof ModelBudgetError) {
+      return NextResponse.json({ error: e.message }, { status: e.status });
+    }
     const msg = e instanceof Error ? e.message : "Draft failed";
     return NextResponse.json({ error: msg }, { status: 502 });
   }

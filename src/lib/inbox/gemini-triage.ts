@@ -28,6 +28,13 @@ import {
   saveDecisions,
   type CachedDecision,
 } from "@/lib/store/decision-cache";
+import {
+  COOLDOWN_KEY,
+  ModelBudgetError,
+  cooldownFromError,
+  withModelBudget,
+  type Cooldown,
+} from "@/lib/inbox/model-budget";
 import { kvGet, kvSet } from "@/lib/store/kv";
 import {
   extractAmount,
@@ -253,14 +260,6 @@ let lastGeminiError: string | null = null;
 let lastGeminiModel: string | null = null;
 
 /**
- * Quota cooldown, shared across serverless instances via KV: when Google
- * says "quota exceeded", every retry is a wasted request — stop calling
- * until the window resets instead of failing on each load.
- */
-const COOLDOWN_KEY = "gemini-cooldown";
-type Cooldown = { until: number; reason: string };
-
-/**
  * Second quota pool: the Vercel AI Gateway ships monthly included
  * credits per team. When the direct Google key is rate-limited, batches
  * fail over to the gateway instead of degrading to rules.
@@ -295,28 +294,6 @@ export function isModelBudgetError(msg: string): boolean {
   return /quota|rate limit|429|RESOURCE_EXHAUSTED|prepayment|credits? (are )?depleted|billing|insufficient|payment required|402/i.test(
     msg,
   );
-}
-
-function cooldownFromError(msg: string): Cooldown | null {
-  if (!/quota|rate limit|429|RESOURCE_EXHAUSTED/i.test(msg)) return null;
-  // Daily cap → sleep until the next Pacific midnight (Google's reset)
-  if (/PerDay|per day|daily/i.test(msg)) {
-    const now = new Date();
-    const reset = new Date(now);
-    reset.setUTCHours(7, 5, 0, 0); // 07:05 UTC ≈ just past midnight PT
-    if (reset <= now) reset.setUTCDate(reset.getUTCDate() + 1);
-    return {
-      until: reset.getTime(),
-      reason: "Daily free-tier quota used — resumes after midnight PT",
-    };
-  }
-  // Per-minute cap → honor Google's suggested retry delay when present
-  const m = msg.match(/retry(?:Delay|\s+in)["\s:]*([\d.]+)\s*s/i);
-  const seconds = m ? Math.ceil(parseFloat(m[1])) + 5 : 10 * 60;
-  return {
-    until: Date.now() + seconds * 1000,
-    reason: "Rate limit hit — cooling down",
-  };
 }
 
 export function getAssistantStatus(): {
@@ -589,6 +566,11 @@ export type TriageExtras = {
    * the whole inbox costs pennies — snippets are only the fallback.
    */
   fetchBody?: (id: string) => Promise<string | null>;
+  /**
+   * The mailbox account every model call is billed to. Without it the
+   * gray zone falls back to rules — no call goes out unbudgeted.
+   */
+  accountId?: string | null;
 };
 
 /**
@@ -707,17 +689,22 @@ async function geminiBatch(
   const system = profileBlock
     ? `${SYSTEM_PROMPT}\n\n${profileBlock}`
     : SYSTEM_PROMPT;
-  const { output } = await generateText({
-    model,
-    temperature: 0,
-    maxRetries: 0, // a retry against an exhausted quota is a wasted request
-    // A hung upstream call must never eat the function's 60s budget —
-    // that kills the whole inbox load and strands users on stale cache.
-    abortSignal: AbortSignal.timeout(30_000),
-    output: Output.object({ schema: batchSchema }),
-    system,
-    prompt: JSON.stringify(payload),
-  });
+  const { output } = await withModelBudget(
+    { accountId: extras?.accountId, purpose: "triage" },
+    label,
+    () =>
+      generateText({
+        model,
+        temperature: 0,
+        maxRetries: 0, // a retry against an exhausted quota is a wasted request
+        // A hung upstream call must never eat the function's 60s budget —
+        // that kills the whole inbox load and strands users on stale cache.
+        abortSignal: AbortSignal.timeout(30_000),
+        output: Output.object({ schema: batchSchema }),
+        system,
+        prompt: JSON.stringify(payload),
+      }),
+  );
 
   lastGeminiModel = label;
   lastGeminiError = null;
@@ -1364,6 +1351,10 @@ export async function classifyInboxWithAssistant(
         } catch (e) {
           const msg = e instanceof Error ? e.message : String(e);
           lastGeminiError = msg.slice(0, 300);
+          if (e instanceof ModelBudgetError) {
+            lastGeminiError = `${msg}. Decisions fall back to rules meanwhile.`;
+            break;
+          }
           // A dead model id may be memoized — forget it so the next load
           // rediscovers instead of failing forever.
           if (/no longer available|not found|NOT_FOUND/i.test(msg)) {
@@ -1380,15 +1371,9 @@ export async function classifyInboxWithAssistant(
             /high demand|overloaded|unavailable|503|timed? ?out|abort/i.test(
               msg,
             );
-          if (cd && !useGateway) {
-            // Direct key is out — remember it, then retry THIS chunk
-            // through the gateway credit pool.
-            await kvSet(COOLDOWN_KEY, cd).catch(() => {});
-            if (gatewayAvailable()) {
-              useGateway = true;
-              i -= step;
-              continue;
-            }
+          if (cd) {
+            // withModelBudget recorded the cooldown. This mailbox sits out
+            // the window; other mailboxes fail over to the gateway.
             const mins = Math.ceil((cd.until - Date.now()) / 60000);
             lastGeminiError = `${cd.reason} (~${mins}m). Decisions fall back to rules meanwhile.`;
           } else if (transient && !useGateway && gatewayAvailable()) {
