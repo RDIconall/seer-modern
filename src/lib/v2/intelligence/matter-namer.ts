@@ -169,11 +169,21 @@ phrases such as engagement, call, catch-up, follow-up, intro, or outreach alone.
 Titles must be distinct across the full board. Do not copy a long subject line
 verbatim. Return every supplied id exactly once.`;
 
+export type MatterNamingUsage = {
+  latencyMs: number;
+  inputTokens?: number;
+  outputTokens?: number;
+  totalTokens?: number;
+  providerMetadata?: Record<string, unknown>;
+};
+
 export function createMatterNamingCaller(
   model = process.env.SEER_ROUTER_FAST_MODEL ?? "google/gemini-3.1-flash-lite",
+  onUsage?: (usage: MatterNamingUsage) => void,
 ): MatterNamingCaller {
   return async (matters) => {
     if (matters.length === 0) return [];
+    const started = Date.now();
     const result = await generateText({
       model,
       temperature: 0,
@@ -188,6 +198,15 @@ export function createMatterNamingCaller(
       },
       system: NAMING_SYSTEM,
       prompt: JSON.stringify({ matters }),
+    });
+    onUsage?.({
+      latencyMs: Date.now() - started,
+      inputTokens: result.usage.inputTokens,
+      outputTokens: result.usage.outputTokens,
+      totalTokens: result.usage.totalTokens,
+      providerMetadata: result.providerMetadata as
+        | Record<string, unknown>
+        | undefined,
     });
     return result.output.matters;
   };
