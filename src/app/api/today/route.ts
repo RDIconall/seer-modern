@@ -1,3 +1,4 @@
+import { stripTags } from "@/lib/v2/intelligence/html-scan";
 import { buildActionGuideQuick } from "@/lib/inbox/action-guide";
 import {
   ACTION_META,
@@ -149,7 +150,7 @@ export async function GET() {
               : await getGraphMessage(session.accessToken, id);
           return (
             msg.textBody ||
-            msg.htmlBody.replace(/<[^>]+>/g, " ").replace(/\s+/g, " ")
+            stripTags(msg.htmlBody).replace(/\s+/g, " ")
           );
         },
         // Superhuman rule: respond NOW, read in the background

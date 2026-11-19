@@ -1,3 +1,4 @@
+import { stripTags } from "@/lib/v2/intelligence/html-scan";
 import {
   isGeminiConfigured,
   resolveAssistantModel,
@@ -68,7 +69,7 @@ export async function POST(request: Request) {
 
     const bodyText = (
       message.textBody ||
-      message.htmlBody.replace(/<[^>]+>/g, " ").replace(/\s+/g, " ")
+      stripTags(message.htmlBody).replace(/\s+/g, " ")
     ).slice(0, 5000);
 
     const firstName = (session.name || session.email).split(/[\s@]/)[0];

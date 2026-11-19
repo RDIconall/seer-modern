@@ -1,3 +1,4 @@
+import { stripTags } from "@/lib/v2/intelligence/html-scan";
 import { buildActionGuideQuick } from "@/lib/inbox/action-guide";
 import { classifyMessage } from "@/lib/inbox/classify";
 import { classifyInboxWithAssistant } from "@/lib/inbox/gemini-triage";
@@ -181,7 +182,7 @@ export async function GET(request: Request) {
               : await getGraphMessage(token, id);
             return (
               msg.textBody ||
-              msg.htmlBody.replace(/<[^>]+>/g, " ").replace(/\s+/g, " ")
+              stripTags(msg.htmlBody).replace(/\s+/g, " ")
             );
           },
         },
@@ -283,7 +284,7 @@ export async function GET(request: Request) {
               : await getGraphMessage(token, id);
             return (
               msg.textBody ||
-              msg.htmlBody.replace(/<[^>]+>/g, " ").replace(/\s+/g, " ")
+              stripTags(msg.htmlBody).replace(/\s+/g, " ")
             );
           },
         });
