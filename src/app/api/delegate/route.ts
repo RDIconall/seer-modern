@@ -18,8 +18,8 @@ function ensureFwd(subject: string) {
  * Delegate: forward the email to whoever should own it with a short handoff
  * note, then archive it — off your plate, on theirs.
  *
- * `to` is optional. Without it the configured EA is used, which is the old
- * behaviour. With it, delegation is what it actually is in practice: a
+ * `to` is optional. Without it the EA this mailbox saved is used, and the
+ * request is refused when it saved none. With it, delegation is what it actually is in practice: a
  * forward to the right person. Locking this to a single assistant meant a
  * change order could not go to the COO or an NDA to counsel without leaving
  * the app, which is why delegation was not happening inside it.

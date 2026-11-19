@@ -5,6 +5,7 @@ import {
 import { getGmailMessage } from "@/lib/mail/gmail";
 import { getGraphMessage } from "@/lib/mail/graph";
 import { requireMailSession } from "@/lib/mail/session";
+import { loadEa } from "@/lib/store/ea";
 import {
   loadUserProfile,
   profilePromptBlock,
@@ -61,6 +62,23 @@ export async function POST(request: Request) {
       return NextResponse.json({ error: "Provide { id }" }, { status: 400 });
     }
 
+    let handoff: { to: string; name?: string } | null = null;
+    if (intent === "delegate") {
+      const named = to?.trim();
+      if (named) {
+        handoff = { to: named, name: toName?.trim() || undefined };
+      } else {
+        const ea = await loadEa(session.email);
+        if (!ea) {
+          return NextResponse.json(
+            { error: "No recipient given and no EA configured", needsEa: true },
+            { status: 412 },
+          );
+        }
+        handoff = { to: ea.email, name: toName?.trim() || ea.name };
+      }
+    }
+
     const message =
       session.provider === "google"
         ? await getGmailMessage(session.accessToken, id)
@@ -95,9 +113,7 @@ Rules:
         subject: message.subject,
         email: bodyText,
         ...(hint ? { direction: hint } : {}),
-        ...(intent === "delegate" && toName
-          ? { handoffTo: toName }
-          : {}),
+        ...(handoff?.name ? { handoffTo: handoff.name } : {}),
         ...(intent === "delegate" && instruction?.trim()
           ? { userWants: instruction.trim() }
           : {}),
@@ -109,10 +125,10 @@ Rules:
     }
 
     // Delegation goes to the chosen helper as a forward, not the sender
-    if (intent === "delegate") {
+    if (handoff) {
       return NextResponse.json({
         body: output.body.trim(),
-        to: to?.trim() || process.env.SEER_EA_EMAIL?.trim() || "",
+        to: handoff.to,
         subject: /^(fwd|fw):/i.test(message.subject)
           ? message.subject
           : `Fwd: ${message.subject}`,
