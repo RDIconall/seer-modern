@@ -15,8 +15,9 @@ import { accountKey, kvGet, kvSet } from "@/lib/store/kv";
 import { loadMatterFixes, type MatterFixes } from "@/lib/store/matter-fixes";
 import { loadMatterEdits } from "@/lib/store/manual-matters";
 import {
+  closedThreadsOf,
+  closureFor,
   loadClosedMatters,
-  matchesClosure,
   saveClosedMatters,
   type ClosedMatters,
 } from "@/lib/store/closed-matters";
@@ -1558,11 +1559,12 @@ export async function buildBrief(
     } else if (!status) {
       status = m.owner === "them" ? "waiting" : "active";
     }
-    const closure = Object.values(closed).find((c) =>
-      matchesClosure({ id: m.id, title: m.title, threadIds: m.threadIds }, c),
+    const closure = closureFor(
+      { id: m.id, title: m.title, threadIds: m.threadIds },
+      closed,
     );
     if (closure) {
-      const newest = newestMailOf(m.threadIds);
+      const newest = newestMailOf(closedThreadsOf(m.threadIds, closure));
       if (newest && newest > closure.closedAt) {
         delete closed[closure.matterId];
         closedDirty = true;
@@ -1626,19 +1628,25 @@ export async function buildBrief(
     const candidate = matterCandidateFor(baseFiled, u);
     const matterId = `read:${i.threadId}`;
     const closure = candidate
-      ? Object.values(closed).find((c) =>
-          matchesClosure(
-            { id: matterId, title: candidate.title, threadIds: [i.threadId] },
-            c,
-          ),
+      ? closureFor(
+          { id: matterId, title: candidate.title, threadIds: [i.threadId] },
+          closed,
         )
       : undefined;
-    // Closed and quiet stays closed; new mail after the closure reopens it.
+    // Closed and quiet stays closed. New mail reopens a closure only on a
+    // thread recorded on it; new mail on any other thread is a distinct
+    // matter and leaves the closure in place.
+    const newMail = Boolean(
+      closure && newestMailOf([i.threadId]) > closure.closedAt,
+    );
+    const reopens = Boolean(
+      closure && newMail && closedThreadsOf([i.threadId], closure).length > 0,
+    );
     const suppressed = Boolean(
-      closure && !(newestMailOf([i.threadId]) > closure.closedAt),
+      closure && !reopens && !(newMail && matterId !== closure.matterId),
     );
     if (candidate && !suppressed) {
-      if (closure) {
+      if (closure && reopens) {
         delete closed[closure.matterId];
         closedDirty = true;
       }
@@ -1662,7 +1670,7 @@ export async function buildBrief(
           count: ids.length,
         },
         understanding: u,
-        ...(closure
+        ...(closure && reopens
           ? {
               reopenedBecause: `New mail after you closed this (${closure.reason})`,
             }
