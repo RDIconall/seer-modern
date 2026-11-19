@@ -1,3 +1,4 @@
+import { OWNER_EMAIL } from "@/lib/auth/org";
 import { accountKey, kvDelete, kvGet, kvSet } from "@/lib/store/kv";
 
 /**
@@ -31,6 +32,16 @@ function keyFor(accountEmail: string) {
   return `profile:${accountKey(accountEmail)}`;
 }
 
+/**
+ * The one mailbox SEER_USER_PROFILE describes: SEER_USER_PROFILE_EMAIL when
+ * set, otherwise the desk's own mailbox. Sign-in admits the whole
+ * organization, so the deployment text must never stand in for anyone else.
+ */
+function deploymentProfileOwner(): string {
+  const named = process.env.SEER_USER_PROFILE_EMAIL?.trim();
+  return accountKey(named || OWNER_EMAIL);
+}
+
 export async function loadUserProfile(
   accountEmail: string,
 ): Promise<UserProfile | null> {
@@ -41,6 +52,7 @@ export async function loadUserProfile(
   // between instances. SEER_USER_PROFILE (Vercel env var) survives.
   // Set SEER_USER_PROFILE_UPDATED_AT (ISO date) when changing it to give
   // the inbox one fresh Gemini pass with the new context.
+  if (accountKey(accountEmail) !== deploymentProfileOwner()) return null;
   const envText = process.env.SEER_USER_PROFILE?.trim();
   if (envText) {
     return {
