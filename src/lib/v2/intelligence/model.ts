@@ -54,26 +54,126 @@ Distinguish a GENERIC BROADCAST from a DIRECT DEMAND. A sourcing/procurement not
 
 Use the CONTEXT block as sourced evidence: [explicit]/[system] outrank your reading; [inference] is a hint. Absence of relationship is itself evidence toward fyi/disposable — but a real ask, signature, or deadline in the body always wins.`;
 
-/** "Raiane Sousa Gaspar <raiane@roche.com>" — what a paste would show. */
-function addressLine(a: { email: string; name?: string }): string {
-  return a.name && a.name !== a.email ? `${a.name} <${a.email}>` : a.email;
+/**
+ * Anyone who can email a connected mailbox controls these fields, and every
+ * character is billed as input on each paid call. A message body is cut at
+ * MESSAGE_BODY_CHAR_BUDGET; all bodies in one prompt share
+ * THREAD_BODY_CHAR_BUDGET, newest message first, so the latest turn is never
+ * the one dropped.
+ */
+export const MESSAGE_BODY_CHAR_BUDGET = 8_000;
+export const THREAD_BODY_CHAR_BUDGET = 32_000;
+export const MESSAGES_PER_READ = 20;
+const SUBJECT_CHAR_BUDGET = 500;
+const ADDRESS_CHAR_BUDGET = 200;
+const RECIPIENTS_PER_FIELD = 10;
+const ATTACHMENTS_PER_MESSAGE = 10;
+const FILENAME_CHAR_BUDGET = 120;
+const CONTEXT_CHAR_BUDGET = 4_000;
+/** Serialized prompt ceiling. A prompt still above it is never submitted. */
+export const READ_PROMPT_CHAR_CEILING = 96_000;
+const TRUNCATION_MARKER = "\n[… truncated]";
+
+export class OversizedReadError extends Error {
+  constructor(message: string) {
+    super(message);
+    this.name = "OversizedReadError";
+  }
 }
 
-export function conversationPayload(conversation: Conversation) {
+/** Cut to at most `budget` UTF-16 units without splitting a surrogate pair. */
+function clip(text: string, budget: number): string {
+  if (text.length <= budget) return text;
+  if (budget <= 0) return "";
+  const marker = budget > TRUNCATION_MARKER.length ? TRUNCATION_MARKER : "";
+  let end = budget - marker.length;
+  const last = text.charCodeAt(end - 1);
+  if (last >= 0xd800 && last <= 0xdbff) end--;
+  return text.slice(0, end) + marker;
+}
+
+/** "Raiane Sousa Gaspar <raiane@roche.com>" — what a paste would show. */
+function addressLine(a: { email: string; name?: string }): string {
+  const line = a.name && a.name !== a.email ? `${a.name} <${a.email}>` : a.email;
+  return clip(line, ADDRESS_CHAR_BUDGET);
+}
+
+function addressList(list: { email: string; name?: string }[]): string[] {
+  const shown = list.slice(0, RECIPIENTS_PER_FIELD).map(addressLine);
+  const hidden = list.length - shown.length;
+  return hidden > 0 ? [...shown, `… and ${hidden} more`] : shown;
+}
+
+export function conversationPayload(
+  conversation: Conversation,
+  limits: { bodyBudget?: number; maxMessages?: number } = {},
+) {
+  const maxMessages = Math.max(1, limits.maxMessages ?? MESSAGES_PER_READ);
+  let remaining = Math.min(
+    limits.bodyBudget ?? THREAD_BODY_CHAR_BUDGET,
+    THREAD_BODY_CHAR_BUDGET,
+  );
+  const all = conversation.messages;
+  const kept: { message: (typeof all)[number]; body: string }[] = [];
+  for (let i = all.length - 1; i >= 0 && kept.length < maxMessages; i--) {
+    if (kept.length > 0 && remaining <= 0) break;
+    const body = clip(
+      readableBody(all[i]),
+      Math.min(MESSAGE_BODY_CHAR_BUDGET, Math.max(0, remaining)),
+    );
+    remaining -= body.length;
+    kept.unshift({ message: all[i], body });
+  }
+  const omitted = all.length - kept.length;
   return {
-    subject: conversation.subject,
-    messages: conversation.messages.map((m) => ({
+    subject: clip(conversation.subject, SUBJECT_CHAR_BUDGET),
+    ...(omitted > 0 ? { omittedEarlierMessages: omitted } : {}),
+    messages: kept.map(({ message: m, body }) => ({
       // Names matter: seniority and identity live in them, not the address.
       from: addressLine(m.from),
-      to: m.to.map(addressLine),
-      cc: m.cc.map(addressLine),
+      to: addressList(m.to),
+      cc: addressList(m.cc),
       sentAt: m.sentAt,
       ...(m.attachments.length
-        ? { attachments: m.attachments.map((a) => a.filename) }
+        ? {
+            attachments: m.attachments
+              .slice(0, ATTACHMENTS_PER_MESSAGE)
+              .map((a) => clip(a.filename, FILENAME_CHAR_BUDGET)),
+          }
         : {}),
-      body: readableBody(m),
+      body,
     })),
   };
+}
+
+/**
+ * The exact prompt text submitted for one read. JSON escaping can inflate the
+ * clipped fields, so the serialized form is measured and the thread is shrunk
+ * until it fits; if it still cannot fit, the read is refused before any paid
+ * call.
+ */
+export function readPrompt(input: ReaderModelInput): string {
+  const context = clip(
+    input.contextText || "no prior relationship on record",
+    CONTEXT_CHAR_BUDGET,
+  );
+  let bodyBudget = THREAD_BODY_CHAR_BUDGET;
+  let maxMessages = MESSAGES_PER_READ;
+  for (let attempt = 0; attempt < 8; attempt++) {
+    const prompt = JSON.stringify({
+      context,
+      conversation: conversationPayload(input.conversation, {
+        bodyBudget,
+        maxMessages,
+      }),
+    });
+    if (prompt.length <= READ_PROMPT_CHAR_CEILING) return prompt;
+    bodyBudget = Math.floor(bodyBudget / 2);
+    maxMessages = Math.max(1, Math.floor(maxMessages / 2));
+  }
+  throw new OversizedReadError(
+    `conversation exceeds the ${READ_PROMPT_CHAR_CEILING}-character read prompt ceiling`,
+  );
 }
 
 /**
@@ -110,6 +210,7 @@ export type ModelCaller = (
   model: string,
   tier: RoutedTier,
   input: ReaderModelInput,
+  prompt: string,
 ) => Promise<ModelCallResult>;
 
 export type UsageRecorder = (
@@ -176,7 +277,15 @@ export function escalationReasons(
  * Gateway provider/model fallbacks are visible in generation metadata and do
  * not create opaque duplicate attempts in app code.
  */
-export const callGatewayModel: ModelCaller = async (model, tier, input) => {
+export const callGatewayModel: ModelCaller = async (
+  model,
+  tier,
+  _input,
+  prompt,
+) => {
+  if (prompt.length > READ_PROMPT_CHAR_CEILING) {
+    throw new OversizedReadError("read prompt exceeds the submission ceiling");
+  }
   const started = Date.now();
   const result = await generateText({
     // A provider/model string routes through Vercel AI Gateway (OIDC in Vercel,
@@ -206,10 +315,7 @@ export const callGatewayModel: ModelCaller = async (model, tier, input) => {
       },
     },
     system: CHIEF_OF_STAFF_SYSTEM,
-    prompt: JSON.stringify({
-      context: input.contextText || "no prior relationship on record",
-      conversation: conversationPayload(input.conversation),
-    }),
+    prompt,
   });
   return {
     output: normalizeModelReadResult(result.output),
@@ -295,13 +401,17 @@ export function createReaderRouter(deps: {
   const allowCall = deps.allowCall ?? withinDailyBudget;
 
   return async (input) => {
+    // Built once and reused for both tiers: an oversized thread is refused
+    // here, before either paid call, and the strong retry cannot carry more
+    // than the fast call did.
+    const prompt = readPrompt(input);
     const fastModel = requestedModel("fast");
     let fast: ModelCallResult;
     try {
       if (!(await allowCall(input.accountId, "fast"))) {
         throw new Error("fast daily model-call limit reached");
       }
-      fast = await call(fastModel, "fast", input);
+      fast = await call(fastModel, "fast", input, prompt);
       await persistUsage(recorder, input, "fast", fastModel, [], fast);
     } catch (fastError) {
       // A fast-model outage is itself an escalation reason. The strong route
@@ -309,7 +419,7 @@ export function createReaderRouter(deps: {
       const reasons = ["fast_failed"];
       const strongModel = requestedModel("strong");
       if (!(await allowCall(input.accountId, "strong"))) throw fastError;
-      const strong = await call(strongModel, "strong", input);
+      const strong = await call(strongModel, "strong", input, prompt);
       await persistUsage(
         recorder,
         input,
@@ -334,7 +444,7 @@ export function createReaderRouter(deps: {
         rationale: `${fast.output.rationale} (fast classification; strong verification budget reached: ${reasons.join(", ")})`,
       };
     }
-    const strong = await call(strongModel, "strong", input);
+    const strong = await call(strongModel, "strong", input, prompt);
     await persistUsage(
       recorder,
       input,
