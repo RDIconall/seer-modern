@@ -1,0 +1,9 @@
+{
+  "extends": "./tsconfig.json",
+  "compilerOptions": {
+    "paths": {
+      "@/auth": ["./scripts/legacy-budget-auth-double.ts"],
+      "@/*": ["./src/*"]
+    }
+  }
+}
