@@ -22,6 +22,12 @@ import { getSenderOverride } from "@/lib/store/senders";
 import { knownSenders } from "@/lib/brain/relationships";
 import { loadPeople } from "@/lib/store/people";
 import { getPersonalContext } from "@/lib/inbox/personal-context";
+import {
+  BRIEF_REBUILD_COOLDOWN_MS,
+  claimBriefRebuild,
+  finishBriefRebuild,
+} from "@/lib/v2/cron/lease";
+import { asAccountId, isUuid, type AccountId } from "@/lib/v2/db/types";
 import { NextResponse, after } from "next/server";
 
 /** Deep enough to cover a real 500+ inbox in one pass */
@@ -71,11 +77,34 @@ export async function GET() {
 }
 
 export async function POST() {
+  let claim: { accountId: AccountId; token: string } | null = null;
+  let handedOff = false;
   try {
     const session = await requireMailSession();
     if (!session) {
       return NextResponse.json({ error: "Not signed in" }, { status: 401 });
     }
+    if (!isUuid(session.accountId)) {
+      return NextResponse.json(
+        { error: "Reconnect this mailbox in Settings to rebuild its brief" },
+        { status: 409 },
+      );
+    }
+
+    // One rebuild per mailbox at a time, then a cooldown — taken before any
+    // mail is read, so a refused request costs nothing.
+    const accountId = asAccountId(session.accountId);
+    const token = await claimBriefRebuild(accountId);
+    if (!token) {
+      return NextResponse.json(
+        { error: "The brief was just rebuilt — try again in a few minutes" },
+        {
+          status: 429,
+          headers: { "Retry-After": String(BRIEF_REBUILD_COOLDOWN_MS / 1000) },
+        },
+      );
+    }
+    claim = { accountId, token };
 
     const raw = await getInboxSnapshot(session.email, () =>
       session.provider === "google"
@@ -183,6 +212,7 @@ export async function POST() {
           providerTotal,
           understanding,
           known,
+          { accountId },
         );
         console.log(
           `[seer] brief rebuilt: ${brief.matters.length} matters · ${brief.headlines.length} headlines`,
@@ -192,12 +222,19 @@ export async function POST() {
           "[seer] brief build failed:",
           e instanceof Error ? e.message : e,
         );
+      } finally {
+        await finishBriefRebuild(accountId, token).catch(() => {});
       }
     });
+    handedOff = true;
 
     return NextResponse.json({ ok: true, building: true });
   } catch (e) {
     const msg = e instanceof Error ? e.message : "Brief rebuild failed";
     return NextResponse.json({ error: msg }, { status: 502 });
+  } finally {
+    if (claim && !handedOff) {
+      await finishBriefRebuild(claim.accountId, claim.token).catch(() => {});
+    }
   }
 }
