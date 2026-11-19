@@ -5,9 +5,27 @@
  * <style> and <script>, so the model ends up reading CSS rules as if they were
  * the message. It also leaves entities raw ("&gt;", "&nbsp;"). The standard we
  * hold this to: what you would see if you pasted the email into a chat.
+ *
+ * Conversion runs synchronously inside the sync page write, on mail anyone
+ * can send, so it is a single linear scan (see html-scan.ts) over a bounded
+ * prefix of the body.
  */
 
-const BLOCK_LEVEL = /<\/?(p|div|tr|li|h[1-6]|blockquote|table|section|article)\b[^>]*>/gi;
+import { scanHtml } from "./html-scan";
+
+/**
+ * Longest HTML body converted to text. Far beyond any real message's text,
+ * and it keeps the work per message bounded however large the body is.
+ */
+export const MAX_HTML_TO_TEXT_CHARS = 1_000_000;
+
+const BLOCK_LEVEL = new Set([
+  "p", "div", "tr", "li", "h1", "h2", "h3", "h4", "h5", "h6",
+  "blockquote", "table", "section", "article",
+]);
+
+/** Non-content regions, dropped together with their contents. */
+const SKIP_CONTENT = new Set(["script", "style", "head", "noscript"]);
 
 const ENTITIES: Record<string, string> = {
   amp: "&",
@@ -25,33 +43,47 @@ const ENTITIES: Record<string, string> = {
   rdquo: "”",
 };
 
+const ENTITY = /&(?:#(\d+)|#x([0-9a-f]+)|([a-z]+));/gi;
+
 function decodeEntities(s: string): string {
-  return s
-    .replace(/&#(\d+);/g, (_, code: string) => String.fromCodePoint(Number(code)))
-    .replace(/&#x([0-9a-f]+);/gi, (_, hex: string) =>
-      String.fromCodePoint(parseInt(hex, 16)),
-    )
-    .replace(/&([a-z]+);/gi, (match, name: string) => ENTITIES[name.toLowerCase()] ?? match);
+  return s.replace(
+    ENTITY,
+    (match, decimal: string | undefined, hex: string | undefined, name: string | undefined) => {
+      if (name !== undefined) return ENTITIES[name.toLowerCase()] ?? match;
+      const code = decimal !== undefined ? Number(decimal) : parseInt(hex ?? "", 16);
+      // Out-of-range references would make String.fromCodePoint throw.
+      return code <= 0x10ffff ? String.fromCodePoint(code) : "\uFFFD";
+    },
+  );
+}
+
+/** Trim every line and keep at most one blank line between paragraphs. */
+function tidyLines(s: string): string {
+  const lines: string[] = [];
+  for (const raw of s.replace(/[ \t\u00a0]+/g, " ").split("\n")) {
+    const line = raw.trim();
+    if (line === "" && (lines.length === 0 || lines[lines.length - 1] === "")) continue;
+    lines.push(line);
+  }
+  while (lines.length > 0 && lines[lines.length - 1] === "") lines.pop();
+  return lines.join("\n");
 }
 
 export function htmlToText(html: string): string {
-  return decodeEntities(
-    html
-      // Drop non-content regions entirely, including their contents.
-      .replace(/<!--[\s\S]*?-->/g, " ")
-      .replace(/<(script|style|head|noscript)\b[^>]*>[\s\S]*?<\/\1>/gi, " ")
+  const source = html.length > MAX_HTML_TO_TEXT_CHARS ? html.slice(0, MAX_HTML_TO_TEXT_CHARS) : html;
+  const parts: string[] = [];
+  scanHtml(
+    source,
+    {
+      text: (text) => parts.push(text),
       // Preserve document structure as line breaks so sentences don't fuse.
-      .replace(/<br\s*\/?>/gi, "\n")
-      .replace(BLOCK_LEVEL, "\n")
-      // Everything else is markup.
-      .replace(/<[^>]+>/g, " "),
-  )
-    .replace(/[ \t\u00a0]+/g, " ")
-    .replace(/\n\s*\n\s*\n+/g, "\n\n")
-    .split("\n")
-    .map((line) => line.trim())
-    .join("\n")
-    .trim();
+      tag: (tag) => parts.push(tag.name === "br" || BLOCK_LEVEL.has(tag.name) ? "\n" : " "),
+      declaration: () => parts.push(" "),
+      skipped: () => parts.push(" "),
+    },
+    { skipContent: SKIP_CONTENT },
+  );
+  return tidyLines(decodeEntities(parts.join("")));
 }
 
 /**
