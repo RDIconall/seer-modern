@@ -6,7 +6,7 @@ import {
   isUuid,
   type AccountId,
 } from "../db/types";
-import { DEFAULT_BOT_SLUG } from "./types";
+import { DEFAULT_BOT_SLUG, STAFF_BOT_SLUGS, staffBotSlug } from "./types";
 import type {
   BotTaskStatus,
   StaffActor,
@@ -38,7 +38,10 @@ function requireIso(value: Date | string): string {
 
 export async function listBots(client: Runner = runner()): Promise<StaffBot[]> {
   const r = await client.query<{ id: string; slug: string; display_name: string }>(
-    "select id, slug, display_name from seer.bots order by display_name",
+    `select id, slug, display_name from seer.bots
+      where slug = any($1::text[])
+      order by display_name`,
+    [STAFF_BOT_SLUGS],
   );
   return r.rows.map((row) => ({
     id: row.id,
@@ -47,7 +50,8 @@ export async function listBots(client: Runner = runner()): Promise<StaffBot[]> {
   }));
 }
 
-export async function ensureBot(
+/** Operator seed script only. Request paths use `catalogBot`. */
+async function ensureBot(
   slug: string,
   displayName: string,
   client: Runner = runner(),
@@ -65,18 +69,23 @@ export async function ensureBot(
   return { id: row.id, slug: row.slug, displayName: row.display_name };
 }
 
-export async function botBySlug(
+/**
+ * Resolve a caller-supplied slug to an existing catalog bot. Never inserts:
+ * seer.bots is shared by every mailbox, so request paths must not grow it.
+ */
+export async function catalogBot(
   slug: string,
   client: Runner = runner(),
-): Promise<StaffBot | null> {
+): Promise<StaffBot> {
+  const allowed = staffBotSlug(slug);
+  if (!allowed) throw new Error("unknown bot");
   const r = await client.query<{ id: string; slug: string; display_name: string }>(
     "select id, slug, display_name from seer.bots where slug = $1",
-    [slug.trim().toLowerCase()],
+    [allowed],
   );
   const row = r.rows[0];
-  return row
-    ? { id: row.id, slug: row.slug, displayName: row.display_name }
-    : null;
+  if (!row) throw new Error("unknown bot");
+  return { id: row.id, slug: row.slug, displayName: row.display_name };
 }
 
 type TaskRow = {
@@ -244,11 +253,7 @@ export async function createTask(input: CreateTaskInput): Promise<StaffTask> {
   const title = input.title.trim();
   if (!title) throw new Error("a task needs a title");
   return inTransaction(async (client) => {
-    const bot = await ensureBot(
-      input.botSlug ?? DEFAULT_BOT_SLUG,
-      input.botName ?? input.botSlug ?? "Chief of staff",
-      client,
-    );
+    const bot = await catalogBot(input.botSlug ?? DEFAULT_BOT_SLUG, client);
     const r = await client.query<TaskRow>(
       `insert into seer.bot_tasks (
          account_id, bot_id, external_key, title, status, priority, due_at,
@@ -401,8 +406,8 @@ export async function updateTask(
     let botId = current.botId;
     let botSlug = current.botSlug;
     let botName = current.botName;
-    if (patch.botSlug && patch.botSlug !== current.botSlug) {
-      const bot = await ensureBot(patch.botSlug, patch.botSlug, client);
+    const bot = patch.botSlug ? await catalogBot(patch.botSlug, client) : null;
+    if (bot && bot.id !== current.botId) {
       botId = bot.id;
       botSlug = bot.slug;
       botName = bot.displayName;
@@ -579,11 +584,7 @@ export async function postMessage(input: {
         displayName: task.botName,
       };
     } else {
-      bot = await ensureBot(
-        input.botSlug ?? DEFAULT_BOT_SLUG,
-        "Chief of staff",
-        client,
-      );
+      bot = await catalogBot(input.botSlug ?? DEFAULT_BOT_SLUG, client);
     }
     const r = await client.query<{ id: string; created_at: Date }>(
       `insert into seer.bot_messages (account_id, bot_id, task_id, author, body)
@@ -744,11 +745,7 @@ export async function insertProposal(input: {
   rationale?: string | null;
 }): Promise<StaffProposal> {
   return inTransaction(async (client) => {
-    const bot = await ensureBot(
-      input.botSlug ?? DEFAULT_BOT_SLUG,
-      "Chief of staff",
-      client,
-    );
+    const bot = await catalogBot(input.botSlug ?? DEFAULT_BOT_SLUG, client);
     const r = await client.query<ProposalRow>(
       `insert into seer.triage_proposals (
          account_id, bot_id, conversation_id, provider_conversation_id,

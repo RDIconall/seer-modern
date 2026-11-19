@@ -137,3 +137,23 @@ export function isTriageAction(value: string): value is TriageAction {
 }
 
 export const DEFAULT_BOT_SLUG = "chief-of-staff";
+
+export const MAX_BOT_TEXT = 128;
+
+/** Seeded in `20261016220000_bot_staff.sql`. Mailbox commands may only name these. */
+export const STAFF_BOT_SLUGS = [
+  "chief-of-staff",
+  "personal-chief-of-staff",
+  "snak-bot",
+  "it-admin",
+  "site-outreach",
+  "recruiter",
+  "growth",
+  "proposals-bids",
+] as const;
+
+export function staffBotSlug(value: unknown): string | null {
+  if (typeof value !== "string") return null;
+  const slug = value.trim().toLowerCase();
+  return (STAFF_BOT_SLUGS as readonly string[]).includes(slug) ? slug : null;
+}
