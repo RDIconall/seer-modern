@@ -27,6 +27,12 @@ import type {
   SyncPage,
 } from "./types";
 import { compileGmailSearch, parseMailSearch } from "@/lib/v3/search/parser";
+import {
+  addressHeader,
+  attachmentMimeType,
+  encodedHeaderText,
+  isMailboxAddress,
+} from "@/lib/mail/mime-headers";
 import { assertSyncBudget } from "./types";
 
 /**
@@ -239,10 +245,15 @@ export class GmailProvider implements MailProvider {
   }
 
   private encodeRaw(
-    headersLines: string[],
+    headers: { to: readonly string[]; cc?: readonly string[]; subject: string },
     html: string,
     attachments: SendCommand["attachments"] = [],
   ): string {
+    const headersLines = [
+      addressHeader("To", headers.to),
+      ...(headers.cc?.length ? [addressHeader("Cc", headers.cc)] : []),
+      `Subject: ${encodedHeaderText(headers.subject)}`,
+    ];
     const safeAttachments = attachments ?? [];
     const boundary = `seer_${crypto.randomUUID().replaceAll("-", "")}`;
     const mime =
@@ -272,7 +283,7 @@ export class GmailProvider implements MailProvider {
                 ?.join("\r\n") ?? "";
               return [
                 `--${boundary}`,
-                `Content-Type: ${attachment.mimeType || "application/octet-stream"}; name="${filename}"`,
+                `Content-Type: ${attachmentMimeType(attachment.mimeType)}; name="${filename}"`,
                 "Content-Transfer-Encoding: base64",
                 `Content-Disposition: attachment; filename="${filename}"`,
                 "",
@@ -291,11 +302,11 @@ export class GmailProvider implements MailProvider {
   async send(command: SendCommand, _key: string): Promise<SendReceipt> {
     void _key;
     const raw = this.encodeRaw(
-      [
-        `To: ${command.to.map((a) => a.email).join(", ")}`,
-        command.cc?.length ? `Cc: ${command.cc.map((a) => a.email).join(", ")}` : "",
-        `Subject: ${command.subject}`,
-      ].filter(Boolean),
+      {
+        to: command.to.map((a) => a.email),
+        cc: command.cc?.map((a) => a.email),
+        subject: command.subject,
+      },
       command.bodyHtml,
       command.attachments,
     );
@@ -310,17 +321,20 @@ export class GmailProvider implements MailProvider {
     const convo = await this.thread(command.conversationId);
     const last = convo.messages[convo.messages.length - 1];
     const recipients = new Set<string>();
-    if (last?.from.email) recipients.add(last.from.email);
+    // Thread addresses are sender-written; one that is not a single address
+    // is not a recipient at all.
+    if (last?.from.email && isMailboxAddress(last.from.email)) {
+      recipients.add(last.from.email);
+    }
     if (command.all) {
       for (const a of [...(last?.to ?? []), ...(last?.cc ?? [])]) {
-        if (a.email !== this.deps.accountEmail.toLowerCase()) recipients.add(a.email);
+        if (a.email !== this.deps.accountEmail.toLowerCase() && isMailboxAddress(a.email)) {
+          recipients.add(a.email);
+        }
       }
     }
     const raw = this.encodeRaw(
-      [
-        `To: ${[...recipients].join(", ")}`,
-        `Subject: Re: ${convo.subject}`,
-      ],
+      { to: [...recipients], subject: `Re: ${convo.subject}` },
       command.bodyHtml,
     );
     const r = await this.post<{ id: string; threadId: string }>("/messages/send", {
@@ -335,7 +349,7 @@ export class GmailProvider implements MailProvider {
     const convo = await this.thread(command.conversationId);
     const bodyHtml = gmailForwardHtml(convo, command.bodyHtml);
     const raw = this.encodeRaw(
-      [`To: ${command.to.map((a) => a.email).join(", ")}`, `Subject: Fwd: ${convo.subject}`],
+      { to: command.to.map((a) => a.email), subject: `Fwd: ${convo.subject}` },
       bodyHtml,
     );
     const r = await this.post<{ id: string; threadId: string }>("/messages/send", {

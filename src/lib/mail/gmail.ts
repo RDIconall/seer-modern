@@ -4,6 +4,13 @@ import type {
   MailMessageListItem,
   SendMailInput,
 } from "@/lib/mail/types";
+import {
+  addressHeader,
+  attachmentMimeType,
+  encodedHeaderText,
+  messageIdList,
+  splitAddressList,
+} from "@/lib/mail/mime-headers";
 import { compileGmailSearch, parseMailSearch } from "@/lib/v3/search/parser";
 
 export type {
@@ -412,13 +419,16 @@ export async function getGmailThreadMessages(
 }
 
 function buildMime(input: SendMailInput): string {
+  const cc = splitAddressList(input.cc ?? "");
+  const inReplyTo = messageIdList(input.inReplyTo ?? "");
+  const references = messageIdList(input.references ?? "");
   const head = [
-    `To: ${input.to}`,
-    ...(input.cc?.trim() ? [`Cc: ${input.cc.trim()}`] : []),
-    `Subject: ${input.subject}`,
+    addressHeader("To", splitAddressList(input.to)),
+    ...(cc.length ? [addressHeader("Cc", cc)] : []),
+    `Subject: ${encodedHeaderText(input.subject)}`,
     "MIME-Version: 1.0",
-    ...(input.inReplyTo ? [`In-Reply-To: ${input.inReplyTo}`] : []),
-    ...(input.references ? [`References: ${input.references}`] : []),
+    ...(inReplyTo ? [`In-Reply-To: ${inReplyTo}`] : []),
+    ...(references ? [`References: ${references}`] : []),
   ];
   const attachments = input.attachments ?? [];
   if (attachments.length > 0) {
@@ -453,9 +463,7 @@ function buildMime(input: SendMailInput): string {
       ...bodyPart,
       ...attachments.flatMap((attachment) => {
         const filename = attachment.filename.replace(/[\r\n"]/g, "_");
-        const mimeType = /^[\w.+-]+\/[\w.+-]+$/.test(attachment.mimeType)
-          ? attachment.mimeType
-          : "application/octet-stream";
+        const mimeType = attachmentMimeType(attachment.mimeType);
         return [
           `--${mixed}`,
           `Content-Type: ${mimeType}; name="${filename}"`,
