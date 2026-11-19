@@ -68,7 +68,7 @@ export async function POST(request: Request) {
 
     const bodyText = (
       message.textBody ||
-      message.htmlBody.replace(/<[^>]+>/g, " ").replace(/\s+/g, " ")
+      message.htmlBody.replace(/<[^<>]+>/g, " ").replace(/\s+/g, " ")
     ).slice(0, 5000);
 
     const firstName = (session.name || session.email).split(/[\s@]/)[0];

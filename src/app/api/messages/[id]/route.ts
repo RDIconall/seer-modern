@@ -133,7 +133,7 @@ export async function GET(
 
     const bodyText =
       message.textBody ||
-      message.htmlBody.replace(/<[^>]+>/g, " ").replace(/\s+/g, " ");
+      message.htmlBody.replace(/<[^<>]+>/g, " ").replace(/\s+/g, " ");
 
     const decisions = await classifyInboxWithAssistant(
       session.email,
