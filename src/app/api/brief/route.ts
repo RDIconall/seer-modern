@@ -183,6 +183,7 @@ export async function POST() {
           providerTotal,
           understanding,
           known,
+          session.accountId,
         );
         console.log(
           `[seer] brief rebuilt: ${brief.matters.length} matters · ${brief.headlines.length} headlines`,

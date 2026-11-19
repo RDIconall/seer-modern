@@ -3,6 +3,7 @@ import {
   getTriageModel,
   isModelBudgetError,
 } from "@/lib/inbox/gemini-triage";
+import { ModelBudgetError, withModelBudget } from "@/lib/inbox/model-budget";
 import { collapseThreads } from "@/lib/inbox/thread-collapse";
 import { stripEmoji, type EmailItem } from "@/lib/inbox/types";
 import type {
@@ -50,6 +51,8 @@ const STUDY_CODE =
 import { profilePromptBlock, type UserProfile } from "@/lib/store/user-profile";
 import { generateText, Output, type LanguageModel } from "ai";
 import { z } from "zod";
+
+type ModelChoice = { model: LanguageModel | string; label: string };
 
 /** A model error, reduced to a short human sentence for the UI. */
 function cleanModelError(msg: string): string {
@@ -1002,6 +1005,8 @@ export async function buildBrief(
    * read said. It stays visible in Triage's review bucket instead.
    */
   knownSenders: Set<string> = new Set(),
+  /** The mailbox account every model call is billed to. */
+  accountId?: string | null,
 ): Promise<Brief> {
   const prev = await loadBrief(accountEmail);
   const isKnown = (i: EmailItem) =>
@@ -1249,7 +1254,7 @@ export async function buildBrief(
     }),
   });
 
-  const { model } = await getTriageModel();
+  const primary = await getTriageModel();
   const profileBlock = profilePromptBlock(profile ?? null);
   // Matters and the digest are independent bounded calls. Asking one
   // response to cluster work, file hundreds of ids, and write the digest
@@ -1259,27 +1264,34 @@ export async function buildBrief(
   let clusterFailures = 0;
   let clusterError: string | undefined;
   const fallback = getFallbackModel();
-  const callModel = (m: LanguageModel | string, batch: EmailItem[]) =>
-    generateText({
-      model: m,
-      temperature: 0,
-      maxRetries: 1,
-      abortSignal: AbortSignal.timeout(150_000),
-      output: Output.object({ schema: matterSchema }),
-      system: profileBlock ? `${SYSTEM}\n\n${profileBlock}` : SYSTEM,
-      prompt: JSON.stringify(payloadFor(batch)),
-    });
+  const budget = { accountId, purpose: "brief" } as const;
+  const callModel = (via: ModelChoice, batch: EmailItem[]) =>
+    withModelBudget(budget, via.label, () =>
+      generateText({
+        model: via.model,
+        temperature: 0,
+        maxRetries: 0,
+        abortSignal: AbortSignal.timeout(150_000),
+        output: Output.object({ schema: matterSchema }),
+        system: profileBlock ? `${SYSTEM}\n\n${profileBlock}` : SYSTEM,
+        prompt: JSON.stringify(payloadFor(batch)),
+      }),
+    );
   const runChunk = async (batch: EmailItem[], n: number) => {
     try {
-      const r = await callModel(model, batch);
+      const r = await callModel(primary, batch);
       return r.output;
     } catch (error) {
       const msg = error instanceof Error ? error.message : String(error);
       // The direct key is out of quota or credits — try the gateway's
       // separate billing pool before giving up on this chunk.
-      if (fallback && isModelBudgetError(msg)) {
+      if (
+        fallback &&
+        !(error instanceof ModelBudgetError) &&
+        isModelBudgetError(msg)
+      ) {
         try {
-          const r = await callModel(fallback.model, batch);
+          const r = await callModel(fallback, batch);
           return r.output;
         } catch (e2) {
           const m2 = e2 instanceof Error ? e2.message : String(e2);
@@ -1333,27 +1345,29 @@ export async function buildBrief(
   for (let i = 0; i < digestItems.length; i += DIGEST_CHUNK) {
     digestChunks.push(digestItems.slice(i, i + DIGEST_CHUNK));
   }
-  const callDigest = (m: LanguageModel | string, batch: EmailItem[]) =>
-    generateText({
-      model: m,
-      temperature: 0,
-      maxRetries: 1,
-      abortSignal: AbortSignal.timeout(90_000),
-      output: Output.object({ schema: digestSchema }),
-      system: DIGEST_SYSTEM,
-      prompt: JSON.stringify(
-        batch.map((i) => ({
-          id: i.id,
-          from: stripEmoji(i.fromName || i.fromEmail),
-          subject: stripEmoji(i.subject),
-          gist: stripEmoji(
-            understanding[i.id]?.oneLine ||
-              i.guide?.task ||
-              i.snippet.slice(0, 120),
-          ),
-        })),
-      ),
-    });
+  const callDigest = (via: ModelChoice, batch: EmailItem[]) =>
+    withModelBudget(budget, via.label, () =>
+      generateText({
+        model: via.model,
+        temperature: 0,
+        maxRetries: 0,
+        abortSignal: AbortSignal.timeout(90_000),
+        output: Output.object({ schema: digestSchema }),
+        system: DIGEST_SYSTEM,
+        prompt: JSON.stringify(
+          batch.map((i) => ({
+            id: i.id,
+            from: stripEmoji(i.fromName || i.fromEmail),
+            subject: stripEmoji(i.subject),
+            gist: stripEmoji(
+              understanding[i.id]?.oneLine ||
+                i.guide?.task ||
+                i.snippet.slice(0, 120),
+            ),
+          })),
+        ),
+      }),
+    );
   /**
    * A failed chunk still has to name its mail. Grouping by sender beats
    * "Inbox updates": the user can see it is 40 Slack notifications and
@@ -1376,12 +1390,16 @@ export async function buildBrief(
   };
   const runDigestChunk = async (batch: EmailItem[], n: number) => {
     try {
-      return (await callDigest(model, batch)).output;
+      return (await callDigest(primary, batch)).output;
     } catch (error) {
       const msg = error instanceof Error ? error.message : String(error);
-      if (fallback && isModelBudgetError(msg)) {
+      if (
+        fallback &&
+        !(error instanceof ModelBudgetError) &&
+        isModelBudgetError(msg)
+      ) {
         try {
-          return (await callDigest(fallback.model, batch)).output;
+          return (await callDigest(fallback, batch)).output;
         } catch {
           /* fall through to sender grouping */
         }

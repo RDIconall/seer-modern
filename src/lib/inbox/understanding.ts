@@ -3,6 +3,7 @@ import {
   getTriageModel,
   isModelBudgetError,
 } from "@/lib/inbox/gemini-triage";
+import { ModelBudgetError, withModelBudget } from "@/lib/inbox/model-budget";
 import { stripEmoji } from "@/lib/inbox/types";
 import type { MailMessageListItem } from "@/lib/mail/types";
 import { generateText, Output } from "ai";
@@ -230,6 +231,8 @@ export type ReadOptions = {
    * the model judges each email AS this user, with provenance.
    */
   contextById?: Map<string, { text: string; refs: string[] }>;
+  /** The mailbox account every model call is billed to. */
+  accountId?: string | null;
 };
 
 /**
@@ -242,7 +245,7 @@ export async function readEmails(
   opts: ReadOptions,
 ): Promise<Understanding[]> {
   if (items.length === 0) return [];
-  const { model } = await getTriageModel();
+  const primary = await getTriageModel();
   const fallback = getFallbackModel();
   const deadline = opts.deadlineMs ?? Date.now() + 120_000;
   const concurrency = opts.concurrency ?? 3;
@@ -291,28 +294,38 @@ export async function readEmails(
       };
 
       try {
-        const runRead = (m: typeof model) =>
-          generateText({
-            model: m,
-            temperature: 0,
-            maxRetries: 1,
-            abortSignal: AbortSignal.timeout(
-              Math.max(15_000, Math.min(90_000, deadline - Date.now())),
-            ),
-            output: Output.object({ schema: batchSchema }),
-            system: SYSTEM,
-            prompt: JSON.stringify(payload),
-          });
+        const runRead = (via: typeof primary) =>
+          withModelBudget(
+            { accountId: opts.accountId, purpose: "understanding" },
+            via.label,
+            () =>
+              generateText({
+                model: via.model,
+                temperature: 0,
+                maxRetries: 0,
+                abortSignal: AbortSignal.timeout(
+                  Math.max(15_000, Math.min(90_000, deadline - Date.now())),
+                ),
+                output: Output.object({ schema: batchSchema }),
+                system: SYSTEM,
+                prompt: JSON.stringify(payload),
+              }),
+          );
 
         let output;
         try {
-          output = (await runRead(useFallback && fallback ? fallback.model : model))
+          output = (await runRead(useFallback && fallback ? fallback : primary))
             .output;
         } catch (err) {
           const msg = err instanceof Error ? err.message : String(err);
-          if (fallback && !useFallback && isModelBudgetError(msg)) {
+          if (
+            fallback &&
+            !useFallback &&
+            !(err instanceof ModelBudgetError) &&
+            isModelBudgetError(msg)
+          ) {
             useFallback = true; // direct key is dead — switch the whole pass
-            output = (await runRead(fallback.model)).output;
+            output = (await runRead(fallback)).output;
           } else {
             throw err;
           }
@@ -394,6 +407,7 @@ export async function readEmails(
           `[seer] deep read batch ${n + 1}/${batches.length} failed:`,
           e instanceof Error ? e.message : e,
         );
+        if (e instanceof ModelBudgetError) return;
       }
     }
   }
