@@ -128,6 +128,7 @@ export async function GET() {
         labelIds: m.labelIds,
         threadId: m.threadId,
         receivedAt: m.receivedAt,
+        isOutgoing: m.isOutgoing,
       })),
       history,
       (email) => getSenderOverride(email),
@@ -182,10 +183,7 @@ export async function GET() {
       );
       // Your own turns in inboxed threads display as "You" — the row's
       // task says what to do; the name says who wrote what you're seeing.
-      const fromName =
-        m.fromEmail.toLowerCase() === session.email.toLowerCase()
-          ? "You"
-          : m.fromName;
+      const fromName = m.isOutgoing ? "You" : m.fromName;
       classified.push({ ...m, fromName, guide });
     }
 

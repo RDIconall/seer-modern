@@ -88,6 +88,7 @@ export async function GET() {
         labelIds: m.labelIds,
         threadId: m.threadId,
         receivedAt: m.receivedAt,
+        isOutgoing: m.isOutgoing,
       })),
       history,
       (email) => getSenderOverride(email),

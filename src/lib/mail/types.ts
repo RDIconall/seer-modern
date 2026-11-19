@@ -13,6 +13,12 @@ export type MailMessageListItem = {
   isUnread: boolean;
   /** Provider label ids (Gmail) — carries saved Seer decisions */
   labelIds?: string[];
+  /**
+   * The provider filed this as mail the mailbox sent or is drafting (Gmail
+   * SENT/DRAFT, Outlook Sent Items or a draft). A From header naming the
+   * mailbox is not evidence of this: any sender can write one.
+   */
+  isOutgoing?: boolean;
   /** Every address on the message (from + to + cc, lowercase) — the
    *  recipient group that decides whether thread rows collapse */
   participants?: string[];

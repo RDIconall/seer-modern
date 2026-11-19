@@ -121,6 +121,8 @@ export type GeminiTriageItem = {
   /** Thread + arrival time — used to spot "you already replied" */
   threadId?: string;
   receivedAt?: string;
+  /** The provider filed this as sent by the mailbox (see MailMessageListItem). */
+  isOutgoing?: boolean;
 };
 
 export type DecisionSource = "gemini" | "rules" | "override" | "learned";
@@ -574,6 +576,8 @@ export type TriageExtras = {
     fromEmail: string;
     fromName?: string;
     receivedAt: string;
+    /** The provider filed this turn as sent by the mailbox. */
+    isOutgoing?: boolean;
   } | null>;
   /**
    * Superhuman rule: the response never waits for intelligence. When
@@ -863,7 +867,9 @@ export async function classifyInboxWithAssistant(
   };
 
   // 1. Taught overrides + 2. learned priors from the user's own actions
-  const me = accountEmail.toLowerCase().trim();
+  // The user's own turns are the ones the provider filed as sent; a From
+  // header naming the user is written by whoever sent the message.
+  const sentByUser = (m: { isOutgoing?: boolean }) => m.isOutgoing === true;
   // Mute-pierced messages: guaranteed to surface, but their meaning
   // comes from the AI's read — floor applied after all grading.
   const needsYouFloor = new Set<string>();
@@ -871,7 +877,7 @@ export async function classifyInboxWithAssistant(
   // Memoized — one lookup per thread, only when it changes the verdict.
   const threadLastMemo = new Map<
     string,
-    { fromEmail: string; fromName?: string; receivedAt: string } | null
+    { fromEmail: string; fromName?: string; receivedAt: string; isOutgoing?: boolean } | null
   >();
   const lastTurn = async (threadId?: string) => {
     if (!threadId || !extras?.threadLast) return null;
@@ -894,7 +900,7 @@ export async function classifyInboxWithAssistant(
     if (!curItem || item.receivedAt! > curItem.receivedAt!) {
       newestOfThread.set(item.threadId, item.id);
     }
-    if (item.fromEmail.toLowerCase().trim() !== me) {
+    if (!sentByUser(item)) {
       counterpartOfThread.set(
         item.threadId,
         item.fromName || item.fromEmail,
@@ -911,7 +917,7 @@ export async function classifyInboxWithAssistant(
     const who =
       turn.fromName ||
       people[turn.fromEmail]?.name ||
-      (item.fromEmail.toLowerCase().trim() === me
+      (sentByUser(item)
         ? counterpartOfThread.get(item.threadId ?? "")
         : item.fromName) ||
       turn.fromEmail.split("@")[0];
@@ -946,7 +952,7 @@ export async function classifyInboxWithAssistant(
     const needTurn = new Set<string>();
     for (const item of items) {
       if (!item.threadId) continue;
-      if (item.fromEmail.toLowerCase().trim() === me) {
+      if (sentByUser(item)) {
         needTurn.add(item.threadId);
       } else {
         const answered = repliedAt(item.threadId);
@@ -967,9 +973,9 @@ export async function classifyInboxWithAssistant(
     // inboxed threads. Never judge yourself as a sender. But check the
     // THREAD: if they spoke after you (even if their message was
     // archived out of the inbox), the ball is in YOUR court.
-    if (item.fromEmail.toLowerCase().trim() === me) {
+    if (sentByUser(item)) {
       const turn = await lastTurn(item.threadId);
-      if (turn && turn.fromEmail !== me) {
+      if (turn && !sentByUser(turn)) {
         results.set(
           item.id,
           newestOfThread.get(item.threadId ?? "") === item.id
@@ -997,7 +1003,7 @@ export async function classifyInboxWithAssistant(
       // dismissing a person: their newest turn may live outside the
       // inbox (archived), making "you already replied" a lie.
       const turn = await lastTurn(item.threadId);
-      if (turn && turn.fromEmail !== me && turn.receivedAt > answered) {
+      if (turn && !sentByUser(turn) && turn.receivedAt > answered) {
         results.set(
           item.id,
           newestOfThread.get(item.threadId ?? "") === item.id

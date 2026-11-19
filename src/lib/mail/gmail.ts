@@ -19,6 +19,12 @@ function parseAddress(raw: string): { name: string; email: string } {
   return { name: raw, email: raw };
 }
 
+/** Gmail's own marking of mail this mailbox sent or is drafting. */
+function sentByMailbox(labelIds: string[] | undefined): boolean {
+  const labels = labelIds ?? [];
+  return labels.includes("SENT") || labels.includes("DRAFT");
+}
+
 function decodeBase64Url(data: string): string {
   const padded = data.replace(/-/g, "+").replace(/_/g, "/");
   return Buffer.from(padded, "base64").toString("utf8");
@@ -203,6 +209,7 @@ async function hydrateOne(
       : new Date().toISOString(),
     isUnread: (msg.labelIds ?? []).includes("UNREAD"),
     labelIds: msg.labelIds ?? [],
+    isOutgoing: sentByMailbox(msg.labelIds),
   };
 }
 
@@ -314,6 +321,7 @@ export async function getGmailThreadLast(
   fromName: string;
   receivedAt: string;
   id: string;
+  isOutgoing: boolean;
 } | null> {
   try {
     const t = (await gmailFetch(
@@ -342,6 +350,7 @@ export async function getGmailThreadLast(
       id: last.id,
       fromEmail: email.toLowerCase(),
       fromName: name && name !== email ? name : "",
+      isOutgoing: sentByMailbox(last.labelIds),
       receivedAt: last.internalDate
         ? new Date(Number(last.internalDate)).toISOString()
         : new Date().toISOString(),
@@ -387,6 +396,7 @@ export async function getGmailMessage(
       : new Date().toISOString(),
     isUnread: (msg.labelIds ?? []).includes("UNREAD"),
     labelIds: msg.labelIds ?? [],
+    isOutgoing: sentByMailbox(msg.labelIds),
     textBody: text,
     htmlBody: html,
     toEmail: header("To"),

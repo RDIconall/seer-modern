@@ -79,9 +79,32 @@ type GraphMessage = {
   toRecipients?: { emailAddress?: { name?: string; address?: string } }[];
   ccRecipients?: { emailAddress?: { name?: string; address?: string } }[];
   internetMessageId?: string;
+  parentFolderId?: string;
+  isDraft?: boolean;
 };
 
-function mapListItem(m: GraphMessage): MailMessageListItem {
+/** The opaque id of the mailbox's Sent Items folder; null when unknown. */
+async function sentItemsFolderId(accessToken: string): Promise<string | null> {
+  try {
+    const folder = (await graphFetch(
+      accessToken,
+      "/me/mailFolders/sentitems?$select=id",
+    )) as { id?: string } | null;
+    return folder?.id ?? null;
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * Exchange's own filing says the mailbox sent or is drafting this message. A
+ * From address naming the mailbox does not: any sender can write one.
+ */
+function sentByMailbox(m: GraphMessage, sentItemsId: string | null): boolean {
+  return m.isDraft === true || (sentItemsId !== null && m.parentFolderId === sentItemsId);
+}
+
+function mapListItem(m: GraphMessage, isOutgoing: boolean): MailMessageListItem {
   const peer = m.toRecipients?.[0]?.emailAddress?.address;
   return {
     id: m.id,
@@ -95,6 +118,7 @@ function mapListItem(m: GraphMessage): MailMessageListItem {
     receivedAt:
       m.receivedDateTime ?? m.sentDateTime ?? new Date().toISOString(),
     isUnread: !m.isRead,
+    isOutgoing,
   };
 }
 
@@ -142,7 +166,7 @@ export async function listGraphFolder(
   first.searchParams.set("$orderby", "receivedDateTime desc");
   first.searchParams.set(
     "$select",
-    "id,conversationId,subject,bodyPreview,receivedDateTime,sentDateTime,isRead,from,toRecipients",
+    "id,conversationId,subject,bodyPreview,receivedDateTime,sentDateTime,isRead,from,toRecipients,isDraft",
   );
 
   // Follow @odata.nextLink until the whole folder (up to maxResults) is
@@ -164,7 +188,11 @@ export async function listGraphFolder(
       value?: GraphMessage[];
       "@odata.nextLink"?: string;
     };
-    out.push(...(data.value ?? []).map(mapListItem));
+    out.push(
+      ...(data.value ?? []).map((m) =>
+        mapListItem(m, folder === "sent" || m.isDraft === true),
+      ),
+    );
     next = data["@odata.nextLink"];
     if (!data.value?.length) break;
   }
@@ -188,7 +216,7 @@ export async function searchGraph(
   url.searchParams.set("$search", `"${term}"`);
   url.searchParams.set(
     "$select",
-    "id,conversationId,subject,bodyPreview,receivedDateTime,sentDateTime,isRead,from,toRecipients",
+    "id,conversationId,subject,bodyPreview,receivedDateTime,sentDateTime,isRead,from,toRecipients,parentFolderId,isDraft",
   );
   const res = await graphRawFetch(url.toString(), {
     headers: {
@@ -199,7 +227,10 @@ export async function searchGraph(
   });
   if (!res.ok) throw new Error(`Graph search: ${res.status}`);
   const data = (await res.json()) as { value?: GraphMessage[] };
-  return (data.value ?? []).map(mapListItem);
+  const sentItemsId = folder ? null : await sentItemsFolderId(accessToken);
+  return (data.value ?? []).map((m) =>
+    mapListItem(m, folder === "sent" || sentByMailbox(m, sentItemsId)),
+  );
 }
 
 function recipientsToString(
@@ -214,11 +245,15 @@ function recipientsToString(
 export async function getGraphMessage(
   accessToken: string,
   id: string,
+  sentItemsId?: string | null,
 ): Promise<MailMessageDetail> {
-  const m = (await graphFetch(
-    accessToken,
-    `/me/messages/${id}?$select=id,conversationId,subject,body,bodyPreview,receivedDateTime,isRead,from,toRecipients,ccRecipients,internetMessageId,hasAttachments`,
-  )) as GraphMessage & { hasAttachments?: boolean };
+  const [m, sentId] = await Promise.all([
+    graphFetch(
+      accessToken,
+      `/me/messages/${id}?$select=id,conversationId,subject,body,bodyPreview,receivedDateTime,isRead,from,toRecipients,ccRecipients,internetMessageId,hasAttachments,parentFolderId,isDraft`,
+    ) as Promise<GraphMessage & { hasAttachments?: boolean }>,
+    sentItemsId === undefined ? sentItemsFolderId(accessToken) : sentItemsId,
+  ]);
 
   let attachments: MailMessageDetail["attachments"];
   if (m.hasAttachments) {
@@ -249,6 +284,7 @@ export async function getGraphMessage(
     snippet: m.bodyPreview ?? "",
     receivedAt: m.receivedDateTime ?? new Date().toISOString(),
     isUnread: !m.isRead,
+    isOutgoing: sentByMailbox(m, sentId),
     textBody: text,
     htmlBody: html,
     toEmail: recipientsToString(m.toRecipients),
@@ -267,9 +303,10 @@ export async function getGraphConversationMessages(
     accessToken,
     `/me/messages?$filter=conversationId eq '${safeId}'&$select=id&$top=100`,
   )) as { value?: { id: string }[] };
+  const sentItemsId = await sentItemsFolderId(accessToken);
   const messages = await Promise.all(
     (page.value ?? []).map((message) =>
-      getGraphMessage(accessToken, message.id),
+      getGraphMessage(accessToken, message.id, sentItemsId),
     ),
   );
   return messages.sort((a, b) => a.receivedAt.localeCompare(b.receivedAt));

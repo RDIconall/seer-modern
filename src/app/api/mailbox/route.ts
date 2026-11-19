@@ -129,6 +129,7 @@ export async function GET(request: Request) {
           labelIds: m.labelIds,
           threadId: m.threadId,
           receivedAt: m.receivedAt,
+          isOutgoing: m.isOutgoing,
         })),
         history,
         (email) => getSenderOverride(email),
@@ -180,10 +181,7 @@ export async function GET(request: Request) {
         if (result.pending) pending += 1;
         annotated.push({
           ...m,
-          fromName:
-            m.fromEmail.toLowerCase() === session.email.toLowerCase()
-              ? "You"
-              : m.fromName,
+          fromName: m.isOutgoing ? "You" : m.fromName,
           guide: buildActionGuideQuick(result, m.subject, m.fromName, m.snippet),
         });
       }

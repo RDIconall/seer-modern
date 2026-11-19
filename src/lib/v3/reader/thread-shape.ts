@@ -182,9 +182,9 @@ export function shapeThread(
   ownEmail?: string | null,
 ): Lane[] {
   const own = (ownEmail ?? "").toLowerCase().trim();
-  const isYou = (message: Message) =>
-    message.isOutgoing ||
-    (own.length > 0 && message.from.email?.toLowerCase().trim() === own);
+  // Only the provider's Sent / Draft marking says the user wrote a message;
+  // anyone can put the user's address in a From header.
+  const isYou = (message: Message) => message.isOutgoing;
 
   const lanes: Lane[] = [];
   for (const message of conversation.messages) {
