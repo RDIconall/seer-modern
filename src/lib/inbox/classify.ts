@@ -106,6 +106,13 @@ export const ACTION_META: Record<
   },
 };
 
+export function isTriageAction(value: unknown): value is TriageAction {
+  return (
+    typeof value === "string" &&
+    Object.prototype.hasOwnProperty.call(ACTION_META, value)
+  );
+}
+
 /** Display order on Today screen — Seer reply-first, then action orientation */
 export const TODAY_SECTION_ORDER: TriageAction[] = [
   "needs_review",
@@ -367,7 +374,7 @@ function classifyCore(
   const { email, dom, local, blob, fromBlob } = parts;
   const { signals, actionable, extras } = ctx;
 
-  if (senderOverride) {
+  if (isTriageAction(senderOverride)) {
     return hit(
       senderOverride,
       "HIGH",

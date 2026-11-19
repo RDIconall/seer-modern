@@ -125,7 +125,7 @@ export async function POST() {
         receivedAt: m.receivedAt,
       })),
       history,
-      (email) => getSenderOverride(email),
+      (email) => getSenderOverride(email, session.email),
       classifyMessage,
       {
         labels,

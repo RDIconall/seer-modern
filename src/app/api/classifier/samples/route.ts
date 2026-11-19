@@ -39,7 +39,7 @@ export async function GET() {
       raw,
     );
 
-    const taughtSenders = await listSenderOverrides();
+    const taughtSenders = await listSenderOverrides(session.email);
     const overrideMap = new Map(
       taughtSenders.map((t) => [t.email.toLowerCase(), t.action]),
     );

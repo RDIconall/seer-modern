@@ -2,6 +2,7 @@ import {
   ACTION_META,
   APPOINTMENT_HOLD,
   REFUND_CHECK,
+  isTriageAction,
   needsYouEscape,
   type ClassifyDebug,
   type ClassifyExtras,
@@ -1074,7 +1075,8 @@ export async function classifyInboxWithAssistant(
     // read of the email — never a canned "Open it — something failed".
     const escape = needsYouEscape(item.subject, item.snippet);
 
-    const override = await getOverride(item.fromEmail);
+    const stored = await getOverride(item.fromEmail);
+    const override = isTriageAction(stored) ? stored : null;
     if (override && !(DISMISSIVE.has(override) && escape)) {
       results.set(item.id, {
         action: override,

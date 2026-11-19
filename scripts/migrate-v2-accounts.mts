@@ -26,6 +26,7 @@ import {
   type PreservedIntent,
 } from "../src/lib/v2/db/intent.ts";
 import { collectPeople, seedPeople } from "../src/lib/v2/db/seed-relationships.ts";
+import { isTriageAction } from "../src/lib/inbox/classify.ts";
 import type { StoredAccount } from "../src/lib/store/accounts.ts";
 import type { MatterEdits } from "../src/lib/store/manual-matters.ts";
 
@@ -52,7 +53,7 @@ async function readIntent(email: string): Promise<PreservedIntent> {
       `people:${key}`,
     )) ?? {};
   const overrides =
-    (await kvGet<Record<string, string>>("sender-overrides")) ?? {};
+    (await kvGet<Record<string, unknown>>(`sender-overrides:${key}`)) ?? {};
   const edits = (await kvGet<MatterEdits>(`matter-edits:${key}`)) ?? {
     renames: {},
     manual: [],
@@ -63,10 +64,9 @@ async function readIntent(email: string): Promise<PreservedIntent> {
     .map((p) => ({ email: p.email, name: p.name }));
 
   // Sender overrides are the only explicit sender teachings we keep.
-  const senderTeachings = Object.entries(overrides).map(([email, action]) => ({
-    email,
-    action,
-  }));
+  const senderTeachings = Object.entries(overrides).flatMap(([email, action]) =>
+    isTriageAction(action) ? [{ email, action }] : [],
+  );
 
   const manualMatters = (edits.manual ?? []).map((m) => ({
     title: m.title,

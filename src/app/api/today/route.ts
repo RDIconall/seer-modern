@@ -130,7 +130,7 @@ export async function GET() {
         receivedAt: m.receivedAt,
       })),
       history,
-      (email) => getSenderOverride(email),
+      (email) => getSenderOverride(email, session.email),
       classifyMessage,
       {
         personal,
