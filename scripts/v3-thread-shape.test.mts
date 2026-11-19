@@ -170,17 +170,46 @@ const thread = conv([
 const lanes = shapeThread(thread, OWN_DOMAIN, OWN);
 assert.deepEqual(
   lanes.map((lane) => lane.kind),
-  ["turn", "branch", "turn", "turn"],
-  "consecutive internal mail collapses into one branch on the trunk",
+  ["turn", "branch", "turn", "turn", "turn"],
+  "the user's internal forward is a branch; the colleague's reply stays on the trunk",
 );
 
 const branch = lanes[1] as Branch;
-assert.equal(branch.turns.length, 2, "the forward and the reply it drew");
+assert.equal(branch.turns.length, 1, "only the forward the user sent");
 assert.equal(branch.to, "Lara Bennett", "the branch names who it went to");
 assert.equal(branch.turns[0].isYou, true);
-assert.equal(branch.turns[1].who, "Lara Bennett");
 
-const yourTurn = lanes[2] as Turn;
+const laraTurn = lanes[2] as Turn;
+assert.equal(laraTurn.who, "Lara Bennett", "a colleague's reply is shown under its sender");
+assert.equal(laraTurn.isYou, false);
+
+// Same-domain mail the user did not send is never a branch.
+{
+  const inbound = shapeThread(
+    conv([
+      msg({
+        from: { email: "sam@rditrials.com", name: "Sam Cole" },
+        to: [{ email: OWN }],
+        bodyText: "Please approve the wire.",
+      }),
+      msg({
+        from: { email: "lara@rditrials.com", name: "Lara Bennett" },
+        to: [{ email: OWN }],
+        cc: [{ email: "sam@rditrials.com" }],
+        bodyText: "Second ask.",
+      }),
+    ]),
+    OWN_DOMAIN,
+    OWN,
+  );
+  assert.deepEqual(inbound.map((lane) => lane.kind), ["turn", "turn"]);
+  assert.deepEqual(
+    inbound.map((lane) => (lane as Turn).who),
+    ["Sam Cole", "Lara Bennett"],
+  );
+}
+
+const yourTurn = lanes[3] as Turn;
 assert.equal(yourTurn.who, "You");
 assert.equal(yourTurn.body, "Priya — we are costing it now.", "the trunk carries new text only");
 assert.equal(yourTurn.quotedCount, 1);
@@ -261,8 +290,8 @@ assert.equal(people.find((p) => p.email === "lara@rditrials.com")?.org, "interna
 {
   const now = Date.parse("2026-08-24T10:00:00.000Z");
   const s = summariseThread(thread, OWN_DOMAIN, OWN, now);
-  assert.equal(s.external, 3);
-  assert.equal(s.internal, 2);
+  assert.equal(s.external, 4);
+  assert.equal(s.internal, 1);
   assert.equal(s.waitingOn, "Priya Vance", "the counterparty wrote last and got no answer");
   assert.equal(s.daysUnanswered, 10);
 }

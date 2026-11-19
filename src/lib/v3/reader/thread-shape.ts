@@ -9,8 +9,8 @@ import { readableHtml } from "@/lib/v3/reader/email-html";
  * Two things make long threads unreadable, and every mail client does both.
  *
  * The first is flattening two lanes into one. A thread has a TRUNK — what the
- * counterparty can see — and it has BRANCHES: the forward to a colleague and
- * everything that came back. Interleaved by timestamp, following what Lumos
+ * counterparty can see — and it has BRANCHES: the internal forwards the user
+ * sent to colleagues. Interleaved by timestamp, following what Lumos
  * knows means wading through your own team's working out. Kept apart, each lane
  * reads on its own.
  *
@@ -124,7 +124,8 @@ const domainOf = (email: string | null | undefined) =>
 
 /**
  * A message is internal when nobody outside the user's own company is on it.
- * That is the forward to a colleague and every reply it drew — the branch.
+ * Being internal alone does not make a message a branch: anyone on the domain
+ * can write one, so `shapeThread` also requires that this mailbox sent it.
  */
 export function isInternal(message: Message, ownDomain: string): boolean {
   const own = ownDomain.toLowerCase().trim();
@@ -154,6 +155,7 @@ export type Branch = {
   /** Who the work was handed to. */
   to: string;
   at: string;
+  /** Only ever mail this mailbox sent; the reader titles it as the user's forward. */
   turns: {
     message: Message;
     who: string;
@@ -173,8 +175,10 @@ function peekOf(text: string): string {
 
 /**
  * Group a conversation into the external trunk and the internal branches that
- * hang off it. Consecutive internal messages form one branch, because that is
- * how they happen: one forward, then the thread it started.
+ * hang off it. A branch is internal mail this mailbox sent, and is rendered as
+ * the user's forward, so mail from anyone else — a colleague's reply included —
+ * stays on the trunk under its real sender. Consecutive internal messages the
+ * user sent form one branch.
  */
 export function shapeThread(
   conversation: Conversation,
@@ -188,14 +192,15 @@ export function shapeThread(
 
   const lanes: Lane[] = [];
   for (const message of conversation.messages) {
-    const who = isYou(message) ? "You" : displayName(message.from);
-    if (isInternal(message, ownDomain)) {
+    const sentByYou = isYou(message);
+    const who = sentByYou ? "You" : displayName(message.from);
+    if (sentByYou && isInternal(message, ownDomain)) {
       const previous = lanes[lanes.length - 1];
       const stripped = freshBody(message);
       const turn = {
         message,
         who,
-        isYou: isYou(message),
+        isYou: true,
         text: stripped.text,
         html: stripped.html,
       };
@@ -219,7 +224,7 @@ export function shapeThread(
       kind: "turn",
       message,
       who,
-      isYou: isYou(message),
+      isYou: sentByYou,
       peek: peekOf(stripped.text),
       body: stripped.text,
       bodyHtml: stripped.html,
