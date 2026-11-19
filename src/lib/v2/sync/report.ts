@@ -33,6 +33,8 @@ export type SyncBudgetOptions = {
   tickSlot?: number;
   /** Round-robin rounds — each admitted folder gets one page per round before any gets a second. */
   rounds?: number;
+  /** Forwarded to each folder walk; see `SyncFolderOptions.beforePage`. */
+  beforePage?: () => Promise<unknown>;
 };
 
 const DEFAULT_PAGES_PER_FOLDER = 2;
@@ -86,6 +88,7 @@ export async function syncAccountFolders(
   const report: SyncFolderReport[] = [];
   const pagesPerFolder = budget?.pagesPerFolder ?? undefined;
   const deadlineMs = budget?.deadlineMs;
+  const beforePage = budget?.beforePage;
 
   for (const folder of folders) {
     if (isPastSyncDeadline(deadlineMs)) break;
@@ -96,8 +99,8 @@ export async function syncAccountFolders(
         folder,
         mode,
         pagesPerFolder !== undefined || deadlineMs !== undefined
-          ? { maxPages: pagesPerFolder, deadlineMs }
-          : {},
+          ? { maxPages: pagesPerFolder, deadlineMs, beforePage }
+          : { beforePage },
       );
       report.push(runToReport(account.email, run));
     } catch (e) {

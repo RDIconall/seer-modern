@@ -35,6 +35,7 @@ const CORE_TABLES = [
   "folder_sync_seen",
   "outbox",
   "worker_leases",
+  "inbox_head_poll_requests",
 ] as const;
 
 async function indexDef(

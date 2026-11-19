@@ -3,8 +3,8 @@ import { cronUnauthorized } from "@/lib/v2/cron/auth";
 import { kickNextHop, shouldContinueSync } from "@/lib/v2/cron/continue";
 import { fanOutPerAccount } from "@/lib/v2/cron/fan-out";
 import {
-  claimWorkerLease,
-  releaseWorkerLease,
+  acquireWorkerLease,
+  releaseAcquiredLease,
 } from "@/lib/v2/cron/lease";
 import { listAllAccounts } from "@/lib/v2/db/list-accounts";
 import { asAccountId, isUuid } from "@/lib/v2/db/types";
@@ -13,6 +13,7 @@ import {
   activeSyncFolders,
   syncAccountFolders,
 } from "@/lib/v2/sync/report";
+import { serveInboxHeadPollRequest } from "@/lib/v2/sync/catch-up";
 import { getAccountById } from "@/lib/v2/sync/wake-account";
 import { drainOutbox } from "@/lib/v3/outbox/drain";
 import type { MailAccount } from "@/lib/v2/db/accounts";
@@ -46,8 +47,8 @@ export async function GET(request: Request) {
     if (!account) {
       return NextResponse.json({ error: "account not found" }, { status: 404 });
     }
-    const held = await claimWorkerLease(account.id, "sync");
-    if (!held) {
+    const report = await syncLeasedAccount(account, mode, deadlineMs);
+    if (!report) {
       return NextResponse.json({
         ok: true,
         mode,
@@ -55,17 +56,12 @@ export async function GET(request: Request) {
         report: [{ email: account.email, skipped: "lease" }],
       });
     }
-    try {
-      const report = await syncOneAccount(account, mode, deadlineMs);
-      const continued = shouldContinueSync(report);
-      if (continued) {
-        const auth = request.headers.get("authorization");
-        after(() => kickNextHop(request.url, auth));
-      }
-      return NextResponse.json({ ok: true, mode, continued, report });
-    } finally {
-      await releaseWorkerLease(account.id, "sync");
+    const continued = shouldContinueSync(report);
+    if (continued) {
+      const auth = request.headers.get("authorization");
+      after(() => kickNextHop(request.url, auth));
     }
+    return NextResponse.json({ ok: true, mode, continued, report });
   }
 
   const accounts = await listAllAccounts();
@@ -77,7 +73,11 @@ export async function GET(request: Request) {
     runLocal: async (accountId) => {
       const account = accounts.find((item) => item.id === accountId);
       if (!account) throw new Error("account not found");
-      return syncOneAccount(account, mode, Date.now() + SYNC_TICK_MS);
+      return (
+        (await syncLeasedAccount(account, mode, Date.now() + SYNC_TICK_MS)) ?? [
+          { email: account.email, skipped: "lease" },
+        ]
+      );
     },
   });
 
@@ -87,6 +87,21 @@ export async function GET(request: Request) {
     pipes: pipes.length,
     report: pipes,
   });
+}
+
+/** Null when another worker holds this mailbox's sync lease. */
+async function syncLeasedAccount(
+  account: MailAccount,
+  mode: SyncMode,
+  deadlineMs: number,
+): Promise<Record<string, unknown>[] | null> {
+  const lease = await acquireWorkerLease(account.id, "sync");
+  if (!lease) return null;
+  try {
+    return await syncOneAccount(account, mode, deadlineMs);
+  } finally {
+    await releaseAcquiredLease(lease);
+  }
 }
 
 async function syncOneAccount(
@@ -134,13 +149,19 @@ async function syncOneAccount(
     }
   }
 
+  const answerLogin = () =>
+    serveInboxHeadPollRequest(account, provider, deadlineMs);
+  if (await answerLogin()) {
+    report.push({ email: account.email, headPoll: "login" });
+  }
+
   report.push(
     ...(await syncAccountFolders(
       account,
       provider,
       mode,
       activeSyncFolders(),
-      { deadlineMs },
+      { deadlineMs, beforePage: answerLogin },
     )),
   );
   return report;
