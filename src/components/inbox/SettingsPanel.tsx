@@ -24,6 +24,7 @@ import {
   logoutMobile,
   reconnectAccount,
 } from "@/app/actions";
+import { clearPersistedMailboxCaches } from "@/lib/v3/mailbox/cache";
 
 type AccountRow = {
   id: string;
@@ -1113,7 +1114,10 @@ export function SettingsPanel({
             </section>
           ) : null}
 
-          <form action={signOutAction}>
+          <form
+            action={signOutAction}
+            onSubmit={() => clearPersistedMailboxCaches()}
+          >
             <button
               type="submit"
               className="w-full rounded-xl border border-[var(--border)] py-3 text-[14px] text-[#d63b2f]"

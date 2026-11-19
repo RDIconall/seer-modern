@@ -17,6 +17,7 @@ import {
   viewForFolder,
 } from "./mailbox-state";
 import {
+  clearPersistedMailboxCaches,
   MAILBOX_CACHE_KEY_PREFIX,
   unwrapMailboxCache,
   wrapMailboxCache,
@@ -97,19 +98,11 @@ function writeCache(view: MailboxView): void {
   }
 }
 
-/** Clear every account-scoped mailbox, body, and search-adjacent cache. */
+/** Clear every account-scoped mailbox, body, and search-adjacent cache, and stored drafts. */
 export function clearMailboxCaches(): void {
   mailboxCache.clear();
   bodyCache.clear();
-  if (typeof window === "undefined") return;
-  try {
-    for (let i = window.localStorage.length - 1; i >= 0; i--) {
-      const key = window.localStorage.key(i);
-      if (key?.startsWith(MAILBOX_CACHE_KEY_PREFIX)) window.localStorage.removeItem(key);
-    }
-  } catch {
-    // Cache cleanup must never block an account switch.
-  }
+  clearPersistedMailboxCaches();
 }
 
 export const ACCOUNT_CHANGED_EVENT = "seer:account-changed";

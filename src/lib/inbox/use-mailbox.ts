@@ -24,6 +24,7 @@ import {
   ensureRe,
   primaryMailAction,
 } from "@/lib/inbox/types";
+import { LEGACY_VIEW_CACHE_KEY_PREFIX } from "@/lib/v3/mailbox/cache";
 
 export type SettledMatter = { at: string; matter?: Matter };
 
@@ -37,7 +38,7 @@ export type SettledMatter = { at: string; matter?: Matter };
 
 // Bumped on releases that change server-computed text (tasks, asks,
 // categories) so stale local snapshots don't outlive the fix.
-const CACHE_PREFIX = "seer:v3:";
+const CACHE_PREFIX = LEGACY_VIEW_CACHE_KEY_PREFIX;
 const CACHE_MAX_AGE_MS = 12 * 60 * 60 * 1000;
 
 type CacheEnvelope<T> = { accountEmail?: string; savedAt: number; data: T };
