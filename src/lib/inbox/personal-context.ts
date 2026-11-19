@@ -15,6 +15,8 @@ export type CalendarEventLite = {
   subject: string;
   startsAt: string;
   attendees: string[];
+  /** Organizer's address (lowercase) — the only sender of its invitations */
+  organizer?: string;
   /** The user's OWN response on this event */
   myStatus?: RsvpStatus;
 };
@@ -160,6 +162,7 @@ async function googleEvents(
       id?: string;
       summary?: string;
       start?: { dateTime?: string; date?: string };
+      organizer?: { email?: string };
       attendees?: { email?: string; self?: boolean; responseStatus?: string }[];
     }>;
     for (const e of items) {
@@ -171,6 +174,7 @@ async function googleEvents(
         attendees: (e.attendees ?? [])
           .map((a) => a.email?.toLowerCase().trim() ?? "")
           .filter(Boolean),
+        organizer: e.organizer?.email?.toLowerCase().trim() || undefined,
         myStatus:
           (mine?.responseStatus as RsvpStatus | undefined) ?? undefined,
       });
@@ -218,7 +222,7 @@ async function graphEvents(token: string): Promise<CalendarEventLite[]> {
     new URLSearchParams({
       startDateTime: now.toISOString(),
       endDateTime: max.toISOString(),
-      $select: "id,subject,start,attendees,responseStatus",
+      $select: "id,subject,start,organizer,attendees,responseStatus",
       $top: "250",
       $orderby: "start/dateTime",
     });
@@ -235,6 +239,7 @@ async function graphEvents(token: string): Promise<CalendarEventLite[]> {
       id?: string;
       subject?: string;
       start?: { dateTime?: string };
+      organizer?: { emailAddress?: { address?: string } };
       attendees?: { emailAddress?: { address?: string } }[];
       responseStatus?: { response?: string };
     }>;
@@ -246,6 +251,8 @@ async function graphEvents(token: string): Promise<CalendarEventLite[]> {
         attendees: (e.attendees ?? [])
           .map((a) => a.emailAddress?.address?.toLowerCase().trim() ?? "")
           .filter(Boolean),
+        organizer:
+          e.organizer?.emailAddress?.address?.toLowerCase().trim() || undefined,
         myStatus: GRAPH_STATUS[e.responseStatus?.response ?? ""] ?? undefined,
       });
     }
@@ -359,6 +366,31 @@ export type InviteSignals = {
   answered: boolean;
 };
 
+/** The event title an "Invitation: …" subject names, normalized. */
+export function inviteTitle(subject: string): string | null {
+  const title = subject.match(INVITE_SUBJECT)?.[1]?.trim().toLowerCase();
+  return title || null;
+}
+
+/**
+ * An invitation subject names an event only when the title is exactly that
+ * event's and the mail comes from its organizer. Anyone can send a subject
+ * that starts with "Invitation", so a prefix or a stranger is never a match.
+ */
+export function isInviteFor(
+  event: { subject: string; organizer?: string },
+  subject: string,
+  fromEmail: string | undefined,
+): boolean {
+  const title = inviteTitle(subject);
+  const sender = fromEmail?.toLowerCase().trim();
+  if (!title || !sender || !event.organizer) return false;
+  return (
+    event.organizer.toLowerCase().trim() === sender &&
+    event.subject.trim().toLowerCase() === title
+  );
+}
+
 /**
  * Match an "Invitation: …" email to the user's calendar and report
  * whether they already responded — a native Google action inside the
@@ -367,16 +399,13 @@ export type InviteSignals = {
 export function inviteSignals(
   ctx: PersonalContext | null | undefined,
   subject: string,
+  /** Without a sender nothing can be the organizer's invite. */
+  fromEmail?: string,
 ): InviteSignals | null {
   if (!ctx?.events?.length) return null;
-  const m = subject.match(INVITE_SUBJECT);
-  const title = m?.[1]?.trim().toLowerCase();
-  if (!title) return null;
+  if (!inviteTitle(subject)) return null;
 
-  const event = ctx.events.find((e) => {
-    const t = e.subject.trim().toLowerCase();
-    return t.length > 2 && (title === t || title.startsWith(t) || t.startsWith(title));
-  });
+  const event = ctx.events.find((e) => isInviteFor(e, subject, fromEmail));
   if (!event) return null;
 
   return {

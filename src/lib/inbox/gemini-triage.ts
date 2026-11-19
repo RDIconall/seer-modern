@@ -1021,7 +1021,11 @@ export async function classifyInboxWithAssistant(
     // 0b. Calendar invites — the RSVP inside the email IS the action.
     // Answered (in Gmail, Calendar, or Seer) → the email is done;
     // unanswered → the card asks for exactly one tap.
-    const invite = inviteSignals(extras?.personal, item.subject);
+    const invite = inviteSignals(
+      extras?.personal,
+      item.subject,
+      item.fromEmail,
+    );
     if (invite) {
       if (invite.answered) {
         const verb =
