@@ -209,7 +209,8 @@ export async function readConversation(
       input.conversation.messages[0]?.bodyText?.slice(0, 400) ?? "",
     ].join(" ");
     const counterparty = counterpartyOf(
-      input.conversation.messages[input.conversation.messages.length - 1]?.from.email ?? "",
+      compiled.senderEmail ||
+        (input.conversation.messages[input.conversation.messages.length - 1]?.from.email ?? ""),
       input.context.ownDomain,
     );
     // The user's own name and company identify nothing: they are in every

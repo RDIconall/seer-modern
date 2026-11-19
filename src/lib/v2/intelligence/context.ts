@@ -51,6 +51,8 @@ export type ContextInput = {
 export type CompiledContext = {
   text: string;
   refs: string[];
+  /** The newest inbound sender every sender fact below describes; "" if none. */
+  senderEmail: string;
   /** Facts the safety layer needs, derived deterministically (not by the model). */
   senderIsKnown: boolean;
   senderIsInternal: boolean;
@@ -74,6 +76,32 @@ function tokens(s: string): Set<string> {
   );
 }
 
+/**
+ * The person a read is about: the newest inbound message whose From is not the
+ * mailbox. Threads load oldest-first, so on a thread the user started the first
+ * From is the user; their own address must never vouch for whoever replied.
+ * A thread with no inbound message has no sender.
+ */
+export function currentSender(
+  conversation: Conversation,
+  ownEmail: string | undefined,
+): string {
+  const own = ownEmail?.trim().toLowerCase() ?? "";
+  let sender = "";
+  let newest = Number.NEGATIVE_INFINITY;
+  for (const message of conversation.messages) {
+    const from = message.from.email?.trim().toLowerCase() ?? "";
+    if (!from || message.isOutgoing || (own && from === own)) continue;
+    const sentAt = Date.parse(message.sentAt);
+    const at = Number.isNaN(sentAt) ? Number.NEGATIVE_INFINITY : sentAt;
+    if (at >= newest) {
+      newest = at;
+      sender = from;
+    }
+  }
+  return sender;
+}
+
 export function compileContext(
   conversation: Conversation,
   input: ContextInput,
@@ -94,12 +122,14 @@ export function compileContext(
     );
   }
 
-  const senderEmail = conversation.messages[0]?.from.email?.toLowerCase() ?? "";
+  const senderEmail = currentSender(conversation, input.ownEmail);
   const senderDomain = senderEmail.split("@")[1] ?? "";
   const senderIsInternal =
     Boolean(input.ownDomain) && senderDomain === input.ownDomain.toLowerCase();
 
-  const person = input.people.find((p) => p.email.toLowerCase() === senderEmail);
+  const person = senderEmail
+    ? input.people.find((p) => p.email.toLowerCase() === senderEmail)
+    : undefined;
   const senderIsKnown = Boolean(
     person && (person.vip || person.tier === "inner" || person.tier === "known"),
   );
@@ -179,6 +209,7 @@ export function compileContext(
   return {
     text: lines.join("\n").slice(0, MAX_CHARS),
     refs,
+    senderEmail,
     senderIsKnown,
     senderIsInternal,
     candidateMatterId,
