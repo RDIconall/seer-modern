@@ -4,7 +4,7 @@ import { db } from "../db/pool";
 import type { AccountId } from "../db/types";
 import type { MailProvider, SyncFolder } from "../providers/types";
 import { loadSalesforce } from "@/lib/store/salesforce";
-import { recordModelUsage } from "./model-usage";
+import { reserveModelCall, settleModelCall } from "./model-usage";
 import {
   MAX_FUNCTIONS,
   MAX_TOPICS,
@@ -368,19 +368,29 @@ export async function proposeOperatingModel(
   } = {},
 ): Promise<{ state: OperatingModelState; corpus: OperatingCorpus }> {
   const corpus = await sampleCorpus(accountId, accountEmail, options.provider);
-  const started = Date.now();
-  const caller = options.caller ?? defaultProposeCaller;
-  const proposal = normalizeProposal(await caller(corpus, options.note));
-  if (proposal.functions.length === 0) {
-    throw new Error("The model did not propose any Atlas sections");
-  }
-  await saveProposal(accountId, proposal);
-  await recordModelUsage({
+  const reservation = await reserveModelCall({
     accountId,
     tier: "strong",
     model: process.env.SEER_ROUTER_STRONG_MODEL?.trim() || "anthropic/claude-sonnet-4.6",
     escalationReasons: ["operating_model"],
-    latencyMs: Date.now() - started,
-  }).catch(() => {});
+  });
+  if (!reservation) {
+    throw new Error("strong daily model-call limit reached");
+  }
+  const started = Date.now();
+  const caller = options.caller ?? defaultProposeCaller;
+  let raw: OperatingProposal;
+  try {
+    raw = await caller(corpus, options.note);
+  } finally {
+    await settleModelCall(reservation, {
+      latencyMs: Date.now() - started,
+    }).catch(() => {});
+  }
+  const proposal = normalizeProposal(raw);
+  if (proposal.functions.length === 0) {
+    throw new Error("The model did not propose any Atlas sections");
+  }
+  await saveProposal(accountId, proposal);
   return { state: await loadOperatingModel(accountId), corpus };
 }

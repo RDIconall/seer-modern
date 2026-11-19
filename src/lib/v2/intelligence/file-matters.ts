@@ -2,7 +2,11 @@ import { generateText, Output } from "ai";
 import { z } from "zod";
 import { db } from "../db/pool";
 import type { AccountId } from "../db/types";
-import { recordModelUsage } from "./model-usage";
+import {
+  reserveModelCall,
+  settleModelCall,
+  type ModelCallSettlement,
+} from "./model-usage";
 import {
   SHORT_TITLE_VERSION,
   createMatterNamingCaller,
@@ -79,13 +83,16 @@ export type FilingResult = {
   matters: { attempted: number; filed: number; unfiled: number };
   conversations: { attempted: number; filed: number; unfiled: number };
   naming?: { attempted: number; named: number };
+  /** Set when the daily model budget stopped the pass before it finished. */
+  budgetReached?: true;
 };
 
 type Item = { id: string; [key: string]: unknown };
 
 /**
  * Ask the model to file one batch, then apply the answers. Returns how many
- * landed on a real shelf and how many ended up unfiled.
+ * landed on a real shelf and how many ended up unfiled, or null without
+ * calling the model when the daily budget is already spent.
  */
 async function fileBatch(
   accountId: AccountId,
@@ -94,7 +101,14 @@ async function fileBatch(
   model: string,
   apply: (id: string, section: string) => Promise<unknown>,
   guidance?: string,
-): Promise<{ filed: number; unfiled: number }> {
+): Promise<{ filed: number; unfiled: number } | null> {
+  const reservation = await reserveModelCall({
+    accountId,
+    tier: "fast",
+    model,
+    escalationReasons: ["filing"],
+  });
+  if (!reservation) return null;
   const functions = [...sections.functions, ...sections.topics];
   const started = Date.now();
   const result = await generateText({
@@ -118,6 +132,15 @@ async function fileBatch(
       items,
     }),
   });
+  await settleModelCall(reservation, {
+    latencyMs: Date.now() - started,
+    inputTokens: result.usage.inputTokens,
+    outputTokens: result.usage.outputTokens,
+    totalTokens: result.usage.totalTokens,
+    providerMetadata: result.providerMetadata as
+      | Record<string, unknown>
+      | undefined,
+  }).catch(() => {});
 
   const allowed = new Set(functions);
   const known = new Set(items.map((i) => i.id));
@@ -144,17 +167,6 @@ async function fileBatch(
     await apply(item.id, UNFILED);
     unfiled++;
   }
-
-  await recordModelUsage({
-    accountId,
-    tier: "fast",
-    model,
-    escalationReasons: ["filing"],
-    latencyMs: Date.now() - started,
-    inputTokens: result.usage.inputTokens,
-    outputTokens: result.usage.outputTokens,
-    totalTokens: result.usage.totalTokens,
-  }).catch(() => {});
 
   return { filed, unfiled };
 }
@@ -202,6 +214,7 @@ export async function fileMatters(
       (id, s) => fileMatter(id, s, "inferred"),
       guidance,
     );
+    if (!outcome) return { matters, conversations: empty, budgetReached: true };
     matters.filed += outcome.filed;
     matters.unfiled += outcome.unfiled;
   }
@@ -226,21 +239,27 @@ export async function fileMatters(
       (id, s) => fileConversation(id, s, "inferred"),
       guidance,
     );
+    if (!outcome) return { matters, conversations, budgetReached: true };
     conversations.filed += outcome.filed;
     conversations.unfiled += outcome.unfiled;
   }
 
   const naming = await nameMatters(accountId, {
     limit,
-    caller: options.namingCaller ?? createMatterNamingCaller(model),
+    model,
+    caller: options.namingCaller,
   });
+  if (!naming) {
+    return { matters, conversations, budgetReached: true };
+  }
   return { matters, conversations, naming };
 }
 
+/** Returns null without calling the model when the daily budget is spent. */
 async function nameMatters(
   accountId: AccountId,
-  options: { limit: number; caller: MatterNamingCaller },
-): Promise<{ attempted: number; named: number }> {
+  options: { limit: number; model: string; caller?: MatterNamingCaller },
+): Promise<{ attempted: number; named: number } | null> {
   const result = await db().query<{
     id: string;
     title: string;
@@ -299,7 +318,33 @@ async function nameMatters(
   if (needsNaming.length === 0) {
     return { attempted: 0, named: 0 };
   }
-  const named = await nameMatterBatch(inputs, options.caller);
+  const reservation = await reserveModelCall({
+    accountId,
+    tier: "fast",
+    model: options.model,
+    escalationReasons: ["naming"],
+  });
+  if (!reservation) return null;
+  let usage: ModelCallSettlement | undefined;
+  const inner =
+    options.caller ??
+    createMatterNamingCaller(options.model, (u) => {
+      usage = u;
+    });
+  // The reservation pays for exactly one naming call.
+  let spent = false;
+  const caller: MatterNamingCaller = async (matters) => {
+    if (matters.length === 0) return [];
+    if (spent) throw new Error("naming reservation already used");
+    spent = true;
+    return inner(matters);
+  };
+  let named;
+  try {
+    named = await nameMatterBatch(inputs, caller);
+  } finally {
+    if (usage) await settleModelCall(reservation, usage).catch(() => {});
+  }
   let changed = 0;
   for (const item of named) {
     const input = inputs.find((candidate) => candidate.id === item.id);
