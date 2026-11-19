@@ -58,11 +58,8 @@ async function main() {
   const { validateDelete, validateMatterPromotion } = await import(
     "../src/lib/v2/intelligence/safety.ts"
   );
-  const { addressedDirectly } = await import(
-    "../src/lib/v2/intelligence/salience.ts"
-  );
-  const { isHumanCorrespondence } = await import(
-    "../src/lib/v2/intelligence/human-correspondence.ts"
+  const { safetyFactsFor } = await import(
+    "../src/lib/v2/intelligence/reader.ts"
   );
 
   const evaluations: Evaluation[] = [];
@@ -72,26 +69,7 @@ async function main() {
       conversation: c.conversation,
       contextText: compiled.text,
     });
-    const facts = {
-      ownerIsYou: read.owner === "you",
-      ownerIsNobody: read.owner === "nobody",
-      hasOpenAsk: Boolean(read.ask && !/^\s*nothing/i.test(read.ask)),
-      hasPendingObligation: read.obligation,
-      liveMatterId: compiled.candidateMatterId,
-      senderIsKnown: compiled.senderIsKnown,
-      senderIsInternal: compiled.senderIsInternal,
-      yieldPersisted: true,
-      hadCompleteContext: true,
-      isHumanCorrespondence: isHumanCorrespondence(
-        c.conversation,
-        c.context.ownEmail,
-      ),
-      addressedDirectly: addressedDirectly(
-        c.conversation,
-        c.context.ownEmail ?? `x@${c.context.ownDomain}`,
-      ),
-      priorMatterRejections: compiled.priorMatterRejections,
-    };
+    const facts = safetyFactsFor(read, compiled, c.conversation, c.context);
     const deleteSafety = validateDelete(read, facts);
     const safety = validateMatterPromotion(
       { home: deleteSafety.home, matterRef: read.matterRef },

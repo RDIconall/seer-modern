@@ -23,6 +23,7 @@ import {
   type SafetyFacts,
 } from "./safety";
 import { isHumanCorrespondence } from "./human-correspondence";
+import { requestSignals } from "./request-signals";
 import {
   CONTEXT_VERSION,
   MODEL_VERSION,
@@ -76,7 +77,12 @@ function hasCompleteContent(conversation: Conversation): boolean {
   );
 }
 
-function factsFrom(
+/**
+ * The facts safety judges a read against. `conversation` must be the object
+ * the model was shown: the message-derived vetoes are computed from it, so
+ * whatever the sender wrote into the prompt is also what the gate inspects.
+ */
+export function safetyFactsFor(
   read: ReadResult,
   compiled: Pick<
     CompiledContext,
@@ -85,11 +91,11 @@ function factsFrom(
     | "candidateMatterId"
     | "priorMatterRejections"
   >,
-  hadCompleteContext: boolean,
-  isHuman: boolean,
-  isDirect: boolean,
+  conversation: Conversation,
+  context: Pick<ContextInput, "ownEmail" | "ownDomain">,
 ): SafetyFacts {
   const openAsk = Boolean(read.ask && !/^\s*nothing/i.test(read.ask));
+  const signals = requestSignals(conversation);
   return {
     ownerIsYou: read.owner === "you",
     ownerIsNobody: read.owner === "nobody",
@@ -98,13 +104,19 @@ function factsFrom(
     liveMatterId: compiled.candidateMatterId,
     senderIsKnown: compiled.senderIsKnown,
     senderIsInternal: compiled.senderIsInternal,
-    // Yields are persisted transactionally with the decision below, so at the
-    // moment of saving they are guaranteed present.
+    // saveDecision writes the yields in the same transaction as the decision,
+    // so a delete cannot commit without them.
     yieldPersisted: true,
-    hadCompleteContext,
-    isHumanCorrespondence: isHuman,
-    addressedDirectly: isDirect,
+    hadCompleteContext: hasCompleteContent(conversation),
+    isHumanCorrespondence: isHumanCorrespondence(conversation, context.ownEmail),
+    addressedDirectly: addressedDirectly(
+      conversation,
+      context.ownEmail ?? `x@${context.ownDomain}`,
+    ),
     priorMatterRejections: compiled.priorMatterRejections,
+    messageHasAsk: signals.openAsk,
+    messageHasObligation: signals.pendingObligation,
+    messageAddressesClassifier: signals.addressesClassifier,
   };
 }
 
@@ -149,16 +161,7 @@ export async function readConversation(
     );
   }
 
-  const facts = factsFrom(
-    read,
-    compiled,
-    true,
-    isHumanCorrespondence(input.conversation, input.context.ownEmail),
-    addressedDirectly(
-      input.conversation,
-      input.context.ownEmail ?? `x@${input.context.ownDomain}`,
-    ),
-  );
+  const facts = safetyFactsFor(read, compiled, input.conversation, input.context);
   const deletionSafety = validateDelete(read, facts);
   if (deletionSafety.home === "undecided") {
     throw new ReaderUnavailableError(
