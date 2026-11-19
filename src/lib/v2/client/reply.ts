@@ -1,4 +1,5 @@
 import type { Address, Conversation } from "../providers/types";
+import { stripTags } from "../intelligence/html-scan";
 
 /**
  * Pure recipient logic for the reader's reply actions, kept out of the React
@@ -37,6 +38,6 @@ export function quoteBody(conversation: Conversation): string {
   if (!last) return "";
   const who = last.from.name || last.from.email;
   const when = last.sentAt;
-  const body = last.bodyText ?? last.bodyHtml?.replace(/<[^>]+>/g, " ") ?? last.snippet;
+  const body = last.bodyText ?? (last.bodyHtml != null ? stripTags(last.bodyHtml) : undefined) ?? last.snippet;
   return `\n\nOn ${when}, ${who} wrote:\n> ${body.replace(/\n/g, "\n> ")}`;
 }

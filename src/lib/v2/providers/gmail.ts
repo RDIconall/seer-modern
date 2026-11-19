@@ -73,6 +73,21 @@ function header(headers: GmailHeader[] | undefined, name: string): string {
   return headers?.find((h) => h.name.toLowerCase() === name.toLowerCase())?.value ?? "";
 }
 
+/**
+ * The same split as `/^(.*)<([^>]+)>$/`, found by position. Headers are
+ * attacker-controlled and parsed during sync; that pattern retries every "<"
+ * against the rest of the chunk, which is quadratic on a run of them.
+ */
+function angleAddress(chunk: string): { name: string; email: string } | null {
+  const end = chunk.length - 1;
+  if (end < 2 || chunk.charCodeAt(end) !== 0x3e) return null;
+  // `.` stops at a line break, so the name cannot run past the first one.
+  const lineBreak = chunk.search(/[\n\r\u2028\u2029]/);
+  const open = chunk.lastIndexOf("<", lineBreak === -1 ? end - 2 : Math.min(end - 2, lineBreak));
+  if (open === -1 || open < chunk.lastIndexOf(">", end - 1)) return null;
+  return { name: chunk.slice(0, open), email: chunk.slice(open + 1, end) };
+}
+
 function parseAddresses(raw: string): Address[] {
   if (!raw) return [];
   return raw
@@ -80,8 +95,8 @@ function parseAddresses(raw: string): Address[] {
     .map((chunk) => chunk.trim())
     .filter(Boolean)
     .map((chunk) => {
-      const m = chunk.match(/^(.*)<([^>]+)>$/);
-      if (m) return { name: m[1].trim().replace(/(^"|"$)/g, ""), email: m[2].trim().toLowerCase() };
+      const m = angleAddress(chunk);
+      if (m) return { name: m.name.trim().replace(/(^"|"$)/g, ""), email: m.email.trim().toLowerCase() };
       return { email: chunk.toLowerCase() };
     });
 }

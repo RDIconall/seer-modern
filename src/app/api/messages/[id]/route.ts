@@ -1,3 +1,4 @@
+import { stripTags } from "@/lib/v2/intelligence/html-scan";
 import { buildActionGuideDetailed } from "@/lib/inbox/action-guide";
 import { classifyMessage } from "@/lib/inbox/classify";
 import { extractKeyActions } from "@/lib/inbox/key-actions";
@@ -133,7 +134,7 @@ export async function GET(
 
     const bodyText =
       message.textBody ||
-      message.htmlBody.replace(/<[^>]+>/g, " ").replace(/\s+/g, " ");
+      stripTags(message.htmlBody).replace(/\s+/g, " ");
 
     const decisions = await classifyInboxWithAssistant(
       session.email,
