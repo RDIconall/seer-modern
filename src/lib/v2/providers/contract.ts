@@ -236,7 +236,12 @@ async function replyTargetsSameConversation(
 ) {
   const h = await make();
   const receipt = await h.provider.reply(
-    { conversationId: h.threadId, all: true, bodyHtml: "<p>ok</p>" },
+    {
+      conversationId: h.threadId,
+      all: true,
+      bodyHtml: "<p>ok</p>",
+      recipients: [{ email: "someone@example.com" }],
+    },
     "key-reply-1",
   );
   assert.equal(
@@ -244,8 +249,8 @@ async function replyTargetsSameConversation(
     h.threadId,
     "a reply must post into the same conversation",
   );
-  // Recipient derivation for reply-all is provider-specific and asserted in
-  // each adapter's own test by inspecting the sent request.
+  // That the reply addresses exactly `recipients` is asserted in each
+  // adapter's own test by inspecting the sent request.
 }
 
 async function mutationIsWholeThread(make: () => Promise<ContractHarness>) {

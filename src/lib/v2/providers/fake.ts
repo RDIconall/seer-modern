@@ -195,8 +195,8 @@ export class FakeProvider implements MailProvider {
     c.messages.push({
       providerMessageId: id,
       from: { email: "me@example.com" },
-      to: c.messages[0]?.to ?? [],
-      cc: command.all ? (c.messages[0]?.cc ?? []) : [],
+      to: command.recipients,
+      cc: [],
       sentAt: new Date().toISOString(),
       snippet: "",
       bodyHtml: command.bodyHtml,

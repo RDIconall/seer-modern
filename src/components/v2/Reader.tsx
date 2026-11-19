@@ -5,6 +5,7 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import type { Conversation } from "@/lib/v2/providers/types";
 import type { ProviderKind } from "@/lib/v2/providers/types";
 import { nativeUrlFor } from "@/lib/v2/providers/native-url";
+import { formatAddress } from "@/lib/v2/client/reply";
 import {
   conversationFiles,
   shapeThread,
@@ -272,12 +273,17 @@ export function Reader({
                 </button>
                 {isOpen && (
                   <div className="reader-turn-body">
-                    <p className="reader-turn-to">
-                      To{" "}
-                      {lane.message.to
-                        .map((recipient) => recipient.name || recipient.email)
-                        .join(", ") || "you"}
-                    </p>
+                    <div className="reader-turn-recipients">
+                      <p className="reader-turn-to">
+                        To{" "}
+                        {lane.message.to.map(formatAddress).join(", ") || "you"}
+                      </p>
+                      {lane.message.cc.length > 0 ? (
+                        <p className="reader-turn-to">
+                          Cc {lane.message.cc.map(formatAddress).join(", ")}
+                        </p>
+                      ) : null}
+                    </div>
                     <MailReader
                       html={
                         lane.quotedCount === 0

@@ -307,18 +307,19 @@ export class GmailProvider implements MailProvider {
 
   async reply(command: ReplyCommand, _key: string): Promise<SendReceipt> {
     void _key;
+    const self = this.deps.accountEmail.toLowerCase();
+    const recipients = [
+      ...new Set(
+        command.recipients
+          .map((a) => a.email)
+          .filter((email) => email && email.toLowerCase() !== self),
+      ),
+    ];
+    if (recipients.length === 0) throw new Error("reply recipients required");
     const convo = await this.thread(command.conversationId);
-    const last = convo.messages[convo.messages.length - 1];
-    const recipients = new Set<string>();
-    if (last?.from.email) recipients.add(last.from.email);
-    if (command.all) {
-      for (const a of [...(last?.to ?? []), ...(last?.cc ?? [])]) {
-        if (a.email !== this.deps.accountEmail.toLowerCase()) recipients.add(a.email);
-      }
-    }
     const raw = this.encodeRaw(
       [
-        `To: ${[...recipients].join(", ")}`,
+        `To: ${recipients.join(", ")}`,
         `Subject: Re: ${convo.subject}`,
       ],
       command.bodyHtml,

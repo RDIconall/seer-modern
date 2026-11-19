@@ -952,9 +952,19 @@ body {
   color: var(--nav-muted);
 }
 .reader-turn-avatar,
-.reader-turn-to,
 .mobile-reader-actions {
   display: none;
+}
+/* Every recipient stays legible: a clipped list could hide the address a
+   reply-all will reach. */
+.reader-turn-recipients {
+  margin: 0 0 10px;
+  color: var(--muted);
+  font-size: 12px;
+  overflow-wrap: anywhere;
+}
+.reader-turn-to {
+  margin: 0;
 }
 .reader-turn-body {
   padding: 0 20px 16px;
@@ -1030,14 +1040,8 @@ body {
     padding: 0 18px 90px;
   }
 
-  .reader-turn-to {
-    display: block;
-    overflow: hidden;
+  .reader-turn-recipients {
     margin: -5px 0 24px 49px;
-    color: var(--muted);
-    font-size: 12px;
-    text-overflow: ellipsis;
-    white-space: nowrap;
   }
 
   .inline-reply:not(.inline-reply-open) {

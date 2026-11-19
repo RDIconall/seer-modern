@@ -1,12 +1,13 @@
 "use client";
 
 import * as React from "react";
-import { useEffect, useId, useState } from "react";
+import { useEffect, useId, useMemo, useState } from "react";
 import { ChevronDown, ChevronRight, Paperclip, Sparkles, Trash2, X } from "lucide-react";
 import { MessageHtml } from "@/components/v2/MessageHtml";
 import type { ReaderComposeIntent } from "@/components/v2/Reader";
 import type { CommandResult } from "@/lib/v2/commands/types";
 import type { Conversation, ProviderKind } from "@/lib/v2/providers/types";
+import { formatAddress, pinnedReplyRecipients } from "@/lib/v2/client/reply";
 import {
   hasAttachments,
   quoteHeaderLines,
@@ -51,6 +52,7 @@ function modeTitle(mode: ComposeMode): string {
 type ConversationResponse = {
   conversation: Conversation;
   provider?: ProviderKind;
+  ownEmail?: string | null;
   error?: string;
 };
 
@@ -77,6 +79,7 @@ export function ComposePane({
   providerConversationId,
   conversationId,
   accountId,
+  ownEmail,
   preview,
   previewProvider,
   onClose,
@@ -87,6 +90,8 @@ export function ComposePane({
   /** Corpus conversation id — used to fetch the thread for quoting. */
   conversationId?: string;
   accountId?: string;
+  /** The account's own address, left off reply recipients. */
+  ownEmail?: string | null;
   /** Fixture / already-loaded conversation; skips the network when present. */
   preview?: Conversation;
   previewProvider?: ProviderKind;
@@ -97,7 +102,8 @@ export function ComposePane({
   const title = modeTitle(mode);
   const showTo = mode === "send" || mode === "forward";
   const showSubject = mode === "send" || mode === "forward";
-  const showQuote = mode === "reply" || mode === "replyAll" || mode === "forward";
+  const isReply = mode === "reply" || mode === "replyAll";
+  const showQuote = isReply || mode === "forward";
   const forwardSubjectReadOnly = mode === "forward";
 
   const [recipients, setRecipients] = useState<Recipient[]>([]);
@@ -110,6 +116,7 @@ export function ComposePane({
   const [error, setError] = useState<string | null>(null);
   const [conversation, setConversation] = useState<Conversation | null>(preview ?? null);
   const [provider, setProvider] = useState<ProviderKind | null>(previewProvider ?? null);
+  const [fetchedOwnEmail, setFetchedOwnEmail] = useState<string | null>(null);
   const [quoteFailed, setQuoteFailed] = useState(false);
   const [quoteLoading, setQuoteLoading] = useState(Boolean(showQuote && !preview && conversationId));
   // Forward must open expanded so the user can see what they are sending.
@@ -178,11 +185,13 @@ export function ComposePane({
         if (!cancelled) {
           setConversation(next.conversation);
           setProvider(next.provider ?? null);
+          setFetchedOwnEmail(next.ownEmail ?? null);
           setQuoteFailed(false);
         }
       })
       .catch(() => {
-        // A failed quote fetch must not block typing or sending.
+        // A failed quote fetch must not block typing. A reply still cannot
+        // be sent, because there is no recipient list to show for it.
         if (!cancelled) {
           setQuoteFailed(true);
           setConversation(null);
@@ -202,13 +211,23 @@ export function ComposePane({
   const subjectValue = forwardSubjectReadOnly ? derivedForwardSubject : subject;
   const threadHasAttachments = conversation ? hasAttachments(conversation) : false;
   const quoted = conversation ? quotedMessages(conversation) : [];
+  const selfEmail = ownEmail ?? fetchedOwnEmail;
+  const replyTo = useMemo(
+    () =>
+      isReply && conversation
+        ? pinnedReplyRecipients(conversation, selfEmail, mode === "replyAll")
+        : [],
+    [conversation, isReply, mode, selfEmail],
+  );
 
-  const canSend = canSendCompose({
-    mode,
-    recipientCount: recipients.length,
-    body: body.text,
-    sending,
-  });
+  const canSend =
+    (!isReply || replyTo.length > 0) &&
+    canSendCompose({
+      mode,
+      recipientCount: recipients.length,
+      body: body.text,
+      sending,
+    });
 
   async function addAttachments(files: FileList | null) {
     if (!files) return;
@@ -296,6 +315,7 @@ export function ComposePane({
           providerConversationId,
           all: mode === "replyAll",
           bodyHtml,
+          recipients: replyTo.map((recipient) => recipient.email),
         });
       }
       window.localStorage.removeItem(draftKey);
@@ -347,6 +367,23 @@ export function ComposePane({
               recipients={recipients}
               onChange={setRecipients}
             />
+          </div>
+        )}
+
+        {isReply && (
+          <div className="mail-compose-row">
+            <span className="mail-compose-label">To</span>
+            {replyTo.length > 0 ? (
+              <ul className="mail-compose-reply-to" aria-label="Reply recipients">
+                {replyTo.map((recipient) => (
+                  <li key={recipient.email.toLowerCase()}>{formatAddress(recipient)}</li>
+                ))}
+              </ul>
+            ) : (
+              <p className="mail-compose-hint" role="status">
+                {quoteLoading ? "Loading recipients…" : "Recipients unavailable"}
+              </p>
+            )}
           </div>
         )}
 

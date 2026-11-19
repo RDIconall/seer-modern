@@ -186,11 +186,19 @@ assert.equal(convo.messages[0].from.email, "sender@example.com");
 assert.equal(convo.messages[0].isUnread, true);
 assert.match(provider.nativeUrl("c0"), /mail\.google\.com/);
 
-// Reply-all derives recipients from the thread (sender + other recipients,
-// excluding self) and threads the reply.
-await provider.reply({ conversationId: "c0", all: true, bodyHtml: "<p>ok</p>" }, "k");
-assert.match(lastSendRaw, /To: .*sender@example\.com/);
-assert.match(lastSendRaw, /cc@example\.com/);
+// Reply-all addresses exactly the confirmed recipients (never self), not
+// whatever the thread's To and Cc hold at send time.
+await provider.reply(
+  {
+    conversationId: "c0",
+    all: true,
+    bodyHtml: "<p>ok</p>",
+    recipients: [{ email: "sender@example.com" }, { email: "me@example.com" }],
+  },
+  "k",
+);
+assert.match(lastSendRaw, /^To: sender@example\.com\r?$/m);
+assert.ok(!/cc@example\.com/.test(lastSendRaw), "must not add the thread's Cc");
 assert.ok(!/To:.*\bme@example\.com\b/.test(lastSendRaw), "must not reply to self");
 
 // Forward includes Outlook-style quoted thread content in the outbound MIME body.

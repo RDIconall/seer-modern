@@ -2428,6 +2428,18 @@ body {
   line-height: 1.2;
 }
 
+.mail-compose-reply-to {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px 12px;
+  margin: 0;
+  padding: 8px 0;
+  list-style: none;
+  color: var(--fg);
+  font-size: 14px;
+  overflow-wrap: anywhere;
+}
+
 .mail-compose-subject,
 .mail-compose-body {
   width: 100%;

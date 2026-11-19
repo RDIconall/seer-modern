@@ -289,10 +289,26 @@ export class OutlookProvider implements MailProvider {
 
   async reply(command: ReplyCommand, _key: string): Promise<SendReceipt> {
     void _key;
+    const self = this.deps.accountEmail.toLowerCase();
+    const recipients = [
+      ...new Set(
+        command.recipients
+          .map((a) => a.email)
+          .filter((email) => email && email.toLowerCase() !== self),
+      ),
+    ];
+    if (recipients.length === 0) throw new Error("reply recipients required");
     const msgs = await this.conversationMessages(command.conversationId);
     const last = msgs[msgs.length - 1];
-    const endpoint = command.all ? "replyAll" : "reply";
-    await this.post(`/messages/${last.id}/${endpoint}`, {
+    // Graph replyAll addresses the stored To and Cc, and reply honours the
+    // original Reply-To; setting the reply's recipients sends to the
+    // confirmed list instead, for both modes.
+    await this.post(`/messages/${last.id}/reply`, {
+      message: {
+        toRecipients: recipients.map((address) => ({ emailAddress: { address } })),
+        ccRecipients: [],
+        bccRecipients: [],
+      },
       comment: command.bodyHtml,
     });
     return {
