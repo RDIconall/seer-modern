@@ -75,12 +75,26 @@ export async function withinDailyCallLimit(
   return (result.rows[0]?.n ?? 0) < limit;
 }
 
-/** Dollar ceiling across both tiers. 0 / unset means no spend cap. */
+export const DEFAULT_DAILY_SPEND_LIMIT_USD = 5;
+
+/**
+ * Unset, blank, or unparseable falls back to the default so a missing setting
+ * never removes the brake. Only an explicit "0" turns the dollar cap off.
+ */
+function dailySpendCap(): number | null {
+  const raw = process.env.SEER_DAILY_SPEND_LIMIT_USD?.trim();
+  if (!raw) return DEFAULT_DAILY_SPEND_LIMIT_USD;
+  const cap = Number(raw);
+  if (!Number.isFinite(cap) || cap < 0) return DEFAULT_DAILY_SPEND_LIMIT_USD;
+  return cap === 0 ? null : cap;
+}
+
+/** Dollar ceiling across both tiers. */
 export async function withinDailySpendLimit(
   accountId: AccountId,
 ): Promise<boolean> {
-  const cap = Number(process.env.SEER_DAILY_SPEND_LIMIT_USD ?? 0);
-  if (!Number.isFinite(cap) || cap <= 0) return true;
+  const cap = dailySpendCap();
+  if (cap === null) return true;
   const result = await db().query<{ spend: string }>(
     `select coalesce(sum(cost_usd), 0)::text as spend
        from seer.model_usage
