@@ -29,7 +29,7 @@ const JUNK =
 
 function stripTags(s: string): string {
   return s
-    .replace(/<[^>]+>/g, " ")
+    .replace(/<[^<>]+>/g, " ")
     .replace(/&nbsp;/g, " ")
     .replace(/\s+/g, " ")
     .trim();
@@ -42,11 +42,18 @@ export function extractKeyActions(
   if (!htmlBody) return [];
   const found: (KeyAction & { score: number })[] = [];
   const seen = new Set<string>();
-  const anchorRe = /<a\b[^>]*href=["'](https?:\/\/[^"']+)["'][^>]*>([\s\S]*?)<\/a>/gi;
+  const anchorRe = /<a\b[^<>]*href=["'](https?:\/\/[^"'<>]+)["'][^<>]*>([\s\S]*?)<\/a>/gi;
+
+  // Past the last `</a>` no anchor can close, and each opener there would
+  // rescan the rest of the body looking for one.
+  const closeRe = /<\/a>/gi;
+  let lastClose = 0;
+  while (closeRe.exec(htmlBody)) lastClose = closeRe.lastIndex;
+  const body = htmlBody.slice(0, lastClose);
 
   let m: RegExpExecArray | null;
   let guard = 0;
-  while ((m = anchorRe.exec(htmlBody)) && guard < 200) {
+  while ((m = anchorRe.exec(body)) && guard < 200) {
     guard += 1;
     const url = m[1];
     const text = stripTags(m[2]).slice(0, 80);

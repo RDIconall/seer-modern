@@ -50,8 +50,15 @@ const BANNERS: RegExp[] = [
   /You don'?t often get email from[\s\S]*?Learn why this is important\s*/i,
   /This (message|email) (was sent from|originated) (outside|from outside)[^\n]*/i,
   /\[?\s*EXTERNAL(?:\s+EMAIL)?\s*\]?[:\-]?\s*/i,
-  /CAUTION:[^\n]*external[^\n]*/i,
+  /  CAUTION:[^\n]*external[^\n]*/i,
 ];
+
+/**
+ * How much of a body is cleaned before its opening is read. Banners sit at the
+ * top, and the patterns above retry from every position they fail at, so a
+ * sender-sized body would cost the square of its length.
+ */
+const OPENING_SCAN = 2_000;
 
 function stripBoilerplate(text: string): string {
   let cleaned = text;
@@ -105,7 +112,7 @@ export function ownNames(
  */
 export function personalGreeting(text: string, names: string[]): string | null {
   if (names.length === 0) return null;
-  const opening = stripBoilerplate(text).slice(0, 400);
+  const opening = stripBoilerplate(text.slice(0, OPENING_SCAN)).slice(0, 400);
   SALUTATION.lastIndex = 0;
   for (const match of opening.matchAll(SALUTATION)) {
     const addressed = normalise(match[3] ?? "");

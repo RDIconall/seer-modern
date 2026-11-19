@@ -37,6 +37,6 @@ export function quoteBody(conversation: Conversation): string {
   if (!last) return "";
   const who = last.from.name || last.from.email;
   const when = last.sentAt;
-  const body = last.bodyText ?? last.bodyHtml?.replace(/<[^>]+>/g, " ") ?? last.snippet;
+  const body = last.bodyText ?? last.bodyHtml?.replace(/<[^<>]+>/g, " ") ?? last.snippet;
   return `\n\nOn ${when}, ${who} wrote:\n> ${body.replace(/\n/g, "\n> ")}`;
 }

@@ -181,7 +181,7 @@ export async function GET(request: Request) {
               : await getGraphMessage(token, id);
             return (
               msg.textBody ||
-              msg.htmlBody.replace(/<[^>]+>/g, " ").replace(/\s+/g, " ")
+              msg.htmlBody.replace(/<[^<>]+>/g, " ").replace(/\s+/g, " ")
             );
           },
         },
@@ -283,7 +283,7 @@ export async function GET(request: Request) {
               : await getGraphMessage(token, id);
             return (
               msg.textBody ||
-              msg.htmlBody.replace(/<[^>]+>/g, " ").replace(/\s+/g, " ")
+              msg.htmlBody.replace(/<[^<>]+>/g, " ").replace(/\s+/g, " ")
             );
           },
         });

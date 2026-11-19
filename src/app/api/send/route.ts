@@ -134,7 +134,7 @@ export async function POST(request: Request) {
 
       const originalText = (
         original.textBody ||
-        original.htmlBody.replace(/<[^>]+>/g, " ").replace(/\s+/g, " ") ||
+        original.htmlBody.replace(/<[^<>]+>/g, " ").replace(/\s+/g, " ") ||
         original.snippet
       ).slice(0, 20_000);
 

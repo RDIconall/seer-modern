@@ -109,7 +109,7 @@ export async function GET() {
               : await getGraphMessage(session.accessToken, id);
           return (
             msg.textBody ||
-            msg.htmlBody.replace(/<[^>]+>/g, " ").replace(/\s+/g, " ")
+            msg.htmlBody.replace(/<[^<>]+>/g, " ").replace(/\s+/g, " ")
           );
         },
       },
