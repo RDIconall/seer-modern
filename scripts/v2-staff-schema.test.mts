@@ -45,8 +45,18 @@ try {
     provider: "google",
     email: "staff-schema@example.com",
   });
+  const otherUserId = await upsertUser("staff-schema-other@example.com");
+  const ungrantedAccountId = await upsertAccount({
+    userId: otherUserId,
+    provider: "google",
+    email: "staff-schema-other@example.com",
+  });
   const bot = await db.pool.query<{ id: string }>(
     "select id from seer.bots where slug = 'chief-of-staff'",
+  );
+  await db.pool.query(
+    "insert into seer.bot_account_grants (account_id) values ($1)",
+    [accountId],
   );
 
   await db.pool.query("set role seer_bot");
@@ -78,6 +88,25 @@ try {
     assert.equal(denied, true, "seer_bot must not write the mail corpus");
   } finally {
     await db.pool.query("reset role");
+  }
+
+  const botClient = await db.pool.connect();
+  try {
+    await botClient.query("set role seer_bot");
+    let ungrantedDenied = false;
+    try {
+      await botClient.query(
+        `insert into seer.bot_tasks (account_id, bot_id, title, source)
+         values ($1, $2, 'Ungranted', 'bot')`,
+        [ungrantedAccountId, bot.rows[0].id],
+      );
+    } catch {
+      ungrantedDenied = true;
+    }
+    assert.equal(ungrantedDenied, true, "seer_bot must not write an ungranted mailbox");
+    await botClient.query("reset role");
+  } finally {
+    botClient.release();
   }
 
   let badStatus = false;
