@@ -23,10 +23,18 @@ const ACTIVE_PREFIXES = [
   "application/ecmascript",
 ];
 
+/**
+ * Attachment bytes are only readable through the ownership check, so they must
+ * never be stored by the browser: a cached copy outlives sign-out and is served
+ * from history or the back button without asking the server.
+ */
+export const ATTACHMENT_CACHE_CONTROL = "private, no-store";
+
 export type AttachmentResponseHeaders = {
   contentType: string;
   contentDisposition: string;
   xContentTypeOptions: "nosniff";
+  cacheControl: typeof ATTACHMENT_CACHE_CONTROL;
 };
 
 function stripControlChars(value: string): string {
@@ -70,5 +78,6 @@ export function attachmentResponseHeaders(
     contentType,
     contentDisposition: `${disposition}; filename="${filename}"; filename*=UTF-8''${encoded}`,
     xContentTypeOptions: "nosniff",
+    cacheControl: ATTACHMENT_CACHE_CONTROL,
   };
 }

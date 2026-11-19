@@ -1,6 +1,7 @@
 import { getGmailAttachment } from "@/lib/mail/gmail";
 import { getGraphAttachment } from "@/lib/mail/graph";
 import { requireMailSession } from "@/lib/mail/session";
+import { ATTACHMENT_CACHE_CONTROL } from "@/lib/v3/attachments/headers";
 import { NextResponse } from "next/server";
 
 export const maxDuration = 60;
@@ -35,7 +36,7 @@ export async function GET(
       headers: {
         "Content-Type": type,
         "Content-Disposition": `${inline ? "inline" : "attachment"}; filename="${name.replace(/[^\w.\- ()]/g, "_")}"`,
-        "Cache-Control": "private, max-age=3600",
+        "Cache-Control": ATTACHMENT_CACHE_CONTROL,
       },
     });
   } catch (e) {
