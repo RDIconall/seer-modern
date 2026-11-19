@@ -3,10 +3,8 @@ import { classifyMessage } from "@/lib/inbox/classify";
 import { extractKeyActions } from "@/lib/inbox/key-actions";
 import { classifyInboxWithAssistant } from "@/lib/inbox/gemini-triage";
 import { getOrBuildMailHistory } from "@/lib/inbox/mail-history-store";
-import {
-  getPersonalContext,
-  inviteSignals,
-} from "@/lib/inbox/personal-context";
+import { resolveInviteEvent } from "@/lib/inbox/invite-event";
+import { getPersonalContext } from "@/lib/inbox/personal-context";
 import { loadActionMemory } from "@/lib/store/action-memory";
 import { loadRepliedThreads } from "@/lib/store/replied-threads";
 import {
@@ -24,56 +22,7 @@ import {
 import { makeGmailLabelStore } from "@/lib/mail/seer-labels";
 import { requireMailSession } from "@/lib/mail/session";
 import { getSenderOverride } from "@/lib/store/senders";
-import type { RsvpStatus } from "@/lib/inbox/personal-context";
 import { NextResponse } from "next/server";
-
-type ReaderEvent = {
-  id: string;
-  subject: string;
-  startsAt: string;
-  myStatus?: RsvpStatus;
-};
-
-/**
- * Exact invite → event resolution: the .ics inside the email names the
- * event by iCalUID, so ANY invitation resolves — any date, any subject
- * format — with live RSVP state (no cache lag).
- */
-async function lookupGoogleEventByUid(
-  accessToken: string,
-  uid: string,
-): Promise<ReaderEvent | null> {
-  try {
-    const url =
-      "https://www.googleapis.com/calendar/v3/calendars/primary/events?" +
-      new URLSearchParams({ iCalUID: uid, maxResults: "3" });
-    const res = await fetch(url, {
-      headers: { Authorization: `Bearer ${accessToken}` },
-      cache: "no-store",
-    });
-    if (!res.ok) return null;
-    const json = (await res.json()) as {
-      items?: Array<{
-        id?: string;
-        summary?: string;
-        status?: string;
-        start?: { dateTime?: string; date?: string };
-        attendees?: { self?: boolean; responseStatus?: string }[];
-      }>;
-    };
-    const ev = (json.items ?? []).find((e) => e.status !== "cancelled");
-    if (!ev?.id) return null;
-    const mine = (ev.attendees ?? []).find((a) => a.self);
-    return {
-      id: ev.id,
-      subject: ev.summary ?? "(no title)",
-      startsAt: ev.start?.dateTime ?? ev.start?.date ?? "",
-      myStatus: (mine?.responseStatus as RsvpStatus | undefined) ?? undefined,
-    };
-  } catch {
-    return null;
-  }
-}
 
 export async function GET(
   _request: Request,
@@ -198,26 +147,16 @@ export async function GET(
 
     const keyActions = extractKeyActions(message.htmlBody, guide.action);
 
-    // Calendar invite? Ship the matched event so the reader can RSVP.
-    // Prefer the exact iCalUID from the email's own .ics (works for ANY
-    // invitation, live status); fall back to subject matching.
-    let calendarEvent: ReaderEvent | undefined;
-    if (message.icalUid && session.provider === "google") {
-      calendarEvent =
-        (await lookupGoogleEventByUid(session.accessToken, message.icalUid)) ??
-        undefined;
-    }
-    if (!calendarEvent) {
-      const invite = inviteSignals(personal, message.subject);
-      if (invite?.event.id != null) {
-        calendarEvent = {
-          id: invite.event.id,
-          subject: invite.event.subject,
-          startsAt: invite.event.startsAt,
-          myStatus: invite.event.myStatus,
-        };
-      }
-    }
+    // Calendar invite? Ship the event this email is the invitation for, so
+    // the reader can RSVP. The RSVP route resolves it the same way.
+    const calendarEvent = (
+      await resolveInviteEvent({
+        provider: session.provider,
+        accessToken: session.accessToken,
+        personal,
+        message,
+      })
+    )?.event;
 
     // Your own messages read as "You", not your full name — no more
     // guessing who sent what inside a thread.
