@@ -97,6 +97,7 @@ export async function GET() {
       headers: {
         "Content-Disposition":
           'attachment; filename="seer-classifier-samples.json"',
+        "Cache-Control": "private, no-store",
       },
     });
   } catch (e) {

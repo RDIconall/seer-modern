@@ -35,7 +35,7 @@ export async function GET(
       headers: {
         "Content-Type": type,
         "Content-Disposition": `${inline ? "inline" : "attachment"}; filename="${name.replace(/[^\w.\- ()]/g, "_")}"`,
-        "Cache-Control": "private, max-age=3600",
+        "Cache-Control": "private, no-store",
       },
     });
   } catch (e) {
