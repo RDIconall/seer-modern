@@ -15,7 +15,17 @@
  * This module runs on the server as well as the client, so it cannot lean on
  * the DOM. DOMPurify still runs over the result in the browser — this is the
  * structural pass, not the only line of defence.
+ *
+ * The body is sender-controlled, so every pass is linear: tag spans come from
+ * `html-scan`, and the remaining patterns stop at the next `<` so they cannot
+ * rescan the rest of the body from every opener.
  */
+import {
+  replaceDelimited,
+  replaceElementsWithContent,
+  replaceOpeningTags,
+  stripTags,
+} from "@/lib/mail/html-scan";
 
 /** Elements that carry meaning. Anything else is unwrapped, keeping its text. */
 const ALLOWED_TAGS = new Set([
@@ -28,12 +38,16 @@ const ALLOWED_TAGS = new Set([
 
 /** Elements whose CONTENT is not message text and must go with them. */
 const VOID_CONTENT =
-  /<(script|style|head|noscript|iframe|object|embed|template|form|svg|math|title)\b[^>]*>[\s\S]*?<\/\1\s*>/gi;
+  /<(script|style|head|noscript|iframe|object|embed|template|form|svg|math|title)\b/i;
 
 const ORPHAN_DANGEROUS =
-  /<\/?(script|style|head|noscript|iframe|object|embed|template|form|svg|math|title|link|meta|base|input|button|select|textarea)\b[^>]*>/gi;
+  /<\/?(script|style|head|noscript|iframe|object|embed|template|form|svg|math|title|link|meta|base|input|button|select|textarea)\b/i;
 
-const ATTRIBUTE = /([a-zA-Z_:][-a-zA-Z0-9_:.]*)\s*=\s*("([^"]*)"|'([^']*)'|([^\s"'>]+))/g;
+const ELEMENT = /<(\/?)([a-zA-Z][a-zA-Z0-9]*)\b/;
+
+const ATTRIBUTE = /([a-zA-Z_:][-a-zA-Z0-9_:.]*)\s*=\s*("([^"]*)"|'([^']*)'|([^\s"'>]+))/y;
+const ATTRIBUTE_NAME_START = /[a-zA-Z_:]/;
+const ATTRIBUTE_NAME_CHAR = /[-a-zA-Z0-9_:.]/;
 
 /**
  * Style declarations worth keeping. Colour, font and size are deliberately
@@ -95,9 +109,21 @@ function escapeAttr(value: string): string {
 function rebuildAttributes(tag: string, raw: string): string {
   const allowed = ALLOWED_ATTRS[tag] ?? DEFAULT_ATTRS;
   const out: string[] = [];
-  let match: RegExpExecArray | null;
-  ATTRIBUTE.lastIndex = 0;
-  while ((match = ATTRIBUTE.exec(raw)) !== null) {
+  let at = 0;
+  while (at < raw.length) {
+    ATTRIBUTE.lastIndex = at;
+    const match = ATTRIBUTE.exec(raw);
+    if (!match) {
+      // A name with no `=value` after it fails from every later offset in the
+      // same name too, so skip the whole name instead of retrying each suffix.
+      if (ATTRIBUTE_NAME_START.test(raw[at])) {
+        while (at < raw.length && ATTRIBUTE_NAME_CHAR.test(raw[at])) at += 1;
+      } else {
+        at += 1;
+      }
+      continue;
+    }
+    at = ATTRIBUTE.lastIndex;
     const name = match[1].toLowerCase();
     const value = match[3] ?? match[4] ?? match[5] ?? "";
     if (!allowed.has(name)) continue;
@@ -131,41 +157,96 @@ function rebuildAttributes(tag: string, raw: string): string {
  */
 export function sanitizeStructuralHtml(html: string): string {
   if (!html) return "";
-  return html
-    .replace(/<!--[\s\S]*?-->/g, "")
-    .replace(/<!DOCTYPE[^>]*>/gi, "")
-    .replace(/<\?[\s\S]*?\?>/g, "")
-    .replace(VOID_CONTENT, " ")
-    .replace(ORPHAN_DANGEROUS, " ")
-    .replace(/<(\/?)([a-zA-Z][a-zA-Z0-9]*)\b([^>]*?)(\/?)>/g, (_all, close: string, name: string, attrs: string, selfClose: string) => {
-      const tag = name.toLowerCase();
-      if (!ALLOWED_TAGS.has(tag)) return "";
-      if (close) return `</${tag}>`;
-      if (tag === "br" || tag === "hr" || tag === "img" || tag === "col") {
-        return `<${tag}${rebuildAttributes(tag, attrs)} />`;
-      }
-      return `<${tag}${rebuildAttributes(tag, attrs)}${selfClose ? " /" : ""}>`;
-    })
-    .replace(/(\s*<br\s*\/>\s*){3,}/gi, "<br /><br />")
-    .trim();
+  let s = replaceDelimited(html, /<!--/, "-->", "");
+  s = replaceDelimited(s, /<!DOCTYPE/i, ">", "");
+  s = replaceDelimited(s, /<\?/, "?>", "");
+  s = replaceElementsWithContent(s, VOID_CONTENT, " ", true);
+  s = replaceOpeningTags(s, ORPHAN_DANGEROUS, " ");
+  s = replaceOpeningTags(s, ELEMENT, (match, rest) => {
+    const close = match[1];
+    const tag = match[2].toLowerCase();
+    const selfClose = rest.endsWith("/");
+    const attrs = selfClose ? rest.slice(0, -1) : rest;
+    if (!ALLOWED_TAGS.has(tag)) return "";
+    if (close) return `</${tag}>`;
+    if (tag === "br" || tag === "hr" || tag === "img" || tag === "col") {
+      return `<${tag}${rebuildAttributes(tag, attrs)} />`;
+    }
+    return `<${tag}${rebuildAttributes(tag, attrs)}${selfClose ? " /" : ""}>`;
+  });
+  return collapseBreaks(s).trim();
+}
+
+/**
+ * Three or more consecutive `<br />` (and the whitespace around them) become
+ * two. Matching from the first break rather than from the whitespace before
+ * it keeps a long whitespace run from being rescanned at every offset.
+ */
+function collapseBreaks(html: string): string {
+  const run = /<br\s*\/>(?:\s*<br\s*\/>){2,}\s*/gi;
+  let out = "";
+  let at = 0;
+  let match: RegExpExecArray | null;
+  while ((match = run.exec(html)) !== null) {
+    out += html.slice(at, match.index).trimEnd() + "<br /><br />";
+    at = run.lastIndex;
+  }
+  return out + html.slice(at);
 }
 
 /**
  * Where the quoted history starts, in the shapes the clients write it. Outlook
  * opens with an `appendonsend` anchor or a `divRplyFwdMsg` header block; Gmail,
  * Thunderbird and Yahoo each name their own wrapper; and any client may write
- * an "Original Message" divider.
+ * an "Original Message" divider (found by `nextDivider`).
  */
 const QUOTE_OPENERS: RegExp[] = [
-  /<div[^>]*id=["']?appendonsend["']?/i,
-  /<div[^>]*id=["']?divRplyFwdMsg["']?/i,
-  /<div[^>]*class=["'][^"']*gmail_quote/i,
-  /<div[^>]*class=["'][^"']*moz-cite-prefix/i,
-  /<div[^>]*(?:id|class)=["'][^"']*yahoo_quoted/i,
-  /<blockquote[^>]*type=["']?cite/i,
-  /<blockquote[^>]*class=["'][^"']*(?:gmail_quote|moz-cite|yahoo_quoted)/i,
-  /-{2,}\s*Original Message\s*-{2,}/i,
+  /<div[^<>]*id=["']?appendonsend["']?/i,
+  /<div[^<>]*id=["']?divRplyFwdMsg["']?/i,
+  /<div[^<>]*class=["'][^"']*gmail_quote/i,
+  /<div[^<>]*class=["'][^"']*moz-cite-prefix/i,
+  /<div[^<>]*(?:id|class)=["'][^"']*yahoo_quoted/i,
+  /<blockquote[^<>]*type=["']?cite/i,
+  /<blockquote[^<>]*class=["'][^"']*(?:gmail_quote|moz-cite|yahoo_quoted)/i,
 ];
+
+const WHITESPACE = /\s/;
+
+/**
+ * The next `-{2,}\s*Original Message\s*-{2,}` at or after `from`. Anchored on
+ * the words, then measured outwards, because the regex itself retries from
+ * every dash of a long run.
+ */
+function nextDivider(html: string, from: number): { index: number; end: number } | null {
+  const words = /original message/gi;
+  words.lastIndex = from;
+  let found: RegExpExecArray | null;
+  while ((found = words.exec(html)) !== null) {
+    let before = found.index;
+    while (before > from && WHITESPACE.test(html[before - 1])) before -= 1;
+    let start = before;
+    while (start > from && html[start - 1] === "-") start -= 1;
+    if (before - start < 2) continue;
+    let after = found.index + found[0].length;
+    while (after < html.length && WHITESPACE.test(html[after])) after += 1;
+    let end = after;
+    while (end < html.length && html[end] === "-") end += 1;
+    if (end - after < 2) continue;
+    return { index: start, end };
+  }
+  return null;
+}
+
+function countDividers(html: string): number {
+  let count = 0;
+  let at = 0;
+  let divider: { index: number; end: number } | null;
+  while ((divider = nextDivider(html, at)) !== null) {
+    count += 1;
+    at = divider.end;
+  }
+  return count;
+}
 
 /** Every blockquote, so each can be judged on what stands above it. */
 const ANY_BLOCKQUOTE = /<blockquote\b/gi;
@@ -190,18 +271,15 @@ const ATTRIBUTIONS: RegExp[] = [
 
 /** Markers that each open one more quoted message, for the hidden count. */
 const QUOTE_COUNTERS: RegExp[] = [
-  /<div[^>]*id=["']?divRplyFwdMsg["']?/gi,
-  /<div[^>]*class=["'][^"']*gmail_quote/gi,
-  /<blockquote[^>]*type=["']?cite/gi,
-  /-{2,}\s*Original Message\s*-{2,}/gi,
+  /<div[^<>]*id=["']?divRplyFwdMsg["']?/gi,
+  /<div[^<>]*class=["'][^"']*gmail_quote/gi,
+  /<blockquote[^<>]*type=["']?cite/gi,
   /\bwrote:/gi,
 ];
 
 /** The last of the text a reader would see before `index`, tags removed. */
 function textBefore(html: string, index: number): string {
-  return html
-    .slice(Math.max(0, index - 600), index)
-    .replace(/<[^>]*>/g, " ")
+  return stripTags(html.slice(Math.max(0, index - 600), index))
     .replace(/&nbsp;/gi, " ")
     .replace(/&[a-z#0-9]+;/gi, " ")
     .replace(/\s+/g, " ")
@@ -225,8 +303,7 @@ function announcedBlockquote(html: string): number {
 /** Does this fragment still say anything once the tags are gone? */
 function hasVisibleText(html: string): boolean {
   return (
-    html
-      .replace(/<[^>]+>/g, " ")
+    stripTags(html)
       .replace(/&nbsp;/gi, " ")
       .replace(/&[a-z#0-9]+;/gi, "x")
       .trim().length > 0
@@ -248,6 +325,8 @@ export function stripQuotedHtml(html: string): StrippedHtml {
     const found = html.search(opener);
     if (found >= 0 && (cut === -1 || found < cut)) cut = found;
   }
+  const divider = nextDivider(html, 0);
+  if (divider && (cut === -1 || divider.index < cut)) cut = divider.index;
   if (cut === -1) return { html, quotedCount: 0 };
 
   const head = html.slice(0, cut);
@@ -257,7 +336,7 @@ export function stripQuotedHtml(html: string): StrippedHtml {
   // together says two where the reader can see one.
   const quotedCount = QUOTE_COUNTERS.reduce(
     (deepest, counter) => Math.max(deepest, tail.match(counter)?.length ?? 0),
-    0,
+    countDividers(tail),
   );
 
   // A top-posted reply is all head; a bare forward is all tail. Never blank a
@@ -276,9 +355,10 @@ export function stripQuotedHtml(html: string): StrippedHtml {
  * phone is the message greyed out against the edge of the screen.
  */
 function unwrapLayoutBlockquotes(html: string): string {
-  return html
-    .replace(/<blockquote\b[^>]*>/gi, "<div>")
-    .replace(/<\/blockquote\s*>/gi, "</div>");
+  return replaceOpeningTags(html, /<blockquote\b/i, "<div>").replace(
+    /<\/blockquote\s*>/gi,
+    "</div>",
+  );
 }
 
 /** The readable body of one message: new text only, structure kept, theme safe. */

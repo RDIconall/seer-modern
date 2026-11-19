@@ -5,9 +5,19 @@
  * <style> and <script>, so the model ends up reading CSS rules as if they were
  * the message. It also leaves entities raw ("&gt;", "&nbsp;"). The standard we
  * hold this to: what you would see if you pasted the email into a chat.
+ *
+ * Every tag pass goes through the linear scanners in `html-scan`: the body is
+ * sender-controlled, and a backtracking `<[^>]+>` stalls on a run of `<`.
  */
+import {
+  replaceDelimited,
+  replaceElementsWithContent,
+  replaceOpeningTags,
+  stripTags,
+} from "@/lib/mail/html-scan";
 
-const BLOCK_LEVEL = /<\/?(p|div|tr|li|h[1-6]|blockquote|table|section|article)\b[^>]*>/gi;
+const BLOCK_LEVEL = /<\/?(p|div|tr|li|h[1-6]|blockquote|table|section|article)\b/i;
+const NON_CONTENT = /<(script|style|head|noscript)\b/i;
 
 const ENTITIES: Record<string, string> = {
   amp: "&",
@@ -35,17 +45,15 @@ function decodeEntities(s: string): string {
 }
 
 export function htmlToText(html: string): string {
-  return decodeEntities(
-    html
-      // Drop non-content regions entirely, including their contents.
-      .replace(/<!--[\s\S]*?-->/g, " ")
-      .replace(/<(script|style|head|noscript)\b[^>]*>[\s\S]*?<\/\1>/gi, " ")
-      // Preserve document structure as line breaks so sentences don't fuse.
-      .replace(/<br\s*\/?>/gi, "\n")
-      .replace(BLOCK_LEVEL, "\n")
-      // Everything else is markup.
-      .replace(/<[^>]+>/g, " "),
-  )
+  // Drop non-content regions entirely, including their contents.
+  let s = replaceDelimited(html, /<!--/, "-->", " ");
+  s = replaceElementsWithContent(s, NON_CONTENT, " ", false);
+  // Preserve document structure as line breaks so sentences don't fuse.
+  s = s.replace(/<br\s*\/?>/gi, "\n");
+  s = replaceOpeningTags(s, BLOCK_LEVEL, "\n");
+  // Everything else is markup.
+  s = stripTags(s);
+  return decodeEntities(s)
     .replace(/[ \t\u00a0]+/g, " ")
     .replace(/\n\s*\n\s*\n+/g, "\n\n")
     .split("\n")
