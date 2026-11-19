@@ -151,7 +151,7 @@ export async function GET(
         },
       ],
       history,
-      (email) => getSenderOverride(email),
+      (email) => getSenderOverride(email, session.email),
       classifyMessage,
       // Single-message path: cache/label/rules only. Gemini runs on batch
       // inbox loads — never one email at a time (that burns quota fast).
@@ -182,7 +182,7 @@ export async function GET(
             subject: message.subject,
             snippet: message.snippet,
           },
-          await getSenderOverride(message.fromEmail),
+          await getSenderOverride(message.fromEmail, session.email),
           history,
         ),
         source: "rules" as const,

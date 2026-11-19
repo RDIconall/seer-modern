@@ -164,7 +164,7 @@ export async function GET(request: Request) {
           receivedAt: m.receivedAt,
         })),
         history,
-        (email) => getSenderOverride(email),
+        (email) => getSenderOverride(email, acct.email),
         classifyMessage,
         {
           profile,

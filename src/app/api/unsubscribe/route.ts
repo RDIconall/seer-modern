@@ -83,7 +83,11 @@ export async function POST(request: Request) {
         await doTrash(session.accessToken, item.id, "trash").catch(() => {});
       }
       if (item.fromEmail?.includes("@")) {
-        await setSenderOverride(item.fromEmail, "delete_now").catch(() => {});
+        await setSenderOverride(
+          item.fromEmail,
+          "delete_now",
+          session.email,
+        ).catch(() => {});
       }
     }
 

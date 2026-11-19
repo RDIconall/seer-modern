@@ -109,7 +109,7 @@ export async function GET() {
     for (const agg of bySender.values()) {
       const sig = historySignals(history, agg.email);
       if (sig.sentTo > 0) continue;
-      const taught = await getSenderOverride(agg.email);
+      const taught = await getSenderOverride(agg.email, session.email);
       if (taught) continue;
       const stat = actionMemory[agg.email.toLowerCase()];
       const total = (stat?.archive ?? 0) + (stat?.trash ?? 0);
