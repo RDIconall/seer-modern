@@ -20,8 +20,10 @@
 // Note: a trailing \b is wrong here — codes are routinely followed by an
 // underscore ("TZC0430556_MC", "RCD_2818_TMS") and `_` is a word character, so
 // \b never fires. A negative lookahead on digits is the correct terminator.
+// A single-digit suffix ("RD1", "SOP9") is too short to identify a study and
+// too easy to plant in mail; it must never become a join key.
 const CODE_PATTERNS: RegExp[] = [
-  /\b(?:LABSOP|RCD|TGRP|CAPA|QMP|CLP|BIM|LMD|EUR|SOP|RD|WI)[-_ ]?\d{1,7}(?!\d)/gi,
+  /\b(?:LABSOP|RCD|TGRP|CAPA|QMP|CLP|BIM|LMD|EUR|SOP|RD|WI)[-_ ]?\d{2,7}(?!\d)/gi,
   /\bTZC\d{5,9}(?!\d)/gi,
   /\b\d{4}P-\d{3}(?!\d)/gi,
   /\bRFQ[-_ ]?\d{3,6}(?!\d)/gi,
