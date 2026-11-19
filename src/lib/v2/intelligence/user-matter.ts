@@ -5,6 +5,7 @@ import {
   matterNameFrom,
   ownTokens,
   resolveMatterMatch,
+  senderDomainOf,
 } from "./matter-key";
 import {
   ensureMatter,
@@ -128,8 +129,15 @@ export async function suggestMattersForConversation(
     text,
     ownTokens(context.ownEmail),
   );
+  // The user is choosing where this goes; a code only ranks a suggestion.
   const match = resolveMatterMatch(
-    { title: proposed, text, counterparty, own: ownTokens(context.ownEmail) },
+    {
+      title: proposed,
+      text,
+      counterparty,
+      own: ownTokens(context.ownEmail),
+      trustCodes: true,
+    },
     matters.rows.map((matter) => ({
       matterId: matter.id,
       title: matter.title,
@@ -225,10 +233,14 @@ export async function placeConversationOnMatter(
         text,
         ownTokens(context.ownEmail),
       );
+      // The user is filing this mail into Atlas themselves, so the codes it
+      // carries are theirs to follow.
       matterId = await ensureMatter(accountId, title, {
         text,
         counterparty,
+        senderDomain: senderDomainOf(context.fromEmail),
         own: ownTokens(context.ownEmail),
+        trustCodes: true,
       });
     }
   }

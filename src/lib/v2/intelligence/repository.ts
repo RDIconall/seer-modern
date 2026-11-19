@@ -4,6 +4,7 @@ import {
   extractCodes,
   resolveMatterByRef,
   resolveMatterMatch,
+  senderDomainOf,
 } from "./matter-key";
 import type { AccountId, ConversationId, Home, Owner } from "../db/types";
 import {
@@ -160,6 +161,26 @@ export async function saveDecision(
 }
 
 /**
+ * Hosts that have written inbound mail already on matter `m`, for a select
+ * over `seer.matters m`. Mapped to registered domains by senderDomainsOf.
+ */
+export const MATTER_SENDER_HOSTS = `array(
+  select distinct lower(split_part(msg.from_email, '@', 2))
+    from seer.matter_conversations link
+    join seer.messages msg on msg.conversation_id = link.conversation_id
+   where link.matter_id = m.id
+     and msg.account_id = m.account_id
+     and msg.is_outgoing = false
+     and msg.from_email like '%_@_%'
+)`;
+
+export function senderDomainsOf(hosts: string[] | null): string[] {
+  return [...new Set((hosts ?? []).map((host) => senderDomainOf(`x@${host}`)))].filter(
+    Boolean,
+  );
+}
+
+/**
  * Resolve the matter a `matter` conversation belongs to: reuse an open matter
  * with the same title, otherwise create one from the read's proposed name. This
  * is the promotion step — without it a conversation the brain called live work
@@ -168,7 +189,13 @@ export async function saveDecision(
 export async function ensureMatter(
   accountId: AccountId,
   title: string,
-  tie?: { text: string; counterparty: string; own?: Set<string> },
+  tie?: {
+    text: string;
+    counterparty: string;
+    senderDomain?: string;
+    own?: Set<string>;
+    trustCodes?: boolean;
+  },
 ): Promise<string> {
   const clean = title.trim().slice(0, 120) || "Untitled matter";
   return inTransaction(async (client) => {
@@ -182,9 +209,11 @@ export async function ensureMatter(
         counterparty: string | null;
         codes: string[] | null;
         title_source: string | null;
+        sender_hosts: string[] | null;
       }>(
         `select m.id, m.title, m.org_unit as counterparty, m.title_source,
-                array_remove(array_agg(distinct mc.code), null) as codes
+                array_remove(array_agg(distinct mc.code), null) as codes,
+                ${MATTER_SENDER_HOSTS} as sender_hosts
            from seer.matters m
            left join seer.matter_codes mc on mc.matter_id = m.id
           where m.account_id = $1 and m.status <> 'closed'
@@ -192,24 +221,32 @@ export async function ensureMatter(
         [accountId],
       );
       const match = resolveMatterMatch(
-        { title: clean, text: tie.text, counterparty: tie.counterparty, own: tie.own },
+        {
+          title: clean,
+          text: tie.text,
+          counterparty: tie.counterparty,
+          senderDomain: tie.senderDomain,
+          own: tie.own,
+          trustCodes: tie.trustCodes,
+        },
         open.rows.map((r) => ({
           matterId: r.id,
           title: r.title,
           codes: r.codes ?? [],
           counterparty: r.counterparty ?? "",
+          senderDomains: senderDomainsOf(r.sender_hosts),
           userAuthored: r.title_source === "user",
         })),
       );
       if (match) {
-        await recordCodes(client, match.matterId, extractCodes(tie.text));
+        await recordCodes(client, accountId, match.matterId, extractCodes(tie.text));
         return match.matterId;
       }
       const created = await client.query<{ id: string }>(
         "insert into seer.matters (account_id, title, org_unit) values ($1, $2, $3) returning id",
         [accountId, clean, tie.counterparty || null],
       );
-      await recordCodes(client, created.rows[0].id, extractCodes(tie.text));
+      await recordCodes(client, accountId, created.rows[0].id, extractCodes(tie.text));
       return created.rows[0].id;
     }
 
@@ -226,18 +263,57 @@ export async function ensureMatter(
   });
 }
 
-/** Remember the codes a matter is known by, so later mail ties to it. */
+/**
+ * File a conversation's codes on the exact matter it was already related to,
+ * without resolving it again. Returns null when that matter is no longer open
+ * on this account.
+ */
+export async function continueMatter(
+  accountId: AccountId,
+  matterId: string,
+  text: string,
+): Promise<string | null> {
+  return inTransaction(async (client) => {
+    const open = await client.query<{ id: string }>(
+      `select id from seer.matters
+        where id = $1 and account_id = $2 and status <> 'closed'
+        for update`,
+      [matterId, accountId],
+    );
+    if (!open.rows[0]) return null;
+    await recordCodes(client, accountId, matterId, extractCodes(text));
+    return matterId;
+  });
+}
+
+/**
+ * Remember the codes a matter is known by, so later mail ties to it. A code
+ * another open matter already holds names that matter's work; recording it
+ * here too would let mail meant for that matter land on this one.
+ */
 async function recordCodes(
   client: PoolClient,
+  accountId: AccountId,
   matterId: string,
   codes: string[],
 ): Promise<void> {
-  for (const code of codes) {
-    await client.query(
-      "insert into seer.matter_codes (matter_id, code) values ($1, $2) on conflict do nothing",
-      [matterId, code],
-    );
-  }
+  if (codes.length === 0) return;
+  await client.query(
+    `insert into seer.matter_codes (matter_id, code)
+     select $2, c.code
+       from unnest($3::text[]) as c(code)
+      where not exists (
+        select 1
+          from seer.matter_codes held
+          join seer.matters m on m.id = held.matter_id
+         where m.account_id = $1
+           and m.status <> 'closed'
+           and held.matter_id <> $2
+           and held.code = c.code
+      )
+     on conflict do nothing`,
+    [accountId, matterId, codes],
+  );
 }
 
 /**

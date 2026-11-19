@@ -3,6 +3,7 @@ import {
   counterpartyOf,
   ownTokens,
   resolveMatterMatch,
+  senderDomainOf,
 } from "./matter-key";
 
 /**
@@ -24,6 +25,8 @@ export type LiveMatter = {
   title: string;
   codes: string[];
   counterparty: string;
+  /** Registered domains of inbound mail already on the matter. */
+  senderDomains?: string[];
   userAuthored: boolean;
 };
 
@@ -55,6 +58,12 @@ export type CompiledContext = {
   senderIsKnown: boolean;
   senderIsInternal: boolean;
   candidateMatterId: string | null;
+  /**
+   * Who the conversation is with, as matter tying sees it: the newest inbound
+   * sender's counterparty, and whether that sender is a known person whose
+   * codes may tie work across counterparties.
+   */
+  matterTie: { counterparty: string; senderDomain: string; trustCodes: boolean };
   /** The sender's tier and VIP flag, for salience. */
   senderTier: string;
   senderVip: boolean;
@@ -63,6 +72,12 @@ export type CompiledContext = {
 };
 
 const MAX_CHARS = 1200;
+
+function isKnownPerson(person: KnownPerson | undefined): boolean {
+  return Boolean(
+    person && (person.vip || person.tier === "inner" || person.tier === "known"),
+  );
+}
 
 function tokens(s: string): Set<string> {
   return new Set(
@@ -100,9 +115,7 @@ export function compileContext(
     Boolean(input.ownDomain) && senderDomain === input.ownDomain.toLowerCase();
 
   const person = input.people.find((p) => p.email.toLowerCase() === senderEmail);
-  const senderIsKnown = Boolean(
-    person && (person.vip || person.tier === "inner" || person.tier === "known"),
-  );
+  const senderIsKnown = isKnownPerson(person);
 
   if (person) {
     lines.push(
@@ -136,23 +149,37 @@ export function compileContext(
   // every Roche email continue the first Roche matter and then bypass matter
   // promotion safety as known work. Use the conservative resolver instead:
   // shared study/event code is proof; otherwise counterparty AND meaningful
-  // request words must overlap.
+  // request words must overlap. A code is written by the sender, so it only
+  // proves continuity from the matter's own counterparty or a known person.
   const matterText = `${conversation.subject} ${conversation.messages
     .map((m) => m.bodyText ?? m.snippet)
     .join(" ")}`;
-  const counterparty = counterpartyOf(senderEmail, input.ownDomain);
+  const tieSender = (
+    [...conversation.messages].reverse().find((m) => !m.isOutgoing) ??
+    conversation.messages[0]
+  )?.from.email?.toLowerCase() ?? "";
+  const matterTie = {
+    counterparty: counterpartyOf(tieSender, input.ownDomain),
+    senderDomain: senderDomainOf(tieSender),
+    trustCodes: isKnownPerson(
+      input.people.find((p) => p.email.toLowerCase() === tieSender),
+    ),
+  };
   const matterMatch = resolveMatterMatch(
     {
       title: conversation.subject,
       text: matterText,
-      counterparty,
+      counterparty: matterTie.counterparty,
+      senderDomain: matterTie.senderDomain,
       own: ownTokens(input.ownEmail ?? `x@${input.ownDomain}`),
+      trustCodes: matterTie.trustCodes,
     },
     input.matters.map((matter) => ({
       matterId: matter.id,
       title: matter.title,
       codes: matter.codes ?? [],
       counterparty: matter.counterparty ?? "",
+      senderDomains: matter.senderDomains ?? [],
       userAuthored: Boolean(matter.userAuthored),
     })),
   );
@@ -182,6 +209,7 @@ export function compileContext(
     senderIsKnown,
     senderIsInternal,
     candidateMatterId,
+    matterTie,
     senderTier: person?.tier ?? "unknown",
     senderVip: Boolean(person?.vip),
     priorMatterRejections,

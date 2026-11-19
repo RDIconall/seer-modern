@@ -113,11 +113,37 @@ assert.equal(
   "matter",
 );
 
-// Continuity with an existing matter is strong enough on its own.
-assert.equal(
-  validateMatterPromotion(
+// A related live matter waives none of the promotion checks: the relation is
+// built from text the sender wrote, so a weak read still goes to Archive.
+{
+  const result = validateMatterPromotion(
     { home: "matter", matterRef: "Roche contract signature" },
     { ...SAFE, liveMatterId: "matter-1" },
+  );
+  assert.equal(result.home, "record");
+  for (const reason of [
+    "matter_owner_nobody",
+    "matter_no_open_work",
+    "matter_not_direct",
+    "matter_untrusted_sender",
+  ]) {
+    assert.ok(result.vetoReasons.includes(reason), reason);
+  }
+}
+
+// ...it only supplies the name a qualified read left out.
+assert.equal(
+  validateMatterPromotion(
+    { home: "matter" },
+    {
+      ...SAFE,
+      liveMatterId: "matter-1",
+      ownerIsYou: true,
+      ownerIsNobody: false,
+      hasOpenAsk: true,
+      addressedDirectly: true,
+      isHumanCorrespondence: true,
+    },
   ).home,
   "matter",
 );

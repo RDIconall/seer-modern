@@ -3,6 +3,7 @@ import type { AccountId } from "../db/types";
 import type { ContextInput } from "./context";
 import { loadGuidance } from "./operating-model";
 import { guidanceFor, loadMailboxStyle } from "./mailbox-style-store";
+import { MATTER_SENDER_HOSTS, senderDomainsOf } from "./repository";
 
 /** People/matters/placements change slowly relative to a read tick. */
 export const CONTEXT_INPUT_TTL_MS = 60_000;
@@ -60,12 +61,14 @@ export async function loadContextInput(
       counterparty: string | null;
       title_source: string;
       codes: string[] | null;
+      sender_hosts: string[] | null;
     }>(
       `select m.id,
               m.title,
               m.org_unit as counterparty,
               m.title_source,
-              array_remove(array_agg(distinct mc.code), null) as codes
+              array_remove(array_agg(distinct mc.code), null) as codes,
+              ${MATTER_SENDER_HOSTS} as sender_hosts
          from seer.matters m
          left join seer.matter_codes mc on mc.matter_id = m.id
         where m.account_id = $1 and m.status <> 'closed'
@@ -152,6 +155,7 @@ export async function loadContextInput(
       title: m.title,
       codes: m.codes ?? [],
       counterparty: m.counterparty ?? "",
+      senderDomains: senderDomainsOf(m.sender_hosts),
       userAuthored: m.title_source === "user",
     })),
     interests: interests.rows.map((i) => i.topic),

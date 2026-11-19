@@ -87,9 +87,13 @@ export function validateDelete(
  * let any model `matter` pass untouched, making Atlas the easiest place for a
  * false positive to accumulate forever.
  *
- * Existing matter continuity is strong evidence. A new matter needs a named
- * unit of work plus a direct unresolved ask/obligation. Anything weaker goes to
+ * Every promotion needs a named unit of work plus a direct unresolved
+ * ask/obligation from a sender who can raise one. Anything weaker goes to
  * Archive, the reversible fallback; it never pollutes Atlas.
+ *
+ * A related live matter does not waive any of this. The relation is computed
+ * from text the sender wrote — a study code, a subject — so it says what the
+ * mail claims to be about, not that this sender's mail is real work.
  */
 export function validateMatterPromotion(
   read: Pick<ReadResult, "home" | "matterRef">,
@@ -98,12 +102,12 @@ export function validateMatterPromotion(
   if (read.home !== "matter") {
     return { home: read.home, vetoReasons: [] };
   }
-  if (facts.liveMatterId) {
-    return { home: "matter", vetoReasons: [] };
-  }
 
   const reasons: string[] = [];
-  if (!read.matterRef?.trim()) reasons.push("matter_ref_missing");
+  // A live matter already names the unit of work; nothing else is waived.
+  if (!read.matterRef?.trim() && !facts.liveMatterId) {
+    reasons.push("matter_ref_missing");
+  }
   if (facts.ownerIsNobody) reasons.push("matter_owner_nobody");
   if (!facts.hasOpenAsk && !facts.hasPendingObligation) {
     reasons.push("matter_no_open_work");
