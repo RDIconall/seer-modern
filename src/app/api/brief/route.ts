@@ -123,6 +123,7 @@ export async function POST() {
         labelIds: m.labelIds,
         threadId: m.threadId,
         receivedAt: m.receivedAt,
+        isOutgoing: m.isOutgoing,
       })),
       history,
       (email) => getSenderOverride(email),
@@ -141,10 +142,7 @@ export async function POST() {
       const r = decisions.get(m.id);
       return {
         ...m,
-        fromName:
-          m.fromEmail.toLowerCase() === session.email.toLowerCase()
-            ? "You"
-            : m.fromName,
+        fromName: m.isOutgoing ? "You" : m.fromName,
         guide: r
           ? buildActionGuideQuick(r, m.subject, m.fromName, m.snippet)
           : undefined,

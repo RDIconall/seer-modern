@@ -148,6 +148,7 @@ export async function GET(
           labelIds: message.labelIds,
           threadId: message.threadId,
           receivedAt: message.receivedAt,
+          isOutgoing: message.isOutgoing,
         },
       ],
       history,
@@ -221,17 +222,14 @@ export async function GET(
 
     // Your own messages read as "You", not your full name — no more
     // guessing who sent what inside a thread.
-    const displayMessage =
-      message.fromEmail.toLowerCase() === session.email.toLowerCase()
-        ? { ...message, fromName: "You" }
-        : message;
+    const displayMessage = message.isOutgoing
+      ? { ...message, fromName: "You" }
+      : message;
 
     return NextResponse.json({
       message: displayMessage,
       thread: thread.map((turn) =>
-        turn.fromEmail.toLowerCase() === session.email.toLowerCase()
-          ? { ...turn, fromName: "You" }
-          : turn,
+        turn.isOutgoing ? { ...turn, fromName: "You" } : turn,
       ),
       guide,
       classification,

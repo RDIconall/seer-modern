@@ -90,17 +90,15 @@ export async function GET(request: Request) {
           messages?: {
             id: string;
             internalDate?: string;
+            labelIds?: string[];
             payload?: { headers?: { name: string; value: string }[] };
           }[];
         };
         const msgs = thread.messages ?? [];
         const last = msgs[msgs.length - 1];
-        const lastFrom =
-          last?.payload?.headers
-            ?.find((h) => h.name === "From")
-            ?.value?.toLowerCase() ?? "";
-        // Still waiting only if the LAST message in the thread is his
-        if (!lastFrom.includes(me)) continue;
+        // Still waiting only if the LAST message in the thread is his. Gmail's
+        // SENT label says so; a From header naming him does not.
+        if (!(last?.labelIds ?? []).includes("SENT")) continue;
         items.push({
           threadId: m.threadId,
           messageId: last.id,
