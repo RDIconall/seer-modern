@@ -12,6 +12,7 @@ import {
 import { generateText, Output } from "ai";
 import { NextResponse } from "next/server";
 import { z } from "zod";
+import { stripTags } from "@/lib/mail/html-scan";
 
 export const maxDuration = 60;
 
@@ -68,7 +69,7 @@ export async function POST(request: Request) {
 
     const bodyText = (
       message.textBody ||
-      message.htmlBody.replace(/<[^>]+>/g, " ").replace(/\s+/g, " ")
+      stripTags(message.htmlBody).replace(/\s+/g, " ")
     ).slice(0, 5000);
 
     const firstName = (session.name || session.email).split(/[\s@]/)[0];

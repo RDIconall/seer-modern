@@ -3,6 +3,7 @@
  * RSVP button, the invoice, the reschedule page. Local + free — no AI
  * call, works on every message.
  */
+import { forwardMatcher, nextTagSpan, stripTags as stripTagSpans } from "@/lib/mail/html-scan";
 
 export type KeyAction = { label: string; url: string };
 
@@ -27,9 +28,41 @@ const INTENT_PATTERNS: { re: RegExp; label: string; score: number }[] = [
 const JUNK =
   /unsubscribe from|privacy|terms|preferences|view in browser|facebook|twitter|instagram|linkedin\.com\/share|help center|contact us|download (the )?app|app store|google play|mailto:/i;
 
+const ANCHOR_OPEN = /<a\b/i;
+const HREF = /href=["'](https?:\/\/[^"']+)["']/gi;
+
+/**
+ * Each `<a … href="http…">inner</a>`, in order. Tags are read span by span and
+ * the closing `</a>` is looked up once, so a body full of unclosed anchors (or
+ * a run of `<a`) costs one pass rather than a rescan from every opener.
+ */
+function* anchors(html: string): Generator<{ url: string; inner: string }> {
+  const closeAt = forwardMatcher(html, /<\/a>/i);
+  let at = 0;
+  let span: { start: number; end: number } | null;
+  while ((span = nextTagSpan(html, at)) !== null) {
+    at = span.end;
+    const tag = html.slice(span.start, span.end - 1);
+    const open = ANCHOR_OPEN.exec(tag);
+    if (!open) continue;
+    const attrs = tag.slice(open.index + open[0].length);
+    let url: string | null = null;
+    HREF.lastIndex = 0;
+    let href: RegExpExecArray | null;
+    while ((href = HREF.exec(attrs)) !== null) {
+      url = href[1];
+      HREF.lastIndex = href.index + 1;
+    }
+    if (!url) continue;
+    const close = closeAt(span.end);
+    if (!close) return;
+    yield { url, inner: html.slice(span.end, close.index) };
+    at = close.index + close[0].length;
+  }
+}
+
 function stripTags(s: string): string {
-  return s
-    .replace(/<[^>]+>/g, " ")
+  return stripTagSpans(s)
     .replace(/&nbsp;/g, " ")
     .replace(/\s+/g, " ")
     .trim();
@@ -42,14 +75,13 @@ export function extractKeyActions(
   if (!htmlBody) return [];
   const found: (KeyAction & { score: number })[] = [];
   const seen = new Set<string>();
-  const anchorRe = /<a\b[^>]*href=["'](https?:\/\/[^"']+)["'][^>]*>([\s\S]*?)<\/a>/gi;
 
-  let m: RegExpExecArray | null;
   let guard = 0;
-  while ((m = anchorRe.exec(htmlBody)) && guard < 200) {
+  for (const anchor of anchors(htmlBody)) {
+    if (guard >= 200) break;
     guard += 1;
-    const url = m[1];
-    const text = stripTags(m[2]).slice(0, 80);
+    const { url } = anchor;
+    const text = stripTags(anchor.inner).slice(0, 80);
     const hay = `${text} ${url}`;
     if (!text && !/track|rsvp|pay|confirm/i.test(url)) continue;
 
