@@ -2,7 +2,9 @@ import { accountKey, kvDelete, kvGet, kvSet } from "@/lib/store/kv";
 
 /**
  * The user's EA (executive assistant) — where "Delegate" forwards mail.
- * Stored per account like every other Seer memory.
+ * Stored per account like every other Seer memory. There is deliberately no
+ * deployment-wide default: sign-in is open to the whole organization, so a
+ * shared address would receive other people's mail.
  */
 
 export type EaContact = {
@@ -17,19 +19,7 @@ function keyFor(accountEmail: string) {
 
 export async function loadEa(accountEmail: string): Promise<EaContact | null> {
   const parsed = await kvGet<EaContact>(keyFor(accountEmail));
-  if (parsed?.email?.includes("@")) return parsed;
-
-  // Serverless fallback: /tmp KV evaporates between instances,
-  // SEER_EA_EMAIL (Vercel env var) survives.
-  const envEmail = process.env.SEER_EA_EMAIL?.trim();
-  if (envEmail?.includes("@")) {
-    return {
-      email: envEmail,
-      name: process.env.SEER_EA_NAME?.trim() || undefined,
-      updatedAt: "2000-01-01T00:00:00.000Z",
-    };
-  }
-  return null;
+  return parsed?.email?.includes("@") ? parsed : null;
 }
 
 export async function saveEa(
