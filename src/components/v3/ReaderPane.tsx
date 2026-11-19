@@ -196,6 +196,7 @@ export function ReaderPane({
               data.conversation.providerConversationId
             }
             accountId={accountId}
+            ownEmail={data.ownEmail}
             intent={inlineIntent ?? null}
             onActivate={onCompose}
             onClose={onInlineClose}

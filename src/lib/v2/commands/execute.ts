@@ -164,6 +164,28 @@ async function rejectCorpusId(
   return null;
 }
 
+const MAX_REPLY_RECIPIENTS = 100;
+// One bare mailbox per entry: no display name, separators, or line breaks
+// that could add an address or a header the user was never shown.
+const BARE_ADDRESS = /^[^\s@<>()[\]\\,;:"]+@[^\s@<>()[\]\\,;:"]+\.[^\s@<>()[\]\\,;:"]+$/;
+
+/** The pinned reply recipients, or null when the list is missing or malformed. */
+function pinnedRecipients(raw: unknown): string[] | null {
+  if (!Array.isArray(raw) || raw.length === 0 || raw.length > MAX_REPLY_RECIPIENTS) {
+    return null;
+  }
+  const seen = new Set<string>();
+  const out: string[] = [];
+  for (const item of raw) {
+    if (typeof item !== "string" || !BARE_ADDRESS.test(item)) return null;
+    const key = item.toLowerCase();
+    if (seen.has(key)) continue;
+    seen.add(key);
+    out.push(item);
+  }
+  return out;
+}
+
 async function validMatterOrder(
   accountId: AccountId,
   section: string,
@@ -553,6 +575,8 @@ async function run(
 
     case "reply": {
       if (!ctx.provider) return fail("provider unavailable");
+      const recipients = pinnedRecipients(command.recipients);
+      if (!recipients) return fail("reply recipients required");
       const rejected = await rejectCorpusId(ctx, command.providerConversationId);
       if (rejected) return rejected;
       const receipt = await ctx.provider.reply(
@@ -560,6 +584,7 @@ async function run(
           conversationId: command.providerConversationId,
           all: command.all,
           bodyHtml: command.bodyHtml,
+          recipients: recipients.map((email) => ({ email })),
         },
         idempotencyKey,
       );

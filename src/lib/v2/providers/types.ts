@@ -107,9 +107,13 @@ export type SendCommand = {
 
 export type ReplyCommand = {
   conversationId: string;
-  /** true = reply all; recipients are derived from the thread. */
   all: boolean;
   bodyHtml: string;
+  /**
+   * The confirmed recipient list. Adapters address exactly these and must not
+   * add the thread's current To or Cc, nor use a provider reply-all action.
+   */
+  recipients: Address[];
 };
 
 export type ForwardCommand = {

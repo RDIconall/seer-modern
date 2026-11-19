@@ -42,6 +42,25 @@ const CACHE_MAX_AGE_MS = 12 * 60 * 60 * 1000;
 
 type CacheEnvelope<T> = { accountEmail?: string; savedAt: number; data: T };
 
+/**
+ * The To field a reply-all opens with: the sender and everyone else it was
+ * addressed to, minus this mailbox. The reply goes to exactly what the field
+ * holds when sent, so everyone reply-all reaches has to be listed here.
+ */
+function replyAllTo(fromEmail: string, toEmail: string, self: string): string {
+  const own = self.trim().toLowerCase();
+  const seen = new Set<string>();
+  const out: string[] = [];
+  for (const part of `${fromEmail},${toEmail}`.split(/[,;]/)) {
+    const email = (part.match(/<([^>]+)>/)?.[1] ?? part).trim();
+    const key = email.toLowerCase();
+    if (!key.includes("@") || key === own || seen.has(key)) continue;
+    seen.add(key);
+    out.push(email);
+  }
+  return out.join(", ");
+}
+
 function readViewCache<T>(key: string, accountEmail?: string): T | null {
   if (typeof window === "undefined") return null;
   try {
@@ -1362,14 +1381,17 @@ export function useMailbox(initialTab: ViewTab = "inbox") {
       }
       setCompose({
         mode,
-        to: reader.fromEmail,
+        to:
+          mode === "replyAll"
+            ? replyAllTo(reader.fromEmail, reader.toEmail ?? "", accountEmail)
+            : reader.fromEmail,
         cc: mode === "replyAll" ? reader.ccEmail : "",
         subject: ensureRe(reader.subject),
         body: "",
         replyToId: readerId,
       });
     },
-    [reader, readerId],
+    [accountEmail, reader, readerId],
   );
 
   /**
@@ -1407,7 +1429,10 @@ export function useMailbox(initialTab: ViewTab = "inbox") {
         }
         setCompose({
           mode,
-          to: msg.fromEmail,
+          to:
+            mode === "replyAll"
+              ? replyAllTo(msg.fromEmail, msg.toEmail ?? "", accountEmail)
+              : msg.fromEmail,
           cc: mode === "replyAll" ? msg.ccEmail : "",
           subject: ensureRe(msg.subject),
           body: "",
@@ -1417,7 +1442,7 @@ export function useMailbox(initialTab: ViewTab = "inbox") {
         setToast(e instanceof Error ? e.message : "Could not open message");
       }
     },
-    [fetchMessage],
+    [accountEmail, fetchMessage],
   );
 
   const selectFolder = useCallback((next: ViewTab) => {

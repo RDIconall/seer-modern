@@ -6,6 +6,7 @@ import assert from "node:assert/strict";
 import { startTestDb } from "./v2-testdb.mts";
 import { upsertUser, upsertAccount } from "../src/lib/v2/db/accounts.ts";
 import { executeCommand } from "../src/lib/v2/commands/execute.ts";
+import type { Command } from "../src/lib/v2/commands/types.ts";
 import {
   completeOutboundReceipt,
   reserveOutboundReceipt,
@@ -152,17 +153,53 @@ try {
   // Reply rejects corpus conversation id.
   const badReply = await executeCommand(
     ctx,
-    { type: "reply", providerConversationId: corpusId, all: false, bodyHtml: "<p>nope</p>" },
+    {
+      type: "reply",
+      providerConversationId: corpusId,
+      all: false,
+      bodyHtml: "<p>nope</p>",
+      recipients: ["sender@example.com"],
+    },
     "key-bad-reply",
   );
   assert.equal(badReply.ok, false);
   assert.match(badReply.error ?? "", /corpus conversation id/);
   assert.equal(provider.replyCalls, 0);
 
+  // A reply carries the recipient list the user was shown; without one, or
+  // with an entry that is not a single bare address, nothing is sent.
+  for (const [key, recipients] of [
+    ["key-reply-unpinned", undefined],
+    ["key-reply-empty", []],
+    ["key-reply-smuggled", ["sender@example.com\r\nBcc: other@example.com"]],
+    ["key-reply-named", ["Other <other@example.com>"]],
+  ] as const) {
+    const refused = await executeCommand(
+      ctx,
+      {
+        type: "reply",
+        providerConversationId: "pc-1",
+        all: true,
+        bodyHtml: "<p>nope</p>",
+        recipients,
+      } as unknown as Command,
+      key,
+    );
+    assert.equal(refused.ok, false, `${key} must be refused`);
+    assert.match(refused.error ?? "", /reply recipients required/);
+  }
+  assert.equal(provider.replyCalls, 0);
+
   // Valid reply uses provider conversation id.
   const reply = await executeCommand(
     ctx,
-    { type: "reply", providerConversationId: "pc-1", all: false, bodyHtml: "<p>ok</p>" },
+    {
+      type: "reply",
+      providerConversationId: "pc-1",
+      all: false,
+      bodyHtml: "<p>ok</p>",
+      recipients: ["sender@example.com"],
+    },
     "key-reply",
   );
   assert.equal(reply.ok, true);

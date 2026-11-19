@@ -35,6 +35,14 @@ function addressList(raw?: string): string {
     .join(", ");
 }
 
+/** "Pat <pat@x.com>, b@y.com" → ["pat@x.com", "b@y.com"]. */
+function bareAddresses(raw?: string): string[] {
+  return (raw ?? "")
+    .split(/[,;]/)
+    .map((part) => (part.match(/<([^>]+)>/)?.[1] ?? part).trim())
+    .filter((email) => email.includes("@"));
+}
+
 function escapeHtml(raw: string): string {
   return raw
     .replace(/&/g, "&amp;")
@@ -164,24 +172,11 @@ export async function POST(request: Request) {
         return NextResponse.json({ ok: true, ...sent });
       }
 
-      const extractEmails = (raw: string) =>
-        raw
-          .split(/[,;]/)
-          .map((part) => {
-            const m = part.match(/<([^>]+)>/);
-            return (m?.[1] ?? part).trim();
-          })
-          .filter((e) => e.includes("@"));
-
-      const to =
-        mode === "replyAll"
-          ? [...extractEmails(original.fromEmail), ...extractEmails(original.toEmail)]
-              .filter(
-                (e) => e.toLowerCase() !== session.email.toLowerCase(),
-              )
-              .filter((e, i, arr) => arr.indexOf(e) === i)
-              .join(", ") || original.fromEmail
-          : original.fromEmail;
+      // The compose pane prefills To and Cc and the user may edit them; the
+      // reply goes to those fields and never falls back to the original's.
+      if (!toList) {
+        return NextResponse.json({ error: "To required" }, { status: 400 });
+      }
 
       // Quote the original under the reply, the way every mail client
       // does — the recipient sees what's being answered.
@@ -194,11 +189,8 @@ export async function POST(request: Request) {
         .join("\n")}`;
 
       const sent = await sendGmailMessage(session.accessToken, {
-        to: toList || to,
-        cc:
-          mode === "replyAll"
-            ? ccList || original.ccEmail
-            : ccList,
+        to: toList,
+        cc: ccList,
         subject: ensureRe(body.subject?.trim() || original.subject),
         body: quotedReply,
         html: html
@@ -229,6 +221,9 @@ export async function POST(request: Request) {
           { status: 400 },
         );
       }
+      if (!toList) {
+        return NextResponse.json({ error: "To required" }, { status: 400 });
+      }
       const original = await getGraphMessage(
         session.accessToken,
         body.replyToId,
@@ -238,6 +233,7 @@ export async function POST(request: Request) {
         body.replyToId,
         text,
         mode === "replyAll",
+        { to: bareAddresses(toList), cc: bareAddresses(ccList) },
       );
       await Promise.allSettled([
         recordRepliedThread(session.email, original.threadId),

@@ -51,6 +51,30 @@ await check("Graph reply answering 202 with no body succeeds", async () => {
   await replyGraphMessage("token", "msg-1", "Thanks", false);
 });
 
+await check("Graph reply-all addresses the fields compose showed, not replyAll", async () => {
+  const calls = stubFetch(202, "");
+  await replyGraphMessage("token", "msg-1", "Thanks", true, {
+    to: ["a@example.com"],
+    cc: ["b@example.com"],
+  });
+  assert.match(calls.at(-1)?.url ?? "", /\/me\/messages\/msg-1\/reply$/);
+  const payload = JSON.parse(calls.at(-1)?.body ?? "{}") as {
+    message?: {
+      toRecipients?: { emailAddress: { address: string } }[];
+      ccRecipients?: { emailAddress: { address: string } }[];
+    };
+  };
+  assert.deepEqual(
+    payload.message?.toRecipients?.map((r) => r.emailAddress.address),
+    ["a@example.com"],
+  );
+  assert.deepEqual(
+    payload.message?.ccRecipients?.map((r) => r.emailAddress.address),
+    ["b@example.com"],
+  );
+  await assert.rejects(() => replyGraphMessage("token", "msg-1", "Thanks", true));
+});
+
 await check("Graph still reports a real failure", async () => {
   stubFetch(400, JSON.stringify({ error: { message: "Invalid recipient" } }));
   await assert.rejects(() =>

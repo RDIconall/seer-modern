@@ -217,7 +217,13 @@ try {
 
   const reply = await executeCommand(
     ctx,
-    { type: "reply", providerConversationId: "pc-send", all: false, bodyHtml: "<p>re</p>" },
+    {
+      type: "reply",
+      providerConversationId: "pc-send",
+      all: false,
+      bodyHtml: "<p>re</p>",
+      recipients: ["sender@example.com"],
+    },
     "key-reply",
   );
   assert.equal(reply.ok, true);

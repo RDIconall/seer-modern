@@ -334,13 +334,29 @@ export async function replyGraphMessage(
   id: string,
   body: string,
   replyAll = false,
+  recipients?: { to: string[]; cc: string[] },
 ): Promise<void> {
-  const path = replyAll
-    ? `/me/messages/${id}/replyAll`
-    : `/me/messages/${id}/reply`;
-  await graphFetch(accessToken, path, {
+  // Graph's replyAll action addresses the original's stored To and Cc, which
+  // the user may have edited or never seen; a reply-all is always sent as a
+  // reply with the recipients the compose pane showed.
+  if (replyAll && !recipients) {
+    throw new Error("reply all needs the recipients the user confirmed");
+  }
+  const toRecipient = (address: string) => ({ emailAddress: { address } });
+  await graphFetch(accessToken, `/me/messages/${id}/reply`, {
     method: "POST",
-    body: JSON.stringify({ comment: body }),
+    body: JSON.stringify(
+      recipients
+        ? {
+            message: {
+              toRecipients: recipients.to.map(toRecipient),
+              ccRecipients: recipients.cc.map(toRecipient),
+              bccRecipients: [],
+            },
+            comment: body,
+          }
+        : { comment: body },
+    ),
   });
 }
 

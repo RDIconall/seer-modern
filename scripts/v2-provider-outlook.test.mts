@@ -54,6 +54,7 @@ const CONVOS: Record<string, ReturnType<typeof graphMsg>[]> = {
 };
 
 let lastReplyAll = false;
+let lastReplyBody = "";
 
 const mockFetch = (async (url: string, init?: RequestInit) => {
   const u = String(url);
@@ -119,6 +120,7 @@ const mockFetch = (async (url: string, init?: RequestInit) => {
   const reply = u.match(/\/messages\/([^/]+)\/(reply|replyAll)$/);
   if (method === "POST" && reply) {
     lastReplyAll = reply[2] === "replyAll";
+    lastReplyBody = String(init?.body ?? "");
     return new Response("", { status: 202 });
   }
   const move = u.match(/\/messages\/([^/]+)\/move$/);
@@ -177,8 +179,27 @@ assert.equal(convo.messages[0].sentAt, "2026-08-01T10:00:00Z"); // ordered oldes
 assert.equal(convo.messages[0].bodyHtml, "<p>body</p>");
 assert.equal(convo.messages[0].isUnread, true);
 
-await provider.reply({ conversationId: "c0", all: true, bodyHtml: "<p>ok</p>" }, "k");
-assert.equal(lastReplyAll, true, "reply-all must call the replyAll endpoint");
+await provider.reply(
+  {
+    conversationId: "c0",
+    all: true,
+    bodyHtml: "<p>ok</p>",
+    recipients: [{ email: "sender@example.com" }, { email: "me@example.com" }],
+  },
+  "k",
+);
+assert.equal(
+  lastReplyAll,
+  false,
+  "reply-all must not call Graph replyAll, which adds the stored To and Cc",
+);
+assert.deepEqual(
+  (JSON.parse(lastReplyBody) as {
+    message: { toRecipients: { emailAddress: { address: string } }[] };
+  }).message.toRecipients.map((r) => r.emailAddress.address),
+  ["sender@example.com"],
+  "reply-all must address exactly the confirmed recipients, never self",
+);
 assert.match(provider.nativeUrl("c0"), /outlook\.office\.com/);
 
 // Split-page hydration: folder page 1 lists only c0-m2 but syncFolder must emit both messages.

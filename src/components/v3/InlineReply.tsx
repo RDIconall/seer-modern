@@ -1,11 +1,12 @@
 "use client";
 
 import * as React from "react";
-import { useCallback, useEffect, useId, useState } from "react";
+import { useCallback, useEffect, useId, useMemo, useState } from "react";
 import { Expand, Sparkles } from "lucide-react";
 import type { CommandResult } from "@/lib/v2/commands/types";
 import type { Conversation } from "@/lib/v2/providers/types";
 import type { ReaderComposeIntent } from "@/components/v2/Reader";
+import { formatAddress, pinnedReplyRecipients } from "@/lib/v2/client/reply";
 import {
   canSendCompose,
   dispatchCommand,
@@ -30,6 +31,7 @@ export function InlineReply({
   conversation,
   providerConversationId,
   accountId,
+  ownEmail,
   intent,
   onActivate,
   onClose,
@@ -39,6 +41,7 @@ export function InlineReply({
   conversation: Conversation;
   providerConversationId: string;
   accountId?: string;
+  ownEmail?: string | null;
   intent: ReaderComposeIntent | null;
   onActivate: (intent: ReaderComposeIntent) => void;
   onClose: () => void;
@@ -57,6 +60,13 @@ export function InlineReply({
   const activeMode = intent?.mode;
   const draftKey = draftStorageKey(accountId, mode, providerConversationId);
   const latest = conversation.messages.at(-1);
+  const replyTo = useMemo(
+    () =>
+      mode === "forward"
+        ? []
+        : pinnedReplyRecipients(conversation, ownEmail, mode === "replyAll"),
+    [conversation, mode, ownEmail],
+  );
 
   const saveDraft = useCallback(() => {
     const draft: StoredDraft = {
@@ -130,6 +140,7 @@ export function InlineReply({
 
   const canSend =
     intent !== null &&
+    (mode === "forward" || replyTo.length > 0) &&
     canSendCompose({
       mode,
       recipientCount: recipients.length,
@@ -156,6 +167,7 @@ export function InlineReply({
               providerConversationId,
               all: mode === "replyAll",
               bodyHtml,
+              recipients: replyTo.map((recipient) => recipient.email),
             });
       window.localStorage.removeItem(draftKey);
       setBody(EMPTY_RICH);
@@ -218,7 +230,9 @@ export function InlineReply({
       <p className="inline-reply-context">
         {mode === "forward"
           ? "Forward this conversation"
-          : `${modeLabel(mode)} to ${latest?.from.name || latest?.from.email || "sender"}`}
+          : replyTo.length > 0
+            ? `${modeLabel(mode)} to ${replyTo.map(formatAddress).join(", ")}`
+            : "No one to reply to"}
       </p>
 
       {mode === "forward" ? (

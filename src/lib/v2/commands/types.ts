@@ -81,7 +81,17 @@ export type Command =
         sizeBytes: number;
       }[];
     }
-  | { type: "reply"; providerConversationId: string; all: boolean; bodyHtml: string }
+  | {
+      type: "reply";
+      providerConversationId: string;
+      all: boolean;
+      bodyHtml: string;
+      /**
+       * The addresses compose showed the user, exactly. The server sends to
+       * these and nobody else; it never re-reads the thread for recipients.
+       */
+      recipients: string[];
+    }
   | { type: "forward"; providerConversationId: string; to: string[]; bodyHtml: string }
   | {
       /** Replace Atlas shelves and filing guidance for this mailbox. */

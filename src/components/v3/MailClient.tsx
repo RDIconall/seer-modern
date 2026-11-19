@@ -50,6 +50,7 @@ import { describeHttpFailure, readJsonBody } from "@/lib/v3/net/json";
 type PreviewReader = {
   conversation: Conversation;
   provider: ProviderKind;
+  ownEmail?: string | null;
 };
 
 type ComposeState =
@@ -1167,6 +1168,7 @@ export function MailClient({
           providerConversationId={providerConversationId ?? undefined}
           conversationId={conversationId ?? undefined}
           accountId={mailbox.view?.accountId}
+          ownEmail={readerPreview?.ownEmail}
           preview={readerPreview?.conversation}
           previewProvider={readerPreview?.provider}
           onClose={() => setCompose(null)}
