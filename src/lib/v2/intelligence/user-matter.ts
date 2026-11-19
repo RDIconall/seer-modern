@@ -17,6 +17,8 @@ type ConversationMatterContext = {
   summary: string;
   bodyText: string;
   fromEmail: string;
+  /** The sender is a real relationship on this mailbox, not just a domain. */
+  fromKnown: boolean;
   ownEmail: string;
 };
 
@@ -39,6 +41,7 @@ async function conversationContext(
     body_text: string | null;
     snippet: string | null;
     from_email: string | null;
+    from_known: boolean;
     own_email: string;
   }>(
     `select c.subject,
@@ -47,6 +50,12 @@ async function conversationContext(
             lm.body_text,
             lm.snippet,
             lm.from_email,
+            exists (
+              select 1 from seer.people p
+               where p.account_id = c.account_id
+                 and lower(p.email) = lower(lm.from_email)
+                 and (p.vip or p.tier in ('inner', 'known'))
+            ) as from_known,
             a.email as own_email
        from seer.conversations c
        join seer.mail_accounts a on a.id = c.account_id
@@ -73,6 +82,7 @@ async function conversationContext(
     summary: row.summary ?? "",
     bodyText: row.body_text ?? row.snippet ?? "",
     fromEmail: row.from_email ?? "",
+    fromKnown: Boolean(row.from_known),
     ownEmail: row.own_email,
   };
 }
@@ -119,7 +129,7 @@ export async function suggestMattersForConversation(
     openMatters(accountId),
   ]);
   const ownDomain = context.ownEmail.split("@")[1] ?? "";
-  const counterparty = counterpartyOf(context.fromEmail, ownDomain);
+  const counterparty = counterpartyOf(context.fromEmail, ownDomain, context.fromKnown);
   const text = [context.subject, context.summary, context.bodyText].join(" ");
   const proposed = matterNameFrom(
     context.summary,
@@ -216,7 +226,7 @@ export async function placeConversationOnMatter(
       title = current.title;
     } else {
       const ownDomain = context.ownEmail.split("@")[1] ?? "";
-      const counterparty = counterpartyOf(context.fromEmail, ownDomain);
+      const counterparty = counterpartyOf(context.fromEmail, ownDomain, context.fromKnown);
       const text = [context.subject, context.summary, context.bodyText].join(" ");
       title = matterNameFrom(
         title || context.summary,

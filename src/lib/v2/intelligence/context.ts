@@ -1,6 +1,7 @@
 import type { Conversation } from "../providers/types";
 import {
   counterpartyOf,
+  isInternalSender,
   ownTokens,
   resolveMatterMatch,
 } from "./matter-key";
@@ -64,6 +65,18 @@ export type CompiledContext = {
 
 const MAX_CHARS = 1200;
 
+/** A real relationship on this mailbox: pinned, inner, or someone the user wrote to. */
+export function isKnownPerson(person: KnownPerson | undefined): boolean {
+  return Boolean(
+    person && (person.vip || person.tier === "inner" || person.tier === "known"),
+  );
+}
+
+export function knownSender(people: KnownPerson[], email: string): boolean {
+  const target = email.toLowerCase().trim();
+  return isKnownPerson(people.find((p) => p.email.toLowerCase() === target));
+}
+
 function tokens(s: string): Set<string> {
   return new Set(
     s
@@ -95,15 +108,12 @@ export function compileContext(
   }
 
   const senderEmail = conversation.messages[0]?.from.email?.toLowerCase() ?? "";
-  const senderDomain = senderEmail.split("@")[1] ?? "";
-  const senderIsInternal =
-    Boolean(input.ownDomain) && senderDomain === input.ownDomain.toLowerCase();
-
   const person = input.people.find((p) => p.email.toLowerCase() === senderEmail);
-  const senderIsKnown = Boolean(
-    person && (person.vip || person.tier === "inner" || person.tier === "known"),
-  );
+  const senderIsKnown = isKnownPerson(person);
+  const senderIsInternal = isInternalSender(senderEmail, input.ownDomain, senderIsKnown);
 
+  // The From header is the sender's own claim, so nothing derived from it is
+  // stated with [system] authority.
   if (person) {
     lines.push(
       `[observed] sender ${senderEmail} is tier=${person.tier}${person.vip ? " (VIP)" : ""}`,
@@ -111,9 +121,6 @@ export function compileContext(
     refs.push(`person:${senderEmail}`);
   } else if (senderEmail) {
     lines.push(`[observed] sender ${senderEmail} has no prior relationship on record`);
-  }
-  if (senderIsInternal) {
-    lines.push(`[system] sender is inside your organization (${input.ownDomain})`);
   }
 
   const placement = (input.placements ?? []).filter(
@@ -140,7 +147,7 @@ export function compileContext(
   const matterText = `${conversation.subject} ${conversation.messages
     .map((m) => m.bodyText ?? m.snippet)
     .join(" ")}`;
-  const counterparty = counterpartyOf(senderEmail, input.ownDomain);
+  const counterparty = counterpartyOf(senderEmail, input.ownDomain, senderIsKnown);
   const matterMatch = resolveMatterMatch(
     {
       title: conversation.subject,
