@@ -115,8 +115,9 @@ export function restoreClosureMatter(
 
 /**
  * Does a rebuilt matter match a closure? Same id, or a shared thread, or
- * fully-overlapping meaningful title words (so "Roche SOW" and "Roche
- * anti-TPO SOW" are recognized as the same closed concern).
+ * the same meaningful title words. Partial title overlap is not identity:
+ * titles come from mail content, so anyone who can mail the inbox can make
+ * a new thread's title overlap a closed one.
  */
 export function matchesClosure(
   m: { id: string; title: string; threadIds: string[] },
@@ -126,8 +127,31 @@ export function matchesClosure(
   if (m.threadIds.some((t) => closure.threadIds.includes(t))) return true;
   const a = new Set(titleTokensOf(m.title));
   const b = new Set(closure.titleTokens);
-  if (a.size === 0 || b.size === 0) return false;
-  const [small, big] = a.size <= b.size ? [a, b] : [b, a];
-  for (const w of small) if (!big.has(w)) return false;
-  return small.size >= 2 || small.size === big.size;
+  if (a.size === 0 || a.size !== b.size) return false;
+  for (const w of a) if (!b.has(w)) return false;
+  return true;
+}
+
+/** The closure a rebuilt matter belongs to, preferring one that shares a thread. */
+export function closureFor(
+  m: { id: string; title: string; threadIds: string[] },
+  closed: ClosedMatters,
+): MatterClosure | undefined {
+  const all = Object.values(closed);
+  return (
+    all.find((c) => m.threadIds.some((t) => c.threadIds.includes(t))) ??
+    all.find((c) => matchesClosure(m, c))
+  );
+}
+
+/**
+ * The threads whose new mail may reopen a closure: only those recorded on
+ * it. Newer mail on any other thread is a different conversation and must
+ * never erase the closure.
+ */
+export function closedThreadsOf(
+  threadIds: string[],
+  closure: MatterClosure,
+): string[] {
+  return threadIds.filter((t) => closure.threadIds.includes(t));
 }
