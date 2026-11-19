@@ -2,15 +2,13 @@
 
 import * as React from "react";
 import type { ReaderMessage } from "@/lib/inbox/types";
+import {
+  addToHistory,
+  shownBody,
+  startHistory,
+} from "@/lib/v3/reader/thread-shape";
 import { MailReader } from "./MailReader";
-
-function freshText(text: string): { text: string; quoted: boolean } {
-  const marker =
-    /^(?:On .+wrote:|From:\s.+|-----Original Message-----|_{5,})$/im;
-  const match = marker.exec(text);
-  if (!match?.index) return { text, quoted: false };
-  return { text: text.slice(0, match.index).trim(), quoted: true };
-}
+import { QuotedFold } from "./QuotedFold";
 
 export function LegacyThread({ reader }: { reader: ReaderMessage }) {
   const turns =
@@ -28,12 +26,27 @@ export function LegacyThread({ reader }: { reader: ReaderMessage }) {
           },
         ];
 
+  const history = startHistory(reader.subject);
+  const shown = turns.map((turn) => {
+    const body = {
+      bodyHtml: turn.htmlBody || null,
+      bodyText: turn.textBody || null,
+      snippet: "",
+    };
+    const result = shownBody(body, history);
+    addToHistory(history, body, [
+      turn.fromName,
+      turn.fromEmail,
+      reader.toEmail,
+      reader.ccEmail,
+    ]);
+    return result;
+  });
+
   return (
     <div className="legacy-thread" aria-label="Conversation">
       {turns.map((turn, index) => {
-        const fresh = freshText(turn.textBody);
-        const htmlContainsQuote =
-          /(?:gmail_quote|blockquote|Original Message)/i.test(turn.htmlBody);
+        const body = shown[index];
         return (
           <details
             key={turn.id}
@@ -46,11 +59,15 @@ export function LegacyThread({ reader }: { reader: ReaderMessage }) {
             </summary>
             <div className="legacy-thread-body">
               <MailReader
-                html={fresh.quoted || htmlContainsQuote ? null : turn.htmlBody}
-                text={fresh.text || turn.textBody}
+                html={body.quotedCount === 0 ? turn.htmlBody : null}
+                text={body.text}
               />
-              {(fresh.quoted || htmlContainsQuote) && (
-                <p className="reader-stripped">Quoted history hidden</p>
+              {body.quotedCount > 0 && (
+                <QuotedFold
+                  count={body.quotedCount}
+                  html={turn.htmlBody}
+                  text={body.fullText}
+                />
               )}
               {turn.attachments?.length ? (
                 <div className="legacy-thread-files">

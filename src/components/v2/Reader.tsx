@@ -12,6 +12,7 @@ import {
   type Turn,
 } from "@/lib/v3/reader/thread-shape";
 import { MailReader } from "@/components/mail/MailReader";
+import { QuotedFold } from "@/components/mail/QuotedFold";
 import { ConversationActions } from "./ConversationActions";
 import {
   Archive,
@@ -225,16 +226,16 @@ export function Reader({
                         </div>
                         <MailReader
                           className="reader-branch-text"
-                          html={
-                            turn.message.bodyHtml &&
-                            !/(?:gmail_quote|blockquote|Original Message)/i.test(
-                              turn.message.bodyHtml,
-                            )
-                              ? turn.message.bodyHtml
-                              : null
-                          }
+                          html={turn.quotedCount === 0 ? turn.message.bodyHtml : null}
                           text={turn.text}
                         />
+                        {turn.quotedCount > 0 && (
+                          <QuotedFold
+                            count={turn.quotedCount}
+                            html={turn.message.bodyHtml}
+                            text={turn.fullText}
+                          />
+                        )}
                       </div>
                     ))}
                   </div>
@@ -287,10 +288,11 @@ export function Reader({
                       text={lane.body}
                     />
                     {lane.quotedCount > 0 && (
-                      <p className="reader-stripped tabular">
-                        {lane.quotedCount} quoted message
-                        {lane.quotedCount > 1 ? "s" : ""} hidden
-                      </p>
+                      <QuotedFold
+                        count={lane.quotedCount}
+                        html={lane.message.bodyHtml}
+                        text={lane.fullText}
+                      />
                     )}
                   </div>
                 )}

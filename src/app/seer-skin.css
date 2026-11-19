@@ -1093,6 +1093,15 @@ body {
   margin-top: 11px;
   color: var(--nav-muted);
 }
+.reader-quoted > summary {
+  cursor: pointer;
+}
+.reader-quoted > summary:hover {
+  color: inherit;
+}
+.reader-quoted[open] > summary {
+  margin-bottom: 11px;
+}
 
 /* A branch is set apart by a spine, not a box: it is an aside on the trunk. */
 .reader-branch {
