@@ -1,5 +1,6 @@
 import type { Address, Conversation, Message } from "@/lib/v2/providers/types";
 import { htmlToText, readableBody } from "@/lib/v2/intelligence/html-text";
+import { organizationDomain } from "@/lib/v2/intelligence/matter-key";
 import { readableHtml } from "@/lib/v3/reader/email-html";
 
 /**
@@ -125,9 +126,10 @@ const domainOf = (email: string | null | undefined) =>
 /**
  * A message is internal when nobody outside the user's own company is on it.
  * That is the forward to a colleague and every reply it drew — the branch.
+ * A consumer mailbox has no company: every gmail.com address shares its domain.
  */
 export function isInternal(message: Message, ownDomain: string): boolean {
-  const own = ownDomain.toLowerCase().trim();
+  const own = organizationDomain(ownDomain);
   if (!own) return false;
   const recipients = [...message.to, ...message.cc];
   if (recipients.length === 0) return false;
@@ -186,10 +188,23 @@ export function shapeThread(
     message.isOutgoing ||
     (own.length > 0 && message.from.email?.toLowerCase().trim() === own);
 
+  // A From address is the sender's own claim. Only a message the user sent
+  // opens a branch, and only someone the user wrote to on this thread can
+  // answer inside it; anyone else at the domain stays on the trunk.
+  const addressed = new Set<string>();
   const lanes: Lane[] = [];
   for (const message of conversation.messages) {
     const who = isYou(message) ? "You" : displayName(message.from);
-    if (isInternal(message, ownDomain)) {
+    const internal =
+      isInternal(message, ownDomain) &&
+      (isYou(message) || addressed.has(message.from.email?.toLowerCase().trim() ?? ""));
+    if (isYou(message)) {
+      for (const address of [...message.to, ...message.cc]) {
+        const email = address.email?.toLowerCase().trim();
+        if (email) addressed.add(email);
+      }
+    }
+    if (internal) {
       const previous = lanes[lanes.length - 1];
       const stripped = freshBody(message);
       const turn = {
@@ -292,7 +307,20 @@ export function participants(
   ownEmail?: string | null,
 ): Participant[] {
   const own = (ownEmail ?? "").toLowerCase().trim();
-  const ownDom = ownDomain.toLowerCase().trim();
+  const ownDom = organizationDomain(ownDomain);
+  // Colleagues are the people the user wrote to, not every address that
+  // claims the domain.
+  const addressed = new Set<string>();
+  for (const message of conversation.messages) {
+    const mine =
+      message.isOutgoing ||
+      (own.length > 0 && message.from.email?.toLowerCase().trim() === own);
+    if (!mine) continue;
+    for (const address of [...message.to, ...message.cc]) {
+      const email = address.email?.toLowerCase().trim();
+      if (email) addressed.add(email);
+    }
+  }
   const seen = new Map<string, Participant>();
   const lastSeen = new Map<string, number>();
 
@@ -306,7 +334,10 @@ export function participants(
       seen.set(email, {
         name: email === own ? "You" : displayName(address),
         email,
-        org: domain === ownDom ? "internal" : domain.split(".")[0] ?? "",
+        org:
+          ownDom && domain === ownDom && (email === own || addressed.has(email))
+            ? "internal"
+            : domain.split(".")[0] ?? "",
         isYou: email === own,
         droppedOff: false,
       });

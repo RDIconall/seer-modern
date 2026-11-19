@@ -31,6 +31,7 @@ type DecisionRow = {
   latest_message_id: string | null;
   subject: string;
   from_email: string | null;
+  from_known: boolean | null;
   from_display: string | null;
   last_message_at: string | null;
   home: string;
@@ -47,8 +48,12 @@ type DecisionRow = {
 };
 
 /** Who the work is with. Shown on a row; never what groups it. */
-function counterpartyLabel(fromEmail: string | null, ownDomain: string): string {
-  const counterparty = counterpartyOf(fromEmail ?? "", ownDomain);
+function counterpartyLabel(
+  fromEmail: string | null,
+  ownDomain: string,
+  fromKnown: boolean,
+): string {
+  const counterparty = counterpartyOf(fromEmail ?? "", ownDomain, fromKnown);
   if (!counterparty) return "";
   if (counterparty === "internal") return "Internal";
   return counterparty.charAt(0).toUpperCase() + counterparty.slice(1);
@@ -85,6 +90,12 @@ export async function buildInboxView(
             (select m.from_email from seer.messages m
               where m.conversation_id = c.id
               order by m.sent_at desc nulls last limit 1) as from_email,
+            (select coalesce(p.vip or p.tier in ('inner', 'known'), false)
+               from seer.messages m
+               left join seer.people p
+                 on p.account_id = c.account_id and lower(p.email) = lower(m.from_email)
+              where m.conversation_id = c.id
+              order by m.sent_at desc nulls last limit 1) as from_known,
             -- Outlook's deep link resolves a message, not a thread, so the
             -- newest one on the conversation is what "Open in Outlook" needs.
             (select m.provider_message_id from seer.messages m
@@ -204,7 +215,7 @@ export async function buildInboxView(
     dueDate: r.due_date ? new Date(r.due_date).toISOString().slice(0, 10) : null,
     // Grouped by the part of the business, not by who it is with.
     category: r.function_name ?? UNFILED,
-    counterparty: counterpartyLabel(r.from_email, ownDomain),
+    counterparty: counterpartyLabel(r.from_email, ownDomain, r.from_known ?? false),
     weSpokeLast: r.we_spoke_last ?? false,
     nativeUrl: nativeUrlFor(provider, r.provider_conversation_id, {
       messageId: r.latest_message_id,

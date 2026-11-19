@@ -91,13 +91,47 @@ export function extractCodes(text: string): string[] {
   return [...found];
 }
 
-/** The counterparty a conversation belongs to, from the sender's domain. */
 const FREEMAIL = /^(gmail|googlemail|outlook|hotmail|live|yahoo|icloud|me|aol|proton|protonmail)\./;
 
-export function counterpartyOf(fromEmail: string, ownDomain: string): string {
+/**
+ * The mailbox's own organization domain, or "" for a consumer mailbox. Everyone
+ * on gmail.com shares the owner's domain and none of them is a colleague.
+ */
+export function organizationDomain(ownDomain: string): string {
+  const domain = ownDomain.toLowerCase().trim();
+  if (!domain || FREEMAIL.test(`${domain}.`)) return "";
+  return domain;
+}
+
+/**
+ * Inside the organization. A From domain is whatever the sender typed, so it
+ * is never proof on its own: the address must also be a person this mailbox
+ * already has a relationship with (VIP, inner, known — someone the user has
+ * written to), on the organization's domain.
+ */
+export function isInternalSender(
+  fromEmail: string,
+  ownDomain: string,
+  senderIsKnown: boolean,
+): boolean {
+  const org = organizationDomain(ownDomain);
+  const domain = (fromEmail.split("@")[1] ?? "").toLowerCase().trim();
+  return Boolean(org) && senderIsKnown && domain === org;
+}
+
+/** The counterparty a conversation belongs to, from the sender's domain. */
+export function counterpartyOf(
+  fromEmail: string,
+  ownDomain: string,
+  senderIsKnown = false,
+): string {
   const domain = (fromEmail.split("@")[1] ?? "").toLowerCase();
   if (!domain) return "";
-  if (ownDomain && domain === ownDomain.toLowerCase()) return "internal";
+  if (ownDomain && domain === ownDomain.toLowerCase()) {
+    // An unrelated address claiming the user's own domain is no counterparty
+    // at all: it must not tie into internal work.
+    return isInternalSender(fromEmail, ownDomain, senderIsKnown) ? "internal" : "";
+  }
   const bare = domain.replace(
     /^(mail|email|e|smtp|notifications?|no-?reply|info|reply|bounce|em|mailer|send|go|links?|vendor|global|list|news|newsletters?)\./,
     "",

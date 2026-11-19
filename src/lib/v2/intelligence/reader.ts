@@ -2,6 +2,7 @@ import type { AccountId, ConversationId } from "../db/types";
 import type { Conversation } from "../providers/types";
 import {
   compileContext,
+  knownSender,
   type CompiledContext,
   type ContextInput,
 } from "./context";
@@ -208,9 +209,12 @@ export async function readConversation(
       read.summary,
       input.conversation.messages[0]?.bodyText?.slice(0, 400) ?? "",
     ].join(" ");
+    const lastSender =
+      input.conversation.messages[input.conversation.messages.length - 1]?.from.email ?? "";
     const counterparty = counterpartyOf(
-      input.conversation.messages[input.conversation.messages.length - 1]?.from.email ?? "",
+      lastSender,
       input.context.ownDomain,
+      knownSender(input.context.people, lastSender),
     );
     // The user's own name and company identify nothing: they are in every
     // matter on this desk, so they neither name work nor tie it together.

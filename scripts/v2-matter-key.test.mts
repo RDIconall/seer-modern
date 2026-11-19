@@ -26,7 +26,10 @@ assert.deepEqual(extractCodes("Weekly shipping insights"), []);
 assert.equal(counterpartyOf("raiane@roche.com", "rditrials.com"), "roche");
 assert.equal(counterpartyOf("global.mybuy@roche.com", "rditrials.com"), "roche");
 assert.equal(counterpartyOf("vendor.portal@roche.com", "rditrials.com"), "roche");
-assert.equal(counterpartyOf("claire@rditrials.com", "rditrials.com"), "internal");
+assert.equal(counterpartyOf("claire@rditrials.com", "rditrials.com", true), "internal");
+// The From domain alone is the sender's claim, not a colleague.
+assert.equal(counterpartyOf("claire@rditrials.com", "rditrials.com"), "");
+assert.equal(counterpartyOf("friend@gmail.com", "gmail.com", true), "");
 assert.equal(counterpartyOf("someone@gmail.com", "rditrials.com"), "");
 
 const roche = (title: string, codes: string[] = []): MatterCandidate => ({
