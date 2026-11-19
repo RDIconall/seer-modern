@@ -11,6 +11,7 @@ import {
   quoteHeaderLines,
   quotedThreadHtml,
 } from "../src/lib/v3/compose/quoted-thread.ts";
+import { sanitizeQuotedHtml } from "../src/lib/v3/compose/quoted-body.ts";
 import { gmailForwardHtml } from "../src/lib/v2/providers/forward-html.ts";
 import type { Conversation, Message } from "../src/lib/v2/providers/types.ts";
 
@@ -100,7 +101,7 @@ function message(partial: Partial<Message> & Pick<Message, "providerMessageId" |
     messages: [snippetOnly, older, newer],
   };
 
-  const html = quotedThreadHtml(conversation);
+  const html = quotedThreadHtml(conversation, sanitizeQuotedHtml);
   const newerIdx = html.indexOf("<p>newer html</p>");
   const olderIdx = html.indexOf("older text body");
   const snippetIdx = html.indexOf("only snippet");

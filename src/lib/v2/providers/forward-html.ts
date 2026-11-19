@@ -1,3 +1,4 @@
+import { sanitizeQuotedHtml } from "@/lib/v3/compose/quoted-body";
 import { hasAttachments, quotedThreadHtml } from "@/lib/v3/compose/quoted-thread";
 import type { Conversation } from "./types";
 
@@ -13,5 +14,5 @@ export function gmailForwardHtml(conversation: Conversation, userBodyHtml: strin
     ? `<p><em>Attachments from the original thread are not included in this forward.</em></p>`
     : "";
 
-  return `${userBodyHtml}${attachmentNote}${quotedThreadHtml(conversation)}`;
+  return `${userBodyHtml}${attachmentNote}${quotedThreadHtml(conversation, sanitizeQuotedHtml)}`;
 }
