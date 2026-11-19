@@ -6,12 +6,14 @@ export type StoredDraft = {
   savedAt: string;
 };
 
+export const DRAFT_STORAGE_KEY_PREFIX = "seer:draft";
+
 export function draftStorageKey(
   accountId: string | undefined,
   mode: string,
   conversationId?: string,
 ): string {
-  return ["seer:draft", accountId || "active", mode, conversationId]
+  return [DRAFT_STORAGE_KEY_PREFIX, accountId || "active", mode, conversationId]
     .filter((part): part is string => Boolean(part))
     .map((part, index) => (index < 3 ? part : encodeURIComponent(part)))
     .join(":");

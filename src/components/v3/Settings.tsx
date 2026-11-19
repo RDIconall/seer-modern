@@ -94,6 +94,7 @@ export function Settings({ mobile = false }: { mobile?: boolean }) {
         throw new Error(json?.error ?? describeHttpFailure(response.status));
       }
       if (action === "remove" && json?.requiresSignOut) {
+        clearMailboxCaches();
         await logout();
         return;
       }

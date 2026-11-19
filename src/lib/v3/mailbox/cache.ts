@@ -1,3 +1,4 @@
+import { DRAFT_STORAGE_KEY_PREFIX } from "../compose/draft";
 import type { MailboxFolder, MailboxSort, MailboxView } from "./types";
 
 /**
@@ -54,12 +55,26 @@ export function unwrapMailboxCache(
 /** Login cannot import the mailbox hook just to drop last week's rows. */
 export const MAILBOX_CACHE_KEY_PREFIX = "seer.v3.mailbox.";
 
+/** Folder snapshots written by the legacy inbox hook. */
+export const LEGACY_VIEW_CACHE_KEY_PREFIX = "seer:v3:";
+
+/**
+ * Everything a mailbox session leaves in localStorage: folder caches and
+ * unsent drafts (recipients, subject, body). Sign-out, sign-in, and account
+ * switches must drop all of it, or the next person at the browser reads it.
+ */
+const SESSION_STORAGE_KEY_PREFIXES = [
+  MAILBOX_CACHE_KEY_PREFIX,
+  LEGACY_VIEW_CACHE_KEY_PREFIX,
+  DRAFT_STORAGE_KEY_PREFIX,
+];
+
 export function clearPersistedMailboxCaches(): void {
   if (typeof window === "undefined") return;
   try {
     for (let i = window.localStorage.length - 1; i >= 0; i--) {
       const key = window.localStorage.key(i);
-      if (key?.startsWith(MAILBOX_CACHE_KEY_PREFIX)) {
+      if (key && SESSION_STORAGE_KEY_PREFIXES.some((prefix) => key.startsWith(prefix))) {
         window.localStorage.removeItem(key);
       }
     }

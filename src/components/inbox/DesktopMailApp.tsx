@@ -23,6 +23,7 @@ import {
 import { useEffect, useMemo, useState, type ReactNode } from "react";
 import { useSearchParams } from "next/navigation";
 import { logout } from "@/app/actions";
+import { clearPersistedMailboxCaches } from "@/lib/v3/mailbox/cache";
 import { CardStack } from "@/components/inbox/CardStack";
 import { ComposePanel } from "@/components/inbox/ComposePanel";
 import { DelegateSheet } from "@/components/inbox/DelegateSheet";
@@ -336,7 +337,11 @@ export function DesktopMailApp() {
               Manage accounts
             </div>
           </button>
-          <form action={logout} className="mt-2">
+          <form
+            action={logout}
+            onSubmit={() => clearPersistedMailboxCaches()}
+            className="mt-2"
+          >
             <button
               type="submit"
               className="flex w-full items-center gap-2 rounded-md px-2 py-1.5 text-[14px] text-[var(--muted)] hover:bg-[var(--row-hover)] hover:text-[var(--fg)]"

@@ -33,6 +33,7 @@ import {
 } from "react";
 import { useSearchParams } from "next/navigation";
 import { logoutMobile } from "@/app/actions";
+import { clearPersistedMailboxCaches } from "@/lib/v3/mailbox/cache";
 import { CardStack } from "@/components/inbox/CardStack";
 import { ComposePanel } from "@/components/inbox/ComposePanel";
 import { DelegateSheet } from "@/components/inbox/DelegateSheet";
@@ -538,6 +539,7 @@ export function MobileMailApp() {
             </div>
             <form
               action={logoutMobile}
+              onSubmit={() => clearPersistedMailboxCaches()}
               className="border-t border-[var(--border)] px-2 py-2 bottom-nav"
             >
               <button
