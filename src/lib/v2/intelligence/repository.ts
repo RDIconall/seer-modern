@@ -201,15 +201,16 @@ export async function ensureMatter(
           userAuthored: r.title_source === "user",
         })),
       );
-      if (match) {
-        await recordCodes(client, match.matterId, extractCodes(tie.text));
-        return match.matterId;
-      }
+      // Joining an open matter never teaches it new codes: mail text is
+      // untrusted, and every code it carries would become a key that pulls
+      // later, unrelated mail onto that matter.
+      if (match) return match.matterId;
       const created = await client.query<{ id: string }>(
         "insert into seer.matters (account_id, title, org_unit) values ($1, $2, $3) returning id",
         [accountId, clean, tie.counterparty || null],
       );
-      await recordCodes(client, created.rows[0].id, extractCodes(tie.text));
+      const primary = extractCodes(tie.text)[0];
+      if (primary) await recordCodes(client, created.rows[0].id, [primary]);
       return created.rows[0].id;
     }
 
