@@ -48,8 +48,45 @@ import {
 const STUDY_CODE =
   /\b(RCD[_-]?\d{3,5}|LMD[_-]?\d{3,5}|RD\d{6,7}|TGRP\d{1,3}|RFQ[ #-]?\d{4,6})\b/i;
 import { profilePromptBlock, type UserProfile } from "@/lib/store/user-profile";
+import type { AccountId } from "@/lib/v2/db/types";
+import {
+  budgetAccountForMailbox,
+  reserveModelCall,
+  settleModelCall,
+} from "@/lib/v2/intelligence/model-usage";
 import { generateText, Output, type LanguageModel } from "ai";
 import { z } from "zod";
+
+/** No model call may be charged to this mailbox; no further brief calls run. */
+class BriefBudgetSpent extends Error {
+  constructor(
+    message = "Today's AI budget for this mailbox is used up — grouping resumes tomorrow.",
+  ) {
+    super(message);
+  }
+}
+
+type MeteredResult = {
+  usage?: {
+    inputTokens?: number;
+    outputTokens?: number;
+    totalTokens?: number;
+  };
+  providerMetadata?: Record<string, unknown>;
+};
+
+function modelName(model: LanguageModel | string): string {
+  if (typeof model === "string") return model;
+  const id = (model as { modelId?: unknown }).modelId;
+  return typeof id === "string" ? id : "unknown";
+}
+
+function gatewayCost(metadata: Record<string, unknown> | undefined) {
+  const gateway = metadata?.gateway as Record<string, unknown> | undefined;
+  const raw = gateway?.cost;
+  const cost = typeof raw === "string" ? Number(raw) : raw;
+  return typeof cost === "number" && Number.isFinite(cost) ? cost : undefined;
+}
 
 /** A model error, reduced to a short human sentence for the UI. */
 function cleanModelError(msg: string): string {
@@ -1002,6 +1039,8 @@ export async function buildBrief(
    * read said. It stays visible in Triage's review bucket instead.
    */
   knownSenders: Set<string> = new Set(),
+  /** The mail account the model calls are charged to; looked up by address when absent. */
+  options: { accountId?: AccountId } = {},
 ): Promise<Brief> {
   const prev = await loadBrief(accountEmail);
   const isKnown = (i: EmailItem) =>
@@ -1259,21 +1298,74 @@ export async function buildBrief(
   let clusterFailures = 0;
   let clusterError: string | undefined;
   const fallback = getFallbackModel();
-  const callModel = (m: LanguageModel | string, batch: EmailItem[]) =>
-    generateText({
-      model: m,
-      temperature: 0,
-      maxRetries: 1,
-      abortSignal: AbortSignal.timeout(150_000),
-      output: Output.object({ schema: matterSchema }),
-      system: profileBlock ? `${SYSTEM}\n\n${profileBlock}` : SYSTEM,
-      prompt: JSON.stringify(payloadFor(batch)),
+
+  // Every call is charged to the mailbox BEFORE it is made, on the shared
+  // deployment key's daily ceilings. Once a reservation is refused (or there
+  // is no account to charge) the rest of this rebuild makes no calls.
+  const budgetAccount =
+    options.accountId ??
+    (await budgetAccountForMailbox(accountEmail).catch(() => null));
+  let budgetSpent = false;
+  const metered = async <R extends MeteredResult>(
+    m: LanguageModel | string,
+    reason: string,
+    call: () => Promise<R>,
+  ): Promise<R> => {
+    if (!budgetAccount) {
+      throw new BriefBudgetSpent("AI grouping needs a connected mail account.");
+    }
+    if (budgetSpent) throw new BriefBudgetSpent();
+    const usageId = await reserveModelCall({
+      accountId: budgetAccount,
+      tier: "fast",
+      model: modelName(m),
+      escalationReasons: [reason],
+    }).catch((error) => {
+      console.error(
+        "[seer] brief budget reservation failed:",
+        error instanceof Error ? error.message : error,
+      );
+      return null;
     });
+    if (!usageId) {
+      budgetSpent = true;
+      throw new BriefBudgetSpent();
+    }
+    const started = Date.now();
+    const result = await call();
+    await settleModelCall(usageId, {
+      latencyMs: Date.now() - started,
+      inputTokens: result.usage?.inputTokens,
+      outputTokens: result.usage?.outputTokens,
+      totalTokens: result.usage?.totalTokens,
+      costUsd: gatewayCost(result.providerMetadata),
+      providerMetadata: result.providerMetadata,
+    }).catch(() => {});
+    return result;
+  };
+
+  const callModel = (m: LanguageModel | string, batch: EmailItem[]) =>
+    metered(m, "brief_matters", () =>
+      generateText({
+        model: m,
+        temperature: 0,
+        maxRetries: 1,
+        abortSignal: AbortSignal.timeout(150_000),
+        output: Output.object({ schema: matterSchema }),
+        system: profileBlock ? `${SYSTEM}\n\n${profileBlock}` : SYSTEM,
+        prompt: JSON.stringify(payloadFor(batch)),
+      }),
+    );
   const runChunk = async (batch: EmailItem[], n: number) => {
     try {
       const r = await callModel(model, batch);
       return r.output;
     } catch (error) {
+      if (error instanceof BriefBudgetSpent) {
+        clusterFailures += 1;
+        clusterError ??= error.message;
+        return { summary: "", matters: [] };
+      }
       const msg = error instanceof Error ? error.message : String(error);
       // The direct key is out of quota or credits — try the gateway's
       // separate billing pool before giving up on this chunk.
@@ -1284,7 +1376,8 @@ export async function buildBrief(
         } catch (e2) {
           const m2 = e2 instanceof Error ? e2.message : String(e2);
           clusterFailures += 1;
-          clusterError ??= cleanModelError(m2);
+          clusterError ??=
+            e2 instanceof BriefBudgetSpent ? m2 : cleanModelError(m2);
           console.error(
             `[seer] matter chunk ${n + 1}/${chunks.length} failed (direct+gateway):`,
             m2,
@@ -1334,26 +1427,28 @@ export async function buildBrief(
     digestChunks.push(digestItems.slice(i, i + DIGEST_CHUNK));
   }
   const callDigest = (m: LanguageModel | string, batch: EmailItem[]) =>
-    generateText({
-      model: m,
-      temperature: 0,
-      maxRetries: 1,
-      abortSignal: AbortSignal.timeout(90_000),
-      output: Output.object({ schema: digestSchema }),
-      system: DIGEST_SYSTEM,
-      prompt: JSON.stringify(
-        batch.map((i) => ({
-          id: i.id,
-          from: stripEmoji(i.fromName || i.fromEmail),
-          subject: stripEmoji(i.subject),
-          gist: stripEmoji(
-            understanding[i.id]?.oneLine ||
-              i.guide?.task ||
-              i.snippet.slice(0, 120),
-          ),
-        })),
-      ),
-    });
+    metered(m, "brief_digest", () =>
+      generateText({
+        model: m,
+        temperature: 0,
+        maxRetries: 1,
+        abortSignal: AbortSignal.timeout(90_000),
+        output: Output.object({ schema: digestSchema }),
+        system: DIGEST_SYSTEM,
+        prompt: JSON.stringify(
+          batch.map((i) => ({
+            id: i.id,
+            from: stripEmoji(i.fromName || i.fromEmail),
+            subject: stripEmoji(i.subject),
+            gist: stripEmoji(
+              understanding[i.id]?.oneLine ||
+                i.guide?.task ||
+                i.snippet.slice(0, 120),
+            ),
+          })),
+        ),
+      }),
+    );
   /**
    * A failed chunk still has to name its mail. Grouping by sender beats
    * "Inbox updates": the user can see it is 40 Slack notifications and
@@ -1378,6 +1473,9 @@ export async function buildBrief(
     try {
       return (await callDigest(model, batch)).output;
     } catch (error) {
+      if (error instanceof BriefBudgetSpent) {
+        return { summary: "", themes: themesBySender(batch) };
+      }
       const msg = error instanceof Error ? error.message : String(error);
       if (fallback && isModelBudgetError(msg)) {
         try {
