@@ -40,6 +40,11 @@ export type SyncFolderOptions = {
   headOnly?: boolean;
   /** Passed through to the provider for this call only. */
   pageSize?: number;
+  /**
+   * Runs before each page of a multi-page walk. The sync lease holder uses it
+   * to answer login head-poll requests without waiting out the walk.
+   */
+  beforePage?: () => Promise<unknown>;
 };
 
 /** Safety margin for provider latency and per-page persistence before deadline. */
@@ -146,6 +151,10 @@ export async function syncFolder(
   for (;;) {
     if (effectiveMaxPages !== undefined && pages >= effectiveMaxPages) break;
     if (isPastSyncDeadline(deadlineMs)) break;
+    if (!headPoll && options.beforePage) {
+      await options.beforePage();
+      if (isPastSyncDeadline(deadlineMs)) break;
+    }
 
     let page: SyncPage;
     try {

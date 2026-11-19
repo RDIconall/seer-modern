@@ -1,7 +1,13 @@
+import {
+  acquireWorkerLeases,
+  releaseWorkerLeases,
+  type WorkerKind,
+} from "@/lib/v2/cron/lease";
 import { db } from "@/lib/v2/db/pool";
 import { asAccountId, asUserId, type AccountId } from "@/lib/v2/db/types";
 import type { MailAccount } from "@/lib/v2/db/accounts";
 import { providerFor } from "@/lib/v2/providers/provider";
+import { serveInboxHeadPollRequest } from "@/lib/v2/sync/catch-up";
 import { syncFolder } from "@/lib/v2/sync/engine";
 import { readBatch } from "@/lib/v2/intelligence/read-batch";
 import { defaultReaderModel } from "@/lib/v2/intelligence/model";
@@ -22,7 +28,10 @@ export type WakeReport = {
   read?: unknown;
   filing?: unknown;
   error?: string;
+  skipped?: "lease";
 };
+
+const WAKE_LEASE_KINDS: readonly WorkerKind[] = ["sync", "read"];
 
 export async function getAccountById(
   accountId: AccountId,
@@ -85,6 +94,13 @@ export async function wakeAccount(accountId: AccountId): Promise<WakeReport> {
     };
   }
 
+  // A wake is both a sync and a read; it runs only when neither cron pipe is
+  // working this mailbox, and holds both pipes until it finishes.
+  const leases = await acquireWorkerLeases(account.id, WAKE_LEASE_KINDS);
+  if (!leases) {
+    return { accountId, email: account.email, skipped: "lease" };
+  }
+
   try {
     const provider = await providerFor(account);
     const outbox = await drainOutbox(account.id, provider);
@@ -93,6 +109,7 @@ export async function wakeAccount(accountId: AccountId): Promise<WakeReport> {
       maxPages: 1,
       deadlineMs,
     });
+    await serveInboxHeadPollRequest(account, provider, deadlineMs);
     const read = await readBatch(
       account.id,
       account.email,
@@ -126,5 +143,7 @@ export async function wakeAccount(accountId: AccountId): Promise<WakeReport> {
       email: account.email,
       error: e instanceof Error ? e.message.slice(0, 200) : "wake failed",
     };
+  } finally {
+    await releaseWorkerLeases(leases);
   }
 }

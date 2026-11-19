@@ -3,15 +3,17 @@ import { cronUnauthorized } from "@/lib/v2/cron/auth";
 import { kickNextHop, shouldContinueRead } from "@/lib/v2/cron/continue";
 import { fanOutPerAccount } from "@/lib/v2/cron/fan-out";
 import {
-  claimWorkerLease,
-  releaseWorkerLease,
+  acquireWorkerLease,
+  releaseAcquiredLease,
 } from "@/lib/v2/cron/lease";
+import type { MailAccount } from "@/lib/v2/db/accounts";
 import { listAccountsForRead } from "@/lib/v2/db/list-accounts";
 import { asAccountId, isUuid } from "@/lib/v2/db/types";
 import { defaultReaderModel } from "@/lib/v2/intelligence/model";
 import {
   READ_TICK_MS,
   runReadAccount,
+  type ReadTickReport,
 } from "@/lib/v2/intelligence/read-tick";
 import { getAccountById } from "@/lib/v2/sync/wake-account";
 
@@ -38,32 +40,17 @@ export async function GET(request: Request) {
     if (!account) {
       return NextResponse.json({ error: "account not found" }, { status: 404 });
     }
-    const held = await claimWorkerLease(account.id, "read");
-    if (!held) {
-      return NextResponse.json({
-        ok: true,
-        continued: false,
-        report: [{ email: account.email, skipped: "lease" }],
-      });
+    const report = await readLeasedAccount(account, deadlineMs);
+    const continued = shouldContinueRead(report);
+    if (continued) {
+      const auth = request.headers.get("authorization");
+      after(() => kickNextHop(request.url, auth));
     }
-    try {
-      const report = await runReadAccount(account, {
-        deadlineMs,
-        model: defaultReaderModel,
-      });
-      const continued = shouldContinueRead(report);
-      if (continued) {
-        const auth = request.headers.get("authorization");
-        after(() => kickNextHop(request.url, auth));
-      }
-      return NextResponse.json({
-        ok: !report.error,
-        continued,
-        report: [report],
-      });
-    } finally {
-      await releaseWorkerLease(account.id, "read");
-    }
+    return NextResponse.json({
+      ok: !report.error,
+      continued,
+      report: [report],
+    });
   }
 
   const accounts = await listAccountsForRead();
@@ -74,12 +61,7 @@ export async function GET(request: Request) {
     runLocal: async (accountId) => {
       const account = accounts.find((item) => item.id === accountId);
       if (!account) throw new Error("account not found");
-      return [
-        await runReadAccount(account, {
-          deadlineMs: Date.now() + READ_TICK_MS,
-          model: defaultReaderModel,
-        }),
-      ];
+      return [await readLeasedAccount(account, Date.now() + READ_TICK_MS)];
     },
   });
 
@@ -88,4 +70,20 @@ export async function GET(request: Request) {
     pipes: pipes.length,
     report: pipes,
   });
+}
+
+async function readLeasedAccount(
+  account: MailAccount,
+  deadlineMs: number,
+): Promise<ReadTickReport> {
+  const lease = await acquireWorkerLease(account.id, "read");
+  if (!lease) return { email: account.email, skipped: "lease" };
+  try {
+    return await runReadAccount(account, {
+      deadlineMs,
+      model: defaultReaderModel,
+    });
+  } finally {
+    await releaseAcquiredLease(lease);
+  }
 }

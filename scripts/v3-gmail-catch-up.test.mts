@@ -128,10 +128,10 @@ try {
   );
   assert.match(catchUpSource, /headOnly:\s*true/);
   assert.match(catchUpSource, /GMAIL_CATCH_UP_PAGE_SIZE|pageSize: 1[0-9]/);
-  assert.doesNotMatch(
+  assert.match(
     catchUpSource,
-    /claimWorkerLease/,
-    "a stuck Gmail cron lease must not block the login head poll",
+    /requestInboxHeadPoll/,
+    "a held sync lease must hand the login head poll to its holder, not drop it",
   );
   assert.match(catchUpSource, /inboxNeedsCatchUp|!.*backfillComplete/);
 } finally {
