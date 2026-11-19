@@ -99,8 +99,8 @@ export async function loadConnection(
   const stored = await kvGet<PersistedConnection>(connKey(accountEmail));
   if (!stored) return null;
   const refreshToken = open(stored.refreshToken, scope(accountEmail));
-  // Without a refresh token the connection cannot sync; treat it as absent so
-  // the caller falls back to the environment flows rather than half-working.
+  // Without a refresh token the connection cannot sync; treat it as absent
+  // rather than half-working.
   if (!refreshToken) return null;
   return { ...stored, refreshToken };
 }
@@ -139,6 +139,25 @@ export async function clearConnection(accountEmail: string): Promise<void> {
 }
 
 /**
+ * Mailboxes allowed to sync as the deploy's integration user. That user
+ * sees the whole org's pipeline, so it is never a default: without an
+ * explicit entry here a mailbox can only read Salesforce through a
+ * connection it authorized itself.
+ */
+function integrationMailboxes(): Set<string> {
+  const raw =
+    process.env.SALESFORCE_INTEGRATION_MAILBOXES ??
+    process.env.SF_INTEGRATION_MAILBOXES ??
+    "";
+  return new Set(
+    raw
+      .split(/[,\s]+/)
+      .map(accountKey)
+      .filter(Boolean),
+  );
+}
+
+/**
  * Credentials for a sync. A user's own connection wins over anything in
  * the environment: they authorized it, they can revoke it, and it
  * carries their permissions rather than an integration user's.
@@ -161,7 +180,8 @@ export async function resolveCreds(accountEmail: string): Promise<{
     };
   }
 
-  // No connection: fall back to the unattended env flows
+  // No connection: the unattended env flows, for allowlisted mailboxes only
+  if (!integrationMailboxes().has(accountKey(accountEmail))) return null;
   const clientId =
     process.env.SALESFORCE_CLIENT_ID ?? process.env.SF_CLIENT_ID;
   if (!clientId) return null;
