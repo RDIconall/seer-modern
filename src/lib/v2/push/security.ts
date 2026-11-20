@@ -28,6 +28,24 @@ export function graphClientStateHash(accountId: AccountId): string {
   return createHash("sha256").update(graphClientState(accountId)).digest("hex");
 }
 
+const GRAPH_CLIENT_STATE_SHAPE = /^[0-9a-f]{64}$/i;
+const GRAPH_SUBSCRIPTION_ID_SHAPE = /^[A-Za-z0-9-]{1,128}$/;
+
+/**
+ * Cheap shape check run before any database work: graphClientState is always
+ * 64 hex characters, so anything else can never match and must not cost a
+ * subscription lookup.
+ */
+export function isPlausibleGraphClientState(value: unknown): value is string {
+  return typeof value === "string" && GRAPH_CLIENT_STATE_SHAPE.test(value);
+}
+
+export function isPlausibleGraphSubscriptionId(
+  value: unknown,
+): value is string {
+  return typeof value === "string" && GRAPH_SUBSCRIPTION_ID_SHAPE.test(value);
+}
+
 export function clientStateMatches(
   accountId: AccountId,
   provided: string | null | undefined,
