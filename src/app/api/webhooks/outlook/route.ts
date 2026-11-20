@@ -4,10 +4,21 @@ import {
   claimWake,
   getPushByGraphSubscriptionId,
 } from "@/lib/v2/push/repository";
-import { clientStateMatches } from "@/lib/v2/push/security";
+import {
+  clientStateMatches,
+  isPlausibleGraphClientState,
+  isPlausibleGraphSubscriptionId,
+} from "@/lib/v2/push/security";
 import { wakeAccount } from "@/lib/v2/sync/wake-account";
 
 export const maxDuration = 30;
+
+/**
+ * The endpoint is anonymous, so every entry is attacker-sized work against the
+ * shared pool. Entries past this prefix are acknowledged but ignored; missed
+ * mail is recovered by reconciliation and wakes are deduped per account.
+ */
+const MAX_NOTIFICATIONS_PER_REQUEST = 16;
 
 type GraphNotification = {
   subscriptionId?: string;
@@ -30,15 +41,24 @@ export async function POST(request: Request) {
   }
 
   const body = (await request.json().catch(() => null)) as {
-    value?: GraphNotification[];
+    value?: unknown;
   } | null;
-  const notifications = body?.value ?? [];
+  const raw = body?.value;
+  const notifications: unknown[] = Array.isArray(raw)
+    ? raw.slice(0, MAX_NOTIFICATIONS_PER_REQUEST)
+    : [];
   const toWake = new Set<string>();
+  const seen = new Set<string>();
   let deferred = 0;
   let firstError: unknown;
 
-  for (const note of notifications) {
-    if (!note.subscriptionId) continue;
+  for (const entry of notifications) {
+    if (!entry || typeof entry !== "object") continue;
+    const note = entry as GraphNotification;
+    if (!isPlausibleGraphSubscriptionId(note.subscriptionId)) continue;
+    if (!isPlausibleGraphClientState(note.clientState)) continue;
+    if (seen.has(note.subscriptionId)) continue;
+    seen.add(note.subscriptionId);
     try {
       const push = await getPushByGraphSubscriptionId(note.subscriptionId);
       if (!push) continue;
