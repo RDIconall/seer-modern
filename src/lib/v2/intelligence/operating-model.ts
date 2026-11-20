@@ -4,6 +4,7 @@ import { db } from "../db/pool";
 import type { AccountId } from "../db/types";
 import type { MailProvider, SyncFolder } from "../providers/types";
 import { loadSalesforce } from "@/lib/store/salesforce";
+import { readableBody } from "./html-text";
 import { recordModelUsage } from "./model-usage";
 import {
   MAX_FUNCTIONS,
@@ -277,7 +278,7 @@ export async function sampleCorpus(
           "saved",
           c.subject,
           last?.from.email ?? "",
-          last?.snippet || last?.bodyText || "",
+          last?.snippet || (last ? readableBody(last) : ""),
         );
       }
     } catch {
@@ -321,7 +322,7 @@ async function sampleProviderFolder(
         folder,
         c.subject,
         last?.from.email ?? "",
-        last?.snippet || last?.bodyText || "",
+        last?.snippet || (last ? readableBody(last) : ""),
       );
     }
   } catch {

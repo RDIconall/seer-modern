@@ -7,6 +7,7 @@ import {
 } from "@/lib/mail/graph";
 import { requireMailSession } from "@/lib/mail/session";
 import { recordRepliedThread } from "@/lib/store/replied-threads";
+import { htmlToText } from "@/lib/v2/intelligence/html-text";
 import { NextResponse } from "next/server";
 
 type Mode = "compose" | "reply" | "replyAll" | "forward";
@@ -133,8 +134,7 @@ export async function POST(request: Request) {
       );
 
       const originalText = (
-        original.textBody ||
-        original.htmlBody.replace(/<[^>]+>/g, " ").replace(/\s+/g, " ") ||
+        (original.htmlBody ? htmlToText(original.htmlBody) : original.textBody) ||
         original.snippet
       ).slice(0, 20_000);
 
@@ -257,7 +257,7 @@ export async function POST(request: Request) {
         session.accessToken,
         body.replyToId,
       );
-      const forwarded = `---------- Forwarded message ----------\nFrom: ${original.fromName} <${original.fromEmail}>\nSubject: ${original.subject}\n\n${original.textBody || original.snippet}`;
+      const forwarded = `---------- Forwarded message ----------\nFrom: ${original.fromName} <${original.fromEmail}>\nSubject: ${original.subject}\n\n${(original.htmlBody ? htmlToText(original.htmlBody) : original.textBody) || original.snippet}`;
       const quoted = `${text ? `${text}\n\n` : ""}${forwarded}`;
       await sendGraphMessage(session.accessToken, {
         to: toList,

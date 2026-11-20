@@ -1,4 +1,5 @@
 import type { Conversation } from "../providers/types";
+import { readableBody } from "./html-text";
 import {
   counterpartyOf,
   ownTokens,
@@ -138,7 +139,7 @@ export function compileContext(
   // shared study/event code is proof; otherwise counterparty AND meaningful
   // request words must overlap.
   const matterText = `${conversation.subject} ${conversation.messages
-    .map((m) => m.bodyText ?? m.snippet)
+    .map((m) => readableBody(m))
     .join(" ")}`;
   const counterparty = counterpartyOf(senderEmail, input.ownDomain);
   const matterMatch = resolveMatterMatch(

@@ -6,6 +6,7 @@ import {
 } from "@/lib/mail/graph";
 import { requireMailSession } from "@/lib/mail/session";
 import { loadEa } from "@/lib/store/ea";
+import { htmlToText } from "@/lib/v2/intelligence/html-text";
 import { NextResponse } from "next/server";
 
 export const maxDuration = 30;
@@ -66,9 +67,10 @@ export async function POST(request: Request) {
       fromEmail: string;
       subject: string;
       textBody?: string;
+      htmlBody?: string;
       snippet?: string;
     }) =>
-      `${note}\n\n---------- Forwarded message ----------\nFrom: ${o.fromName} <${o.fromEmail}>\nSubject: ${o.subject}\n\n${o.textBody || o.snippet}`;
+      `${note}\n\n---------- Forwarded message ----------\nFrom: ${o.fromName} <${o.fromEmail}>\nSubject: ${o.subject}\n\n${(o.htmlBody ? htmlToText(o.htmlBody) : o.textBody) || o.snippet}`;
 
     if (session.provider === "google") {
       const original = await getGmailMessage(session.accessToken, body.id);

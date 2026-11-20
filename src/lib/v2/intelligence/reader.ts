@@ -23,6 +23,7 @@ import {
   type SafetyFacts,
 } from "./safety";
 import { isHumanCorrespondence } from "./human-correspondence";
+import { readableBody } from "./html-text";
 import {
   CONTEXT_VERSION,
   MODEL_VERSION,
@@ -206,7 +207,10 @@ export async function readConversation(
       input.conversation.subject,
       read.matterRef ?? "",
       read.summary,
-      input.conversation.messages[0]?.bodyText?.slice(0, 400) ?? "",
+      (input.conversation.messages[0]
+        ? readableBody(input.conversation.messages[0])
+        : ""
+      ).slice(0, 400),
     ].join(" ");
     const counterparty = counterpartyOf(
       input.conversation.messages[input.conversation.messages.length - 1]?.from.email ?? "",

@@ -46,11 +46,26 @@ import {
 // HTML comments (often huge in marketing mail) are dropped.
 assert.equal(htmlToText("<!-- hidden preheader --><p>Hello</p>"), "Hello");
 
-// readableBody prefers real text, falls back to HTML, then the snippet.
+// readableBody reads the HTML the pane shows, then the text part when there is
+// no HTML, then the snippet.
 {
   assert.equal(
-    readableBody({ bodyText: "plain wins", bodyHtml: "<p>html</p>", snippet: "snip" }),
-    "plain wins",
+    readableBody({ bodyText: "unseen plain", bodyHtml: "<p>html</p>", snippet: "snip" }),
+    "html",
+  );
+  assert.equal(
+    readableBody({ bodyText: "plain only", bodyHtml: null, snippet: "snip" }),
+    "plain only",
+  );
+  // HTML with nothing to read never hands the grade to a text part the pane
+  // does not show.
+  assert.equal(
+    readableBody({
+      bodyText: "unseen plain",
+      bodyHtml: "<style>.a{color:red}</style>",
+      snippet: "snip",
+    }),
+    "snip",
   );
   assert.equal(
     readableBody({ bodyText: null, bodyHtml: "<p>from html</p>", snippet: "snip" }),
@@ -67,9 +82,10 @@ assert.equal(htmlToText("<!-- hidden preheader --><p>Hello</p>"), "Hello");
 // storedBodyText persists derived text so later reads can skip body_html.
 {
   assert.equal(
-    storedBodyText({ bodyText: "plain wins", bodyHtml: "<p>html</p>" }),
-    "plain wins",
+    storedBodyText({ bodyText: "unseen plain", bodyHtml: "<p>html</p>" }),
+    "html",
   );
+  assert.equal(storedBodyText({ bodyText: "plain only", bodyHtml: null }), "plain only");
   assert.equal(
     storedBodyText({ bodyText: null, bodyHtml: "<p>from html</p>" }),
     "from html",

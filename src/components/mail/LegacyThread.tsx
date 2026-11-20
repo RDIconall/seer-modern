@@ -2,6 +2,7 @@
 
 import * as React from "react";
 import type { ReaderMessage } from "@/lib/inbox/types";
+import { visibleBodyText } from "@/lib/v2/intelligence/html-text";
 import { MailReader } from "./MailReader";
 
 function freshText(text: string): { text: string; quoted: boolean } {
@@ -31,7 +32,8 @@ export function LegacyThread({ reader }: { reader: ReaderMessage }) {
   return (
     <div className="legacy-thread" aria-label="Conversation">
       {turns.map((turn, index) => {
-        const fresh = freshText(turn.textBody);
+        const body = visibleBodyText(turn.htmlBody, turn.textBody) ?? "";
+        const fresh = freshText(body);
         const htmlContainsQuote =
           /(?:gmail_quote|blockquote|Original Message)/i.test(turn.htmlBody);
         return (
@@ -47,7 +49,7 @@ export function LegacyThread({ reader }: { reader: ReaderMessage }) {
             <div className="legacy-thread-body">
               <MailReader
                 html={fresh.quoted || htmlContainsQuote ? null : turn.htmlBody}
-                text={fresh.text || turn.textBody}
+                text={fresh.text || body}
               />
               {(fresh.quoted || htmlContainsQuote) && (
                 <p className="reader-stripped">Quoted history hidden</p>
