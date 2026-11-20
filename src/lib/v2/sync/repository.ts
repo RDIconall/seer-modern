@@ -148,7 +148,8 @@ async function upsertMessageBodies(
                from_name = excluded.from_name,
                to_emails = excluded.to_emails,
                cc_emails = excluded.cc_emails,
-               snippet = excluded.snippet
+               snippet = excluded.snippet,
+               is_outgoing = excluded.is_outgoing
          where seer.messages.body_html is distinct from excluded.body_html
             or seer.messages.body_text is distinct from excluded.body_text
             or seer.messages.is_unread is distinct from excluded.is_unread
@@ -158,6 +159,7 @@ async function upsertMessageBodies(
             or seer.messages.to_emails is distinct from excluded.to_emails
             or seer.messages.cc_emails is distinct from excluded.cc_emails
             or seer.messages.snippet is distinct from excluded.snippet
+            or seer.messages.is_outgoing is distinct from excluded.is_outgoing
          returning provider_message_id`,
       [
         accountId,

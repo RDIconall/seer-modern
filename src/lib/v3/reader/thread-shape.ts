@@ -182,9 +182,8 @@ export function shapeThread(
   ownEmail?: string | null,
 ): Lane[] {
   const own = (ownEmail ?? "").toLowerCase().trim();
-  const isYou = (message: Message) =>
-    message.isOutgoing ||
-    (own.length > 0 && message.from.email?.toLowerCase().trim() === own);
+  // The provider decides authorship; a From equal to the mailbox can be forged.
+  const isYou = (message: Message) => message.isOutgoing;
 
   const lanes: Lane[] = [];
   for (const message of conversation.messages) {

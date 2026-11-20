@@ -5,6 +5,7 @@ import {
   mutationErrorIsNoOp,
 } from "./mutation-idempotent";
 import { nativeUrlFor } from "./native-url";
+import { gmailMarksFromSelf, isOwnMessage } from "./sender-identity";
 import { gmailForwardHtml } from "./forward-html";
 import type {
   Address,
@@ -123,7 +124,13 @@ function toMessage(m: GmailMessage, selfEmail: string): Message {
     bodyHtml: bodies.html ?? null,
     bodyText: bodies.text ?? null,
     isUnread: (m.labelIds ?? []).includes("UNREAD"),
-    isOutgoing: from.email === selfEmail.toLowerCase(),
+    isOutgoing: isOwnMessage(
+      {
+        fromEmail: from.email,
+        fromSelf: gmailMarksFromSelf(m.labelIds, headers, from.email),
+      },
+      selfEmail,
+    ),
     attachments: bodies.attachments,
   };
 }

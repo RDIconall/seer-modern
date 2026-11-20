@@ -48,7 +48,8 @@ export function collapseThreads<T extends ThreadItem>(
     const senders: string[] = [];
     const seen = new Set<string>();
     for (const m of list) {
-      const k = m.fromEmail.toLowerCase();
+      // A forged From shares the owner's address but not the "You" label.
+      const k = `${m.fromEmail.toLowerCase()}|${m.fromName === "You"}`;
       if (seen.has(k)) continue;
       seen.add(k);
       const raw = m.fromName || m.fromEmail;

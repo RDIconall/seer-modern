@@ -18,12 +18,13 @@ import {
 } from "@/lib/mail/gmail";
 import {
   getGraphConversationMessages,
-  getGraphMessage,
+  getGraphMessageWithSender,
   listGraphFolder,
 } from "@/lib/mail/graph";
 import { makeGmailLabelStore } from "@/lib/mail/seer-labels";
 import { requireMailSession } from "@/lib/mail/session";
 import { getSenderOverride } from "@/lib/store/senders";
+import { isOwnMessage } from "@/lib/v2/providers/sender-identity";
 import type { RsvpStatus } from "@/lib/inbox/personal-context";
 import { NextResponse } from "next/server";
 
@@ -89,7 +90,7 @@ export async function GET(
     const message =
       session.provider === "google"
         ? await getGmailMessage(session.accessToken, id)
-        : await getGraphMessage(session.accessToken, id);
+        : await getGraphMessageWithSender(session.accessToken, id);
     const thread =
       session.provider === "google"
         ? await getGmailThreadMessages(session.accessToken, message.threadId)
@@ -148,6 +149,7 @@ export async function GET(
           labelIds: message.labelIds,
           threadId: message.threadId,
           receivedAt: message.receivedAt,
+          fromSelf: message.fromSelf,
         },
       ],
       history,
@@ -221,17 +223,14 @@ export async function GET(
 
     // Your own messages read as "You", not your full name — no more
     // guessing who sent what inside a thread.
-    const displayMessage =
-      message.fromEmail.toLowerCase() === session.email.toLowerCase()
-        ? { ...message, fromName: "You" }
-        : message;
+    const displayMessage = isOwnMessage(message, session.email)
+      ? { ...message, fromName: "You" }
+      : message;
 
     return NextResponse.json({
       message: displayMessage,
       thread: thread.map((turn) =>
-        turn.fromEmail.toLowerCase() === session.email.toLowerCase()
-          ? { ...turn, fromName: "You" }
-          : turn,
+        isOwnMessage(turn, session.email) ? { ...turn, fromName: "You" } : turn,
       ),
       guide,
       classification,

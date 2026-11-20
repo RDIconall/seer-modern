@@ -39,6 +39,7 @@ import { resolveCreds } from "@/lib/store/salesforce-auth";
 import { syncSalesforce } from "@/lib/crm/salesforce-sync";
 import { loadUserProfile } from "@/lib/store/user-profile";
 import { getSenderOverride } from "@/lib/store/senders";
+import { isOwnMessage } from "@/lib/v2/providers/sender-identity";
 import { NextResponse } from "next/server";
 
 /** Deep enough to cover a real 500+ inbox in one pass */
@@ -162,6 +163,7 @@ export async function GET(request: Request) {
           labelIds: m.labelIds,
           threadId: m.threadId,
           receivedAt: m.receivedAt,
+          fromSelf: m.fromSelf,
         })),
         history,
         (email) => getSenderOverride(email),
@@ -315,10 +317,7 @@ export async function GET(request: Request) {
           const r = decisions.get(m.id);
           return {
             ...m,
-            fromName:
-              m.fromEmail.toLowerCase() === acct.email.toLowerCase()
-                ? "You"
-                : m.fromName,
+            fromName: isOwnMessage(m, acct.email) ? "You" : m.fromName,
             guide: r
               ? buildActionGuideQuick(r, m.subject, m.fromName, m.snippet)
               : undefined,

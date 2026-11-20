@@ -19,6 +19,7 @@ import { requireMailSession } from "@/lib/mail/session";
 import { loadUnderstanding } from "@/lib/store/understanding-store";
 import { loadUserProfile } from "@/lib/store/user-profile";
 import { getSenderOverride } from "@/lib/store/senders";
+import { isOwnMessage } from "@/lib/v2/providers/sender-identity";
 import { knownSenders } from "@/lib/brain/relationships";
 import { loadPeople } from "@/lib/store/people";
 import { getPersonalContext } from "@/lib/inbox/personal-context";
@@ -123,6 +124,7 @@ export async function POST() {
         labelIds: m.labelIds,
         threadId: m.threadId,
         receivedAt: m.receivedAt,
+        fromSelf: m.fromSelf,
       })),
       history,
       (email) => getSenderOverride(email),
@@ -141,10 +143,7 @@ export async function POST() {
       const r = decisions.get(m.id);
       return {
         ...m,
-        fromName:
-          m.fromEmail.toLowerCase() === session.email.toLowerCase()
-            ? "You"
-            : m.fromName,
+        fromName: isOwnMessage(m, session.email) ? "You" : m.fromName,
         guide: r
           ? buildActionGuideQuick(r, m.subject, m.fromName, m.snippet)
           : undefined,

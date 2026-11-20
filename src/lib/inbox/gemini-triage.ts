@@ -18,6 +18,7 @@ import {
   type PersonalContext,
 } from "@/lib/inbox/personal-context";
 import type { SeerLabelStore } from "@/lib/mail/seer-labels";
+import { isOwnMessage } from "@/lib/v2/providers/sender-identity";
 import { intelBreakdown, intelContainsAny } from "@/lib/nlp/intel";
 import {
   learnedPrior,
@@ -121,6 +122,8 @@ export type GeminiTriageItem = {
   /** Thread + arrival time — used to spot "you already replied" */
   threadId?: string;
   receivedAt?: string;
+  /** Provider-vouched authorship (MailMessageListItem.fromSelf) */
+  fromSelf?: boolean;
 };
 
 export type DecisionSource = "gemini" | "rules" | "override" | "learned";
@@ -573,6 +576,7 @@ export type TriageExtras = {
   ) => Promise<{
     fromEmail: string;
     fromName?: string;
+    fromSelf?: boolean;
     receivedAt: string;
   } | null>;
   /**
@@ -863,7 +867,10 @@ export async function classifyInboxWithAssistant(
   };
 
   // 1. Taught overrides + 2. learned priors from the user's own actions
-  const me = accountEmail.toLowerCase().trim();
+  // Anyone can put this mailbox in From; only the provider's own word
+  // (sent mail, or an authenticated From domain) makes it the user's.
+  const mine = (m: { fromEmail: string; fromSelf?: boolean }) =>
+    isOwnMessage(m, accountEmail);
   // Mute-pierced messages: guaranteed to surface, but their meaning
   // comes from the AI's read — floor applied after all grading.
   const needsYouFloor = new Set<string>();
@@ -871,7 +878,12 @@ export async function classifyInboxWithAssistant(
   // Memoized — one lookup per thread, only when it changes the verdict.
   const threadLastMemo = new Map<
     string,
-    { fromEmail: string; fromName?: string; receivedAt: string } | null
+    {
+      fromEmail: string;
+      fromName?: string;
+      fromSelf?: boolean;
+      receivedAt: string;
+    } | null
   >();
   const lastTurn = async (threadId?: string) => {
     if (!threadId || !extras?.threadLast) return null;
@@ -894,7 +906,7 @@ export async function classifyInboxWithAssistant(
     if (!curItem || item.receivedAt! > curItem.receivedAt!) {
       newestOfThread.set(item.threadId, item.id);
     }
-    if (item.fromEmail.toLowerCase().trim() !== me) {
+    if (!mine(item)) {
       counterpartOfThread.set(
         item.threadId,
         item.fromName || item.fromEmail,
@@ -911,7 +923,7 @@ export async function classifyInboxWithAssistant(
     const who =
       turn.fromName ||
       people[turn.fromEmail]?.name ||
-      (item.fromEmail.toLowerCase().trim() === me
+      (mine(item)
         ? counterpartOfThread.get(item.threadId ?? "")
         : item.fromName) ||
       turn.fromEmail.split("@")[0];
@@ -946,7 +958,7 @@ export async function classifyInboxWithAssistant(
     const needTurn = new Set<string>();
     for (const item of items) {
       if (!item.threadId) continue;
-      if (item.fromEmail.toLowerCase().trim() === me) {
+      if (mine(item)) {
         needTurn.add(item.threadId);
       } else {
         const answered = repliedAt(item.threadId);
@@ -967,9 +979,9 @@ export async function classifyInboxWithAssistant(
     // inboxed threads. Never judge yourself as a sender. But check the
     // THREAD: if they spoke after you (even if their message was
     // archived out of the inbox), the ball is in YOUR court.
-    if (item.fromEmail.toLowerCase().trim() === me) {
+    if (mine(item)) {
       const turn = await lastTurn(item.threadId);
-      if (turn && turn.fromEmail !== me) {
+      if (turn && !mine(turn)) {
         results.set(
           item.id,
           newestOfThread.get(item.threadId ?? "") === item.id
@@ -997,7 +1009,7 @@ export async function classifyInboxWithAssistant(
       // dismissing a person: their newest turn may live outside the
       // inbox (archived), making "you already replied" a lie.
       const turn = await lastTurn(item.threadId);
-      if (turn && turn.fromEmail !== me && turn.receivedAt > answered) {
+      if (turn && !mine(turn) && turn.receivedAt > answered) {
         results.set(
           item.id,
           newestOfThread.get(item.threadId ?? "") === item.id
