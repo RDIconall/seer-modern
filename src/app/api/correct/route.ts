@@ -2,6 +2,7 @@ import { PROMPT_VERSION } from "@/lib/inbox/gemini-triage";
 import { ACTION_META, type TriageAction } from "@/lib/inbox/classify";
 import { makeGmailLabelStore } from "@/lib/mail/seer-labels";
 import { requireMailSession } from "@/lib/mail/session";
+import { requestFromApp } from "@/lib/security/origin";
 import {
   loadDecisions,
   saveDecisions,
@@ -25,6 +26,9 @@ const ALLOWED = new Set<TriageAction>([
  * the message's Gmail label.
  */
 export async function POST(request: Request) {
+  if (!requestFromApp(request)) {
+    return NextResponse.json({ error: "invalid request origin" }, { status: 403 });
+  }
   try {
     const session = await requireMailSession();
     if (!session) {

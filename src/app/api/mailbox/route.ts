@@ -22,6 +22,7 @@ import {
 } from "@/lib/mail/graph";
 import { makeGmailLabelStore } from "@/lib/mail/seer-labels";
 import { requireMailSession } from "@/lib/mail/session";
+import { requestFromApp } from "@/lib/security/origin";
 import type { MailFolder, MailMessageListItem } from "@/lib/mail/types";
 import { getSenderOverride } from "@/lib/store/senders";
 import { NextResponse, after } from "next/server";
@@ -36,7 +37,20 @@ const SCAN = Math.max(
   Math.min(1000, Number(process.env.SEER_INBOX_SCAN ?? "1000") || 1000),
 );
 
+/** Read-only: grades already on file (cache, labels, rules). */
 export async function GET(request: Request) {
+  return loadMailbox(request, "read");
+}
+
+/** Grade ungraded mail with the model and save the grades. */
+export async function POST(request: Request) {
+  if (!requestFromApp(request)) {
+    return NextResponse.json({ error: "invalid request origin" }, { status: 403 });
+  }
+  return loadMailbox(request, "grade");
+}
+
+async function loadMailbox(request: Request, mode: "grade" | "read") {
   try {
     const session = await requireMailSession();
     if (!session) {
@@ -134,6 +148,7 @@ export async function GET(request: Request) {
         (email) => getSenderOverride(email),
         classifyMessage,
         {
+          mode,
           personal,
           actionMemory,
           labels,

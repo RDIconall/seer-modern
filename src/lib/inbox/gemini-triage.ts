@@ -543,6 +543,15 @@ type CompactItem = {
 };
 
 export type TriageExtras = {
+  /**
+   * "grade" sends ungraded mail to the model and saves the results: the
+   * decision cache, person and merchant notes, and Gmail labels. Anything
+   * else is a read-only pass over overrides, learned priors, the cache,
+   * labels and rules. Grading spends model quota and rewrites the
+   * mailbox, so only callers that have verified the request came from
+   * the app (see requestFromApp) or from cron may ask for it.
+   */
+  mode?: "grade" | "read";
   personal?: PersonalContext | null;
   actionMemory?: ActionMemory | null;
   /**
@@ -808,6 +817,7 @@ export async function classifyInboxWithAssistant(
 ): Promise<Map<string, AssistantClassifyResult>> {
   const results = new Map<string, AssistantClassifyResult>();
   const candidates: GeminiTriageItem[] = [];
+  const grading = extras?.mode === "grade";
 
   // THE PERSONAL DATABASE — resolve every sender's tier first.
   // Local evidence (sent history, contacts, meetings, shape) decides
@@ -1404,6 +1414,7 @@ export async function classifyInboxWithAssistant(
   };
 
   if (
+    grading &&
     forGemini.length > 0 &&
     isGeminiConfigured() &&
     extras?.geminiEnabled !== false
@@ -1643,6 +1654,7 @@ export async function classifyInboxWithAssistant(
   // Merchant graph: learn every fresh charge; scream on anomalies.
   // The save-map gates dedupe — cached decisions were recorded fresh.
   applyMerchantPass(items, results, toSave);
+  if (!grading) return results;
   if (merchantsDirty) {
     await saveMerchants(accountEmail, merchants).catch(() => {});
   }

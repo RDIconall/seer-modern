@@ -30,6 +30,7 @@ import {
 import { getInboxSnapshot } from "@/lib/mail/inbox-snapshot";
 import { makeGmailLabelStore } from "@/lib/mail/seer-labels";
 import { requireMailSession } from "@/lib/mail/session";
+import { requestFromApp } from "@/lib/security/origin";
 import { getSenderOverride } from "@/lib/store/senders";
 import { NextResponse, after } from "next/server";
 
@@ -68,7 +69,20 @@ export type TodaySection = {
   items: TodayEmail[];
 };
 
+/** Read-only: grades already on file (cache, labels, rules). */
 export async function GET() {
+  return loadToday("read");
+}
+
+/** Grade ungraded mail with the model and save the grades. */
+export async function POST(request: Request) {
+  if (!requestFromApp(request)) {
+    return NextResponse.json({ error: "invalid request origin" }, { status: 403 });
+  }
+  return loadToday("grade");
+}
+
+async function loadToday(mode: "grade" | "read") {
   const started = Date.now();
   try {
     const session = await requireMailSession();
@@ -133,6 +147,7 @@ export async function GET() {
       (email) => getSenderOverride(email),
       classifyMessage,
       {
+        mode,
         personal,
         actionMemory,
         labels,

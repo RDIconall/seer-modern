@@ -16,6 +16,7 @@ import {
 import { getGraphInboxTotals, listGraphFolder } from "@/lib/mail/graph";
 import { makeGmailLabelStore } from "@/lib/mail/seer-labels";
 import { requireMailSession } from "@/lib/mail/session";
+import { requestFromApp } from "@/lib/security/origin";
 import { loadUnderstanding } from "@/lib/store/understanding-store";
 import { loadUserProfile } from "@/lib/store/user-profile";
 import { getSenderOverride } from "@/lib/store/senders";
@@ -70,7 +71,10 @@ export async function GET() {
   return NextResponse.json({ brief });
 }
 
-export async function POST() {
+export async function POST(request: Request) {
+  if (!requestFromApp(request)) {
+    return NextResponse.json({ error: "invalid request origin" }, { status: 403 });
+  }
   try {
     const session = await requireMailSession();
     if (!session) {
@@ -128,6 +132,7 @@ export async function POST() {
       (email) => getSenderOverride(email),
       classifyMessage,
       {
+        mode: "grade",
         labels,
         geminiEnabled: false,
         threadLast:
