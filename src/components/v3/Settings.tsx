@@ -24,6 +24,7 @@ import { AtlasSettings } from "./AtlasSettings";
 import {
   ACCOUNT_CHANGED_EVENT,
   clearMailboxCaches,
+  forgetMailboxForSignOut,
 } from "./useMailbox";
 
 type Account = {
@@ -94,6 +95,7 @@ export function Settings({ mobile = false }: { mobile?: boolean }) {
         throw new Error(json?.error ?? describeHttpFailure(response.status));
       }
       if (action === "remove" && json?.requiresSignOut) {
+        forgetMailboxForSignOut();
         await logout();
         return;
       }
@@ -271,7 +273,7 @@ export function Settings({ mobile = false }: { mobile?: boolean }) {
       <form
         className="mail-settings-signout"
         action={logout}
-        onSubmit={() => clearMailboxCaches()}
+        onSubmit={() => forgetMailboxForSignOut()}
       >
         <button className="mail-settings-button" type="submit">
           <LogOut className="mail-settings-button-icon" aria-hidden="true" />

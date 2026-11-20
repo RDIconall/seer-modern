@@ -26,6 +26,13 @@ import {
 const CACHE_VERSION = 7;
 const mailboxCache = new Map<string, MailboxCacheEnvelope>();
 const bodyCache = new Map<string, unknown>();
+/**
+ * A fetch that started before a clear must not write its rows back after it,
+ * and nothing may write once the session is ending: the sign-out round trip
+ * leaves time for an in-flight or focus-triggered reload to land.
+ */
+let cacheGeneration = 0;
+let cacheSealed = false;
 
 /**
  * A folder is a scroll, so one page of it is a page. Triage is a work queue,
@@ -83,7 +90,8 @@ function readCache(
   }
 }
 
-function writeCache(view: MailboxView): void {
+function writeCache(view: MailboxView, generation: number): void {
+  if (cacheSealed || generation !== cacheGeneration) return;
   const envelope = wrapMailboxCache(view);
   mailboxCache.set(mapKey(view.accountId, view.folder, view.sort), envelope);
   if (typeof window === "undefined") return;
@@ -99,6 +107,7 @@ function writeCache(view: MailboxView): void {
 
 /** Clear every account-scoped mailbox, body, and search-adjacent cache. */
 export function clearMailboxCaches(): void {
+  cacheGeneration += 1;
   mailboxCache.clear();
   bodyCache.clear();
   if (typeof window === "undefined") return;
@@ -110,6 +119,16 @@ export function clearMailboxCaches(): void {
   } catch {
     // Cache cleanup must never block an account switch.
   }
+}
+
+/**
+ * Every client path that ends the session calls this before the server
+ * action: logout runs on the server, which cannot see localStorage. Writes
+ * stay refused until a mailbox mounts again for the next signed-in page.
+ */
+export function forgetMailboxForSignOut(): void {
+  cacheSealed = true;
+  clearMailboxCaches();
 }
 
 export const ACCOUNT_CHANGED_EVENT = "seer:account-changed";
@@ -237,6 +256,7 @@ export function useMailbox(
     // inside the fetch, so a login starting with no accountId must still settle
     // against the mailbox that came back — otherwise the leftover cache paints.
     let forScope = `${accountId ?? ""}:${folder}:${sort}`;
+    const generation = cacheGeneration;
     try {
       const accountResponse = await fetchFresh("/api/v3/accounts");
       const accountJson = (await accountResponse.json()) as {
@@ -294,7 +314,7 @@ export function useMailbox(
       }
 
       if (!merged) throw new Error("mailbox returned no page");
-      writeCache(merged);
+      writeCache(merged, generation);
       viewRef.current = merged;
       settle(
         {
@@ -328,6 +348,13 @@ export function useMailbox(
   }, [accountId, folder, options.disabled, settle, sort]);
 
   useEffect(() => {
+    // The mailbox mounts only on a signed-in page, so a seal left by an
+    // earlier session's sign-out no longer applies. The hook that was mounted
+    // when sign-out began stays mounted until the page leaves.
+    cacheSealed = false;
+  }, []);
+
+  useEffect(() => {
     void reload();
     if (options.disabled) return;
     const onFocus = () => void reload();
@@ -353,6 +380,8 @@ export function useMailbox(
     if (!accountId) return;
     const accountKey = accountId;
     const ids = prefetchAdjacentIds(viewRef.current, conversationId);
+    if (cacheSealed) return;
+    const generation = cacheGeneration;
     for (const id of ids) {
       const bodyKey = `${accountKey}:${id}`;
       if (bodyCache.has(bodyKey)) continue;
@@ -363,7 +392,9 @@ export function useMailbox(
         )
           .then(async (response) => {
             if (!response.ok) throw new Error("body prefetch failed");
-            bodyCache.set(bodyKey, await response.json());
+            const body = await response.json();
+            if (cacheSealed || generation !== cacheGeneration) return;
+            bodyCache.set(bodyKey, body);
           })
           .catch(() => {
             bodyCache.delete(bodyKey);
