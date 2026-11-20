@@ -1,3 +1,4 @@
+import { flattenHtml } from "@/lib/html/tags";
 import { buildActionGuideDetailed } from "@/lib/inbox/action-guide";
 import { classifyMessage } from "@/lib/inbox/classify";
 import { extractKeyActions } from "@/lib/inbox/key-actions";
@@ -131,9 +132,7 @@ export async function GET(
         loadRepliedThreads(session.email),
       ]);
 
-    const bodyText =
-      message.textBody ||
-      message.htmlBody.replace(/<[^>]+>/g, " ").replace(/\s+/g, " ");
+    const bodyText = message.textBody || flattenHtml(message.htmlBody);
 
     const decisions = await classifyInboxWithAssistant(
       session.email,

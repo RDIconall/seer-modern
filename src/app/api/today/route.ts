@@ -9,6 +9,7 @@ import {
   classifyInboxWithAssistant,
   getAssistantStatus,
 } from "@/lib/inbox/gemini-triage";
+import { flattenHtml } from "@/lib/html/tags";
 import { getOrBuildMailHistory } from "@/lib/inbox/mail-history-store";
 import { collapseThreads } from "@/lib/inbox/thread-collapse";
 import { getPersonalContext } from "@/lib/inbox/personal-context";
@@ -147,10 +148,7 @@ export async function GET() {
             session.provider === "google"
               ? await getGmailMessage(session.accessToken, id)
               : await getGraphMessage(session.accessToken, id);
-          return (
-            msg.textBody ||
-            msg.htmlBody.replace(/<[^>]+>/g, " ").replace(/\s+/g, " ")
-          );
+          return msg.textBody || flattenHtml(msg.htmlBody);
         },
         // Superhuman rule: respond NOW, read in the background
         deferAi: true,

@@ -7,7 +7,10 @@
  * hold this to: what you would see if you pasted the email into a chat.
  */
 
-const BLOCK_LEVEL = /<\/?(p|div|tr|li|h[1-6]|blockquote|table|section|article)\b[^>]*>/gi;
+import { removeBetween, removeElements, replaceTags, stripTags } from "../../html/tags";
+
+const BLOCK_LEVEL = /<\/?(p|div|tr|li|h[1-6]|blockquote|table|section|article)\b/i;
+const HIDDEN = ["script", "style", "head", "noscript"] as const;
 
 const ENTITIES: Record<string, string> = {
   amp: "&",
@@ -35,17 +38,12 @@ function decodeEntities(s: string): string {
 }
 
 export function htmlToText(html: string): string {
-  return decodeEntities(
-    html
-      // Drop non-content regions entirely, including their contents.
-      .replace(/<!--[\s\S]*?-->/g, " ")
-      .replace(/<(script|style|head|noscript)\b[^>]*>[\s\S]*?<\/\1>/gi, " ")
-      // Preserve document structure as line breaks so sentences don't fuse.
-      .replace(/<br\s*\/?>/gi, "\n")
-      .replace(BLOCK_LEVEL, "\n")
-      // Everything else is markup.
-      .replace(/<[^>]+>/g, " "),
-  )
+  // Drop non-content regions entirely, including their contents.
+  const visible = removeElements(removeBetween(html, "<!--", "-->", " "), HIDDEN, " ");
+  // Preserve document structure as line breaks so sentences don't fuse.
+  const structured = replaceTags(visible.replace(/<br\s*\/?>/gi, "\n"), BLOCK_LEVEL, () => "\n");
+  // Everything else is markup.
+  return decodeEntities(stripTags(structured))
     .replace(/[ \t\u00a0]+/g, " ")
     .replace(/\n\s*\n\s*\n+/g, "\n\n")
     .split("\n")
