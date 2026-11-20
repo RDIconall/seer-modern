@@ -8,6 +8,7 @@ import type {
   MailboxSort,
   MailboxView,
 } from "@/lib/v3/mailbox/types";
+import { requestInboxCatchUp } from "@/lib/v3/net/catch-up";
 import { fetchDefault, fetchFresh } from "@/lib/v3/net/fetch";
 import { describeHttpFailure, readJsonBody } from "@/lib/v3/net/json";
 import {
@@ -251,7 +252,10 @@ export function useMailbox(
       const pageSize = isWorkQueue(sort) ? TRIAGE_PAGE : FOLDER_PAGE;
       let merged: MailboxView | null = null;
       let before: string | null = null;
-      let catchingUp = false;
+      const catchingUp =
+        folder === "inbox"
+          ? await requestInboxCatchUp("/api/v3/mailbox")
+          : false;
 
       for (let page = 0; page < MAX_TRIAGE_PAGES; page += 1) {
         const response = await fetchFresh(
@@ -260,10 +264,7 @@ export function useMailbox(
             (before ? `&before=${encodeURIComponent(before)}` : ""),
         );
         if (!response.ok) throw new Error(`mailbox ${response.status}`);
-        const json = (await response.json()) as {
-          view: MailboxView;
-          catchingUp?: boolean;
-        };
+        const json = (await response.json()) as { view: MailboxView };
         if (
           json.view.folder !== folder ||
           json.view.sort !== sort ||
@@ -272,7 +273,6 @@ export function useMailbox(
           throw new Error("mailbox response scope mismatch");
         }
         merged = merged ? appendPage(merged, json.view) : json.view;
-        if (page === 0) catchingUp = Boolean(json.catchingUp);
         // The first page paints straight away; the tail of the queue arrives
         // behind it rather than holding the whole screen back.
         if (page === 0) {
