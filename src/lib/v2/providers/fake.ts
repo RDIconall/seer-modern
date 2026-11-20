@@ -1,3 +1,4 @@
+import { stripTags } from "../../mail/html-scan";
 import type {
   AttachmentContent,
   Conversation,
@@ -172,7 +173,7 @@ export class FakeProvider implements MailProvider {
           sentAt: new Date().toISOString(),
           snippet: "",
           bodyHtml: command.bodyHtml,
-          bodyText: command.bodyHtml.replace(/<[^>]+>/g, ""),
+          bodyText: stripTags(command.bodyHtml, ""),
           isUnread: false,
           isOutgoing: true,
           attachments: [],
@@ -200,7 +201,7 @@ export class FakeProvider implements MailProvider {
       sentAt: new Date().toISOString(),
       snippet: "",
       bodyHtml: command.bodyHtml,
-      bodyText: command.bodyHtml.replace(/<[^>]+>/g, ""),
+      bodyText: stripTags(command.bodyHtml, ""),
       isUnread: false,
       isOutgoing: true,
       attachments: [],
