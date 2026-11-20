@@ -4,6 +4,8 @@
  * call, works on every message.
  */
 
+import { capHtml, htmlTokens, parseAttributes } from "@/lib/html/scan";
+
 export type KeyAction = { label: string; url: string };
 
 const INTENT_PATTERNS: { re: RegExp; label: string; score: number }[] = [
@@ -27,12 +29,37 @@ const INTENT_PATTERNS: { re: RegExp; label: string; score: number }[] = [
 const JUNK =
   /unsubscribe from|privacy|terms|preferences|view in browser|facebook|twitter|instagram|linkedin\.com\/share|help center|contact us|download (the )?app|app store|google play|mailto:/i;
 
-function stripTags(s: string): string {
-  return s
-    .replace(/<[^>]+>/g, " ")
-    .replace(/&nbsp;/g, " ")
-    .replace(/\s+/g, " ")
-    .trim();
+type Anchor = { url: string; text: string };
+
+/** Links with an http(s) href and the text inside them, in body order. */
+function anchors(htmlBody: string, limit: number): Anchor[] {
+  const html = capHtml(htmlBody);
+  const out: Anchor[] = [];
+  let open: { url: string; parts: string[] } | null = null;
+  for (const token of htmlTokens(html)) {
+    if (token.kind === "tag" && token.name === "a") {
+      if (token.closing && open) {
+        const text = open.parts
+          .join("")
+          .replace(/&nbsp;/g, " ")
+          .replace(/\s+/g, " ")
+          .trim();
+        out.push({ url: open.url, text });
+        open = null;
+        if (out.length >= limit) break;
+      } else if (!token.closing && !open) {
+        const href = parseAttributes(token.attrs)
+          .filter(([name, value]) => name === "href" && /^https?:\/\//i.test(value))
+          .at(-1);
+        if (href) open = { url: href[1], parts: [] };
+      }
+      continue;
+    }
+    if (open) {
+      open.parts.push(token.kind === "text" ? html.slice(token.start, token.end) : " ");
+    }
+  }
+  return out;
 }
 
 export function extractKeyActions(
@@ -42,14 +69,10 @@ export function extractKeyActions(
   if (!htmlBody) return [];
   const found: (KeyAction & { score: number })[] = [];
   const seen = new Set<string>();
-  const anchorRe = /<a\b[^>]*href=["'](https?:\/\/[^"']+)["'][^>]*>([\s\S]*?)<\/a>/gi;
 
-  let m: RegExpExecArray | null;
-  let guard = 0;
-  while ((m = anchorRe.exec(htmlBody)) && guard < 200) {
-    guard += 1;
-    const url = m[1];
-    const text = stripTags(m[2]).slice(0, 80);
+  for (const anchor of anchors(htmlBody, 200)) {
+    const url = anchor.url;
+    const text = anchor.text.slice(0, 80);
     const hay = `${text} ${url}`;
     if (!text && !/track|rsvp|pay|confirm/i.test(url)) continue;
 

@@ -112,8 +112,8 @@ const WANTS_ASK = new Set<TriageAction>([
 /** html-to-text residue that poisons NLP: image alts, bare <url> refs */
 function cleanForNlp(text: string): string {
   return text
-    .replace(/\[image:[^\]]*\]/gi, " ")
-    .replace(/<https?:\/\/[^>\s]+>/g, " ")
+    .replace(/\[image:[^[\]]*\]/gi, " ")
+    .replace(/<https?:\/\/[^<>\s]+>/g, " ")
     .replace(/\s+/g, " ")
     .trim();
 }
