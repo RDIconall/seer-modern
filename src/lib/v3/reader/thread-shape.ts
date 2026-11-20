@@ -1,5 +1,9 @@
 import type { Address, Conversation, Message } from "@/lib/v2/providers/types";
-import { htmlToText, readableBody } from "@/lib/v2/intelligence/html-text";
+import {
+  htmlBodyText,
+  htmlToText,
+  readableBody,
+} from "@/lib/v2/intelligence/html-text";
 import { readableHtml } from "@/lib/v3/reader/email-html";
 
 /**
@@ -100,10 +104,13 @@ export function stripQuoted(body: string): StrippedText {
 /** The readable, newly-written body of one message. */
 export function freshBody(message: Message): StrippedBody {
   const stripped = stripQuoted(readableBody(message));
-  const htmlPart = readableHtml(message.bodyHtml);
+  // The HTML part is the body exactly when storedBodyText grades it, so the
+  // reader never shows one MIME part while the other is read.
+  const htmlIsBody = htmlBodyText(message.bodyHtml) !== "";
+  const htmlPart = readableHtml(htmlIsBody ? message.bodyHtml : null);
   // Prefer the HTML quote count when a body was HTML: Outlook and Gmail mark
   // quote boundaries in markup that the plain-text heuristics miss.
-  const quotedCount = message.bodyHtml ? htmlPart.quotedCount : stripped.quotedCount;
+  const quotedCount = htmlIsBody ? htmlPart.quotedCount : stripped.quotedCount;
   // When the body was HTML, the markup is where the boundary really is, so the
   // text comes from the already-stripped markup. Otherwise the one-line peek
   // and the rendered body can disagree — the peek cut by a "From:" line in a

@@ -55,22 +55,24 @@ export function htmlToText(html: string): string {
 }
 
 /**
- * Persistable plain text for a message. Prefers the provider's text part;
- * otherwise derives it from HTML so later reads do not have to detoast
- * `body_html`. Empty HTML (style-only mail) falls through to the original
- * text part, which may still be null.
+ * Persistable plain text for a message, stored so later reads do not have to
+ * detoast `body_html`. It is the text of the part the reader shows: the HTML
+ * part whenever it has text, because a multipart/alternative text part can say
+ * something the person never sees. HTML without text (style- or image-only
+ * mail) falls through to the original text part, which may still be null.
  */
 export function storedBodyText(message: {
   bodyText: string | null;
   bodyHtml: string | null;
 }): string | null {
-  const text = message.bodyText?.trim();
-  if (text) return message.bodyText;
-  if (message.bodyHtml) {
-    const converted = htmlToText(message.bodyHtml);
-    if (converted) return converted;
-  }
+  const fromHtml = htmlBodyText(message.bodyHtml);
+  if (fromHtml) return fromHtml;
   return message.bodyText;
+}
+
+/** The HTML part as text; empty when there is no HTML part or it has no text. */
+export function htmlBodyText(html: string | null | undefined): string {
+  return html ? htmlToText(html) : "";
 }
 
 /** The readable body of a message, preferring real text over derived text. */
