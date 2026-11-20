@@ -25,6 +25,16 @@ export type StoredMailboxStyle = MailboxStyleFields & {
   snapshot: MailboxSnapshot;
 };
 
+const DEFAULT_STYLE: {
+  clearHabit: ClearHabit;
+  importanceCues: ImportanceCue[];
+  matterBar: MatterBar;
+} = {
+  clearHabit: "archive",
+  importanceCues: ["none"],
+  matterBar: "medium",
+};
+
 type StyleRow = {
   clear_habit: string;
   importance_cues: string[];
@@ -174,57 +184,32 @@ export async function refreshMailboxInference(
 ): Promise<StoredMailboxStyle> {
   const snapshot = await loadMailboxSnapshot(accountId);
   const inferred = inferStyle(snapshot);
-  const existing = await db().query<StyleRow>(
-    `select clear_habit, importance_cues, matter_bar, confirmed, inferred,
-            drift_prompt, confirmed_at, updated_at
-       from seer.mailbox_styles where account_id = $1`,
-    [accountId],
-  );
-  if (!existing.rows[0]) {
-    const inserted = await db().query<StyleRow>(
-      `insert into seer.mailbox_styles
-         (account_id, clear_habit, importance_cues, matter_bar, confirmed, inferred)
-       values ($1, $2, $3, $4, false, $5::jsonb)
-       returning clear_habit, importance_cues, matter_bar, confirmed, inferred,
-                 drift_prompt, confirmed_at, updated_at`,
-      [
-        accountId,
-        inferred.clearHabit,
-        inferred.importanceCues,
-        inferred.matterBar,
-        JSON.stringify(inferred),
-      ],
-    );
-    return mapRow(inserted.rows[0], snapshot);
-  }
-  if (existing.rows[0].confirmed) {
-    await db().query(
-      `update seer.mailbox_styles
-          set inferred = $2::jsonb, updated_at = now()
-        where account_id = $1`,
-      [accountId, JSON.stringify(inferred)],
-    );
-    return mapRow({ ...existing.rows[0], inferred }, snapshot);
-  }
-  const updated = await db().query<StyleRow>(
-    `update seer.mailbox_styles
-        set clear_habit = $2,
-            importance_cues = $3,
-            matter_bar = $4,
-            inferred = $5::jsonb,
-            updated_at = now()
-      where account_id = $1
-      returning clear_habit, importance_cues, matter_bar, confirmed, inferred,
-                drift_prompt, confirmed_at, updated_at`,
+  // The hypothesis lives only in `inferred`. The active columns hold the
+  // default until the user confirms a style, and a confirmed style is kept.
+  const upserted = await db().query<StyleRow>(
+    `insert into seer.mailbox_styles as s
+       (account_id, clear_habit, importance_cues, matter_bar, confirmed, inferred)
+     values ($1, $2, $3, $4, false, $5::jsonb)
+     on conflict (account_id) do update set
+       clear_habit = case when s.confirmed then s.clear_habit
+                          else excluded.clear_habit end,
+       importance_cues = case when s.confirmed then s.importance_cues
+                              else excluded.importance_cues end,
+       matter_bar = case when s.confirmed then s.matter_bar
+                         else excluded.matter_bar end,
+       inferred = excluded.inferred,
+       updated_at = now()
+     returning clear_habit, importance_cues, matter_bar, confirmed, inferred,
+               drift_prompt, confirmed_at, updated_at`,
     [
       accountId,
-      inferred.clearHabit,
-      inferred.importanceCues,
-      inferred.matterBar,
+      DEFAULT_STYLE.clearHabit,
+      DEFAULT_STYLE.importanceCues,
+      DEFAULT_STYLE.matterBar,
       JSON.stringify(inferred),
     ],
   );
-  return mapRow(updated.rows[0], snapshot);
+  return mapRow(upserted.rows[0], snapshot);
 }
 
 export async function confirmMailboxStyle(
@@ -354,14 +339,15 @@ export async function closeLinkedMatter(
   );
 }
 
+/** An inferred style is a hypothesis; only a confirmed one governs mail. */
 export function effectiveStyle(
   stored: StoredMailboxStyle | null,
 ): MailboxStyleFields {
-  if (!stored) {
+  if (!stored?.confirmed) {
     return {
-      clearHabit: "archive",
-      importanceCues: ["none"],
-      matterBar: "medium",
+      clearHabit: DEFAULT_STYLE.clearHabit,
+      importanceCues: [...DEFAULT_STYLE.importanceCues],
+      matterBar: DEFAULT_STYLE.matterBar,
     };
   }
   return {
@@ -371,8 +357,9 @@ export function effectiveStyle(
   };
 }
 
+/** Reader guidance is labeled as the user's own; never derive it from inference. */
 export function guidanceFor(stored: StoredMailboxStyle | null): string {
-  return stored ? styleGuidance(effectiveStyle(stored)) : "";
+  return stored?.confirmed ? styleGuidance(effectiveStyle(stored)) : "";
 }
 
 export type { ImportanceCue };
