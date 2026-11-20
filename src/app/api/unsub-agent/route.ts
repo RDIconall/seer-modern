@@ -1,3 +1,4 @@
+import { auth } from "@/auth";
 import { getOrBuildMailHistory } from "@/lib/inbox/mail-history-store";
 import {
   isGeminiConfigured,
@@ -7,6 +8,7 @@ import { historySignals } from "@/lib/inbox/mail-history";
 import { listGmailFolder, listGmailInbox } from "@/lib/mail/gmail";
 import { listGraphFolder, listGraphInbox } from "@/lib/mail/graph";
 import { requireMailSession } from "@/lib/mail/session";
+import { originAllowed } from "@/lib/security/origin";
 import { loadActionMemory } from "@/lib/store/action-memory";
 import { getSenderOverride } from "@/lib/store/senders";
 import { generateText, Output } from "ai";
@@ -42,6 +44,31 @@ For each sender decide:
 Do NOT suggest unsubscribing from real people. Receipts/security-only senders stay unless every email they send is also a phone push.`;
 
 export async function GET() {
+  const session = await auth();
+  if (!session?.user) {
+    return NextResponse.json({ error: "Not signed in" }, { status: 401 });
+  }
+  return NextResponse.json(
+    { error: "Method not allowed" },
+    { status: 405, headers: { Allow: "POST" } },
+  );
+}
+
+/**
+ * POST only: the scan lists the inbox and spends model quota, so it must not
+ * run from a navigation, and the Origin must be the app's own.
+ */
+export async function POST(request: Request) {
+  if (
+    !originAllowed({
+      origin: request.headers.get("origin"),
+      requestOrigin: new URL(request.url).origin,
+      allowedOrigin: process.env.SEER_ALLOWED_ORIGIN,
+      production: process.env.NODE_ENV === "production",
+    })
+  ) {
+    return NextResponse.json({ error: "invalid request origin" }, { status: 403 });
+  }
   try {
     const session = await requireMailSession();
     if (!session) {
