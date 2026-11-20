@@ -6,11 +6,26 @@ import {
   syncTexting,
   testBlueBubbles,
 } from "@/lib/imessage/bluebubbles";
-import { loadPeople, savePeople } from "@/lib/store/people";
+import { loadPeople, savePeople, type PeopleDb } from "@/lib/store/people";
 import { requireMailSession } from "@/lib/mail/session";
 import { NextResponse } from "next/server";
 
 export const maxDuration = 60;
+
+const IMESSAGE_REASON = "You text them (iMessage";
+
+/** Drop rows an earlier iMessage sync wrote that `keep` no longer backs. */
+function dropStaleImessage(people: PeopleDb, keep: Set<string>): number {
+  let dropped = 0;
+  for (const [email, row] of Object.entries(people)) {
+    if (row.by !== "evidence") continue;
+    if (!row.reason?.startsWith(IMESSAGE_REASON)) continue;
+    if (keep.has(email)) continue;
+    delete people[email];
+    dropped += 1;
+  }
+  return dropped;
+}
 
 /**
  * BlueBubbles wiring: save the server, test it, sync texting evidence,
@@ -55,6 +70,10 @@ export async function POST(request: Request) {
 
     if (body.action === "clear") {
       await clearBlueBubbles(session.email);
+      const people = await loadPeople(session.email);
+      if (dropStaleImessage(people, new Set()) > 0) {
+        await savePeople(session.email, people);
+      }
       return NextResponse.json({ ok: true, configured: false });
     }
 
@@ -78,13 +97,22 @@ export async function POST(request: Request) {
       await saveBlueBubbles(session.email, {
         url: body.url.trim(),
         password: body.password.trim(),
+        computerId: probe.computerId,
       });
       return NextResponse.json({ ok: true, configured: true, detail: probe.detail });
     }
 
     // sync: pull texting evidence and promote to the Person Graph
-    const stats = await syncTexting(session.email);
+    const handSet = new Set(
+      Object.entries(await loadPeople(session.email))
+        .filter(([, row]) => row.by === "user")
+        .map(([email]) => email),
+    );
+    const stats = await syncTexting(session.email, {
+      skip: (email) => handSet.has(email),
+    });
     const people = await loadPeople(session.email);
+    dropStaleImessage(people, new Set(Object.keys(stats.people)));
     let promoted = 0;
     for (const [email, ev] of Object.entries(stats.people)) {
       const existing = people[email];
@@ -96,7 +124,7 @@ export async function POST(request: Request) {
         name: ev.name ?? existing?.name,
         tier: "inner",
         vip: existing?.vip,
-        reason: `You text them (iMessage${ev.name ? ` · ${ev.name}` : ""})`,
+        reason: `${IMESSAGE_REASON}${ev.name ? ` · ${ev.name}` : ""})`,
         by: "evidence",
         judgedAt: new Date().toISOString(),
       };
