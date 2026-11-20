@@ -10,8 +10,11 @@ import type { AccountId } from "./types";
  * stand on.
  *
  * A sender is known when: the user pinned them (VIP), they resolved to the
- * inner/known tier historically, the user has written to them (sentTo > 0), or
- * they are a saved contact. Machines and first-contact strangers stay unknown.
+ * inner tier historically, the user has written to them (sentTo > 0), or they
+ * are a saved contact. Machines and first-contact strangers stay unknown, and
+ * so do legacy tiers a sender can earn alone: legacy "known" (inbound volume)
+ * and "new-credible" (the AI's reading of the sender's own words). In v2
+ * "known" vetoes deletes, so only user-made relationships may reach it.
  */
 
 export type PersonSeed = {
@@ -30,7 +33,7 @@ export type RelationshipSources = {
   contacts?: string[] | null;
 };
 
-const VALID_TIERS = new Set(["inner", "known", "new-credible", "machine", "unknown"]);
+const LEGACY_TRUSTED_TIERS = new Set(["inner", "machine", "unknown"]);
 
 /** Merge the sources into a deduped set of person seeds. */
 export function collectPeople(sources: RelationshipSources): PersonSeed[] {
@@ -49,7 +52,8 @@ export function collectPeople(sources: RelationshipSources): PersonSeed[] {
   };
 
   for (const [email, p] of Object.entries(sources.people ?? {})) {
-    const tier = p.tier && VALID_TIERS.has(p.tier) ? (p.tier as PersonSeed["tier"]) : "unknown";
+    const tier =
+      p.tier && LEGACY_TRUSTED_TIERS.has(p.tier) ? (p.tier as PersonSeed["tier"]) : "unknown";
     put(email, { tier, vip: p.vip, name: p.name });
   }
   for (const [email, stat] of Object.entries(sources.history?.contacts ?? {})) {

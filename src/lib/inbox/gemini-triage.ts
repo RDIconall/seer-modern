@@ -38,11 +38,11 @@ import {
   usualLabel,
 } from "@/lib/store/merchants";
 import {
-  MACHINE_LOCALPART,
   loadPeople,
   savePeople,
   tierFromEvidence,
   type PeopleDb,
+  type PersonRecord,
   type PersonTier,
 } from "@/lib/store/people";
 import {
@@ -820,8 +820,15 @@ export async function classifyInboxWithAssistant(
   for (const item of items) {
     const key = item.fromEmail.toLowerCase();
     if (tiers.has(key)) continue;
-    const stored = people[key];
-    if (stored) {
+    let stored: PersonRecord | undefined = people[key];
+    // "new-credible" was the AI's reading of the sender's own words — text
+    // anyone can write. It is not a relationship; drop it and re-resolve.
+    if (stored && !stored.vip && stored.tier === "new-credible") {
+      delete people[key];
+      peopleDirty = true;
+      stored = undefined;
+    }
+    if (stored && (stored.vip || stored.tier === "inner" || stored.by === "user")) {
       tiers.set(key, stored.vip ? "vip" : stored.tier);
       continue;
     }
@@ -834,6 +841,10 @@ export async function classifyInboxWithAssistant(
       inContacts: ctx.inContacts,
       hasMeeting: Boolean(ctx.meeting),
     });
+    if (stored && evidence?.tier !== "inner") {
+      tiers.set(key, stored.tier);
+      continue;
+    }
     if (evidence) {
       tiers.set(key, evidence.tier);
       people[key] = {
@@ -1153,10 +1164,7 @@ export async function classifyInboxWithAssistant(
     const escape = needsYouEscape(item.subject, item.snippet);
     const tier = tiers.get(item.fromEmail.toLowerCase());
     const personTier =
-      tier === "vip" ||
-      tier === "inner" ||
-      tier === "known" ||
-      tier === "new-credible";
+      tier === "vip" || tier === "inner" || tier === "known";
 
     const hit = cachedHits.get(item.id);
     // A cached dismissal that came from RULES (a snippet-level shortcut,
@@ -1340,15 +1348,19 @@ export async function classifyInboxWithAssistant(
           for (const [id, r] of mapped) {
             sinkResults.set(id, r);
             sinkSave.set(id, toCached(r));
-            // Grow the personal database: AI verdicts on unknown
-            // senders are stored forever (outbound mail later promotes)
+            // Grow the personal database with machine verdicts only. A
+            // "credible person" reading is judged from text the sender
+            // wrote, so it never becomes a tier — only the user's own
+            // mail, contacts, meetings, or pins make someone a person.
             const src = chunk.find((c) => c.id === id);
             const key = src?.fromEmail.toLowerCase();
-            if (key && tiers.get(key) === "new" && r.senderKind) {
-              const tier: PersonTier =
-                r.senderKind === "person" && r.credible
-                  ? "new-credible"
-                  : "machine";
+            if (
+              key &&
+              tiers.get(key) === "new" &&
+              r.senderKind &&
+              !(r.senderKind === "person" && r.credible)
+            ) {
+              const tier: PersonTier = "machine";
               people[key] = {
                 email: key,
                 name: src?.fromName,
@@ -1468,8 +1480,7 @@ export async function classifyInboxWithAssistant(
     // mail surfaces — rules must never quietly bin a human. ("How are
     // you?" from a friend is a respond, not a skim-and-delete.)
     const tier = tiers.get(item.fromEmail.toLowerCase());
-    const personTier =
-      tier === "vip" || tier === "inner" || tier === "new-credible";
+    const personTier = tier === "vip" || tier === "inner";
     const dismissive =
       r.action === "delete_now" ||
       r.action === "unsubscribe" ||
@@ -1582,20 +1593,15 @@ export async function classifyInboxWithAssistant(
     if (!r || r.source === "override") continue;
     const tier = tiers.get(item.fromEmail.toLowerCase());
     const ctx = contextSignals(extras?.personal, item.fromEmail);
-    // Google auto-collects "other contacts" from every interaction —
-    // that list is NOT a relationship. An auto-contact only earns
-    // person protection when the mail graph shows real strength
-    // (the user has actually written to them). And "known" earned by
-    // volume alone never covers machine-shaped addresses — a tracking
-    // robot that writes daily is not a colleague.
+    // Protection needs a relationship the USER made: mail they sent, a
+    // saved contact, a meeting, or a pin ("inner"/"vip"). Anything a
+    // sender can manufacture alone — inbound volume ("known") or an AI
+    // reading of their own words — never blocks a delete. Google
+    // auto-collects "other contacts" from every interaction, so an
+    // auto-contact only counts once the user has written to them.
     const rel = historySignals(history, item.fromEmail);
-    const machineShaped = MACHINE_LOCALPART.test(
-      item.fromEmail.split("@")[0] ?? "",
-    );
     const personish =
       tier === "inner" ||
-      tier === "new-credible" ||
-      (tier === "known" && !machineShaped) ||
       ctx.inContacts ||
       (ctx.autoContact && (rel.sentTo > 0 || rel.relationship === "engaged"));
     if (personish && DELETEY.has(r.action)) {
