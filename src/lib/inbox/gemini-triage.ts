@@ -74,9 +74,9 @@ const ACTIONS = [
 /**
  * Verdicts that make an email disappear without the user's eyes.
  * EVERY memory layer (taught, learned, decision cache, Gmail labels,
- * rules) must clear the same needs-you bar before one of these sticks —
- * a saved "ignore" from last week must never outrank what THIS email
- * says today.
+ * rules) yields when a known person's email says needs-you — a saved
+ * "ignore" from last week must not outrank what THEY say today. The
+ * words alone never clear that bar: a stranger can type them.
  */
 const DISMISSIVE = new Set<TriageAction>([
   "delete_now",
@@ -867,6 +867,19 @@ export async function classifyInboxWithAssistant(
   // Mute-pierced messages: guaranteed to surface, but their meaning
   // comes from the AI's read — floor applied after all grading.
   const needsYouFloor = new Set<string>();
+  // Records from a learned-mute sender: the AI may file them, but a
+  // rules fallback must not turn them into work.
+  const learnedMuteRecords = new Set<string>();
+  // Muted mail with needs-you wording from someone the owner doesn't
+  // know: the model still reads it (its verdict is cached for when the
+  // mute is lifted), but the mute stays what's shown and labeled.
+  const muteHeld = new Set<string>();
+  // Tie the owner created (writes to them, contact, meeting, or pinned
+  // VIP) — not "known" by inbound volume, nor an AI credibility guess.
+  const isKnownPerson = (email: string) => {
+    const tier = tiers.get(email.toLowerCase());
+    return tier === "vip" || tier === "inner";
+  };
   // Conversations are THREADS: who spoke last decides everything.
   // Memoized — one lookup per thread, only when it changes the verdict.
   const threadLastMemo = new Map<
@@ -1067,15 +1080,16 @@ export async function classifyInboxWithAssistant(
       continue;
     }
 
-    // INTENT pierces sender history: a sender you taught/learned to
-    // dismiss can still send the ONE message that needs you — the 347th
-    // autopay email that says "autopay FAILED". The guard only sets a
-    // FLOOR (this must surface); the MEANING always comes from a real
-    // read of the email — never a canned "Open it — something failed".
-    const escape = needsYouEscape(item.subject, item.snippet);
+    // A person you know can still send the ONE message that needs you
+    // past a taught/learned mute. The guard only sets a FLOOR (this must
+    // surface); the MEANING always comes from a real read of the email.
+    // Needs-you words alone never pierce: anyone can type "invoice".
+    const hint = needsYouEscape(item.subject, item.snippet);
+    const escape = hint && isKnownPerson(item.fromEmail);
 
     const override = await getOverride(item.fromEmail);
     if (override && !(DISMISSIVE.has(override) && escape)) {
+      if (hint && DISMISSIVE.has(override)) muteHeld.add(item.id);
       results.set(item.id, {
         action: override,
         confidence: "HIGH",
@@ -1108,7 +1122,9 @@ export async function classifyInboxWithAssistant(
       learned &&
       learned.action === "delete_now" &&
       /(receipt|itinerary|invoice|statement|confirmation)/i.test(item.subject);
+    if (learnedRecord) learnedMuteRecords.add(item.id);
     if (learned && !learnedRecord) {
+      if (hint) muteHeld.add(item.id);
       const verb = learned.dominant === "trash" ? "deleted" : "archived";
       results.set(item.id, {
         action: learned.action,
@@ -1130,7 +1146,7 @@ export async function classifyInboxWithAssistant(
   // 3. Persistent decision cache
   const cachedHits = await loadDecisions(
     accountEmail,
-    candidates.map((c) => c.id),
+    [...candidates.map((c) => c.id), ...muteHeld],
     PROMPT_VERSION,
   ).catch(() => new Map<string, CachedDecision>());
 
@@ -1149,8 +1165,10 @@ export async function classifyInboxWithAssistant(
   for (const item of candidates) {
     // The SAME needs-you bar guards every stored verdict below: a saved
     // "ignore" (cache or label) is a memory of an older read — the text
-    // in front of us wins when it says money/action/unpaid bill.
-    const escape = needsYouEscape(item.subject, item.snippet);
+    // in front of us wins when it says money/action/unpaid bill and comes
+    // from someone the owner knows.
+    const escape =
+      isKnownPerson(item.fromEmail) && needsYouEscape(item.subject, item.snippet);
     const tier = tiers.get(item.fromEmail.toLowerCase());
     const personTier =
       tier === "vip" ||
@@ -1248,6 +1266,9 @@ export async function classifyInboxWithAssistant(
     // TODAY" as bulk noise. Paid gateway: content decides, not cost.)
     forGemini.push(item);
   }
+  for (const item of items) {
+    if (muteHeld.has(item.id) && !cachedHits.has(item.id)) forGemini.push(item);
+  }
 
   // Merchant learning + anomaly screams — runs over whichever result
   // set just got fresh grades (inline or deferred background pass).
@@ -1257,7 +1278,7 @@ export async function classifyInboxWithAssistant(
     saveMap: Map<string, CachedDecision>,
   ) => {
     for (const item of itemList) {
-      if (!saveMap.has(item.id)) continue;
+      if (!saveMap.has(item.id) || muteHeld.has(item.id)) continue;
       const r = resMap.get(item.id);
       if (!r) continue;
       const moneyish =
@@ -1338,7 +1359,7 @@ export async function classifyInboxWithAssistant(
             merchants,
           );
           for (const [id, r] of mapped) {
-            sinkResults.set(id, r);
+            if (!muteHeld.has(id)) sinkResults.set(id, r);
             sinkSave.set(id, toCached(r));
             // Grow the personal database: AI verdicts on unknown
             // senders are stored forever (outbound mail later promotes)
@@ -1430,7 +1451,9 @@ export async function classifyInboxWithAssistant(
           await saveDecisions(accountEmail, bgSave).catch(() => {});
           await labelsRef
             ?.persist(
-              [...bgSave.entries()].map(([id, d]) => ({ id, action: d.action })),
+              [...bgSave.entries()]
+                .filter(([id]) => !muteHeld.has(id))
+                .map(([id, d]) => ({ id, action: d.action })),
             )
             .catch(() => {});
         }
@@ -1476,6 +1499,18 @@ export async function classifyInboxWithAssistant(
       r.action === "read_and_delete" ||
       r.action === "glance_promo" ||
       r.action === "read_and_archive";
+    if (learnedMuteRecords.has(item.id) && !dismissive) {
+      results.set(item.id, {
+        ...r,
+        action: "read_and_archive",
+        confidence: "MED",
+        reason: "Record from a sender you usually clear — filed until it's read",
+        source: "rules",
+        debug: { ...r.debug, ruleId: "rules:learned-record-archive" },
+        pending: pendingAi.has(item.id) || undefined,
+      });
+      continue;
+    }
     if (personTier && dismissive) {
       results.set(item.id, {
         action: "respond",
@@ -1535,7 +1570,7 @@ export async function classifyInboxWithAssistant(
   for (const item of items) {
     const r = results.get(item.id);
     if (!r || r.action === "act_today" || r.action === "respond") continue;
-    if (r.source === "override") continue;
+    if (r.source === "override" || r.source === "learned") continue;
     // Never resurrect what urgency decay already killed ("Urgent" chip
     // with a "Nothing — it expired" task was these two guards fighting)
     if (r.debug.ruleId === "urgency-expired") continue;
@@ -1551,6 +1586,20 @@ export async function classifyInboxWithAssistant(
       ) &&
       !needsYouEscape(item.subject, item.snippet)
     ) {
+      continue;
+    }
+    // Confirmation wording from a stranger is a claim, not a commitment:
+    // keep it in view, but don't force it into act_today.
+    if (!isKnownPerson(item.fromEmail)) {
+      if (!DISMISSIVE.has(r.action)) continue;
+      results.set(item.id, {
+        ...r,
+        action: "needs_review",
+        confidence: "LOW",
+        reason:
+          "Says an appointment is confirmed, from a sender you've never written — check it's genuine",
+        debug: { ...r.debug, ruleId: "unverified-appointment-floor" },
+      });
       continue;
     }
     results.set(item.id, {
@@ -1652,10 +1701,9 @@ export async function classifyInboxWithAssistant(
 
   // Save fresh calls as native Gmail labels — reviewed once, never re-paid
   if (extras?.labels && toSave.size > 0) {
-    const labelWrites = [...toSave.entries()].map(([id, d]) => ({
-      id,
-      action: d.action,
-    }));
+    const labelWrites = [...toSave.entries()]
+      .filter(([id]) => !muteHeld.has(id))
+      .map(([id, d]) => ({ id, action: d.action }));
     await extras.labels.persist(labelWrites).catch(() => {});
   }
 

@@ -162,11 +162,11 @@ const DELIVERY_NEEDS_YOU =
  * passive "it happened" notifications that need nothing.
  */
 const PRODUCT_NEEDS_YOU =
-  /\b(build (failed|broken)|failing|deploy(ment)? failed|pipeline failed|tests? failed|review requested|requested changes|changes requested|mentioned you|assigned (to )?you|awaiting your (review|approval|response)|approval (needed|required)|security (alert|vulnerability)|vulnerability|new sign-?in|sign-?in attempt|invited you|invitation to|rsvp|sent you a message|direct message)\b/i;
+  /\b(build (failed|broken)|failing|deploy(ment)? failed|pipeline failed|tests? failed|review requested|requested changes|changes requested|mentioned you|assigned (to )?you|awaiting your (review|approval|response)|approval (needed|required)|security (alert|vulnerability)|new sign-?in|sign-?in attempt|invited you|invitation to|rsvp|direct message)\b/i;
 
 /** Money actually at risk — act, don't just file it. */
 const FINANCE_RISK =
-  /\b(payment (failed|declined|overdue|past due)|card (was )?declined|insufficient funds|overdraft|fraud|unusual activity|suspicious (charge|transaction)|dispute|due (today|tomorrow)|final notice|account (suspended|locked|on hold))\b/i;
+  /\b(payment (failed|declined|overdue|past due)|card (was )?declined|insufficient funds|overdraft|fraud (alert|warning)|fraudulent (charge|transaction|activity)|unusual activity|suspicious (charge|transaction)|dispute (opened|filed|received)|due (today|tomorrow)|final notice|account (suspended|locked|on hold))\b/i;
 
 /** A bill the user must PAY BY HAND — amount due + no autopay.
  *  Covers real-world shapes: "DUE 07/31/2026", "Invoice 9905",
@@ -199,11 +199,11 @@ const BILL_READY_BLOB =
   /\b(bill (is )?(now )?(ready|available)|statement (is )?(now )?(ready|available)|view your (bill|statement)|your (monthly |new )?(bill|statement)|bill from)\b/i;
 
 /**
- * INTENT beats sender history: strictly-worded needs-you signals that
- * pierce every sender-level shortcut (taught override, learned prior,
- * autopay). A sender you always delete can still send the ONE message
- * that matters — "autopay failed", "signature required", "fraud alert".
- * Deliberately excludes marketing urgency-bait phrasing.
+ * Strictly-worded needs-you language — "autopay failed", "signature
+ * required", "fraud alert". Deliberately excludes marketing urgency-bait
+ * phrasing. Anyone can type these words, so they are only a hint: callers
+ * must pair a match with sender evidence (see isKnownSender) before it
+ * may override sender history or force act_today.
  */
 export function needsYouEscape(subject: string, snippet: string): boolean {
   const hay = `${subject}\n${snippet}`;
@@ -219,12 +219,33 @@ export function needsYouEscape(subject: string, snippet: string): boolean {
 }
 
 /**
+ * Evidence the mailbox owner created themselves: they write to this
+ * sender, saved them as a contact, or have a meeting with them. Inbound
+ * volume alone does not count — a stranger earns it by sending more mail.
+ */
+export function isKnownSender(
+  signals: Pick<HistorySignals, "sentTo">,
+  extras?: ClassifyExtras,
+): boolean {
+  return signals.sentTo > 0 || Boolean(extras?.inContacts) || Boolean(extras?.meeting);
+}
+
+/**
  * Urgency bait — marketing's favorite trick. Only counts as urgent when
  * the sender is trusted (contact / engaged / known); from bulk or cold
  * senders it's just a promo wearing a costume.
  */
 const URGENCY_BAIT =
   /\b(expires? (today|tonight|soon|at midnight)|ends (today|tonight|soon)|last (chance|day|hours)|final (notice|hours|day|reminder)|act now|action required|due today|hurry|don'?t miss|limited time|selling (out|fast)|only \d+ (left|remaining)|reminder:|confirm your (email|account))\b/i;
+
+/**
+ * Senders whose own domain may escalate a product notification to
+ * act_today. Matched against the real address domain only — never the
+ * display name — and excludes shared sending services (SES, SendGrid,
+ * Mailchimp, Intercom) that anyone can send through.
+ */
+const PRODUCT_NEEDS_YOU_HOSTS =
+  /(^|\.)(github\.com|gitlab\.com|bitbucket\.org|vercel\.com|netlify\.com|cursor\.com|cursor\.sh|slack\.com|discord\.com|notion\.so|figma\.com|linear\.app|atlassian\.net|asana\.com|trello\.com|dropbox\.com|box\.com|zoom\.us|calendly\.com|linkedin\.com|google\.com|microsoft\.com|office365\.com|apple\.com|stripe\.com)$/i;
 
 const PRODUCT_NOTIFY_DOMAINS =
   /(github\.com|noreply\.github\.com|users\.noreply\.github\.com|gitlab\.com|bitbucket\.org|vercel\.com|netlify\.com|cursor\.com|cursor\.sh|slack\.com|discord\.com|notion\.so|figma\.com|linear\.app|atlassian\.net|jira\.|asana\.com|trello\.com|dropbox\.com|box\.com|zoom\.us|calendly\.com|linkedin\.com|twitter\.com|x\.com|facebookmail\.com|instagram\.com|spotify\.com|apple\.com|accounts\.google\.com|microsoft\.com|office365\.com|google\.com|amazonses\.com|sendgrid\.net|mailchimp\.com|intercom-mail\.com|stripe\.com)/i;
@@ -366,6 +387,17 @@ function classifyCore(
 ): ClassifyResult {
   const { email, dom, local, blob, fromBlob } = parts;
   const { signals, actionable, extras } = ctx;
+  // Needs-you phrases are hints, not proof: from a sender the owner has
+  // no tie to, the same words are a classic phishing lure.
+  const knownSender = isKnownSender(signals, extras);
+  const unverified = (claim: string, ruleId: string) =>
+    hit(
+      "needs_review",
+      "LOW",
+      `${claim} — from a sender you've never written; check it's genuine before acting`,
+      `unverified-${ruleId}`,
+      ctx,
+    );
 
   if (senderOverride) {
     return hit(
@@ -423,9 +455,10 @@ function classifyCore(
     );
   }
 
-  // Money at risk from ANY sender: failed/declined payment, fraud,
-  // past due, account locked — act, regardless of domain lists.
+  // Money at risk: failed/declined payment, fraud, past due, account
+  // locked — act, regardless of domain lists, when the sender is known.
   if (FINANCE_RISK.test(blob) || FINANCE_RISK.test(input.subject)) {
+    if (!knownSender) return unverified("Money-at-risk language", "money-risk");
     return hit(
       "act_today",
       "HIGH",
@@ -438,6 +471,7 @@ function classifyCore(
   // Money coming TO you: a refund/rebate/settlement check must be
   // cashed — it never expires and never files itself.
   if (REFUND_CHECK.test(blob) || REFUND_CHECK.test(input.subject)) {
+    if (!knownSender) return unverified("Says a check is coming to you", "refund-check");
     return hit(
       "act_today",
       "HIGH",
@@ -453,6 +487,7 @@ function classifyCore(
     !AUTOPAY_BLOB.test(blob) &&
     !PAID_MARKER.test(blob)
   ) {
+    if (!knownSender) return unverified("Asks you to pay a bill", "bill-due");
     return hit(
       "act_today",
       "HIGH",
@@ -483,6 +518,9 @@ function classifyCore(
     TRANSACTIONAL_URGENT.test(blob) ||
     TRANSACTIONAL_URGENT.test(input.subject)
   ) {
+    if (!knownSender) {
+      return unverified("Security / code / travel language", "transactional-urgent");
+    }
     return hit(
       "act_today",
       "MED",
@@ -496,6 +534,7 @@ function classifyCore(
   // 9am-1pm needs you home. Robots send these, but they're commitments,
   // not noise; never bulk-delete them off the sender's shape.
   if (APPOINTMENT_HOLD.test(blob) || APPOINTMENT_HOLD.test(input.subject)) {
+    if (!knownSender) return unverified("Says an appointment is confirmed", "appointment");
     return hit(
       "act_today",
       "HIGH",
@@ -572,6 +611,9 @@ function classifyCore(
     }
     // Needs your hands: failed CI, review requested, mentioned, security
     if (PRODUCT_NEEDS_YOU.test(blob) || PRODUCT_NEEDS_YOU.test(input.subject)) {
+      if (!knownSender && !PRODUCT_NEEDS_YOU_HOSTS.test(dom)) {
+        return unverified("Product alert language", "product-needs-you");
+      }
       return hit(
         "act_today",
         "MED",
@@ -594,6 +636,7 @@ function classifyCore(
   if (FINANCE_DOMAINS.test(dom) || RECEIPT_BLOB.test(blob)) {
     // Money at risk needs you today — declined, fraud, overdue, locked
     if (FINANCE_RISK.test(blob) || FINANCE_RISK.test(input.subject)) {
+      if (!knownSender) return unverified("Money-at-risk language", "finance-needs-you");
       return hit(
         "act_today",
         "HIGH",
