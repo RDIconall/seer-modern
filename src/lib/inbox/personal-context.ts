@@ -203,6 +203,7 @@ async function graphContacts(token: string): Promise<string[]> {
 }
 
 const GRAPH_STATUS: Record<string, RsvpStatus> = {
+  organizer: "accepted",
   accepted: "accepted",
   declined: "declined",
   tentativelyAccepted: "tentative",
@@ -322,6 +323,14 @@ export async function getPersonalContext(session: {
   }
 }
 
+/**
+ * Anyone can put an address on an event in the user's calendar; only the
+ * user's own accepted or tentative answer makes it a meeting they have.
+ */
+export function isConfirmedMeeting(e: CalendarEventLite): boolean {
+  return e.myStatus === "accepted" || e.myStatus === "tentative";
+}
+
 export function contextSignals(
   ctx: PersonalContext | null | undefined,
   fromEmail: string,
@@ -335,6 +344,7 @@ export function contextSignals(
 
   let meeting: ContextSignals["meeting"] = null;
   for (const e of ctx.events) {
+    if (!isConfirmedMeeting(e)) continue;
     if (!e.startsAt || !e.attendees.includes(email)) continue;
     if (!meeting || e.startsAt < meeting.startsAt) {
       meeting = { subject: e.subject, startsAt: e.startsAt };

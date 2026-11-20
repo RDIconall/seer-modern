@@ -40,8 +40,27 @@ function keyFor(accountEmail: string) {
   return `people:${accountKey(accountEmail)}`;
 }
 
+/**
+ * Records written before a meeting required the user's own accept or
+ * tentative answer. Any calendar invite earned them, so they are judged
+ * again instead of trusted.
+ */
+export function isUnconfirmedMeetingEvidence(p: {
+  by?: string;
+  reason?: string;
+  vip?: boolean;
+}): boolean {
+  return (
+    p.by === "evidence" && p.reason === "You have a meeting with them" && !p.vip
+  );
+}
+
 export async function loadPeople(accountEmail: string): Promise<PeopleDb> {
-  return (await kvGet<PeopleDb>(keyFor(accountEmail))) ?? {};
+  const db = (await kvGet<PeopleDb>(keyFor(accountEmail))) ?? {};
+  for (const [email, p] of Object.entries(db)) {
+    if (isUnconfirmedMeetingEvidence(p)) delete db[email];
+  }
+  return db;
 }
 
 export async function savePeople(
@@ -81,7 +100,7 @@ export function tierFromEvidence(input: {
     return { tier: "inner", reason: "In your contacts" };
   }
   if (input.hasMeeting) {
-    return { tier: "inner", reason: "You have a meeting with them" };
+    return { tier: "inner", reason: "You accepted a meeting with them" };
   }
   if (MACHINE_LOCALPART.test(local)) {
     return { tier: "machine", reason: "Automated address" };

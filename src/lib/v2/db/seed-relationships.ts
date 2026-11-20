@@ -23,7 +23,10 @@ export type PersonSeed = {
 
 export type RelationshipSources = {
   /** Legacy people DB: email -> { tier, vip, name }. */
-  people?: Record<string, { tier?: string; vip?: boolean; name?: string }> | null;
+  people?: Record<
+    string,
+    { tier?: string; vip?: boolean; name?: string; by?: string; reason?: string }
+  > | null;
   /** Mail history contacts: email -> { sentTo }. */
   history?: { contacts?: Record<string, { sentTo?: number }> } | null;
   /** Saved address-book contacts (emails). */
@@ -49,6 +52,11 @@ export function collectPeople(sources: RelationshipSources): PersonSeed[] {
   };
 
   for (const [email, p] of Object.entries(sources.people ?? {})) {
+    // Earned from any calendar invite, before a meeting needed the user's
+    // own accept — not proof of a relationship.
+    if (p.by === "evidence" && p.reason === "You have a meeting with them" && !p.vip) {
+      continue;
+    }
     const tier = p.tier && VALID_TIERS.has(p.tier) ? (p.tier as PersonSeed["tier"]) : "unknown";
     put(email, { tier, vip: p.vip, name: p.name });
   }

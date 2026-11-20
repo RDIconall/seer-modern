@@ -1,5 +1,8 @@
 import { getOrBuildMailHistory } from "@/lib/inbox/mail-history-store";
-import { getPersonalContext } from "@/lib/inbox/personal-context";
+import {
+  getPersonalContext,
+  isConfirmedMeeting,
+} from "@/lib/inbox/personal-context";
 import { listGmailFolder } from "@/lib/mail/gmail";
 import { listGraphFolder } from "@/lib/mail/graph";
 import { requireMailSession } from "@/lib/mail/session";
@@ -52,6 +55,7 @@ export async function GET() {
     // profile mentions. Machines and existing VIPs excluded.
     const meetingCounts = new Map<string, number>();
     for (const e of personal.events) {
+      if (!isConfirmedMeeting(e)) continue;
       for (const a of e.attendees) {
         meetingCounts.set(a, (meetingCounts.get(a) ?? 0) + 1);
       }
