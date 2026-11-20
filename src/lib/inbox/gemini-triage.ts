@@ -57,7 +57,7 @@ import { z } from "zod";
  * Bump when the prompt/actions change so stale cached decisions
  * are ignored and re-classified.
  */
-export const PROMPT_VERSION = 24;
+export const PROMPT_VERSION = 25;
 
 const ACTIONS = [
   "respond",
@@ -497,7 +497,7 @@ HARD RULES (override everything above):
 - Sender history never mutes risk: judge THIS message's intent first.
 - A REAL PERSON in the user's life (family, school, colleagues — anyone writing personally, whatever their tier) is NEVER delete_now/read_and_delete. "Someone else already handled it" makes it a record (read_and_archive), not trash — family and money threads get filed, never burned.
 - MEMBERSHIP LANGUAGE IN THE BODY beats missing history: "you're already registered", "your entry is confirmed", "your account/membership/reservation" = the user SIGNED UP for this. A dated opportunity from a signed-up service (ticket window, presale, renewal deadline, race entry) is decision-relevant — act_today or read_and_delete with the date in the task, never delete_now unread.
-- A confirmed appointment/service visit ("scheduled", "arriving between 9-1") holds the user's time → act_today while upcoming.
+- A confirmed appointment/service visit ("scheduled", "arriving between 9-1") holds the user's time → act_today while upcoming, but ONLY from a sender the user already deals with (contact, engaged rel, meeting, kept, or past receipts from that business). The same words from an unknown sender prove nothing — anyone can type them; judge it like any cold mail, never act_today on the phrasing alone.
 
 Input fields: id, from, email, subject, snippet (full text), and optional predictors:
 - tier: personal-database view — vip (user PINNED them: never below respond/read) | inner | known | new | machine-shaped
@@ -1532,6 +1532,9 @@ export async function classifyInboxWithAssistant(
   // "your appointment is scheduled") holds the user's time — no layer
   // may file it below act_today while it's fresh. Once the day passes,
   // it ages out naturally (guard only applies to recent mail).
+  // The phrasing is sender-chosen text, so the floor only overrules
+  // other graders for people the user has chosen: a saved contact or
+  // someone they write to. Everyone else keeps the read they got.
   for (const item of items) {
     const r = results.get(item.id);
     if (!r || r.action === "act_today" || r.action === "respond") continue;
@@ -1542,6 +1545,10 @@ export async function classifyInboxWithAssistant(
     if (ageInDays(item.receivedAt) > 5) continue;
     const hay = `${item.subject}\n${item.snippet}`;
     if (!APPOINTMENT_HOLD.test(hay)) continue;
+    const chosenSender =
+      contextSignals(extras?.personal, item.fromEmail).inContacts ||
+      historySignals(history, item.fromEmail).relationship === "engaged";
+    if (!chosenSender) continue;
     // Passive shipment status ("your shipment is scheduled for delivery
     // tomorrow") is not an appointment — nobody needs to be home unless
     // a signature/pickup is required (needsYouEscape catches those).
