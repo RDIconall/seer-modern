@@ -229,7 +229,9 @@ export function useMailbox(initialTab: ViewTab = "inbox") {
   }, []);
 
   const loadTriage = useCallback(async () => {
-    const res = await fetch("/api/today", { cache: "no-store" });
+    // POST: grading spends model quota and writes labels, so the server
+    // only grades same-origin POSTs; a GET returns grades on file.
+    const res = await fetch("/api/today", { method: "POST", cache: "no-store" });
     const json = await res.json();
     if (!res.ok) throw new Error(json.error ?? "Load failed");
     const scrubbed: TodayData = {
@@ -248,7 +250,10 @@ export function useMailbox(initialTab: ViewTab = "inbox") {
     async (folder: "inbox" | "sent" | "trash", q?: string) => {
       const params = new URLSearchParams({ folder });
       if (q?.trim()) params.set("q", q.trim());
-      const res = await fetch(`/api/mailbox?${params}`, { cache: "no-store" });
+      const res = await fetch(`/api/mailbox?${params}`, {
+        method: "POST",
+        cache: "no-store",
+      });
       const json = await res.json();
       if (!res.ok) throw new Error(json.error ?? "Load failed");
       // Trash may legitimately contain just-trashed mail — don't scrub it

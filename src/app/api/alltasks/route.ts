@@ -23,14 +23,27 @@ import {
 } from "@/lib/mail/graph";
 import { makeGmailLabelStore } from "@/lib/mail/seer-labels";
 import { requireMailSession } from "@/lib/mail/session";
+import { requestFromApp } from "@/lib/security/origin";
 import { getSenderOverride } from "@/lib/store/senders";
 import { NextResponse } from "next/server";
 
 /**
  * Legacy Seer GET /api/alltasks — card deck as IphoneTask[].
  * Maps modern inbox + Gemini-first triage into the old card shape.
+ * GET is read-only (grades already on file); POST grades and saves.
  */
 export async function GET() {
+  return loadTasks("read");
+}
+
+export async function POST(request: Request) {
+  if (!requestFromApp(request)) {
+    return NextResponse.json({ error: "invalid request origin" }, { status: 403 });
+  }
+  return loadTasks("grade");
+}
+
+async function loadTasks(mode: "grade" | "read") {
   try {
     const session = await requireMailSession();
     if (!session) {
@@ -93,6 +106,7 @@ export async function GET() {
       (email) => getSenderOverride(email),
       classifyMessage,
       {
+        mode,
         personal,
         actionMemory,
         labels,

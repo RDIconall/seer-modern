@@ -167,6 +167,7 @@ export async function GET(request: Request) {
         (email) => getSenderOverride(email),
         classifyMessage,
         {
+          mode: "grade",
           profile,
           actionMemory,
           replied,

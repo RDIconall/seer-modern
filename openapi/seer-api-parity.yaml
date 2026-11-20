@@ -26,6 +26,13 @@ paths:
       responses:
         "200":
           description: JSON array of IphoneTask
+    post:
+      summary: Same as GET, but grades ungraded mail and saves labels (same-origin only)
+      responses:
+        "200":
+          description: JSON array of IphoneTask
+        "403":
+          description: Request did not come from the app's origin
   /api/accounts:
     get:
       summary: Linked accounts
@@ -50,10 +57,17 @@ paths:
           description: { provider, items[] }
   /api/today:
     get:
-      summary: Classified inbox + triage sections
+      summary: Classified inbox + triage sections (read-only; grades on file)
       responses:
         "200":
           description: { inbox[], needsReview[], sections[], count }
+    post:
+      summary: Same as GET, but grades ungraded mail and saves labels (same-origin only)
+      responses:
+        "200":
+          description: { inbox[], needsReview[], sections[], count }
+        "403":
+          description: Request did not come from the app's origin
   /api/mailbox:
     get:
       summary: Folder list (inbox|sent|trash) or search
@@ -67,6 +81,13 @@ paths:
       responses:
         "200":
           description: { items[], count, folder }
+    post:
+      summary: Same as GET, but grades ungraded mail and saves labels (same-origin only)
+      responses:
+        "200":
+          description: { items[], count, folder }
+        "403":
+          description: Request did not come from the app's origin
   /api/send:
     post:
       summary: Compose, reply, replyAll, or forward
