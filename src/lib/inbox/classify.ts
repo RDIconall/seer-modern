@@ -377,17 +377,6 @@ function classifyCore(
     );
   }
 
-  // Calendar beats everything: you're about to meet this person
-  if (extras?.meeting) {
-    return hit(
-      actionable ? "act_today" : "respond",
-      "HIGH",
-      `Upcoming meeting with them (${extras.meeting})`,
-      "meeting-upcoming",
-      ctx,
-    );
-  }
-
   // A contact with an ask is a person waiting on you
   if (extras?.inContacts && actionable) {
     return hit(
@@ -727,6 +716,18 @@ function classifyCore(
       "MED",
       "Promotional content — noise",
       "promo-blob",
+      ctx,
+    );
+  }
+
+  // A meeting only breaks the tie once every sender and content rule has
+  // passed — it never outranks what the mail itself says.
+  if (extras?.meeting) {
+    return hit(
+      actionable ? "respond" : "read_and_archive",
+      "MED",
+      `Upcoming meeting with them (${extras.meeting})`,
+      "meeting-upcoming",
       ctx,
     );
   }
