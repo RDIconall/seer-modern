@@ -1,8 +1,10 @@
 import type { Conversation } from "../providers/types";
 import {
-  counterpartyOf,
+  isKnownPerson,
   ownTokens,
-  resolveMatterMatch,
+  resolveMatterTie,
+  tieCounterpartyOf,
+  type MatterTieBasis,
 } from "./matter-key";
 
 /**
@@ -55,6 +57,8 @@ export type CompiledContext = {
   senderIsKnown: boolean;
   senderIsInternal: boolean;
   candidateMatterId: string | null;
+  /** What tied the conversation to candidateMatterId. */
+  candidateMatterBasis: MatterTieBasis | null;
   /** The sender's tier and VIP flag, for salience. */
   senderTier: string;
   senderVip: boolean;
@@ -100,9 +104,7 @@ export function compileContext(
     Boolean(input.ownDomain) && senderDomain === input.ownDomain.toLowerCase();
 
   const person = input.people.find((p) => p.email.toLowerCase() === senderEmail);
-  const senderIsKnown = Boolean(
-    person && (person.vip || person.tier === "inner" || person.tier === "known"),
-  );
+  const senderIsKnown = isKnownPerson(person);
 
   if (person) {
     lines.push(
@@ -140,8 +142,12 @@ export function compileContext(
   const matterText = `${conversation.subject} ${conversation.messages
     .map((m) => m.bodyText ?? m.snippet)
     .join(" ")}`;
-  const counterparty = counterpartyOf(senderEmail, input.ownDomain);
-  const matterMatch = resolveMatterMatch(
+  const counterparty = tieCounterpartyOf(
+    senderEmail,
+    input.ownDomain,
+    senderIsKnown,
+  );
+  const matterTie = resolveMatterTie(
     {
       title: conversation.subject,
       text: matterText,
@@ -156,6 +162,7 @@ export function compileContext(
       userAuthored: Boolean(matter.userAuthored),
     })),
   );
+  const matterMatch = matterTie?.candidate ?? null;
   const candidateMatterId = matterMatch?.matterId ?? null;
   if (matterMatch) {
     const matter = input.matters.find((item) => item.id === matterMatch.matterId);
@@ -182,6 +189,7 @@ export function compileContext(
     senderIsKnown,
     senderIsInternal,
     candidateMatterId,
+    candidateMatterBasis: matterTie?.basis ?? null,
     senderTier: person?.tier ?? "unknown",
     senderVip: Boolean(person?.vip),
     priorMatterRejections,

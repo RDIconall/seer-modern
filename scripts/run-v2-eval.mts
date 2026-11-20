@@ -78,6 +78,7 @@ async function main() {
       hasOpenAsk: Boolean(read.ask && !/^\s*nothing/i.test(read.ask)),
       hasPendingObligation: read.obligation,
       liveMatterId: compiled.candidateMatterId,
+      liveMatterBasis: compiled.candidateMatterBasis,
       senderIsKnown: compiled.senderIsKnown,
       senderIsInternal: compiled.senderIsInternal,
       yieldPersisted: true,

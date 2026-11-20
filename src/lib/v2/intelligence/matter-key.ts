@@ -98,12 +98,39 @@ export function counterpartyOf(fromEmail: string, ownDomain: string): string {
   const domain = (fromEmail.split("@")[1] ?? "").toLowerCase();
   if (!domain) return "";
   if (ownDomain && domain === ownDomain.toLowerCase()) return "internal";
+  // Only labels that unmistakably name mail plumbing are stripped. Short
+  // generic ones (e, em, go, send, info, news) collapsed any subdomain anyone
+  // can register onto the company it sits under.
   const bare = domain.replace(
-    /^(mail|email|e|smtp|notifications?|no-?reply|info|reply|bounce|em|mailer|send|go|links?|vendor|global|list|news|newsletters?)\./,
+    /^(mail|email|smtp|notifications?|no-?reply|bounce|mailer|newsletters?)\./,
     "",
   );
   if (!bare || FREEMAIL.test(`${bare}.`)) return "";
   return bare.split(".")[0];
+}
+
+/**
+ * The counterparty work may be TIED on. A From header is whatever the sender
+ * typed, so its domain says who the mail claims to be from, not who it is
+ * from. It only identifies a counterparty once this exact address is a
+ * relationship the user already has; otherwise the conversation has none and
+ * can tie only on a shared code or a user-named matter.
+ */
+export function tieCounterpartyOf(
+  fromEmail: string,
+  ownDomain: string,
+  senderIsKnown: boolean,
+): string {
+  return senderIsKnown ? counterpartyOf(fromEmail, ownDomain) : "";
+}
+
+/** A sender the user has a real relationship with (VIP / inner / known). */
+export function isKnownPerson(
+  person: { tier: string; vip: boolean } | null | undefined,
+): boolean {
+  return Boolean(
+    person && (person.vip || person.tier === "inner" || person.tier === "known"),
+  );
 }
 
 export function significantWords(text: string): Set<string> {
@@ -244,6 +271,21 @@ export function resolveMatterMatch(
   key: ConversationKey,
   candidates: MatterCandidate[],
 ): MatterCandidate | null {
+  return resolveMatterTie(key, candidates)?.candidate ?? null;
+}
+
+/**
+ * Why a conversation tied to a matter: a shared code, the exact name of a
+ * matter the user authored, or counterparty plus shared request words. The
+ * last is only a resemblance of subject lines, so promotion safety still
+ * applies its sender checks to it.
+ */
+export type MatterTieBasis = "code" | "user_title" | "relation";
+
+export function resolveMatterTie(
+  key: ConversationKey,
+  candidates: MatterCandidate[],
+): { candidate: MatterCandidate; basis: MatterTieBasis } | null {
   const codes = extractCodes(key.text);
   // Only words that identify WORK count toward a tie. "RDI engagement /
   // Conall call" shares three words with its own duplicates and none of them
@@ -254,7 +296,9 @@ export function resolveMatterMatch(
   // 1. Same code = same work. Strongest and cheapest signal.
   if (codes.length > 0) {
     for (const candidate of candidates) {
-      if (candidate.codes.some((c) => codes.includes(c))) return candidate;
+      if (candidate.codes.some((c) => codes.includes(c))) {
+        return { candidate, basis: "code" };
+      }
     }
   }
 
@@ -267,7 +311,9 @@ export function resolveMatterMatch(
   if (normalized) {
     for (const candidate of candidates) {
       if (!candidate.userAuthored) continue;
-      if (normalizeTitle(candidate.title) === normalized) return candidate;
+      if (normalizeTitle(candidate.title) === normalized) {
+        return { candidate, basis: "user_title" };
+      }
     }
   }
 
@@ -283,5 +329,5 @@ export function resolveMatterMatch(
       best = { candidate, score: shared };
     }
   }
-  return best?.candidate ?? null;
+  return best ? { candidate: best.candidate, basis: "relation" } : null;
 }
