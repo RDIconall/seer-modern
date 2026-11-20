@@ -22,7 +22,7 @@ function parseHeaders(
   listUnsubPost: string | undefined,
 ): Parsed {
   const out: Parsed = { oneClick: /one-click/i.test(listUnsubPost ?? "") };
-  for (const m of (listUnsub ?? "").matchAll(/<([^>]+)>/g)) {
+  for (const m of (listUnsub ?? "").matchAll(/<([^<>]+)>/g)) {
     const url = m[1].trim();
     if (/^https?:\/\//i.test(url) && !out.https) out.https = url;
     if (/^mailto:/i.test(url) && !out.mailto) out.mailto = url;

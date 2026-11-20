@@ -644,7 +644,7 @@ function compactPayload(
       // list snippets are ~200 chars — this cap protects tokens either way
       snippet: m.snippet
         .replace(/\[image:[^\]]*\]/gi, " ")
-        .replace(/<https?:\/\/[^>\s]+>/g, " ")
+        .replace(/<https?:\/\/[^<>\s]+>/g, " ")
         .replace(/\s+/g, " ")
         .slice(0, DEEP_BODY_CHARS),
     };

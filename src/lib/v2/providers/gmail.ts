@@ -73,6 +73,21 @@ function header(headers: GmailHeader[] | undefined, name: string): string {
   return headers?.find((h) => h.name.toLowerCase() === name.toLowerCase())?.value ?? "";
 }
 
+/**
+ * `chunk.match(/^(.*)<([^>]+)>$/)` without the regex: it retries the tail
+ * from every `<`, and the sender writes the header.
+ */
+function splitAngle(chunk: string): [name: string, email: string] | null {
+  const n = chunk.length;
+  if (n < 3 || chunk[n - 1] !== ">") return null;
+  const lastGt = chunk.lastIndexOf(">", n - 2);
+  // `.` stops at a line break, so the name cannot run past one.
+  const lineBreak = chunk.search(/[\n\r\u2028\u2029]/);
+  const lt = chunk.lastIndexOf("<", Math.min(n - 3, lineBreak === -1 ? n : lineBreak));
+  if (lt === -1 || lt <= lastGt) return null;
+  return [chunk.slice(0, lt), chunk.slice(lt + 1, n - 1)];
+}
+
 function parseAddresses(raw: string): Address[] {
   if (!raw) return [];
   return raw
@@ -80,8 +95,8 @@ function parseAddresses(raw: string): Address[] {
     .map((chunk) => chunk.trim())
     .filter(Boolean)
     .map((chunk) => {
-      const m = chunk.match(/^(.*)<([^>]+)>$/);
-      if (m) return { name: m[1].trim().replace(/(^"|"$)/g, ""), email: m[2].trim().toLowerCase() };
+      const m = splitAngle(chunk);
+      if (m) return { name: m[0].trim().replace(/(^"|"$)/g, ""), email: m[1].trim().toLowerCase() };
       return { email: chunk.toLowerCase() };
     });
 }

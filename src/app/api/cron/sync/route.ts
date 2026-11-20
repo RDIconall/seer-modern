@@ -40,6 +40,7 @@ import { syncSalesforce } from "@/lib/crm/salesforce-sync";
 import { loadUserProfile } from "@/lib/store/user-profile";
 import { getSenderOverride } from "@/lib/store/senders";
 import { NextResponse } from "next/server";
+import { htmlToPlain } from "@/lib/mail/html-scan";
 
 /** Deep enough to cover a real 500+ inbox in one pass */
 const INBOX_DEPTH = 1200;
@@ -181,7 +182,7 @@ export async function GET(request: Request) {
               : await getGraphMessage(token, id);
             return (
               msg.textBody ||
-              msg.htmlBody.replace(/<[^>]+>/g, " ").replace(/\s+/g, " ")
+              htmlToPlain(msg.htmlBody)
             );
           },
         },
@@ -283,7 +284,7 @@ export async function GET(request: Request) {
               : await getGraphMessage(token, id);
             return (
               msg.textBody ||
-              msg.htmlBody.replace(/<[^>]+>/g, " ").replace(/\s+/g, " ")
+              htmlToPlain(msg.htmlBody)
             );
           },
         });

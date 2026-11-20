@@ -13,9 +13,47 @@ export type {
   SendMailInput,
 } from "@/lib/mail/types";
 
+/**
+ * `raw.match(/^(?:"?([^"]*)"?\s)?<?([^>]+@[^>]+)>?$/)` in one pass, trying
+ * the same splits in the same order. The regex itself backtracks over every
+ * space and `@` in the header, and the sender chooses the header.
+ */
+function matchAddress(raw: string): { name?: string; email: string } | null {
+  const n = raw.length;
+  const end = raw.endsWith(">") ? n - 1 : n;
+  const lastGt = end > 0 ? raw.lastIndexOf(">", end - 1) : -1;
+  const lastAt = end > 1 ? raw.lastIndexOf("@", end - 2) : -1;
+  const isSpace = (i: number) => i < n && /\s/.test(raw[i]);
+
+  // The `<?([^>]+@[^>]+)>?$` tail, starting at `k`.
+  const tail = (k: number): string | null => {
+    if (k <= lastGt) return null;
+    if (raw[k] === "<" && lastAt >= k + 2) return raw.slice(k + 1, end);
+    if (lastAt >= k + 1) return raw.slice(k, end);
+    return null;
+  };
+
+  // `[^"]*"?\s` from `start`, longest name first.
+  const named = (start: number) => {
+    const quote = raw.indexOf('"', start);
+    for (let j = quote === -1 ? n : quote; j >= start; j -= 1) {
+      const k = raw[j] === '"' ? (isSpace(j + 1) ? j + 2 : -1) : isSpace(j) ? j + 1 : -1;
+      if (k === -1) continue;
+      const email = tail(k);
+      if (email !== null) return { name: raw.slice(start, j), email };
+    }
+    return null;
+  };
+
+  const found = (raw[0] === '"' ? named(1) : null) ?? named(0);
+  if (found) return found;
+  const email = tail(0);
+  return email === null ? null : { email };
+}
+
 function parseAddress(raw: string): { name: string; email: string } {
-  const m = raw.match(/^(?:"?([^"]*)"?\s)?<?([^>]+@[^>]+)>?$/);
-  if (m) return { name: (m[1] ?? m[2]).trim(), email: m[2].trim() };
+  const m = matchAddress(raw);
+  if (m) return { name: (m.name ?? m.email).trim(), email: m.email.trim() };
   return { name: raw, email: raw };
 }
 
