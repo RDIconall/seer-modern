@@ -16,6 +16,9 @@ export type MailMessageListItem = {
   /** Every address on the message (from + to + cc, lowercase) — the
    *  recipient group that decides whether thread rows collapse */
   participants?: string[];
+  /** The provider filed this as sent mail, or the From domain authenticated
+   *  on arrival. A From header equal to the mailbox proves nothing alone. */
+  fromSelf?: boolean;
 };
 
 export type MailAttachment = {

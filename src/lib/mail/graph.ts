@@ -81,7 +81,7 @@ type GraphMessage = {
   internetMessageId?: string;
 };
 
-function mapListItem(m: GraphMessage): MailMessageListItem {
+function mapListItem(m: GraphMessage, fromSelf: boolean): MailMessageListItem {
   const peer = m.toRecipients?.[0]?.emailAddress?.address;
   return {
     id: m.id,
@@ -95,6 +95,7 @@ function mapListItem(m: GraphMessage): MailMessageListItem {
     receivedAt:
       m.receivedDateTime ?? m.sentDateTime ?? new Date().toISOString(),
     isUnread: !m.isRead,
+    fromSelf,
   };
 }
 
@@ -164,7 +165,9 @@ export async function listGraphFolder(
       value?: GraphMessage[];
       "@odata.nextLink"?: string;
     };
-    out.push(...(data.value ?? []).map(mapListItem));
+    out.push(
+      ...(data.value ?? []).map((m) => mapListItem(m, folder === "sent")),
+    );
     next = data["@odata.nextLink"];
     if (!data.value?.length) break;
   }
@@ -199,7 +202,38 @@ export async function searchGraph(
   });
   if (!res.ok) throw new Error(`Graph search: ${res.status}`);
   const data = (await res.json()) as { value?: GraphMessage[] };
-  return (data.value ?? []).map(mapListItem);
+  return (data.value ?? []).map((m) => mapListItem(m, folder === "sent"));
+}
+
+/**
+ * Ids of this conversation's messages that sit in Sent Items — Outlook's only
+ * word on which turns the owner wrote. A failed lookup vouches for nothing.
+ */
+async function graphSentIds(
+  accessToken: string,
+  conversationId: string,
+): Promise<Set<string>> {
+  if (!conversationId) return new Set();
+  const url = new URL(
+    "https://graph.microsoft.com/v1.0/me/mailFolders/sentitems/messages",
+  );
+  url.searchParams.set(
+    "$filter",
+    `conversationId eq '${conversationId.replace(/'/g, "''")}'`,
+  );
+  url.searchParams.set("$select", "id");
+  url.searchParams.set("$top", "100");
+  try {
+    const res = await graphRawFetch(url.toString(), {
+      headers: { Authorization: `Bearer ${accessToken}` },
+      cache: "no-store",
+    });
+    if (!res.ok) return new Set();
+    const data = (await res.json()) as { value?: { id: string }[] };
+    return new Set((data.value ?? []).map((m) => m.id));
+  } catch {
+    return new Set();
+  }
 }
 
 function recipientsToString(
@@ -211,6 +245,17 @@ function recipientsToString(
     .join(", ");
 }
 
+/** One message with `fromSelf` resolved against Sent Items. */
+export async function getGraphMessageWithSender(
+  accessToken: string,
+  id: string,
+): Promise<MailMessageDetail> {
+  const message = await getGraphMessage(accessToken, id);
+  const sent = await graphSentIds(accessToken, message.threadId);
+  return { ...message, fromSelf: sent.has(message.id) };
+}
+
+/** Body and headers only; `fromSelf` stays false (see getGraphMessageWithSender). */
 export async function getGraphMessage(
   accessToken: string,
   id: string,
@@ -249,6 +294,7 @@ export async function getGraphMessage(
     snippet: m.bodyPreview ?? "",
     receivedAt: m.receivedDateTime ?? new Date().toISOString(),
     isUnread: !m.isRead,
+    fromSelf: false,
     textBody: text,
     htmlBody: html,
     toEmail: recipientsToString(m.toRecipients),
@@ -263,16 +309,21 @@ export async function getGraphConversationMessages(
   conversationId: string,
 ): Promise<MailMessageDetail[]> {
   const safeId = conversationId.replaceAll("'", "''");
-  const page = (await graphFetch(
-    accessToken,
-    `/me/messages?$filter=conversationId eq '${safeId}'&$select=id&$top=100`,
-  )) as { value?: { id: string }[] };
+  const [page, sent] = await Promise.all([
+    graphFetch(
+      accessToken,
+      `/me/messages?$filter=conversationId eq '${safeId}'&$select=id&$top=100`,
+    ) as Promise<{ value?: { id: string }[] }>,
+    graphSentIds(accessToken, conversationId),
+  ]);
   const messages = await Promise.all(
     (page.value ?? []).map((message) =>
       getGraphMessage(accessToken, message.id),
     ),
   );
-  return messages.sort((a, b) => a.receivedAt.localeCompare(b.receivedAt));
+  return messages
+    .map((message) => ({ ...message, fromSelf: sent.has(message.id) }))
+    .sort((a, b) => a.receivedAt.localeCompare(b.receivedAt));
 }
 
 /** Raw attachment bytes (fileAttachment contentBytes). */

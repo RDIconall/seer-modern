@@ -4,6 +4,7 @@ import type {
   MailMessageListItem,
   SendMailInput,
 } from "@/lib/mail/types";
+import { gmailMarksFromSelf } from "@/lib/v2/providers/sender-identity";
 import { compileGmailSearch, parseMailSearch } from "@/lib/v3/search/parser";
 
 export type {
@@ -159,7 +160,7 @@ async function hydrateOne(
 ): Promise<MailMessageListItem> {
   const msg = (await gmailFetch(
     accessToken,
-    `/users/me/messages/${m.id}?format=metadata&metadataHeaders=From&metadataHeaders=Subject&metadataHeaders=To&metadataHeaders=Cc`,
+    `/users/me/messages/${m.id}?format=metadata&metadataHeaders=From&metadataHeaders=Subject&metadataHeaders=To&metadataHeaders=Cc&metadataHeaders=Authentication-Results`,
   )) as {
     id: string;
     threadId: string;
@@ -203,6 +204,7 @@ async function hydrateOne(
       : new Date().toISOString(),
     isUnread: (msg.labelIds ?? []).includes("UNREAD"),
     labelIds: msg.labelIds ?? [],
+    fromSelf: gmailMarksFromSelf(msg.labelIds, headers, email),
   };
 }
 
@@ -312,13 +314,14 @@ export async function getGmailThreadLast(
 ): Promise<{
   fromEmail: string;
   fromName: string;
+  fromSelf: boolean;
   receivedAt: string;
   id: string;
 } | null> {
   try {
     const t = (await gmailFetch(
       accessToken,
-      `/users/me/threads/${threadId}?format=metadata&metadataHeaders=From`,
+      `/users/me/threads/${threadId}?format=metadata&metadataHeaders=From&metadataHeaders=Authentication-Results`,
     )) as {
       messages?: {
         id: string;
@@ -342,6 +345,7 @@ export async function getGmailThreadLast(
       id: last.id,
       fromEmail: email.toLowerCase(),
       fromName: name && name !== email ? name : "",
+      fromSelf: gmailMarksFromSelf(last.labelIds, last.payload?.headers, email),
       receivedAt: last.internalDate
         ? new Date(Number(last.internalDate)).toISOString()
         : new Date().toISOString(),
@@ -387,6 +391,7 @@ export async function getGmailMessage(
       : new Date().toISOString(),
     isUnread: (msg.labelIds ?? []).includes("UNREAD"),
     labelIds: msg.labelIds ?? [],
+    fromSelf: gmailMarksFromSelf(msg.labelIds, headers, email),
     textBody: text,
     htmlBody: html,
     toEmail: header("To"),

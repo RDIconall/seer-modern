@@ -6,6 +6,7 @@ import {
   outlookMutationAlreadyApplied,
 } from "./mutation-idempotent";
 import { nativeUrlFor } from "./native-url";
+import { isOwnMessage } from "./sender-identity";
 import type {
   Address,
   AttachmentContent,
@@ -72,9 +73,16 @@ function addrs(list: GraphRecipient[] | undefined): Address[] {
   return (list ?? []).map(addr).filter((a): a is Address => a !== null);
 }
 
-function toMessage(m: GraphMessage, selfEmail: string): Message {
+function toMessage(
+  m: GraphMessage,
+  selfEmail: string,
+  sentFolderId: string | null,
+): Message {
   const isHtml = (m.body?.contentType ?? "").toLowerCase() === "html";
   const from = addr(m.from) ?? { email: "" };
+  // Graph has no authentication verdict on a message; only Sent Items vouches.
+  const fromSelf =
+    sentFolderId !== null && m.parentFolderId === sentFolderId;
   return {
     providerMessageId: m.id,
     from,
@@ -85,7 +93,7 @@ function toMessage(m: GraphMessage, selfEmail: string): Message {
     bodyHtml: isHtml ? (m.body?.content ?? null) : null,
     bodyText: isHtml ? null : (m.body?.content ?? null),
     isUnread: m.isRead === false,
-    isOutgoing: from.email === selfEmail.toLowerCase(),
+    isOutgoing: isOwnMessage({ fromEmail: from.email, fromSelf }, selfEmail),
     attachments: (m.attachments ?? []).map((a) => ({
       id: a.id ?? "",
       filename: a.name ?? "",
@@ -164,9 +172,32 @@ export class OutlookProvider implements MailProvider {
     return messages;
   }
 
-  private toConversation(id: string, msgs: GraphMessage[]): Conversation {
+  private sentFolder: Promise<string | null> | null = null;
+
+  /** Sent Items' folder id. A failed lookup is retried next time, never cached. */
+  private sentFolderId(context?: SyncContext): Promise<string | null> {
+    this.sentFolder ??= this.get<{ id?: string }>(
+      `${API}/mailFolders/sentitems?$select=id`,
+      context,
+    ).then(
+      (folder) => folder.id ?? null,
+      (error) => {
+        this.sentFolder = null;
+        if (error instanceof SyncDeadlineError) throw error;
+        return null;
+      },
+    );
+    return this.sentFolder;
+  }
+
+  private async toConversation(
+    id: string,
+    msgs: GraphMessage[],
+    context?: SyncContext,
+  ): Promise<Conversation> {
+    const sentFolderId = await this.sentFolderId(context);
     const messages = msgs
-      .map((m) => toMessage(m, this.deps.accountEmail))
+      .map((m) => toMessage(m, this.deps.accountEmail, sentFolderId))
       .sort((a, b) => a.sentAt.localeCompare(b.sentAt));
     return {
       providerConversationId: id,
@@ -227,7 +258,11 @@ export class OutlookProvider implements MailProvider {
     for (const id of conversationIds) {
       assertSyncBudget(context);
       conversations.push(
-        this.toConversation(id, await this.conversationMessages(id, context)),
+        await this.toConversation(
+          id,
+          await this.conversationMessages(id, context),
+          context,
+        ),
       );
     }
     return {
@@ -248,7 +283,7 @@ export class OutlookProvider implements MailProvider {
     const providerQuery = compileOutlookSearch(parseMailSearch(query));
     const url =
       cursor ??
-      `${API}/messages?$search=${encodeURIComponent(`"${providerQuery}"`)}&$top=${this.pageSize}&$select=id,conversationId,subject,from,toRecipients,ccRecipients,receivedDateTime,bodyPreview,body,isRead`;
+      `${API}/messages?$search=${encodeURIComponent(`"${providerQuery}"`)}&$top=${this.pageSize}&$select=id,conversationId,subject,from,toRecipients,ccRecipients,receivedDateTime,bodyPreview,body,isRead,parentFolderId`;
     const page: { value?: GraphMessage[]; "@odata.nextLink"?: string } =
       await this.get(url);
     const byConversation = new Map<string, GraphMessage[]>();
@@ -258,8 +293,10 @@ export class OutlookProvider implements MailProvider {
       byConversation.set(m.conversationId, arr);
     }
     return {
-      conversations: [...byConversation.entries()].map(([id, msgs]) =>
-        this.toConversation(id, msgs),
+      conversations: await Promise.all(
+        [...byConversation.entries()].map(([id, msgs]) =>
+          this.toConversation(id, msgs),
+        ),
       ),
       nextCursor: page["@odata.nextLink"] ?? null,
     };

@@ -24,6 +24,7 @@ import { makeGmailLabelStore } from "@/lib/mail/seer-labels";
 import { requireMailSession } from "@/lib/mail/session";
 import type { MailFolder, MailMessageListItem } from "@/lib/mail/types";
 import { getSenderOverride } from "@/lib/store/senders";
+import { isOwnMessage } from "@/lib/v2/providers/sender-identity";
 import { NextResponse, after } from "next/server";
 
 export const maxDuration = 60;
@@ -129,6 +130,7 @@ export async function GET(request: Request) {
           labelIds: m.labelIds,
           threadId: m.threadId,
           receivedAt: m.receivedAt,
+          fromSelf: m.fromSelf,
         })),
         history,
         (email) => getSenderOverride(email),
@@ -180,10 +182,7 @@ export async function GET(request: Request) {
         if (result.pending) pending += 1;
         annotated.push({
           ...m,
-          fromName:
-            m.fromEmail.toLowerCase() === session.email.toLowerCase()
-              ? "You"
-              : m.fromName,
+          fromName: isOwnMessage(m, session.email) ? "You" : m.fromName,
           guide: buildActionGuideQuick(result, m.subject, m.fromName, m.snippet),
         });
       }

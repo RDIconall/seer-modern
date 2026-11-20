@@ -31,6 +31,7 @@ import { getInboxSnapshot } from "@/lib/mail/inbox-snapshot";
 import { makeGmailLabelStore } from "@/lib/mail/seer-labels";
 import { requireMailSession } from "@/lib/mail/session";
 import { getSenderOverride } from "@/lib/store/senders";
+import { isOwnMessage } from "@/lib/v2/providers/sender-identity";
 import { NextResponse, after } from "next/server";
 
 export const maxDuration = 60;
@@ -128,6 +129,7 @@ export async function GET() {
         labelIds: m.labelIds,
         threadId: m.threadId,
         receivedAt: m.receivedAt,
+        fromSelf: m.fromSelf,
       })),
       history,
       (email) => getSenderOverride(email),
@@ -182,10 +184,7 @@ export async function GET() {
       );
       // Your own turns in inboxed threads display as "You" — the row's
       // task says what to do; the name says who wrote what you're seeing.
-      const fromName =
-        m.fromEmail.toLowerCase() === session.email.toLowerCase()
-          ? "You"
-          : m.fromName;
+      const fromName = isOwnMessage(m, session.email) ? "You" : m.fromName;
       classified.push({ ...m, fromName, guide });
     }
 
