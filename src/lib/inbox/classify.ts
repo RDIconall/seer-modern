@@ -226,14 +226,93 @@ export function needsYouEscape(subject: string, snippet: string): boolean {
 const URGENCY_BAIT =
   /\b(expires? (today|tonight|soon|at midnight)|ends (today|tonight|soon)|last (chance|day|hours)|final (notice|hours|day|reminder)|act now|action required|due today|hurry|don'?t miss|limited time|selling (out|fast)|only \d+ (left|remaining)|reminder:|confirm your (email|account))\b/i;
 
-const PRODUCT_NOTIFY_DOMAINS =
-  /(github\.com|noreply\.github\.com|users\.noreply\.github\.com|gitlab\.com|bitbucket\.org|vercel\.com|netlify\.com|cursor\.com|cursor\.sh|slack\.com|discord\.com|notion\.so|figma\.com|linear\.app|atlassian\.net|jira\.|asana\.com|trello\.com|dropbox\.com|box\.com|zoom\.us|calendly\.com|linkedin\.com|twitter\.com|x\.com|facebookmail\.com|instagram\.com|spotify\.com|apple\.com|accounts\.google\.com|microsoft\.com|office365\.com|google\.com|amazonses\.com|sendgrid\.net|mailchimp\.com|intercom-mail\.com|stripe\.com)/i;
+/**
+ * Sender-class lists are exact domains. A sender belongs to one only when
+ * its address domain IS a listed domain or a subdomain of it — never when
+ * a listed name merely appears inside the domain or the display name,
+ * both of which any sender controls.
+ */
+const PRODUCT_NOTIFY_DOMAINS = new Set([
+  "github.com",
+  "gitlab.com",
+  "bitbucket.org",
+  "vercel.com",
+  "netlify.com",
+  "cursor.com",
+  "cursor.sh",
+  "slack.com",
+  "discord.com",
+  "notion.so",
+  "figma.com",
+  "linear.app",
+  "atlassian.net",
+  "jira.com",
+  "asana.com",
+  "trello.com",
+  "dropbox.com",
+  "box.com",
+  "zoom.us",
+  "calendly.com",
+  "linkedin.com",
+  "twitter.com",
+  "x.com",
+  "facebookmail.com",
+  "instagram.com",
+  "spotify.com",
+  "apple.com",
+  "microsoft.com",
+  "office365.com",
+  "google.com",
+  "amazonses.com",
+  "sendgrid.net",
+  "mailchimp.com",
+  "intercom-mail.com",
+  "stripe.com",
+]);
 
-const FINANCE_DOMAINS =
-  /(bankofamerica|chase\.com|wellsfargo|plaid\.com|stripe\.com|amex|americanexpress|paypal\.com|venmo\.com|citi\.com|schwab|fidelity|coinbase)/i;
+const FINANCE_DOMAINS = new Set([
+  "bankofamerica.com",
+  "chase.com",
+  "wellsfargo.com",
+  "plaid.com",
+  "stripe.com",
+  "amex.com",
+  "americanexpress.com",
+  "paypal.com",
+  "venmo.com",
+  "citi.com",
+  "schwab.com",
+  "fidelity.com",
+  "coinbase.com",
+]);
 
-const SHOPPING_DOMAINS =
-  /(capitaloneshopping|retailmenot|honey\.|rakuten|slickdeals|groupon|shopify|email\.amazon\.|marketing\.amazon)/i;
+const SHOPPING_DOMAINS = new Set([
+  "capitaloneshopping.com",
+  "retailmenot.com",
+  "honey.com",
+  "joinhoney.com",
+  "rakuten.com",
+  "slickdeals.net",
+  "groupon.com",
+  "shopify.com",
+  "email.amazon.com",
+  "email.amazon.co.uk",
+  "email.amazon.ca",
+  "email.amazon.de",
+  "marketing.amazon.com",
+]);
+
+/** True when `dom` is a listed domain or a subdomain of one. */
+function domainInList(dom: string, list: ReadonlySet<string>): boolean {
+  let rest = dom;
+  while (rest) {
+    if (list.has(rest)) return true;
+    const dot = rest.indexOf(".");
+    if (dot === -1) return false;
+    rest = rest.slice(dot + 1);
+  }
+  return false;
+}
 
 const MARKETING_LOCAL =
   /^(promo|deals|offers|newsletter|news|marketing|hello@|info@|team@|notifications@|noreply@|no-reply@)/i;
@@ -256,8 +335,19 @@ const RECEIPT_BLOB =
 const ANOMALY_BLOB =
   /\b(failed|declined|price change|unusual|anomaly|dispute|refund required)\b/i;
 
+const HOSTNAME =
+  /^[a-z0-9](?:[a-z0-9-]*[a-z0-9])?(?:\.[a-z0-9](?:[a-z0-9-]*[a-z0-9])?)+$/;
+
+/**
+ * The domain the address is delivered to: everything after the LAST "@"
+ * (a local part may itself contain "@"). Anything that is not a plain
+ * hostname has no domain, so it can match no sender-class list.
+ */
 function domain(email: string): string {
-  return email.split("@")[1]?.toLowerCase() ?? "";
+  const at = email.lastIndexOf("@");
+  if (at === -1) return "";
+  const dom = email.slice(at + 1).toLowerCase().replace(/\.$/, "");
+  return HOSTNAME.test(dom) ? dom : "";
 }
 
 function localPart(email: string): string {
@@ -268,7 +358,7 @@ function isMarketingShape(local: string, dom: string, blob: string): boolean {
   return (
     MARKETING_LOCAL.test(local) ||
     MARKETING_SUBDOMAIN.test(dom) ||
-    SHOPPING_DOMAINS.test(dom) ||
+    domainInList(dom, SHOPPING_DOMAINS) ||
     PROMO_BLOB.test(blob)
   );
 }
@@ -317,7 +407,6 @@ export function classifyMessage(
   const dom = domain(email);
   const local = localPart(email);
   const blob = `${input.subject} ${input.snippet}`.toLowerCase();
-  const fromBlob = `${input.fromName ?? ""} ${email}`.toLowerCase();
   const signals = historySignals(history, email);
   const intel = intelBreakdown(`${input.subject}\n${input.snippet}`);
   const actionable =
@@ -331,7 +420,6 @@ export function classifyMessage(
     dom,
     local,
     blob,
-    fromBlob,
   });
 
   // Contact protection: someone in your address book is never
@@ -361,10 +449,9 @@ function classifyCore(
     dom: string;
     local: string;
     blob: string;
-    fromBlob: string;
   },
 ): ClassifyResult {
-  const { email, dom, local, blob, fromBlob } = parts;
+  const { email, dom, local, blob } = parts;
   const { signals, actionable, extras } = ctx;
 
   if (senderOverride) {
@@ -539,7 +626,7 @@ function classifyCore(
 
   // Known product / finance / shopping before bulk-noreply relationship,
   // so GitHub/Vercel/etc. aren't hard-deleted just because local is noreply.
-  if (SHOPPING_DOMAINS.test(dom) || SHOPPING_DOMAINS.test(fromBlob)) {
+  if (domainInList(dom, SHOPPING_DOMAINS)) {
     // Deals mail is noise unless the user buys from them (engaged/taught)
     return hit(
       signals.relationship === "engaged" ? "glance_promo" : "delete_now",
@@ -550,7 +637,7 @@ function classifyCore(
     );
   }
 
-  if (PRODUCT_NOTIFY_DOMAINS.test(dom) || PRODUCT_NOTIFY_DOMAINS.test(fromBlob)) {
+  if (domainInList(dom, PRODUCT_NOTIFY_DOMAINS)) {
     if (PROMO_BLOB.test(blob)) {
       return hit(
         signals.relationship === "engaged" ? "glance_promo" : "delete_now",
@@ -591,7 +678,7 @@ function classifyCore(
     );
   }
 
-  if (FINANCE_DOMAINS.test(dom) || RECEIPT_BLOB.test(blob)) {
+  if (domainInList(dom, FINANCE_DOMAINS) || RECEIPT_BLOB.test(blob)) {
     // Money at risk needs you today — declined, fraud, overdue, locked
     if (FINANCE_RISK.test(blob) || FINANCE_RISK.test(input.subject)) {
       return hit(
