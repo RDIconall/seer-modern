@@ -3,12 +3,13 @@
  * yields. Cases mirror the real inbox: Salesforce "ACTION REQUIRED", a Roche
  * newsletter that must yield a matter connection before deletion, an HBR article
  * matched to an explicit interest, generic news that yields nothing, a known
- * contact with a request, and an incomplete body.
+ * contact with a request, and a message with no body.
  */
 import assert from "node:assert/strict";
 import { startTestDb } from "./v2-testdb.mts";
 import { upsertUser, upsertAccount } from "../src/lib/v2/db/accounts.ts";
 import { readConversation, type ReaderModel } from "../src/lib/v2/intelligence/reader.ts";
+import { conversationPayload } from "../src/lib/v2/intelligence/model.ts";
 import type { ContextInput } from "../src/lib/v2/intelligence/context.ts";
 import type { Conversation, Message } from "../src/lib/v2/providers/types.ts";
 import { asConversationId, type AccountId } from "../src/lib/v2/db/types.ts";
@@ -304,8 +305,9 @@ try {
     );
   }
 
-  // 6. Incomplete body → no classification. It stays in the reader queue;
-  // inventing Archive would be a fallback, not an AI decision.
+  // 6. A message with no body (attachment-only mail) is still read, from its
+  // subject and snippet, so it cannot hold its slot in the read queue. The
+  // model did not see the whole thread, so a delete is vetoed to Archive.
   {
     const providerId = "incomplete-1";
     const row = await db.pool.query<{ id: string }>(
@@ -319,33 +321,41 @@ try {
       messages: [
         {
           providerMessageId: "x", from: { email: "x@y.com" }, to: [], cc: [],
-          sentAt: "2026-08-08T10:00:00Z", snippet: "", bodyHtml: null, bodyText: null,
-          isUnread: true, isOutgoing: false, attachments: [],
+          sentAt: "2026-08-08T10:00:00Z", snippet: "Invoice attached", bodyHtml: null,
+          bodyText: null, isUnread: true, isOutgoing: false,
+          attachments: [{ id: "x-0", filename: "invoice.pdf", mimeType: "", sizeBytes: 0 }],
         },
       ],
       lastMessageAt: "2026-08-08T10:00:00Z",
     };
-    let modelCalled = false;
-    await assert.rejects(
-      () =>
-        readConversation({
-          accountId,
-          conversationId: asConversationId(row.rows[0].id),
-          conversation,
-          context,
-          model: async () => {
-            modelCalled = true;
-            throw new Error("should not be called");
-          },
-        }),
-      /classification not persisted/,
-    );
-    assert.equal(modelCalled, false, "an incomplete conversation must not reach the model");
+    let modelBody: string | null = null;
+    const decision = await readConversation({
+      accountId,
+      conversationId: asConversationId(row.rows[0].id),
+      conversation,
+      context,
+      model: async (input) => {
+        modelBody = conversationPayload(input.conversation).messages[0].body;
+        return {
+          home: "delete",
+          summary: "Attachment only",
+          rationale: "No live work",
+          owner: "nobody",
+          ask: "nothing — informational",
+          obligation: false,
+          yields: [],
+          evidence: [],
+        };
+      },
+    });
+    assert.equal(modelBody, "Invoice attached", "the snippet stands in for a missing body");
+    assert.equal(decision.home, "record");
+    assert.ok(decision.vetoReasons.includes("incomplete_context"));
     const decisions = await db.pool.query<{ n: number }>(
-      "select count(*)::int as n from seer.conversation_decisions where conversation_id = $1",
+      "select count(*)::int as n from seer.conversation_decisions where conversation_id = $1 and is_current",
       [row.rows[0].id],
     );
-    assert.equal(decisions.rows[0].n, 0, "failure is not a fake placement");
+    assert.equal(decisions.rows[0].n, 1, "a body-less thread must leave the read queue");
   }
 
   // 6b. A model outage is also processing failure, not an Archive decision.

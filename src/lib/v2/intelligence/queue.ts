@@ -39,11 +39,19 @@ export async function conversationsNeedingRead(
             and d.model_version <> 'user-correction'
             and (d.model_version <> $2 or d.context_version <> $3)
           )
-          -- Re-read a thread when new mail arrived after its decision.
+          -- Re-read a thread when new mail arrived after its decision. The
+          -- sender controls last_message_at (a future date would stay "newer"
+          -- than every decision), so arrival is the stored row's created_at.
           or (
             d.home <> 'undecided'
             and d.model_version <> 'user-correction'
             and c.last_message_at > d.decided_at
+            and exists (
+              select 1
+                from seer.messages m
+               where m.conversation_id = c.id
+                 and m.created_at > d.decided_at
+            )
           )
           or (
             d.home = 'undecided'

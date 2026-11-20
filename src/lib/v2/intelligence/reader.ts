@@ -113,12 +113,12 @@ export async function readConversation(
 ): Promise<ConversationDecision> {
   const compiled = compileContext(input.conversation, input.context);
 
-  // A read requires the full thread. Without it, stay unclassified and retry.
-  if (!hasCompleteContent(input.conversation)) {
-    throw new ReaderUnavailableError(
-      "conversation content incomplete; classification not persisted",
-    );
-  }
+  // Anyone who can send mail controls whether a message has a body (an
+  // attachment-only message has none), so a missing body must not block the
+  // read: refusing here left no decision and no model_usage row, and the
+  // thread was re-queued at the head of every batch. Read what exists —
+  // subject, snippet, attachment names — and let safety veto a delete.
+  const hadCompleteContent = hasCompleteContent(input.conversation);
 
   let read: ReadResult;
   try {
@@ -152,7 +152,7 @@ export async function readConversation(
   const facts = factsFrom(
     read,
     compiled,
-    true,
+    hadCompleteContent,
     isHumanCorrespondence(input.conversation, input.context.ownEmail),
     addressedDirectly(
       input.conversation,

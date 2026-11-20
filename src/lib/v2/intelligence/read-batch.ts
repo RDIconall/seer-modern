@@ -65,8 +65,9 @@ export async function readBatch(
         decided++;
       } catch (cause) {
         // No fake Archive and no fourth destination. The queue backs off from
-        // a paid attempt; a throw before the model call (incomplete body) is
-        // retried on the next tick because it left no model_usage row.
+        // a paid attempt; a throw before the model call leaves no model_usage
+        // row and is retried on every tick, so the reader must not refuse a
+        // conversation for anything a sender controls.
         failed++;
         const message =
           cause instanceof Error ? cause.message.slice(0, 200) : "read failed";
