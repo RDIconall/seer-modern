@@ -9,6 +9,7 @@ import { loadActionMemory } from "@/lib/store/action-memory";
 import { loadRepliedThreads } from "@/lib/store/replied-threads";
 import { loadUserProfile } from "@/lib/store/user-profile";
 import type { EmailItem } from "@/lib/inbox/types";
+import { htmlBodyText } from "@/lib/html/strip-tags";
 import {
   getGmailMessage,
   getGmailThreadLast,
@@ -150,7 +151,7 @@ export async function GET(request: Request) {
                 : await getGraphMessage(session.accessToken, id);
             return (
               msg.textBody ||
-              msg.htmlBody.replace(/<[^>]+>/g, " ").replace(/\s+/g, " ")
+              htmlBodyText(msg.htmlBody)
             );
           },
           // Superhuman rule: respond NOW, read in the background

@@ -9,6 +9,7 @@ import {
 } from "@/lib/inbox/personal-context";
 import { loadActionMemory } from "@/lib/store/action-memory";
 import { loadRepliedThreads } from "@/lib/store/replied-threads";
+import { htmlBodyText } from "@/lib/html/strip-tags";
 import {
   getGmailMessage,
   getGmailThreadMessages,
@@ -133,7 +134,7 @@ export async function GET(
 
     const bodyText =
       message.textBody ||
-      message.htmlBody.replace(/<[^>]+>/g, " ").replace(/\s+/g, " ");
+      htmlBodyText(message.htmlBody);
 
     const decisions = await classifyInboxWithAssistant(
       session.email,

@@ -2,6 +2,7 @@ import {
   isGeminiConfigured,
   resolveAssistantModel,
 } from "@/lib/inbox/gemini-triage";
+import { htmlBodyText } from "@/lib/html/strip-tags";
 import { getGmailMessage } from "@/lib/mail/gmail";
 import { getGraphMessage } from "@/lib/mail/graph";
 import { requireMailSession } from "@/lib/mail/session";
@@ -68,7 +69,7 @@ export async function POST(request: Request) {
 
     const bodyText = (
       message.textBody ||
-      message.htmlBody.replace(/<[^>]+>/g, " ").replace(/\s+/g, " ")
+      htmlBodyText(message.htmlBody)
     ).slice(0, 5000);
 
     const firstName = (session.name || session.email).split(/[\s@]/)[0];

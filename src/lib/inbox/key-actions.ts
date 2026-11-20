@@ -4,6 +4,8 @@
  * call, works on every message.
  */
 
+import { rewriteTags, stripTags as removeTags } from "../html/strip-tags";
+
 export type KeyAction = { label: string; url: string };
 
 const INTENT_PATTERNS: { re: RegExp; label: string; score: number }[] = [
@@ -27,9 +29,29 @@ const INTENT_PATTERNS: { re: RegExp; label: string; score: number }[] = [
 const JUNK =
   /unsubscribe from|privacy|terms|preferences|view in browser|facebook|twitter|instagram|linkedin\.com\/share|help center|contact us|download (the )?app|app store|google play|mailto:/i;
 
+const ANCHOR_OPEN = /^<a\b/i;
+const ANCHOR_HREF = /href=["'](https?:\/\/[^"']+)["']/i;
+const ANCHOR_CLOSE = /<\/a>/gi;
+const MAX_ANCHORS = 200;
+
+/** The first links with an http(s) href, each with the markup it wraps. */
+function anchors(html: string): { url: string; inner: string }[] {
+  const out: { url: string; inner: string }[] = [];
+  rewriteTags(html, (tag, start, scan) => {
+    if (out.length >= MAX_ANCHORS || !ANCHOR_OPEN.test(tag)) return "";
+    const href = ANCHOR_HREF.exec(tag);
+    if (!href) return "";
+    const innerStart = start + tag.length;
+    const close = scan.find(ANCHOR_CLOSE, innerStart);
+    if (!close) return "";
+    out.push({ url: href[1], inner: html.slice(innerStart, close.index) });
+    return { text: "", resume: close.index + close.length };
+  });
+  return out;
+}
+
 function stripTags(s: string): string {
-  return s
-    .replace(/<[^>]+>/g, " ")
+  return removeTags(s)
     .replace(/&nbsp;/g, " ")
     .replace(/\s+/g, " ")
     .trim();
@@ -42,14 +64,9 @@ export function extractKeyActions(
   if (!htmlBody) return [];
   const found: (KeyAction & { score: number })[] = [];
   const seen = new Set<string>();
-  const anchorRe = /<a\b[^>]*href=["'](https?:\/\/[^"']+)["'][^>]*>([\s\S]*?)<\/a>/gi;
 
-  let m: RegExpExecArray | null;
-  let guard = 0;
-  while ((m = anchorRe.exec(htmlBody)) && guard < 200) {
-    guard += 1;
-    const url = m[1];
-    const text = stripTags(m[2]).slice(0, 80);
+  for (const { url, inner } of anchors(htmlBody)) {
+    const text = stripTags(inner).slice(0, 80);
     const hay = `${text} ${url}`;
     if (!text && !/track|rsvp|pay|confirm/i.test(url)) continue;
 

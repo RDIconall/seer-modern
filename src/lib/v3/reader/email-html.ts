@@ -17,6 +17,14 @@
  * structural pass, not the only line of defence.
  */
 
+import {
+  escapeStrayTagOpeners,
+  rewriteTags,
+  stripTags,
+  type TagResult,
+  type TagScan,
+} from "../../html/strip-tags";
+
 /** Elements that carry meaning. Anything else is unwrapped, keeping its text. */
 const ALLOWED_TAGS = new Set([
   "a", "b", "blockquote", "br", "caption", "code", "col", "colgroup", "dd",
@@ -27,13 +35,29 @@ const ALLOWED_TAGS = new Set([
 ]);
 
 /** Elements whose CONTENT is not message text and must go with them. */
-const VOID_CONTENT =
-  /<(script|style|head|noscript|iframe|object|embed|template|form|svg|math|title)\b[^>]*>[\s\S]*?<\/\1\s*>/gi;
+const VOID_CONTENT_NAMES = [
+  "script", "style", "head", "noscript", "iframe", "object", "embed",
+  "template", "form", "svg", "math", "title",
+];
+const VOID_CONTENT = new RegExp(`^<(${VOID_CONTENT_NAMES.join("|")})\\b`, "i");
+const VOID_CONTENT_END: Record<string, RegExp> = Object.fromEntries(
+  VOID_CONTENT_NAMES.map((name) => [name, new RegExp(`<\\/${name}\\s*>`, "gi")]),
+);
 
 const ORPHAN_DANGEROUS =
-  /<\/?(script|style|head|noscript|iframe|object|embed|template|form|svg|math|title|link|meta|base|input|button|select|textarea)\b[^>]*>/gi;
+  /^<\/?(script|style|head|noscript|iframe|object|embed|template|form|svg|math|title|link|meta|base|input|button|select|textarea)\b/i;
 
-const ATTRIBUTE = /([a-zA-Z_:][-a-zA-Z0-9_:.]*)\s*=\s*("([^"]*)"|'([^']*)'|([^\s"'>]+))/g;
+const ELEMENT = /^<(\/?)([a-zA-Z][a-zA-Z0-9]*)\b([^>]*?)(\/?)>$/;
+const COMMENT_END = /-->/g;
+const PROCESSING_END = /\?>/g;
+
+/**
+ * The name is matched once, from its first character: without the lookbehind
+ * and the lookahead-backreference, a long name is rescanned from every one of
+ * its characters.
+ */
+const ATTRIBUTE =
+  /(?<![-a-zA-Z0-9_:.])(?=([a-zA-Z_:][-a-zA-Z0-9_:.]*))\1\s*=\s*("([^"]*)"|'([^']*)'|([^\s"'>]+))/g;
 
 /**
  * Style declarations worth keeping. Colour, font and size are deliberately
@@ -124,6 +148,34 @@ function rebuildAttributes(tag: string, raw: string): string {
   return out.length > 0 ? ` ${out.join(" ")}` : "";
 }
 
+function sanitizeTag(raw: string, start: number, scan: TagScan): TagResult {
+  if (raw.startsWith("<!--")) {
+    const end = scan.find(COMMENT_END, start + 4);
+    if (end) return { text: "", resume: end.index + end.length };
+  }
+  if (/^<!doctype/i.test(raw)) return "";
+  if (raw.startsWith("<?")) {
+    const end = scan.find(PROCESSING_END, start + 2);
+    if (end) return { text: "", resume: end.index + end.length };
+  }
+  const voidContent = VOID_CONTENT.exec(raw);
+  if (voidContent) {
+    const end = scan.find(VOID_CONTENT_END[voidContent[1].toLowerCase()], start + raw.length);
+    if (end) return { text: " ", resume: end.index + end.length };
+  }
+  if (ORPHAN_DANGEROUS.test(raw)) return " ";
+  const element = ELEMENT.exec(raw);
+  if (!element) return raw;
+  const [, close, name, attrs, selfClose] = element;
+  const tag = name.toLowerCase();
+  if (!ALLOWED_TAGS.has(tag)) return "";
+  if (close) return `</${tag}>`;
+  if (tag === "br" || tag === "hr" || tag === "img" || tag === "col") {
+    return `<${tag}${rebuildAttributes(tag, attrs)} />`;
+  }
+  return `<${tag}${rebuildAttributes(tag, attrs)}${selfClose ? " /" : ""}>`;
+}
+
 /**
  * Keep the structure, drop the sender's presentation and anything executable.
  * Unknown tags are unwrapped rather than deleted, so no text is ever lost to
@@ -131,24 +183,19 @@ function rebuildAttributes(tag: string, raw: string): string {
  */
 export function sanitizeStructuralHtml(html: string): string {
   if (!html) return "";
-  return html
-    .replace(/<!--[\s\S]*?-->/g, "")
-    .replace(/<!DOCTYPE[^>]*>/gi, "")
-    .replace(/<\?[\s\S]*?\?>/g, "")
-    .replace(VOID_CONTENT, " ")
-    .replace(ORPHAN_DANGEROUS, " ")
-    .replace(/<(\/?)([a-zA-Z][a-zA-Z0-9]*)\b([^>]*?)(\/?)>/g, (_all, close: string, name: string, attrs: string, selfClose: string) => {
-      const tag = name.toLowerCase();
-      if (!ALLOWED_TAGS.has(tag)) return "";
-      if (close) return `</${tag}>`;
-      if (tag === "br" || tag === "hr" || tag === "img" || tag === "col") {
-        return `<${tag}${rebuildAttributes(tag, attrs)} />`;
-      }
-      return `<${tag}${rebuildAttributes(tag, attrs)}${selfClose ? " /" : ""}>`;
-    })
-    .replace(/(\s*<br\s*\/>\s*){3,}/gi, "<br /><br />")
+  return rewriteTags(html, sanitizeTag)
+    // Starts only at the head of a whitespace run, so a run with no <br>
+    // after it is scanned once rather than from each of its characters.
+    .replace(/(?<!\s)\s*(?:<br\s*\/>\s*){3,}/gi, "<br /><br />")
     .trim();
 }
+
+/**
+ * Two dashes, not `-{2,}`: a long run of dashes would otherwise be rescanned
+ * from each dash. Callers that need the start of the divider walk back over
+ * the rest of the run.
+ */
+const ORIGINAL_MESSAGE = /--\s*Original Message\s*--/i;
 
 /**
  * Where the quoted history starts, in the shapes the clients write it. Outlook
@@ -164,7 +211,7 @@ const QUOTE_OPENERS: RegExp[] = [
   /<div[^>]*(?:id|class)=["'][^"']*yahoo_quoted/i,
   /<blockquote[^>]*type=["']?cite/i,
   /<blockquote[^>]*class=["'][^"']*(?:gmail_quote|moz-cite|yahoo_quoted)/i,
-  /-{2,}\s*Original Message\s*-{2,}/i,
+  ORIGINAL_MESSAGE,
 ];
 
 /** Every blockquote, so each can be judged on what stands above it. */
@@ -183,25 +230,36 @@ const ANY_BLOCKQUOTE = /<blockquote\b/gi;
 const ATTRIBUTIONS: RegExp[] = [
   /\bwrote:\s*$/i,
   /\bsaid:\s*$/i,
-  /-{2,}\s*original message\s*-{2,}\s*$/i,
+  /--\s*original message\s*--+\s*$/i,
   /\bbegin forwarded message:\s*$/i,
-  /\bfrom:[\s\S]{0,300}?\b(?:sent|date|to):[\s\S]{0,300}$/i,
 ];
+
+/**
+ * An Outlook-style "From: … Sent:" header block. `textBefore` returns at most
+ * 300 characters, so only the order of the two fields matters; searching for
+ * each once avoids retrying the gap from every "from:" in the window.
+ */
+const HEADER_FROM = /\bfrom:/i;
+const HEADER_FIELD = /\b(?:sent|date|to):/i;
+
+function announcesQuote(preceding: string): boolean {
+  if (ATTRIBUTIONS.some((attribution) => attribution.test(preceding))) return true;
+  const from = preceding.search(HEADER_FROM);
+  return from !== -1 && HEADER_FIELD.test(preceding.slice(from + 5));
+}
 
 /** Markers that each open one more quoted message, for the hidden count. */
 const QUOTE_COUNTERS: RegExp[] = [
   /<div[^>]*id=["']?divRplyFwdMsg["']?/gi,
   /<div[^>]*class=["'][^"']*gmail_quote/gi,
   /<blockquote[^>]*type=["']?cite/gi,
-  /-{2,}\s*Original Message\s*-{2,}/gi,
+  /--\s*Original Message\s*--/gi,
   /\bwrote:/gi,
 ];
 
 /** The last of the text a reader would see before `index`, tags removed. */
 function textBefore(html: string, index: number): string {
-  return html
-    .slice(Math.max(0, index - 600), index)
-    .replace(/<[^>]*>/g, " ")
+  return stripTags(html.slice(Math.max(0, index - 600), index))
     .replace(/&nbsp;/gi, " ")
     .replace(/&[a-z#0-9]+;/gi, " ")
     .replace(/\s+/g, " ")
@@ -215,7 +273,7 @@ function announcedBlockquote(html: string): number {
   let match: RegExpExecArray | null;
   while ((match = ANY_BLOCKQUOTE.exec(html)) !== null) {
     const preceding = textBefore(html, match.index);
-    if (ATTRIBUTIONS.some((attribution) => attribution.test(preceding))) {
+    if (announcesQuote(preceding)) {
       return match.index;
     }
   }
@@ -225,8 +283,7 @@ function announcedBlockquote(html: string): number {
 /** Does this fragment still say anything once the tags are gone? */
 function hasVisibleText(html: string): boolean {
   return (
-    html
-      .replace(/<[^>]+>/g, " ")
+    stripTags(html)
       .replace(/&nbsp;/gi, " ")
       .replace(/&[a-z#0-9]+;/gi, "x")
       .trim().length > 0
@@ -240,12 +297,18 @@ export type StrippedHtml = { html: string; quotedCount: number };
  * beneath it. The count is of quoted MESSAGES, so the reader is told how much
  * history is under the fold rather than having it silently disappear.
  */
-export function stripQuotedHtml(html: string): StrippedHtml {
-  if (!html) return { html: "", quotedCount: 0 };
+export function stripQuotedHtml(input: string): StrippedHtml {
+  if (!input) return { html: "", quotedCount: 0 };
+  // Every "<" left reaches its own ">" first, so the `<div[^>]*…` openers
+  // below each stop at the end of the tag they started in.
+  const html = escapeStrayTagOpeners(input);
 
   let cut = announcedBlockquote(html);
   for (const opener of QUOTE_OPENERS) {
-    const found = html.search(opener);
+    let found = html.search(opener);
+    if (opener === ORIGINAL_MESSAGE) {
+      while (found > 0 && html[found - 1] === "-") found -= 1;
+    }
     if (found >= 0 && (cut === -1 || found < cut)) cut = found;
   }
   if (cut === -1) return { html, quotedCount: 0 };
