@@ -7,6 +7,7 @@ import { readBatch } from "@/lib/v2/intelligence/read-batch";
 import { defaultReaderModel } from "@/lib/v2/intelligence/model";
 import { fileMatters } from "@/lib/v2/intelligence/file-matters";
 import { seedFunctions } from "@/lib/v2/intelligence/functions";
+import { pastDeadline } from "@/lib/v2/intelligence/deadline";
 import { drainOutbox } from "@/lib/v3/outbox/drain";
 
 /**
@@ -99,14 +100,16 @@ export async function wakeAccount(accountId: AccountId): Promise<WakeReport> {
       defaultReaderModel,
       { limit: 50, concurrency: 4, deadlineMs },
     );
-    await seedFunctions(account.id);
-    let filing: unknown;
-    try {
-      filing = await fileMatters(account.id, { limit: 50 });
-    } catch (e) {
-      filing = {
-        error: e instanceof Error ? e.message.slice(0, 120) : "filing failed",
-      };
+    let filing: unknown = { deferred: true };
+    if (!pastDeadline(deadlineMs)) {
+      await seedFunctions(account.id);
+      try {
+        filing = await fileMatters(account.id, { limit: 50, deadlineMs });
+      } catch (e) {
+        filing = {
+          error: e instanceof Error ? e.message.slice(0, 120) : "filing failed",
+        };
+      }
     }
     return {
       accountId,

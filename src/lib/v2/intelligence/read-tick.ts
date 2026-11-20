@@ -1,5 +1,6 @@
 import type { MailAccount } from "../db/accounts";
 import { listAccountsForRead } from "../db/list-accounts";
+import { pastDeadline } from "./deadline";
 import { fileMatters } from "./file-matters";
 import { seedFunctions } from "./functions";
 import type { ReaderModel } from "./reader";
@@ -55,10 +56,16 @@ export async function runReadAccount(
       options.model,
       { limit, concurrency, deadlineMs: options.deadlineMs },
     );
+    if (pastDeadline(options.deadlineMs)) {
+      return { email: account.email, ...result, filing: { deferred: true } };
+    }
     await seedFunctions(account.id);
     let filing: Awaited<ReturnType<typeof fileMatters>> | { error: string };
     try {
-      filing = await fileMatters(account.id, { limit });
+      filing = await fileMatters(account.id, {
+        limit,
+        deadlineMs: options.deadlineMs,
+      });
     } catch (e) {
       filing = {
         error: e instanceof Error ? e.message.slice(0, 120) : "filing failed",
