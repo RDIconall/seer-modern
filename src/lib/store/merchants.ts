@@ -37,17 +37,30 @@ export function extractAmount(text: string): number | null {
   return max;
 }
 
+/**
+ * One history per full sender address. A domain is not an identity:
+ * every gmail.com / outlook.com account (and anyone on a shared or
+ * subdomain host) would pool into one baseline that strangers can skew.
+ */
 export function merchantKey(fromEmail: string): string {
-  const domain = fromEmail.split("@")[1]?.toLowerCase() ?? "";
-  // Collapse mail subdomains: email.chase.com → chase.com
-  const parts = domain.split(".");
-  return parts.length > 2 ? parts.slice(-2).join(".") : domain;
+  const addr = fromEmail.trim().toLowerCase();
+  const at = addr.indexOf("@");
+  if (at <= 0 || at !== addr.lastIndexOf("@") || at === addr.length - 1) {
+    return "";
+  }
+  return addr;
 }
 
 export async function loadMerchants(
   accountEmail: string,
 ): Promise<MerchantDb> {
-  return (await kvGet<MerchantDb>(keyFor(accountEmail))) ?? {};
+  const db = (await kvGet<MerchantDb>(keyFor(accountEmail))) ?? {};
+  // Records stored under a bare domain pooled many senders together and
+  // must not seed any baseline.
+  for (const k of Object.keys(db)) {
+    if (merchantKey(k) !== k || db[k]?.key !== k) delete db[k];
+  }
+  return db;
 }
 
 export async function saveMerchants(
@@ -96,7 +109,8 @@ export function usualLabel(
   db: MerchantDb,
   fromEmail: string,
 ): string | null {
-  const rec = db[merchantKey(fromEmail)];
+  const key = merchantKey(fromEmail);
+  const rec = key ? db[key] : undefined;
   if (!rec || rec.amounts.length < 2) return null;
   return `usually ~$${median(rec.amounts).toFixed(0)} (${rec.count} charges)`;
 }
@@ -107,7 +121,8 @@ export function isAnomalousCharge(
   fromEmail: string,
   amount: number,
 ): boolean {
-  const rec = db[merchantKey(fromEmail)];
+  const key = merchantKey(fromEmail);
+  const rec = key ? db[key] : undefined;
   if (!rec || rec.amounts.length < 3) return false;
   const med = median(rec.amounts);
   return med > 0 && amount >= 100 && amount >= med * 2.5;
