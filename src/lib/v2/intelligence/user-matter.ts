@@ -2,9 +2,11 @@ import { isUuid, type AccountId, type ConversationId } from "../db/types";
 import { db } from "../db/pool";
 import {
   counterpartyOf,
+  isKnownPerson,
   matterNameFrom,
   ownTokens,
   resolveMatterMatch,
+  tieCounterpartyOf,
 } from "./matter-key";
 import {
   ensureMatter,
@@ -18,6 +20,7 @@ type ConversationMatterContext = {
   bodyText: string;
   fromEmail: string;
   ownEmail: string;
+  senderIsKnown: boolean;
 };
 
 export type MatterSuggestion = {
@@ -67,13 +70,22 @@ async function conversationContext(
   );
   const row = result.rows[0];
   if (!row) throw new Error("conversation not found");
+  const fromEmail = row.from_email ?? "";
+  const people = fromEmail
+    ? await db().query<{ tier: string; vip: boolean }>(
+        `select tier, vip from seer.people
+          where account_id = $1 and lower(email) = lower($2)`,
+        [accountId, fromEmail],
+      )
+    : { rows: [] };
   return {
     subject: row.subject ?? "",
     functionName: row.function_name,
     summary: row.summary ?? "",
     bodyText: row.body_text ?? row.snippet ?? "",
-    fromEmail: row.from_email ?? "",
+    fromEmail,
     ownEmail: row.own_email,
+    senderIsKnown: people.rows.some((person) => isKnownPerson(person)),
   };
 }
 
@@ -129,7 +141,16 @@ export async function suggestMattersForConversation(
     ownTokens(context.ownEmail),
   );
   const match = resolveMatterMatch(
-    { title: proposed, text, counterparty, own: ownTokens(context.ownEmail) },
+    {
+      title: proposed,
+      text,
+      counterparty: tieCounterpartyOf(
+        context.fromEmail,
+        ownDomain,
+        context.senderIsKnown,
+      ),
+      own: ownTokens(context.ownEmail),
+    },
     matters.rows.map((matter) => ({
       matterId: matter.id,
       title: matter.title,
@@ -227,7 +248,11 @@ export async function placeConversationOnMatter(
       );
       matterId = await ensureMatter(accountId, title, {
         text,
-        counterparty,
+        counterparty: tieCounterpartyOf(
+          context.fromEmail,
+          ownDomain,
+          context.senderIsKnown,
+        ),
         own: ownTokens(context.ownEmail),
       });
     }

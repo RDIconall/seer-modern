@@ -1,4 +1,5 @@
 import type { Home } from "../db/types";
+import type { MatterTieBasis } from "./matter-key";
 import type { ReadResult } from "./schema";
 
 /**
@@ -24,6 +25,8 @@ export type SafetyFacts = {
   hasPendingObligation: boolean;
   /** The conversation is evidence for a live matter. */
   liveMatterId: string | null;
+  /** What tied the conversation to liveMatterId. */
+  liveMatterBasis?: MatterTieBasis | null;
   /** The sender has a real relationship (VIP / inner / known / written-to / contact). */
   senderIsKnown: boolean;
   /** The sender is inside the user's own organization. */
@@ -98,8 +101,19 @@ export function validateMatterPromotion(
   if (read.home !== "matter") {
     return { home: read.home, vetoReasons: [] };
   }
-  if (facts.liveMatterId) {
+  // A shared code or a user-named matter is continuity on its own. A tie on
+  // counterparty plus a few subject words is a resemblance anyone can type, so
+  // it still has to come from a trusted sender addressing the user.
+  if (facts.liveMatterId && facts.liveMatterBasis !== "relation") {
     return { home: "matter", vetoReasons: [] };
+  }
+  if (facts.liveMatterId) {
+    const reasons: string[] = [];
+    if (!facts.addressedDirectly) reasons.push("matter_not_direct");
+    if (untrustedSender(facts)) reasons.push("matter_untrusted_sender");
+    return reasons.length === 0
+      ? { home: "matter", vetoReasons: [] }
+      : { home: "record", vetoReasons: reasons };
   }
 
   const reasons: string[] = [];
@@ -109,14 +123,7 @@ export function validateMatterPromotion(
     reasons.push("matter_no_open_work");
   }
   if (!facts.addressedDirectly) reasons.push("matter_not_direct");
-  if (
-    !facts.isHumanCorrespondence &&
-    !facts.senderIsKnown &&
-    !facts.senderIsInternal &&
-    !facts.hasPendingObligation
-  ) {
-    reasons.push("matter_untrusted_sender");
-  }
+  if (untrustedSender(facts)) reasons.push("matter_untrusted_sender");
   if (
     facts.priorMatterRejections > 0 &&
     !facts.hasPendingObligation &&
@@ -128,4 +135,13 @@ export function validateMatterPromotion(
   return reasons.length === 0
     ? { home: "matter", vetoReasons: [] }
     : { home: "record", vetoReasons: reasons };
+}
+
+function untrustedSender(facts: SafetyFacts): boolean {
+  return (
+    !facts.isHumanCorrespondence &&
+    !facts.senderIsKnown &&
+    !facts.senderIsInternal &&
+    !facts.hasPendingObligation
+  );
 }

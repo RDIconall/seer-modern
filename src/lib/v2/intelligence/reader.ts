@@ -5,7 +5,13 @@ import {
   type CompiledContext,
   type ContextInput,
 } from "./context";
-import { counterpartyOf, matterNameFrom, ownTokens } from "./matter-key";
+import {
+  counterpartyOf,
+  isKnownPerson,
+  matterNameFrom,
+  ownTokens,
+  tieCounterpartyOf,
+} from "./matter-key";
 import {
   addressedDirectly,
   computeSalience,
@@ -83,6 +89,7 @@ function factsFrom(
     | "senderIsKnown"
     | "senderIsInternal"
     | "candidateMatterId"
+    | "candidateMatterBasis"
     | "priorMatterRejections"
   >,
   hadCompleteContext: boolean,
@@ -96,6 +103,7 @@ function factsFrom(
     hasOpenAsk: openAsk,
     hasPendingObligation: read.obligation,
     liveMatterId: compiled.candidateMatterId,
+    liveMatterBasis: compiled.candidateMatterBasis,
     senderIsKnown: compiled.senderIsKnown,
     senderIsInternal: compiled.senderIsInternal,
     // Yields are persisted transactionally with the decision below, so at the
@@ -208,9 +216,16 @@ export async function readConversation(
       read.summary,
       input.conversation.messages[0]?.bodyText?.slice(0, 400) ?? "",
     ].join(" ");
-    const counterparty = counterpartyOf(
-      input.conversation.messages[input.conversation.messages.length - 1]?.from.email ?? "",
+    const latestSender = (
+      input.conversation.messages[input.conversation.messages.length - 1]?.from.email ?? ""
+    ).toLowerCase();
+    const counterparty = counterpartyOf(latestSender, input.context.ownDomain);
+    const tieCounterparty = tieCounterpartyOf(
+      latestSender,
       input.context.ownDomain,
+      isKnownPerson(
+        input.context.people.find((p) => p.email.toLowerCase() === latestSender),
+      ),
     );
     // The user's own name and company identify nothing: they are in every
     // matter on this desk, so they neither name work nor tie it together.
@@ -218,7 +233,7 @@ export async function readConversation(
     matterId = await ensureMatter(
       input.accountId,
       matterNameFrom(read.matterRef, input.conversation.subject, counterparty, tieText, own),
-      { text: tieText, counterparty, own },
+      { text: tieText, counterparty: tieCounterparty, own },
     );
     await linkConversationToMatter(input.accountId, matterId, input.conversationId);
   }
