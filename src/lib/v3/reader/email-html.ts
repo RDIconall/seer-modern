@@ -17,6 +17,14 @@
  * structural pass, not the only line of defence.
  */
 
+import {
+  removeBetween,
+  removeElements,
+  replaceTags,
+  stripTags,
+  tagsWithAttributes,
+} from "@/lib/html/tags";
+
 /** Elements that carry meaning. Anything else is unwrapped, keeping its text. */
 const ALLOWED_TAGS = new Set([
   "a", "b", "blockquote", "br", "caption", "code", "col", "colgroup", "dd",
@@ -27,13 +35,20 @@ const ALLOWED_TAGS = new Set([
 ]);
 
 /** Elements whose CONTENT is not message text and must go with them. */
-const VOID_CONTENT =
-  /<(script|style|head|noscript|iframe|object|embed|template|form|svg|math|title)\b[^>]*>[\s\S]*?<\/\1\s*>/gi;
+const VOID_CONTENT = [
+  "script", "style", "head", "noscript", "iframe", "object", "embed",
+  "template", "form", "svg", "math", "title",
+] as const;
 
 const ORPHAN_DANGEROUS =
-  /<\/?(script|style|head|noscript|iframe|object|embed|template|form|svg|math|title|link|meta|base|input|button|select|textarea)\b[^>]*>/gi;
+  /<\/?(script|style|head|noscript|iframe|object|embed|template|form|svg|math|title|link|meta|base|input|button|select|textarea)\b/i;
 
-const ATTRIBUTE = /([a-zA-Z_:][-a-zA-Z0-9_:.]*)\s*=\s*("([^"]*)"|'([^']*)'|([^\s"'>]+))/g;
+const TAG = /<(\/?)([a-zA-Z][a-zA-Z0-9]*)\b/;
+
+// Each run of name characters is tried once, from its start, and the name
+// begins at the run's first letter. Retrying from every letter of a long run
+// that is not followed by "=" is quadratic in its length.
+const ATTRIBUTE = /(?<![-a-zA-Z0-9_:.])[-0-9.]*([a-zA-Z_:][-a-zA-Z0-9_:.]*)\s*=\s*("([^"]*)"|'([^']*)'|([^\s"'>]+))/g;
 
 /**
  * Style declarations worth keeping. Colour, font and size are deliberately
@@ -131,23 +146,25 @@ function rebuildAttributes(tag: string, raw: string): string {
  */
 export function sanitizeStructuralHtml(html: string): string {
   if (!html) return "";
-  return html
-    .replace(/<!--[\s\S]*?-->/g, "")
-    .replace(/<!DOCTYPE[^>]*>/gi, "")
-    .replace(/<\?[\s\S]*?\?>/g, "")
-    .replace(VOID_CONTENT, " ")
-    .replace(ORPHAN_DANGEROUS, " ")
-    .replace(/<(\/?)([a-zA-Z][a-zA-Z0-9]*)\b([^>]*?)(\/?)>/g, (_all, close: string, name: string, attrs: string, selfClose: string) => {
-      const tag = name.toLowerCase();
-      if (!ALLOWED_TAGS.has(tag)) return "";
-      if (close) return `</${tag}>`;
-      if (tag === "br" || tag === "hr" || tag === "img" || tag === "col") {
-        return `<${tag}${rebuildAttributes(tag, attrs)} />`;
-      }
-      return `<${tag}${rebuildAttributes(tag, attrs)}${selfClose ? " /" : ""}>`;
-    })
-    .replace(/(\s*<br\s*\/>\s*){3,}/gi, "<br /><br />")
-    .trim();
+  let out = removeBetween(html, "<!--", "-->", "");
+  out = replaceTags(out, /<!DOCTYPE/i, () => "");
+  out = removeBetween(out, "<?", "?>", "");
+  out = removeElements(out, VOID_CONTENT, " ", { spaceBeforeClose: true });
+  out = replaceTags(out, ORPHAN_DANGEROUS, () => " ");
+  out = replaceTags(out, TAG, ([, close, name], inner) => {
+    const selfClose = inner.endsWith("/");
+    const attrs = selfClose ? inner.slice(0, -1) : inner;
+    const tag = name.toLowerCase();
+    if (!ALLOWED_TAGS.has(tag)) return "";
+    if (close) return `</${tag}>`;
+    if (tag === "br" || tag === "hr" || tag === "img" || tag === "col") {
+      return `<${tag}${rebuildAttributes(tag, attrs)} />`;
+    }
+    return `<${tag}${rebuildAttributes(tag, attrs)}${selfClose ? " /" : ""}>`;
+  });
+  // Starting only where whitespace starts keeps a long run from being
+  // rescanned once per character.
+  return out.replace(/(?<!\s)\s*<br\s*\/>(?:\s*<br\s*\/>){2,}\s*/gi, "<br /><br />").trim();
 }
 
 /**
@@ -156,16 +173,30 @@ export function sanitizeStructuralHtml(html: string): string {
  * Thunderbird and Yahoo each name their own wrapper; and any client may write
  * an "Original Message" divider.
  */
-const QUOTE_OPENERS: RegExp[] = [
-  /<div[^>]*id=["']?appendonsend["']?/i,
-  /<div[^>]*id=["']?divRplyFwdMsg["']?/i,
-  /<div[^>]*class=["'][^"']*gmail_quote/i,
-  /<div[^>]*class=["'][^"']*moz-cite-prefix/i,
-  /<div[^>]*(?:id|class)=["'][^"']*yahoo_quoted/i,
-  /<blockquote[^>]*type=["']?cite/i,
-  /<blockquote[^>]*class=["'][^"']*(?:gmail_quote|moz-cite|yahoo_quoted)/i,
-  /-{2,}\s*Original Message\s*-{2,}/i,
+type TagMarker = { tag: string; attributes: RegExp };
+
+/** Matched within one tag's attributes, as `<tag[^>]*ATTRIBUTES` would be. */
+const QUOTE_OPENER_TAGS: TagMarker[] = [
+  { tag: "div", attributes: /id=["']?appendonsend["']?/i },
+  { tag: "div", attributes: /id=["']?divRplyFwdMsg["']?/i },
+  { tag: "div", attributes: /class=["'][^"']*gmail_quote/i },
+  { tag: "div", attributes: /class=["'][^"']*moz-cite-prefix/i },
+  { tag: "div", attributes: /(?:id|class)=["'][^"']*yahoo_quoted/i },
+  { tag: "blockquote", attributes: /type=["']?cite/i },
+  { tag: "blockquote", attributes: /class=["'][^"']*(?:gmail_quote|moz-cite|yahoo_quoted)/i },
 ];
+
+// Anchored to the first dash of a run so a long run is not rescanned per dash.
+const ORIGINAL_MESSAGE = /(?<!-)-{2,}\s*Original Message\s*-{2,}/i;
+
+function firstQuoteOpener(html: string): number {
+  let first = html.search(ORIGINAL_MESSAGE);
+  for (const { tag, attributes } of QUOTE_OPENER_TAGS) {
+    const found = tagsWithAttributes(html, tag, attributes)[0] ?? -1;
+    if (found >= 0 && (first === -1 || found < first)) first = found;
+  }
+  return first;
+}
 
 /** Every blockquote, so each can be judged on what stands above it. */
 const ANY_BLOCKQUOTE = /<blockquote\b/gi;
@@ -189,19 +220,28 @@ const ATTRIBUTIONS: RegExp[] = [
 ];
 
 /** Markers that each open one more quoted message, for the hidden count. */
+const QUOTE_COUNTER_TAGS: TagMarker[] = [
+  { tag: "div", attributes: /id=["']?divRplyFwdMsg["']?/i },
+  { tag: "div", attributes: /class=["'][^"']*gmail_quote/i },
+  { tag: "blockquote", attributes: /type=["']?cite/i },
+];
+
 const QUOTE_COUNTERS: RegExp[] = [
-  /<div[^>]*id=["']?divRplyFwdMsg["']?/gi,
-  /<div[^>]*class=["'][^"']*gmail_quote/gi,
-  /<blockquote[^>]*type=["']?cite/gi,
-  /-{2,}\s*Original Message\s*-{2,}/gi,
+  /(?<!-)-{2,}\s*Original Message\s*-{2,}/gi,
   /\bwrote:/gi,
 ];
 
+function quotedDepth(tail: string): number {
+  const counts = [
+    ...QUOTE_COUNTER_TAGS.map(({ tag, attributes }) => tagsWithAttributes(tail, tag, attributes).length),
+    ...QUOTE_COUNTERS.map((counter) => tail.match(counter)?.length ?? 0),
+  ];
+  return Math.max(0, ...counts);
+}
+
 /** The last of the text a reader would see before `index`, tags removed. */
 function textBefore(html: string, index: number): string {
-  return html
-    .slice(Math.max(0, index - 600), index)
-    .replace(/<[^>]*>/g, " ")
+  return stripTags(html.slice(Math.max(0, index - 600), index), " ", { empty: true })
     .replace(/&nbsp;/gi, " ")
     .replace(/&[a-z#0-9]+;/gi, " ")
     .replace(/\s+/g, " ")
@@ -225,8 +265,7 @@ function announcedBlockquote(html: string): number {
 /** Does this fragment still say anything once the tags are gone? */
 function hasVisibleText(html: string): boolean {
   return (
-    html
-      .replace(/<[^>]+>/g, " ")
+    stripTags(html)
       .replace(/&nbsp;/gi, " ")
       .replace(/&[a-z#0-9]+;/gi, "x")
       .trim().length > 0
@@ -244,10 +283,8 @@ export function stripQuotedHtml(html: string): StrippedHtml {
   if (!html) return { html: "", quotedCount: 0 };
 
   let cut = announcedBlockquote(html);
-  for (const opener of QUOTE_OPENERS) {
-    const found = html.search(opener);
-    if (found >= 0 && (cut === -1 || found < cut)) cut = found;
-  }
+  const opener = firstQuoteOpener(html);
+  if (opener >= 0 && (cut === -1 || opener < cut)) cut = opener;
   if (cut === -1) return { html, quotedCount: 0 };
 
   const head = html.slice(0, cut);
@@ -255,10 +292,7 @@ export function stripQuotedHtml(html: string): StrippedHtml {
   // The deepest single marker, not the sum of all of them: Gmail writes both a
   // wrapper and an "On … wrote:" line for one quoted message, and adding those
   // together says two where the reader can see one.
-  const quotedCount = QUOTE_COUNTERS.reduce(
-    (deepest, counter) => Math.max(deepest, tail.match(counter)?.length ?? 0),
-    0,
-  );
+  const quotedCount = quotedDepth(tail);
 
   // A top-posted reply is all head; a bare forward is all tail. Never blank a
   // message to prove a point about quoting.
@@ -276,9 +310,10 @@ export function stripQuotedHtml(html: string): StrippedHtml {
  * phone is the message greyed out against the edge of the screen.
  */
 function unwrapLayoutBlockquotes(html: string): string {
-  return html
-    .replace(/<blockquote\b[^>]*>/gi, "<div>")
-    .replace(/<\/blockquote\s*>/gi, "</div>");
+  return replaceTags(html, /<blockquote\b/i, () => "<div>").replace(
+    /<\/blockquote\s*>/gi,
+    "</div>",
+  );
 }
 
 /** The readable body of one message: new text only, structure kept, theme safe. */

@@ -1,3 +1,4 @@
+import { flattenHtml } from "@/lib/html/tags";
 import { buildActionGuideQuick } from "@/lib/inbox/action-guide";
 import { classifyMessage } from "@/lib/inbox/classify";
 import { classifyInboxWithAssistant } from "@/lib/inbox/gemini-triage";
@@ -179,10 +180,7 @@ export async function GET(request: Request) {
             const msg = isGoogle
               ? await getGmailMessage(token, id)
               : await getGraphMessage(token, id);
-            return (
-              msg.textBody ||
-              msg.htmlBody.replace(/<[^>]+>/g, " ").replace(/\s+/g, " ")
-            );
+            return msg.textBody || flattenHtml(msg.htmlBody);
           },
         },
       );
@@ -281,10 +279,7 @@ export async function GET(request: Request) {
             const msg = isGoogle
               ? await getGmailMessage(token, id)
               : await getGraphMessage(token, id);
-            return (
-              msg.textBody ||
-              msg.htmlBody.replace(/<[^>]+>/g, " ").replace(/\s+/g, " ")
-            );
+            return msg.textBody || flattenHtml(msg.htmlBody);
           },
         });
         deepReads = records.length;

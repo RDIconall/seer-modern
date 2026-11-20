@@ -4,6 +4,8 @@
  * call, works on every message.
  */
 
+import { stripTags } from "@/lib/html/tags";
+
 export type KeyAction = { label: string; url: string };
 
 const INTENT_PATTERNS: { re: RegExp; label: string; score: number }[] = [
@@ -27,12 +29,53 @@ const INTENT_PATTERNS: { re: RegExp; label: string; score: number }[] = [
 const JUNK =
   /unsubscribe from|privacy|terms|preferences|view in browser|facebook|twitter|instagram|linkedin\.com\/share|help center|contact us|download (the )?app|app store|google play|mailto:/i;
 
-function stripTags(s: string): string {
-  return s
-    .replace(/<[^>]+>/g, " ")
+function anchorText(s: string): string {
+  return stripTags(s)
     .replace(/&nbsp;/g, " ")
     .replace(/\s+/g, " ")
     .trim();
+}
+
+const HREF_AT = /href=/gi;
+const ANCHOR_HREF = /href=["'](https?:\/\/[^"']+)["']/iy;
+
+/** The last quoted http(s) href in a tag's attributes, as a greedy `[^>]*` picks it. */
+function lastHref(attrs: string): string | null {
+  const starts = Array.from(attrs.matchAll(HREF_AT), (m) => m.index);
+  for (let i = starts.length - 1; i >= 0; i--) {
+    ANCHOR_HREF.lastIndex = starts[i];
+    const m = ANCHOR_HREF.exec(attrs);
+    if (m) return m[1];
+  }
+  return null;
+}
+
+/**
+ * Each `<a … href="http…">text</a>`, as
+ * `/<a\b[^>]*href=["'](https?:\/\/[^"']+)["'][^>]*>([\s\S]*?)<\/a>/gi` would
+ * find them, without rescanning the body at every unclosed "<a".
+ */
+function* anchors(html: string): Generator<{ url: string; inner: string }> {
+  const opener = /<a\b/gi;
+  const closer = /<\/a>/gi;
+  let close: RegExpExecArray | null = null;
+  let m: RegExpExecArray | null;
+  while ((m = opener.exec(html)) !== null) {
+    const attrsStart = m.index + m[0].length;
+    const gt = html.indexOf(">", attrsStart);
+    if (gt === -1) return;
+    // Later openers before this ">" only see a suffix of these attributes.
+    opener.lastIndex = gt + 1;
+    const url = lastHref(html.slice(attrsStart, gt));
+    if (!url) continue;
+    if (!close || close.index <= gt) {
+      closer.lastIndex = gt + 1;
+      close = closer.exec(html);
+      if (!close) return;
+    }
+    yield { url, inner: html.slice(gt + 1, close.index) };
+    opener.lastIndex = close.index + close[0].length;
+  }
 }
 
 export function extractKeyActions(
@@ -42,14 +85,13 @@ export function extractKeyActions(
   if (!htmlBody) return [];
   const found: (KeyAction & { score: number })[] = [];
   const seen = new Set<string>();
-  const anchorRe = /<a\b[^>]*href=["'](https?:\/\/[^"']+)["'][^>]*>([\s\S]*?)<\/a>/gi;
 
-  let m: RegExpExecArray | null;
   let guard = 0;
-  while ((m = anchorRe.exec(htmlBody)) && guard < 200) {
+  for (const anchor of anchors(htmlBody)) {
+    if (guard >= 200) break;
     guard += 1;
-    const url = m[1];
-    const text = stripTags(m[2]).slice(0, 80);
+    const url = anchor.url;
+    const text = anchorText(anchor.inner).slice(0, 80);
     const hay = `${text} ${url}`;
     if (!text && !/track|rsvp|pay|confirm/i.test(url)) continue;
 

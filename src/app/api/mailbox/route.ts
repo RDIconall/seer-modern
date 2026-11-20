@@ -1,3 +1,4 @@
+import { flattenHtml } from "@/lib/html/tags";
 import { buildActionGuideQuick } from "@/lib/inbox/action-guide";
 import { classifyMessage } from "@/lib/inbox/classify";
 import { classifyInboxWithAssistant } from "@/lib/inbox/gemini-triage";
@@ -148,10 +149,7 @@ export async function GET(request: Request) {
               session.provider === "google"
                 ? await getGmailMessage(session.accessToken, id)
                 : await getGraphMessage(session.accessToken, id);
-            return (
-              msg.textBody ||
-              msg.htmlBody.replace(/<[^>]+>/g, " ").replace(/\s+/g, " ")
-            );
+            return msg.textBody || flattenHtml(msg.htmlBody);
           },
           // Superhuman rule: respond NOW, read in the background
           deferAi: true,
