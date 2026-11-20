@@ -7,13 +7,16 @@ import { accountKey, kvGet, kvSet } from "@/lib/store/kv";
  * - inner:        you write to them / they're in contacts / you're
  *                 meeting them — they matter, historically proven
  * - known:        writes to you repeatedly, human-shaped, no outbound yet
- * - new-credible: no history, but the AI read the full email and judged
- *                 a real, credible person (specific ask, real project,
- *                 mutual context — not a template blast)
+ *                 (volume alone — context for the AI, never protection)
+ * - new-credible: legacy only. Older builds stored the AI's "credible
+ *                 person" reading of a stranger's own words here; that is
+ *                 text any sender controls, so it is ignored and dropped
+ *                 on load, and never written again.
  * - machine:      automated sender — notifications, marketing, robots
  *
- * Local evidence decides most senders for free; the AI judges only the
- * genuinely unknown, once, and the verdict is stored here forever
+ * Local evidence decides most senders for free; the AI may only mark the
+ * genuinely unknown as machine. Only "inner" (outbound mail, contacts,
+ * meetings, texting) or a user pin protects a sender's mail from deletion
  * (self-correcting: outbound mail later promotes anyone to inner).
  */
 
