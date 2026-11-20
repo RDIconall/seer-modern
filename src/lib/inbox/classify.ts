@@ -139,15 +139,16 @@ export type ClassifyResult = {
  */
 /**
  * Genuinely transactional urgency — real even from a noreply robot:
- * codes, security, travel, deliveries, appointments.
+ * codes, security, travel, deliveries.
  */
 /**
- * Urgent only when the user must DO something: codes, security, travel,
- * appointments. Passive status updates ("delivered", "arriving") are NOT
- * actions — packages arrive whether you read the email or not.
+ * Urgent only when the user must DO something: codes, security, travel.
+ * Passive status updates ("delivered", "arriving") are NOT actions —
+ * packages arrive whether you read the email or not. Appointments live
+ * in APPOINTMENT_HOLD, which weighs who sent them.
  */
 const TRANSACTIONAL_URGENT =
-  /\b(2fa|two-factor|verification code|one-time (code|passcode)|otp|password reset|security alert|suspicious sign-?in|boarding pass|check-in (open|now)|flight (confirmation|reminder|change|cancell)|appointment (confirm|remind))\b/i;
+  /\b(2fa|two-factor|verification code|one-time (code|passcode)|otp|password reset|security alert|suspicious sign-?in|boarding pass|check-in (open|now)|flight (confirmation|reminder|change|cancell))\b/i;
 
 /** Package carriers — world knowledge the rules engine should have. */
 const SHIPPER_DOMAINS =
@@ -185,7 +186,7 @@ const PAID_MARKER =
  * appointment today!").
  */
 export const APPOINTMENT_HOLD =
-  /\b(has been scheduled|is scheduled for|job scheduled|appointment (is )?(confirmed|scheduled|booked)|your (appointment|visit|service|installation|delivery window) (is|on|at)\b|arriv(e|es|ing) between|arrival window|technician (is |will )|(we|our team)('ll| will) (arrive|be there|see you)|on (his|her|their|our) way|upcoming appointment|appointment reminder|reminder: your appointment)\b/i;
+  /\b(has been scheduled|is scheduled for|job scheduled|appointment (is )?(confirmed|scheduled|booked)|appointment (confirm|remind)|your (appointment|visit|service|installation|delivery window) (is|on|at)\b|arriv(e|es|ing) between|arrival window|technician (is |will )|(we|our team)('ll| will) (arrive|be there|see you)|on (his|her|their|our) way|upcoming appointment|appointment reminder|reminder: your appointment)\b/i;
 
 /** Money coming TO the user — checks never expire, always surface. */
 export const REFUND_CHECK =
@@ -203,7 +204,8 @@ const BILL_READY_BLOB =
  * pierce every sender-level shortcut (taught override, learned prior,
  * autopay). A sender you always delete can still send the ONE message
  * that matters — "autopay failed", "signature required", "fraud alert".
- * Deliberately excludes marketing urgency-bait phrasing.
+ * Deliberately excludes marketing urgency-bait phrasing, and appointment
+ * phrasing: "your visit is scheduled" from a stranger proves no visit.
  */
 export function needsYouEscape(subject: string, snippet: string): boolean {
   const hay = `${subject}\n${snippet}`;
@@ -213,7 +215,6 @@ export function needsYouEscape(subject: string, snippet: string): boolean {
     PRODUCT_NEEDS_YOU.test(hay) ||
     TRANSACTIONAL_URGENT.test(hay) ||
     REFUND_CHECK.test(hay) ||
-    APPOINTMENT_HOLD.test(hay) ||
     (BILL_DUE.test(hay) && !AUTOPAY_BLOB.test(hay) && !PAID_MARKER.test(hay))
   );
 }
@@ -494,13 +495,28 @@ function classifyCore(
 
   // A confirmed appointment holds YOUR time — the plumber arriving
   // 9am-1pm needs you home. Robots send these, but they're commitments,
-  // not noise; never bulk-delete them off the sender's shape.
+  // not noise; never bulk-delete them off the sender's shape. Anyone can
+  // write "your visit is scheduled", so only a sender the user already
+  // knows earns the hold; a stranger's notice is surfaced to check.
   if (APPOINTMENT_HOLD.test(blob) || APPOINTMENT_HOLD.test(input.subject)) {
+    const trusted =
+      extras?.inContacts ||
+      signals.relationship === "engaged" ||
+      signals.relationship === "known";
+    if (trusted) {
+      return hit(
+        "act_today",
+        "HIGH",
+        "Confirmed appointment — you may need to be there",
+        "appointment-hold",
+        ctx,
+      );
+    }
     return hit(
-      "act_today",
-      "HIGH",
-      "Confirmed appointment — you may need to be there",
-      "appointment-hold",
+      "needs_review",
+      "LOW",
+      "Appointment notice from a sender you have no history with — confirm it's real",
+      "appointment-unverified",
       ctx,
     );
   }
