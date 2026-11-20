@@ -19,6 +19,7 @@ import {
   mattersNeedingFiling,
 } from "./functions";
 import { loadGuidance } from "./operating-model";
+import { modelCallSignal, pastDeadline } from "./deadline";
 
 /**
  * Filing work onto the whiteboard.
@@ -79,6 +80,15 @@ export type FilingResult = {
   matters: { attempted: number; filed: number; unfiled: number };
   conversations: { attempted: number; filed: number; unfiled: number };
   naming?: { attempted: number; named: number };
+  /** The hop deadline passed; the rest is left for the next lease holder. */
+  deferred?: boolean;
+};
+
+export type FileMattersOptions = {
+  limit?: number;
+  model?: string;
+  namingCaller?: MatterNamingCaller;
+  deadlineMs?: number;
 };
 
 type Item = { id: string; [key: string]: unknown };
@@ -93,7 +103,8 @@ async function fileBatch(
   items: Item[],
   model: string,
   apply: (id: string, section: string) => Promise<unknown>,
-  guidance?: string,
+  guidance: string | undefined,
+  deadlineMs: number | undefined,
 ): Promise<{ filed: number; unfiled: number }> {
   const functions = [...sections.functions, ...sections.topics];
   const started = Date.now();
@@ -101,7 +112,7 @@ async function fileBatch(
     model,
     temperature: 0,
     maxRetries: 0,
-    abortSignal: AbortSignal.timeout(60_000),
+    abortSignal: modelCallSignal(deadlineMs),
     output: Output.object({ schema: filingSchema }),
     providerOptions: {
       gateway: { caching: "auto", sort: "cost" },
@@ -162,19 +173,41 @@ async function fileBatch(
 /**
  * File everything that has no section yet — matters first, then the triage
  * mail that never became one.
+ *
+ * With a deadline, no model call starts once it has passed and a call in
+ * flight is aborted at it, so a worker hop never files past its own budget.
  */
 export async function fileMatters(
   accountId: AccountId,
-  options: {
-    limit?: number;
-    model?: string;
-    namingCaller?: MatterNamingCaller;
-  } = {},
+  options: FileMattersOptions = {},
 ): Promise<FilingResult> {
   const empty = { attempted: 0, filed: 0, unfiled: 0 };
+  const matters = { ...empty };
+  const conversations = { ...empty };
+  const { deadlineMs } = options;
+  if (pastDeadline(deadlineMs)) {
+    return { matters, conversations, deferred: true };
+  }
+  try {
+    return await fileWithinDeadline(accountId, options, matters, conversations);
+  } catch (error) {
+    if (pastDeadline(deadlineMs)) {
+      return { matters, conversations, deferred: true };
+    }
+    throw error;
+  }
+}
+
+async function fileWithinDeadline(
+  accountId: AccountId,
+  options: FileMattersOptions,
+  matters: FilingResult["matters"],
+  conversations: FilingResult["conversations"],
+): Promise<FilingResult> {
+  const { deadlineMs } = options;
   const functions = await listRegistry(accountId, "function");
   const topics = await listRegistry(accountId, "topic");
-  if (functions.length === 0) return { matters: empty, conversations: empty };
+  if (functions.length === 0) return { matters, conversations };
   const guidance = await loadGuidance(accountId);
 
   const limit = options.limit ?? 200;
@@ -183,10 +216,10 @@ export async function fileMatters(
     process.env.SEER_ROUTER_FAST_MODEL ??
     "google/gemini-3.1-flash-lite";
 
-  const matters = { ...empty };
   const pendingMatters = await mattersNeedingFiling(accountId, limit);
   matters.attempted = pendingMatters.length;
   for (let i = 0; i < pendingMatters.length; i += BATCH) {
+    if (pastDeadline(deadlineMs)) return { matters, conversations, deferred: true };
     const batch = pendingMatters.slice(i, i + BATCH).map((m) => ({
       id: m.id,
       title: m.title,
@@ -201,15 +234,16 @@ export async function fileMatters(
       model,
       (id, s) => fileMatter(id, s, "inferred"),
       guidance,
+      deadlineMs,
     );
     matters.filed += outcome.filed;
     matters.unfiled += outcome.unfiled;
   }
 
-  const conversations = { ...empty };
   const pendingConversations = await conversationsNeedingFiling(accountId, limit);
   conversations.attempted = pendingConversations.length;
   for (let i = 0; i < pendingConversations.length; i += BATCH) {
+    if (pastDeadline(deadlineMs)) return { matters, conversations, deferred: true };
     const batch = pendingConversations.slice(i, i + BATCH).map((c) => ({
       id: c.id,
       subject: c.subject,
@@ -225,22 +259,32 @@ export async function fileMatters(
       model,
       (id, s) => fileConversation(id, s, "inferred"),
       guidance,
+      deadlineMs,
     );
     conversations.filed += outcome.filed;
     conversations.unfiled += outcome.unfiled;
   }
 
+  if (pastDeadline(deadlineMs)) return { matters, conversations, deferred: true };
   const naming = await nameMatters(accountId, {
     limit,
-    caller: options.namingCaller ?? createMatterNamingCaller(model),
+    caller:
+      options.namingCaller ?? createMatterNamingCaller(model, deadlineMs),
+    deadlineMs,
   });
+  if (!naming) return { matters, conversations, deferred: true };
   return { matters, conversations, naming };
 }
 
+/** Null when the deadline passed before the naming call could start. */
 async function nameMatters(
   accountId: AccountId,
-  options: { limit: number; caller: MatterNamingCaller },
-): Promise<{ attempted: number; named: number }> {
+  options: {
+    limit: number;
+    caller: MatterNamingCaller;
+    deadlineMs?: number;
+  },
+): Promise<{ attempted: number; named: number } | null> {
   const result = await db().query<{
     id: string;
     title: string;
@@ -299,6 +343,7 @@ async function nameMatters(
   if (needsNaming.length === 0) {
     return { attempted: 0, named: 0 };
   }
+  if (pastDeadline(options.deadlineMs)) return null;
   const named = await nameMatterBatch(inputs, options.caller);
   let changed = 0;
   for (const item of named) {

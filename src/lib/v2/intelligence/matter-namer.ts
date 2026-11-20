@@ -6,6 +6,7 @@
 
 import { generateText, Output } from "ai";
 import { z } from "zod";
+import { modelCallSignal } from "./deadline";
 
 export const SHORT_TITLE_VERSION = 1;
 
@@ -171,6 +172,7 @@ verbatim. Return every supplied id exactly once.`;
 
 export function createMatterNamingCaller(
   model = process.env.SEER_ROUTER_FAST_MODEL ?? "google/gemini-3.1-flash-lite",
+  deadlineMs?: number,
 ): MatterNamingCaller {
   return async (matters) => {
     if (matters.length === 0) return [];
@@ -178,7 +180,7 @@ export function createMatterNamingCaller(
       model,
       temperature: 0,
       maxRetries: 0,
-      abortSignal: AbortSignal.timeout(60_000),
+      abortSignal: modelCallSignal(deadlineMs),
       output: Output.object({ schema: namingSchema }),
       providerOptions: {
         gateway: { caching: "auto", sort: "cost" },
