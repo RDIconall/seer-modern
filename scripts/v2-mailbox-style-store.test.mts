@@ -28,7 +28,8 @@ try {
   );
 
   const inferred = await refreshMailboxInference(accountId);
-  assert.equal(inferred.clearHabit, "leave");
+  assert.equal(inferred.inferred.clearHabit, "leave");
+  assert.equal(inferred.clearHabit, "archive", "inference must not apply before confirm");
   assert.equal(inferred.confirmed, false);
 
   const confirmed = await confirmMailboxStyle(accountId, {
