@@ -336,6 +336,9 @@ export function contextSignals(
   let meeting: ContextSignals["meeting"] = null;
   for (const e of ctx.events) {
     if (!e.startsAt || !e.attendees.includes(email)) continue;
+    // Anyone can put an event on the calendar by sending an invite. Until
+    // the user accepts it, it says nothing about them knowing the sender.
+    if (e.myStatus === "needsAction" || e.myStatus === "declined") continue;
     if (!meeting || e.startsAt < meeting.startsAt) {
       meeting = { subject: e.subject, startsAt: e.startsAt };
     }
