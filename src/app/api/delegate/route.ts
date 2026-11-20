@@ -1,3 +1,4 @@
+import { legacyDisplayedBody } from "@/lib/mail/displayed-body";
 import { getGmailMessage, sendGmailMessage, gmailAction } from "@/lib/mail/gmail";
 import {
   getGraphMessage,
@@ -65,10 +66,11 @@ export async function POST(request: Request) {
       fromName: string;
       fromEmail: string;
       subject: string;
-      textBody?: string;
+      textBody: string;
+      htmlBody: string;
       snippet?: string;
     }) =>
-      `${note}\n\n---------- Forwarded message ----------\nFrom: ${o.fromName} <${o.fromEmail}>\nSubject: ${o.subject}\n\n${o.textBody || o.snippet}`;
+      `${note}\n\n---------- Forwarded message ----------\nFrom: ${o.fromName} <${o.fromEmail}>\nSubject: ${o.subject}\n\n${legacyDisplayedBody(o).bodyText || o.snippet}`;
 
     if (session.provider === "google") {
       const original = await getGmailMessage(session.accessToken, body.id);
