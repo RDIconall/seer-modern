@@ -10,6 +10,7 @@ import {
   profilePromptBlock,
 } from "@/lib/store/user-profile";
 import { generateText, Output } from "ai";
+import { htmlToText } from "@/lib/v2/intelligence/html-text";
 import { NextResponse } from "next/server";
 import { z } from "zod";
 
@@ -67,8 +68,7 @@ export async function POST(request: Request) {
         : await getGraphMessage(session.accessToken, id);
 
     const bodyText = (
-      message.textBody ||
-      message.htmlBody.replace(/<[^>]+>/g, " ").replace(/\s+/g, " ")
+      message.htmlBody ? htmlToText(message.htmlBody) : message.textBody
     ).slice(0, 5000);
 
     const firstName = (session.name || session.email).split(/[\s@]/)[0];

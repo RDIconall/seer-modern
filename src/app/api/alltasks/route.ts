@@ -24,6 +24,7 @@ import {
 import { makeGmailLabelStore } from "@/lib/mail/seer-labels";
 import { requireMailSession } from "@/lib/mail/session";
 import { getSenderOverride } from "@/lib/store/senders";
+import { htmlToText } from "@/lib/v2/intelligence/html-text";
 import { NextResponse } from "next/server";
 
 /**
@@ -107,10 +108,7 @@ export async function GET() {
             session.provider === "google"
               ? await getGmailMessage(session.accessToken, id)
               : await getGraphMessage(session.accessToken, id);
-          return (
-            msg.textBody ||
-            msg.htmlBody.replace(/<[^>]+>/g, " ").replace(/\s+/g, " ")
-          );
+          return msg.htmlBody ? htmlToText(msg.htmlBody) : msg.textBody;
         },
       },
     );

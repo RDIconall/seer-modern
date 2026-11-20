@@ -25,6 +25,7 @@ import { makeGmailLabelStore } from "@/lib/mail/seer-labels";
 import { requireMailSession } from "@/lib/mail/session";
 import { getSenderOverride } from "@/lib/store/senders";
 import type { RsvpStatus } from "@/lib/inbox/personal-context";
+import { htmlToText } from "@/lib/v2/intelligence/html-text";
 import { NextResponse } from "next/server";
 
 type ReaderEvent = {
@@ -131,9 +132,9 @@ export async function GET(
         loadRepliedThreads(session.email),
       ]);
 
-    const bodyText =
-      message.textBody ||
-      message.htmlBody.replace(/<[^>]+>/g, " ").replace(/\s+/g, " ");
+    const bodyText = message.htmlBody
+      ? htmlToText(message.htmlBody)
+      : message.textBody;
 
     const decisions = await classifyInboxWithAssistant(
       session.email,
