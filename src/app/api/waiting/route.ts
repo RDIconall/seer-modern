@@ -3,6 +3,7 @@ import { listGmailFolder } from "@/lib/mail/gmail";
 import { requireMailSession } from "@/lib/mail/session";
 import { accountKey, kvGet, kvSet } from "@/lib/store/kv";
 import { NextResponse } from "next/server";
+import { readRequestAllowed } from "@/lib/security/origin";
 
 export const maxDuration = 30;
 
@@ -33,6 +34,9 @@ function cacheKey(email: string) {
 }
 
 export async function GET(request: Request) {
+  if (!readRequestAllowed(request)) {
+    return NextResponse.json({ error: "invalid request origin" }, { status: 403 });
+  }
   try {
     const session = await requireMailSession();
     if (!session) {

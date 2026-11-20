@@ -10,12 +10,16 @@ import { listGraphFolder, listGraphInbox } from "@/lib/mail/graph";
 import { requireMailSession } from "@/lib/mail/session";
 import { listSenderOverrides } from "@/lib/store/senders";
 import { NextResponse } from "next/server";
+import { readRequestAllowed } from "@/lib/security/origin";
 
 /**
  * Export snippet-level inbox samples + current predictions for offline tuning.
  * Does not include message bodies/HTML.
  */
-export async function GET() {
+export async function GET(request: Request) {
+  if (!readRequestAllowed(request)) {
+    return NextResponse.json({ error: "invalid request origin" }, { status: 403 });
+  }
   try {
     const session = await requireMailSession();
     if (!session) {

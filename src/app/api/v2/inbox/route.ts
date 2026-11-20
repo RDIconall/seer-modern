@@ -2,6 +2,7 @@ import { after, NextResponse } from "next/server";
 import { getActiveV2Account } from "@/lib/v2/session";
 import { kickInboxCatchUp } from "@/lib/v2/sync/catch-up";
 import { buildInboxView } from "@/lib/v2/view/build";
+import { readRequestAllowed } from "@/lib/security/origin";
 
 export const dynamic = "force-dynamic";
 
@@ -10,7 +11,10 @@ export const dynamic = "force-dynamic";
  * records, safe-to-delete, undecided, worth-reading, coverage — is this single
  * server-computed projection. The client renders it and computes no placement.
  */
-export async function GET() {
+export async function GET(request: Request) {
+  if (!readRequestAllowed(request)) {
+    return NextResponse.json({ error: "invalid request origin" }, { status: 403 });
+  }
   const account = await getActiveV2Account();
   if (!account) {
     return NextResponse.json({ error: "no active v2 account" }, { status: 404 });

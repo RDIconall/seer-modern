@@ -11,6 +11,7 @@ import {
 } from "@/lib/store/people";
 import { loadUserProfile } from "@/lib/store/user-profile";
 import { NextResponse } from "next/server";
+import { readRequestAllowed } from "@/lib/security/origin";
 
 export const maxDuration = 30;
 
@@ -21,7 +22,10 @@ export const maxDuration = 30;
  * user just confirms or adjusts. Pins live in the Person Graph.
  */
 
-export async function GET() {
+export async function GET(request: Request) {
+  if (!readRequestAllowed(request)) {
+    return NextResponse.json({ error: "invalid request origin" }, { status: 403 });
+  }
   try {
     const session = await requireMailSession();
     if (!session) {

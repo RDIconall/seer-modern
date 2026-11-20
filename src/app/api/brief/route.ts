@@ -23,6 +23,7 @@ import { knownSenders } from "@/lib/brain/relationships";
 import { loadPeople } from "@/lib/store/people";
 import { getPersonalContext } from "@/lib/inbox/personal-context";
 import { NextResponse, after } from "next/server";
+import { readRequestAllowed } from "@/lib/security/origin";
 
 /** Deep enough to cover a real 500+ inbox in one pass */
 const INBOX_DEPTH = 1200;
@@ -61,7 +62,10 @@ export async function PATCH(req: Request) {
 }
 
 /** GET: the stored brief. POST: rebuild it (AI pass runs after response). */
-export async function GET() {
+export async function GET(request: Request) {
+  if (!readRequestAllowed(request)) {
+    return NextResponse.json({ error: "invalid request origin" }, { status: 403 });
+  }
   const session = await requireMailSession();
   if (!session) {
     return NextResponse.json({ error: "Not signed in" }, { status: 401 });
