@@ -233,42 +233,73 @@ export type ConversationFile = {
   filename: string;
   mimeType: string;
   sizeBytes: number;
-  /** How many times this name was attached — a revised document, usually. */
+  /** How many copies on the thread share this name — a revised document, usually. */
   versions: number;
-  /** The most recent attachment carrying this name. */
+  /** This copy's place among those sharing its name, oldest first, from 1. */
+  version: number;
+  /** The newest copy carrying this name. */
+  isLatest: boolean;
+  /** Who sent this copy and when, so same-named copies can be told apart. */
+  sender: string;
+  sentAt: string;
+  /** This copy's own attachment; never another message's file of the same name. */
   attachmentId: string;
   messageId: string;
 };
 
 /**
- * Every file on the thread, once. Hunting turn by turn for the latest version
- * of a document is one of the things a thread makes people do.
+ * Every file on the thread, one entry per attachment. A name reused on a later
+ * message is a new version and is marked as the newest, but every copy keeps
+ * its own download: the name is chosen by whoever sends it, so it cannot decide
+ * which sender's bytes stand behind an earlier link.
  */
 export function conversationFiles(conversation: Conversation): ConversationFile[] {
-  const byName = new Map<string, ConversationFile>();
-  for (const message of conversation.messages) {
+  const files: ConversationFile[] = [];
+  const sortKey = new Map<ConversationFile, { at: number; order: number }>();
+  conversation.messages.forEach((message, order) => {
+    const sentAt = Date.parse(message.sentAt);
     for (const attachment of message.attachments) {
-      const key = attachment.filename.toLowerCase();
-      const existing = byName.get(key);
-      if (existing) {
-        existing.versions += 1;
-        // Later messages carry the newer copy.
-        existing.attachmentId = attachment.id;
-        existing.messageId = message.providerMessageId;
-        existing.sizeBytes = attachment.sizeBytes;
-        continue;
-      }
-      byName.set(key, {
+      const file: ConversationFile = {
         filename: attachment.filename,
         mimeType: attachment.mimeType,
         sizeBytes: attachment.sizeBytes,
         versions: 1,
+        version: 1,
+        isLatest: true,
+        sender: displayName(message.from),
+        sentAt: message.sentAt,
         attachmentId: attachment.id,
         messageId: message.providerMessageId,
+      };
+      files.push(file);
+      sortKey.set(file, {
+        at: Number.isNaN(sentAt) ? Number.NEGATIVE_INFINITY : sentAt,
+        order,
       });
     }
+  });
+
+  const byName = new Map<string, ConversationFile[]>();
+  for (const file of files) {
+    const key = file.filename.toLowerCase();
+    const group = byName.get(key);
+    if (group) group.push(file);
+    else byName.set(key, [file]);
   }
-  return [...byName.values()];
+  for (const group of byName.values()) {
+    const chronological = [...group].sort((a, b) => {
+      const left = sortKey.get(a)!;
+      const right = sortKey.get(b)!;
+      return left.at - right.at || left.order - right.order;
+    });
+    chronological.forEach((file, index) => {
+      file.versions = chronological.length;
+      file.version = index + 1;
+      file.isLatest = index === chronological.length - 1;
+    });
+  }
+
+  return files;
 }
 
 export type Participant = {

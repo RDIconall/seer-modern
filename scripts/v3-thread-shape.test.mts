@@ -223,11 +223,18 @@ const withFiles = conv([
   }),
 ]);
 const files = conversationFiles(withFiles);
-assert.equal(files.length, 2, "one entry per name, not per message");
-const co = files.find((f) => f.filename === "CO v3.pdf")!;
-assert.equal(co.versions, 2, "a re-sent document is counted as a version");
-assert.equal(co.attachmentId, "a2", "the newest copy is the one offered");
-assert.equal(co.sizeBytes, 2000);
+assert.equal(files.length, 3, "every attachment keeps its own entry");
+const copies = files.filter((f) => f.filename === "CO v3.pdf");
+assert.deepEqual(
+  copies.map((f) => f.attachmentId),
+  ["a1", "a2"],
+  "a re-sent name does not replace the earlier copy's download",
+);
+assert.ok(copies.every((f) => f.versions === 2), "a re-sent document is counted as a version");
+const newest = copies.find((f) => f.isLatest)!;
+assert.equal(newest.attachmentId, "a2", "the newest copy is the one highlighted");
+assert.equal(newest.sizeBytes, 2000);
+assert.equal(copies.find((f) => !f.isLatest)?.sizeBytes, 1000);
 
 // --- who is on it ------------------------------------------------------------
 
