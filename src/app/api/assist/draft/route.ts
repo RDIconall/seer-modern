@@ -5,6 +5,7 @@ import {
 import { getGmailMessage } from "@/lib/mail/gmail";
 import { getGraphMessage } from "@/lib/mail/graph";
 import { requireMailSession } from "@/lib/mail/session";
+import { messageBodyText } from "@/lib/v2/intelligence/html-text";
 import {
   loadUserProfile,
   profilePromptBlock,
@@ -66,10 +67,7 @@ export async function POST(request: Request) {
         ? await getGmailMessage(session.accessToken, id)
         : await getGraphMessage(session.accessToken, id);
 
-    const bodyText = (
-      message.textBody ||
-      message.htmlBody.replace(/<[^>]+>/g, " ").replace(/\s+/g, " ")
-    ).slice(0, 5000);
+    const bodyText = messageBodyText(message).slice(0, 5000);
 
     const firstName = (session.name || session.email).split(/[\s@]/)[0];
     const hint = intent ? INTENT_HINTS[intent] : undefined;

@@ -7,6 +7,7 @@ import {
 } from "@/lib/mail/graph";
 import { requireMailSession } from "@/lib/mail/session";
 import { recordRepliedThread } from "@/lib/store/replied-threads";
+import { messageBodyText } from "@/lib/v2/intelligence/html-text";
 import { NextResponse } from "next/server";
 
 type Mode = "compose" | "reply" | "replyAll" | "forward";
@@ -133,9 +134,7 @@ export async function POST(request: Request) {
       );
 
       const originalText = (
-        original.textBody ||
-        original.htmlBody.replace(/<[^>]+>/g, " ").replace(/\s+/g, " ") ||
-        original.snippet
+        messageBodyText(original) || original.snippet
       ).slice(0, 20_000);
 
       if (mode === "forward") {

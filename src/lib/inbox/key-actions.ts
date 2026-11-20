@@ -4,6 +4,8 @@
  * call, works on every message.
  */
 
+import { stripTags } from "@/lib/v2/intelligence/html-text";
+
 export type KeyAction = { label: string; url: string };
 
 const INTENT_PATTERNS: { re: RegExp; label: string; score: number }[] = [
@@ -27,12 +29,40 @@ const INTENT_PATTERNS: { re: RegExp; label: string; score: number }[] = [
 const JUNK =
   /unsubscribe from|privacy|terms|preferences|view in browser|facebook|twitter|instagram|linkedin\.com\/share|help center|contact us|download (the )?app|app store|google play|mailto:/i;
 
-function stripTags(s: string): string {
-  return s
-    .replace(/<[^>]+>/g, " ")
+function anchorText(s: string): string {
+  return stripTags(s)
     .replace(/&nbsp;/g, " ")
     .replace(/\s+/g, " ")
     .trim();
+}
+
+const ANCHOR_START = /<a\b/gi;
+const ANCHOR_END = /<\/a>/gi;
+const ANCHOR_HREF = /href=["'](https?:\/\/[^"']+)["']/i;
+
+type Anchor = { url: string; inner: string };
+
+/**
+ * Each `<a href>` with its inner HTML, in one forward pass. Once an opener has
+ * no ">" or a link has no "</a>", no later one does either.
+ */
+function* anchors(html: string): Generator<Anchor> {
+  let from = 0;
+  while (from < html.length) {
+    ANCHOR_START.lastIndex = from;
+    const start = ANCHOR_START.exec(html);
+    if (!start) return;
+    const gt = html.indexOf(">", start.index + 2);
+    if (gt === -1) return;
+    from = gt + 1;
+    const href = ANCHOR_HREF.exec(html.slice(start.index, gt));
+    if (!href) continue;
+    ANCHOR_END.lastIndex = from;
+    const end = ANCHOR_END.exec(html);
+    if (!end) return;
+    yield { url: href[1], inner: html.slice(from, end.index) };
+    from = end.index + end[0].length;
+  }
 }
 
 export function extractKeyActions(
@@ -42,14 +72,13 @@ export function extractKeyActions(
   if (!htmlBody) return [];
   const found: (KeyAction & { score: number })[] = [];
   const seen = new Set<string>();
-  const anchorRe = /<a\b[^>]*href=["'](https?:\/\/[^"']+)["'][^>]*>([\s\S]*?)<\/a>/gi;
 
-  let m: RegExpExecArray | null;
   let guard = 0;
-  while ((m = anchorRe.exec(htmlBody)) && guard < 200) {
+  for (const anchor of anchors(htmlBody)) {
+    if (guard >= 200) break;
     guard += 1;
-    const url = m[1];
-    const text = stripTags(m[2]).slice(0, 80);
+    const url = anchor.url;
+    const text = anchorText(anchor.inner).slice(0, 80);
     const hay = `${text} ${url}`;
     if (!text && !/track|rsvp|pay|confirm/i.test(url)) continue;
 

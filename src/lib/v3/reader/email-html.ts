@@ -17,6 +17,8 @@
  * structural pass, not the only line of defence.
  */
 
+import { stripTags } from "@/lib/v2/intelligence/html-text";
+
 /** Elements that carry meaning. Anything else is unwrapped, keeping its text. */
 const ALLOWED_TAGS = new Set([
   "a", "b", "blockquote", "br", "caption", "code", "col", "colgroup", "dd",
@@ -26,14 +28,111 @@ const ALLOWED_TAGS = new Set([
   "tr", "u", "ul",
 ]);
 
-/** Elements whose CONTENT is not message text and must go with them. */
-const VOID_CONTENT =
-  /<(script|style|head|noscript|iframe|object|embed|template|form|svg|math|title)\b[^>]*>[\s\S]*?<\/\1\s*>/gi;
+/**
+ * Bodies are sender-controlled, so every pass below is one forward scan. A
+ * pattern like `<a\b[^>]*>` or `<style>[\s\S]*?</style>` rescans the rest of
+ * the body at every opener that never closes, and a body of nothing but
+ * openers then freezes the reader.
+ */
 
-const ORPHAN_DANGEROUS =
-  /<\/?(script|style|head|noscript|iframe|object|embed|template|form|svg|math|title|link|meta|base|input|button|select|textarea)\b[^>]*>/gi;
+/** Openers of elements whose CONTENT is not message text and must go with them. */
+const VOID_CONTENT_OPEN =
+  /<(script|style|head|noscript|iframe|object|embed|template|form|svg|math|title)\b/gi;
 
-const ATTRIBUTE = /([a-zA-Z_:][-a-zA-Z0-9_:.]*)\s*=\s*("([^"]*)"|'([^']*)'|([^\s"'>]+))/g;
+const ORPHAN_DANGEROUS_OPEN =
+  /<\/?(script|style|head|noscript|iframe|object|embed|template|form|svg|math|title|link|meta|base|input|button|select|textarea)\b/gi;
+
+const DOCTYPE_OPEN = /<!DOCTYPE/gi;
+
+const TAG_OPEN = /<(\/?)([a-zA-Z][a-zA-Z0-9]*)\b/g;
+
+const BLOCKQUOTE_OPEN = /<blockquote\b/gi;
+
+const ATTRIBUTE =
+  /(?<![-a-zA-Z0-9_:.])([a-zA-Z_:][-a-zA-Z0-9_:.]*)\s*=\s*("([^"]*)"|'([^']*)'|([^\s"'>]+))/g;
+
+/**
+ * `html.replace(/OPEN[^>]*>/g, …)` for an `opener` regex (global, no ">" in
+ * its matches). `render` gets the opener match and the text up to the ">".
+ * Once an opener has no ">" after it, no later opener does either.
+ */
+function replaceTags(
+  html: string,
+  opener: RegExp,
+  render: (open: RegExpExecArray, rest: string) => string,
+): string {
+  const out: string[] = [];
+  let i = 0;
+  opener.lastIndex = 0;
+  let match: RegExpExecArray | null;
+  while ((match = opener.exec(html)) !== null) {
+    const afterOpen = match.index + match[0].length;
+    const gt = html.indexOf(">", afterOpen);
+    if (gt === -1) break;
+    out.push(html.slice(i, match.index), render(match, html.slice(afterOpen, gt)));
+    i = gt + 1;
+    opener.lastIndex = i;
+  }
+  out.push(html.slice(i));
+  return out.join("");
+}
+
+/** `html.replace(/START[\s\S]*?END/g, replacement)` for literal delimiters. */
+function replaceDelimited(
+  html: string,
+  start: string,
+  end: string,
+  replacement: string,
+): string {
+  const out: string[] = [];
+  let i = 0;
+  while (i < html.length) {
+    const open = html.indexOf(start, i);
+    if (open === -1) break;
+    const close = html.indexOf(end, open + start.length);
+    if (close === -1) break;
+    out.push(html.slice(i, open), replacement);
+    i = close + end.length;
+  }
+  out.push(html.slice(i));
+  return out.join("");
+}
+
+/**
+ * Drop each void-content element with everything up to its closing tag, as
+ * `/<(script|…)\b[^>]*>[\s\S]*?<\/\1\s*>/gi` would. An element with no
+ * closing tag stays for the orphan pass; once one has none, no later element
+ * of that name does either.
+ */
+function dropVoidContent(html: string): string {
+  const out: string[] = [];
+  const closers = new Map<string, RegExp | null>();
+  let i = 0;
+  VOID_CONTENT_OPEN.lastIndex = 0;
+  let match: RegExpExecArray | null;
+  while ((match = VOID_CONTENT_OPEN.exec(html)) !== null) {
+    const name = match[1].toLowerCase();
+    let closer = closers.get(name);
+    if (closer === null) continue;
+    const gt = html.indexOf(">", match.index + match[0].length);
+    if (gt === -1) break;
+    if (!closer) {
+      closer = new RegExp(`</${name}\\s*>`, "gi");
+      closers.set(name, closer);
+    }
+    closer.lastIndex = gt + 1;
+    const close = closer.exec(html);
+    if (!close) {
+      closers.set(name, null);
+      continue;
+    }
+    out.push(html.slice(i, match.index), " ");
+    i = close.index + close[0].length;
+    VOID_CONTENT_OPEN.lastIndex = i;
+  }
+  out.push(html.slice(i));
+  return out.join("");
+}
 
 /**
  * Style declarations worth keeping. Colour, font and size are deliberately
@@ -131,24 +230,90 @@ function rebuildAttributes(tag: string, raw: string): string {
  */
 export function sanitizeStructuralHtml(html: string): string {
   if (!html) return "";
-  return html
-    .replace(/<!--[\s\S]*?-->/g, "")
-    .replace(/<!DOCTYPE[^>]*>/gi, "")
-    .replace(/<\?[\s\S]*?\?>/g, "")
-    .replace(VOID_CONTENT, " ")
-    .replace(ORPHAN_DANGEROUS, " ")
-    .replace(/<(\/?)([a-zA-Z][a-zA-Z0-9]*)\b([^>]*?)(\/?)>/g, (_all, close: string, name: string, attrs: string, selfClose: string) => {
-      const tag = name.toLowerCase();
-      if (!ALLOWED_TAGS.has(tag)) return "";
-      if (close) return `</${tag}>`;
-      if (tag === "br" || tag === "hr" || tag === "img" || tag === "col") {
-        return `<${tag}${rebuildAttributes(tag, attrs)} />`;
-      }
-      return `<${tag}${rebuildAttributes(tag, attrs)}${selfClose ? " /" : ""}>`;
-    })
-    .replace(/(\s*<br\s*\/>\s*){3,}/gi, "<br /><br />")
-    .trim();
+  let out = replaceDelimited(html, "<!--", "-->", "");
+  out = replaceTags(out, DOCTYPE_OPEN, () => "");
+  out = replaceDelimited(out, "<?", "?>", "");
+  out = dropVoidContent(out);
+  out = replaceTags(out, ORPHAN_DANGEROUS_OPEN, () => " ");
+  out = replaceTags(out, TAG_OPEN, (open, rest) => {
+    const close = open[1];
+    const tag = open[2].toLowerCase();
+    if (!ALLOWED_TAGS.has(tag)) return "";
+    if (close) return `</${tag}>`;
+    const selfClose = rest.endsWith("/");
+    const attrs = selfClose ? rest.slice(0, -1) : rest;
+    if (tag === "br" || tag === "hr" || tag === "img" || tag === "col") {
+      return `<${tag}${rebuildAttributes(tag, attrs)} />`;
+    }
+    return `<${tag}${rebuildAttributes(tag, attrs)}${selfClose ? " /" : ""}>`;
+  });
+  return out.replace(/(?<!\s)\s*(?:<br\s*\/>\s*){3,}/gi, "<br /><br />").trim();
 }
+
+/**
+ * A quote marker. `open` finds where one can start; when `at` is set it is
+ * the full `<tag[^>]*…` pattern, tried sticky at each start.
+ */
+type Marker = { open: RegExp; at: RegExp | null };
+
+const tagMarker = (tag: string, at: RegExp): Marker => ({
+  open: new RegExp(`<${tag}`, "gi"),
+  at,
+});
+
+/**
+ * The first match of `marker` at or after `from`, as `String.search` would
+ * find it. A failed `<tag[^>]*…` start means every later start before the
+ * next ">" fails too, since its `[^>]*` sees a suffix of the same text, so
+ * those are skipped rather than rescanned.
+ */
+function findMarker(
+  html: string,
+  marker: Marker,
+  from: number,
+): { index: number; end: number } | null {
+  marker.open.lastIndex = from;
+  let start: RegExpExecArray | null;
+  while ((start = marker.open.exec(html)) !== null) {
+    if (!marker.at) {
+      return { index: start.index, end: start.index + start[0].length };
+    }
+    marker.at.lastIndex = start.index;
+    const hit = marker.at.exec(html);
+    if (hit) return { index: start.index, end: start.index + hit[0].length };
+    const gt = html.indexOf(">", start.index);
+    if (gt === -1) return null;
+    marker.open.lastIndex = gt + 1;
+  }
+  return null;
+}
+
+function countMarker(html: string, marker: Marker): number {
+  let count = 0;
+  let from = 0;
+  let hit: { index: number; end: number } | null;
+  while ((hit = findMarker(html, marker, from)) !== null) {
+    count += 1;
+    from = hit.end > hit.index ? hit.end : hit.index + 1;
+  }
+  return count;
+}
+
+const APPEND_ON_SEND = tagMarker("div", /<div[^>]*id=["']?appendonsend["']?/iy);
+const RPLY_FWD_MSG = tagMarker("div", /<div[^>]*id=["']?divRplyFwdMsg["']?/iy);
+const GMAIL_QUOTE = tagMarker("div", /<div[^>]*class=["'][^"']*gmail_quote/iy);
+const MOZ_CITE_PREFIX = tagMarker("div", /<div[^>]*class=["'][^"']*moz-cite-prefix/iy);
+const YAHOO_QUOTED = tagMarker("div", /<div[^>]*(?:id|class)=["'][^"']*yahoo_quoted/iy);
+const BLOCKQUOTE_CITE = tagMarker("blockquote", /<blockquote[^>]*type=["']?cite/iy);
+const BLOCKQUOTE_QUOTE_CLASS = tagMarker(
+  "blockquote",
+  /<blockquote[^>]*class=["'][^"']*(?:gmail_quote|moz-cite|yahoo_quoted)/iy,
+);
+const ORIGINAL_MESSAGE: Marker = {
+  open: /(?<!-)-{2,}\s*Original Message\s*-{2,}/gi,
+  at: null,
+};
+const WROTE: Marker = { open: /\bwrote:/gi, at: null };
 
 /**
  * Where the quoted history starts, in the shapes the clients write it. Outlook
@@ -156,15 +321,15 @@ export function sanitizeStructuralHtml(html: string): string {
  * Thunderbird and Yahoo each name their own wrapper; and any client may write
  * an "Original Message" divider.
  */
-const QUOTE_OPENERS: RegExp[] = [
-  /<div[^>]*id=["']?appendonsend["']?/i,
-  /<div[^>]*id=["']?divRplyFwdMsg["']?/i,
-  /<div[^>]*class=["'][^"']*gmail_quote/i,
-  /<div[^>]*class=["'][^"']*moz-cite-prefix/i,
-  /<div[^>]*(?:id|class)=["'][^"']*yahoo_quoted/i,
-  /<blockquote[^>]*type=["']?cite/i,
-  /<blockquote[^>]*class=["'][^"']*(?:gmail_quote|moz-cite|yahoo_quoted)/i,
-  /-{2,}\s*Original Message\s*-{2,}/i,
+const QUOTE_OPENERS: Marker[] = [
+  APPEND_ON_SEND,
+  RPLY_FWD_MSG,
+  GMAIL_QUOTE,
+  MOZ_CITE_PREFIX,
+  YAHOO_QUOTED,
+  BLOCKQUOTE_CITE,
+  BLOCKQUOTE_QUOTE_CLASS,
+  ORIGINAL_MESSAGE,
 ];
 
 /** Every blockquote, so each can be judged on what stands above it. */
@@ -189,19 +354,19 @@ const ATTRIBUTIONS: RegExp[] = [
 ];
 
 /** Markers that each open one more quoted message, for the hidden count. */
-const QUOTE_COUNTERS: RegExp[] = [
-  /<div[^>]*id=["']?divRplyFwdMsg["']?/gi,
-  /<div[^>]*class=["'][^"']*gmail_quote/gi,
-  /<blockquote[^>]*type=["']?cite/gi,
-  /-{2,}\s*Original Message\s*-{2,}/gi,
-  /\bwrote:/gi,
+const QUOTE_COUNTERS: Marker[] = [
+  RPLY_FWD_MSG,
+  GMAIL_QUOTE,
+  BLOCKQUOTE_CITE,
+  ORIGINAL_MESSAGE,
+  WROTE,
 ];
 
 /** The last of the text a reader would see before `index`, tags removed. */
 function textBefore(html: string, index: number): string {
-  return html
-    .slice(Math.max(0, index - 600), index)
-    .replace(/<[^>]*>/g, " ")
+  // Runs once per blockquote, so the slice is stripped in one pass.
+  return stripTags(html.slice(Math.max(0, index - 600), index))
+    .replace(/<>/g, " ")
     .replace(/&nbsp;/gi, " ")
     .replace(/&[a-z#0-9]+;/gi, " ")
     .replace(/\s+/g, " ")
@@ -225,8 +390,7 @@ function announcedBlockquote(html: string): number {
 /** Does this fragment still say anything once the tags are gone? */
 function hasVisibleText(html: string): boolean {
   return (
-    html
-      .replace(/<[^>]+>/g, " ")
+    stripTags(html)
       .replace(/&nbsp;/gi, " ")
       .replace(/&[a-z#0-9]+;/gi, "x")
       .trim().length > 0
@@ -245,7 +409,7 @@ export function stripQuotedHtml(html: string): StrippedHtml {
 
   let cut = announcedBlockquote(html);
   for (const opener of QUOTE_OPENERS) {
-    const found = html.search(opener);
+    const found = findMarker(html, opener, 0)?.index ?? -1;
     if (found >= 0 && (cut === -1 || found < cut)) cut = found;
   }
   if (cut === -1) return { html, quotedCount: 0 };
@@ -256,7 +420,7 @@ export function stripQuotedHtml(html: string): StrippedHtml {
   // wrapper and an "On … wrote:" line for one quoted message, and adding those
   // together says two where the reader can see one.
   const quotedCount = QUOTE_COUNTERS.reduce(
-    (deepest, counter) => Math.max(deepest, tail.match(counter)?.length ?? 0),
+    (deepest, counter) => Math.max(deepest, countMarker(tail, counter)),
     0,
   );
 
@@ -276,9 +440,10 @@ export function stripQuotedHtml(html: string): StrippedHtml {
  * phone is the message greyed out against the edge of the screen.
  */
 function unwrapLayoutBlockquotes(html: string): string {
-  return html
-    .replace(/<blockquote\b[^>]*>/gi, "<div>")
-    .replace(/<\/blockquote\s*>/gi, "</div>");
+  return replaceTags(html, BLOCKQUOTE_OPEN, () => "<div>").replace(
+    /<\/blockquote\s*>/gi,
+    "</div>",
+  );
 }
 
 /** The readable body of one message: new text only, structure kept, theme safe. */
