@@ -1260,10 +1260,11 @@ export async function classifyInboxWithAssistant(
       if (!saveMap.has(item.id)) continue;
       const r = resMap.get(item.id);
       if (!r) continue;
-      const moneyish =
-        /finance|bill|autopay|receipt|money|subscription/i.test(
-          `${r.debug.ruleId} ${r.category ?? ""}`,
-        ) || /receipt|invoice|bill|statement|payment/i.test(item.subject);
+      // The grade must call it money mail; a subject keyword is the
+      // sender's own claim and would let any note seed a baseline.
+      const moneyish = /finance|bill|autopay|receipt|money|subscription/i.test(
+        `${r.debug.ruleId} ${r.category ?? ""}`,
+      );
       if (!moneyish) continue;
       const amount = extractAmount(`${item.subject}\n${item.snippet}`);
       if (amount == null || amount < 1) continue;
