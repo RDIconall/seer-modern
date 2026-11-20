@@ -238,6 +238,10 @@ export async function POST(request: Request) {
         body.replyToId,
         text,
         mode === "replyAll",
+        {
+          to: toList || original.fromEmail,
+          cc: mode === "replyAll" ? ccList || original.ccEmail : ccList,
+        },
       );
       await Promise.allSettled([
         recordRepliedThread(session.email, original.threadId),

@@ -36,7 +36,23 @@ assert.equal(
     personDisplay: "Alice Example",
     fromEmail: "alice@example.com",
   }),
-  "Alice Example",
+  "Alice Example <alice@example.com>",
+);
+
+assert.equal(
+  mailboxListLabel({
+    latestOutgoing: false,
+    fromName: "Pat Colleague",
+    fromEmail: "pat@elsewhere.example",
+  }),
+  "Pat Colleague <pat@elsewhere.example>",
+  "a sender-chosen name never stands without its mailbox",
+);
+
+assert.equal(
+  mailboxListLabel({ latestOutgoing: false, fromEmail: "may.yau@example.com" }),
+  "may.yau@example.com",
+  "an unnamed sender reads as its mailbox, not a name made from it",
 );
 
 assert.equal(effectiveUnread(true, true, false), false, "answered thread is not bold");

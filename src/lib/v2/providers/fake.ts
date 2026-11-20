@@ -16,6 +16,7 @@ import type {
   SyncFolder,
   SyncPage,
 } from "./types";
+import { bindReply } from "./reply-recipients";
 
 /**
  * The FAKE provider is the executable reference for how every provider must
@@ -191,6 +192,7 @@ export class FakeProvider implements MailProvider {
       (x) => x.providerConversationId === command.conversationId,
     );
     if (!c) throw new Error(`conversation ${command.conversationId} not found`);
+    bindReply(this.live(c).messages, command, "me@example.com");
     const id = `reply-${++this.sentCounter}`;
     c.messages.push({
       providerMessageId: id,

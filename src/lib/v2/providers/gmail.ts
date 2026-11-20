@@ -6,6 +6,7 @@ import {
 } from "./mutation-idempotent";
 import { nativeUrlFor } from "./native-url";
 import { gmailForwardHtml } from "./forward-html";
+import { bindReply } from "./reply-recipients";
 import type {
   Address,
   AttachmentContent,
@@ -73,10 +74,36 @@ function header(headers: GmailHeader[] | undefined, name: string): string {
   return headers?.find((h) => h.name.toLowerCase() === name.toLowerCase())?.value ?? "";
 }
 
+/** Split an address list on commas that are outside quoted names and angle brackets. */
+function splitAddressList(raw: string): string[] {
+  const parts: string[] = [];
+  let current = "";
+  let quoted = false;
+  let angle = false;
+  for (let i = 0; i < raw.length; i += 1) {
+    const ch = raw[i];
+    if (quoted && ch === "\\" && i + 1 < raw.length) {
+      current += ch + raw[i + 1];
+      i += 1;
+      continue;
+    }
+    if (ch === '"') quoted = !quoted;
+    else if (!quoted && ch === "<") angle = true;
+    else if (!quoted && ch === ">") angle = false;
+    if (ch === "," && !quoted && !angle) {
+      parts.push(current);
+      current = "";
+      continue;
+    }
+    current += ch;
+  }
+  parts.push(current);
+  return parts;
+}
+
 function parseAddresses(raw: string): Address[] {
   if (!raw) return [];
-  return raw
-    .split(",")
+  return splitAddressList(raw)
     .map((chunk) => chunk.trim())
     .filter(Boolean)
     .map((chunk) => {
@@ -308,17 +335,10 @@ export class GmailProvider implements MailProvider {
   async reply(command: ReplyCommand, _key: string): Promise<SendReceipt> {
     void _key;
     const convo = await this.thread(command.conversationId);
-    const last = convo.messages[convo.messages.length - 1];
-    const recipients = new Set<string>();
-    if (last?.from.email) recipients.add(last.from.email);
-    if (command.all) {
-      for (const a of [...(last?.to ?? []), ...(last?.cc ?? [])]) {
-        if (a.email !== this.deps.accountEmail.toLowerCase()) recipients.add(a.email);
-      }
-    }
+    const { to, cc } = bindReply(convo.messages, command, this.deps.accountEmail);
     const raw = this.encodeRaw(
       [
-        `To: ${[...recipients].join(", ")}`,
+        `To: ${[...to, ...cc].map((a) => a.email).join(", ")}`,
         `Subject: Re: ${convo.subject}`,
       ],
       command.bodyHtml,

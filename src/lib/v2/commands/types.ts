@@ -81,7 +81,16 @@ export type Command =
         sizeBytes: number;
       }[];
     }
-  | { type: "reply"; providerConversationId: string; all: boolean; bodyHtml: string }
+  | {
+      type: "reply";
+      providerConversationId: string;
+      all: boolean;
+      bodyHtml: string;
+      /** The message the user was replying to when they confirmed. */
+      messageId: string;
+      /** The mailboxes the user was shown; the provider must address exactly these. */
+      to: string[];
+    }
   | { type: "forward"; providerConversationId: string; to: string[]; bodyHtml: string }
   | {
       /** Replace Atlas shelves and filing guidance for this mailbox. */

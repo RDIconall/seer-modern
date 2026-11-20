@@ -937,6 +937,12 @@ body {
 .reader-turn-you {
   color: var(--brand-strong);
 }
+.reader-turn-mailbox {
+  font-weight: 400;
+  letter-spacing: 0;
+  color: var(--muted);
+  overflow-wrap: anywhere;
+}
 .reader-turn-peek {
   flex: 1;
   min-width: 0;
@@ -1123,6 +1129,16 @@ body {
   min-width: 0;
   font-size: var(--t-body);
   color: var(--fg);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.reader-branch-head .reader-branch-senders {
+  display: block;
+  flex: 0 1 auto;
+  min-width: 0;
+  font-size: var(--t-small);
+  color: var(--muted);
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;

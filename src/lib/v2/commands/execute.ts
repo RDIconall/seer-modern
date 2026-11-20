@@ -555,11 +555,18 @@ async function run(
       if (!ctx.provider) return fail("provider unavailable");
       const rejected = await rejectCorpusId(ctx, command.providerConversationId);
       if (rejected) return rejected;
+      const confirmedTo = Array.isArray(command.to)
+        ? command.to.filter((email): email is string => typeof email === "string" && email.trim() !== "")
+        : [];
+      if (typeof command.messageId !== "string" || !command.messageId || confirmedTo.length === 0) {
+        return fail("reply recipients were not confirmed");
+      }
       const receipt = await ctx.provider.reply(
         {
           conversationId: command.providerConversationId,
           all: command.all,
           bodyHtml: command.bodyHtml,
+          inReplyTo: { messageId: command.messageId, mailboxes: confirmedTo },
         },
         idempotencyKey,
       );

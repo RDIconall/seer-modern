@@ -334,13 +334,25 @@ export async function replyGraphMessage(
   id: string,
   body: string,
   replyAll = false,
+  /** The To and Cc the user was shown; without them Graph picks its own, honouring a hidden replyTo. */
+  recipients?: { to: string; cc?: string },
 ): Promise<void> {
   const path = replyAll
     ? `/me/messages/${id}/replyAll`
     : `/me/messages/${id}/reply`;
   await graphFetch(accessToken, path, {
     method: "POST",
-    body: JSON.stringify({ comment: body }),
+    body: JSON.stringify({
+      comment: body,
+      ...(recipients
+        ? {
+            message: {
+              toRecipients: parseAddresses(recipients.to),
+              ccRecipients: parseAddresses(recipients.cc ?? ""),
+            },
+          }
+        : {}),
+    }),
   });
 }
 

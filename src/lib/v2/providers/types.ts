@@ -110,6 +110,11 @@ export type ReplyCommand = {
   /** true = reply all; recipients are derived from the thread. */
   all: boolean;
   bodyHtml: string;
+  /**
+   * The message the user replied to and the mailboxes they were shown. When
+   * present the adapter sends to exactly those mailboxes or not at all.
+   */
+  inReplyTo?: { messageId: string; mailboxes: string[] };
 };
 
 export type ForwardCommand = {

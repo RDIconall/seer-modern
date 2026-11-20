@@ -1,4 +1,5 @@
 import { personName } from "@/lib/v2/view/person-name";
+import { plainDisplayName } from "@/lib/v2/providers/reply-recipients";
 
 /** Turn `may.yau` into `May Yau` so a recipient never reads as a month. */
 export function formatLocalPart(local: string): string {
@@ -43,13 +44,14 @@ export function mailboxListLabel(input: {
     return named ? `To ${named}` : "To …";
   }
 
-  return (
-    personName(input.personDisplay ?? undefined) ||
-    personName(input.fromName ?? undefined) ||
-    (input.fromEmail ? nameFromEmail(input.fromEmail) : "") ||
-    input.fromEmail ||
-    ""
-  );
+  // Incoming names are the sender's to choose, so the mailbox always rides along.
+  const email = (input.fromEmail ?? "").trim();
+  const named =
+    personName(plainDisplayName(input.personDisplay)) ||
+    personName(plainDisplayName(input.fromName));
+  if (!email) return named;
+  if (!named || named.toLowerCase() === email.toLowerCase()) return email;
+  return `${named} <${email}>`;
 }
 
 /**

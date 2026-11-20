@@ -6,6 +6,7 @@ import {
   outlookMutationAlreadyApplied,
 } from "./mutation-idempotent";
 import { nativeUrlFor } from "./native-url";
+import { bindReply } from "./reply-recipients";
 import type {
   Address,
   AttachmentContent,
@@ -290,10 +291,18 @@ export class OutlookProvider implements MailProvider {
   async reply(command: ReplyCommand, _key: string): Promise<SendReceipt> {
     void _key;
     const msgs = await this.conversationMessages(command.conversationId);
-    const last = msgs[msgs.length - 1];
+    const { messages } = this.toConversation(command.conversationId, msgs);
+    const { message, to, cc } = bindReply(messages, command, this.deps.accountEmail);
     const endpoint = command.all ? "replyAll" : "reply";
-    await this.post(`/messages/${last.id}/${endpoint}`, {
+    // Graph otherwise derives the recipients itself, honouring a replyTo this
+    // client never shows. Name them so the reply goes where the screen said.
+    const recipient = (a: Address) => ({ emailAddress: { address: a.email } });
+    await this.post(`/messages/${message.providerMessageId}/${endpoint}`, {
       comment: command.bodyHtml,
+      message: {
+        toRecipients: to.map(recipient),
+        ccRecipients: cc.map(recipient),
+      },
     });
     return {
       providerMessageId: "sent",
