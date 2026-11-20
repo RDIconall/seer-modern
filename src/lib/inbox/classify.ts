@@ -683,16 +683,8 @@ function classifyCore(
     );
   }
 
-  if (dom.endsWith(".edu") || dom.endsWith(".gov")) {
-    return hit(
-      actionable ? "respond" : "read_and_archive",
-      "MED",
-      "Educational or government domain",
-      actionable ? "edu-gov-respond" : "edu-gov-archive",
-      ctx,
-    );
-  }
-
+  // The From domain is sender-chosen and unauthenticated here, so a school
+  // or agency suffix (.edu, .gov) earns no trust; relationship rules decide.
   if (PERSONAL_PROVIDERS.test(email)) {
     if (PROMO_BLOB.test(blob) || /\bunsubscribe\b/i.test(blob)) {
       return hit(

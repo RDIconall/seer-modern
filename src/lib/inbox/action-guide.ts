@@ -43,7 +43,6 @@ function categoryFor(ruleId: string | undefined, action: TriageAction): string {
   if (/urgency-expired/.test(r)) return "Expired";
   if (/shopping|promo|marketing|urgency-bait/.test(r)) return "Shopping & promos";
   if (/product/.test(r)) return "Product updates";
-  if (/edu-gov/.test(r)) return "School & gov";
   if (/contact|engaged|personal/.test(r)) return "People";
   switch (action) {
     case "respond":
