@@ -89,7 +89,7 @@ Rules:
 - Sound like a busy, warm human: short sentences, no corporate filler, no "I hope this email finds you well".
 - Answer what was actually asked. If information is missing, make the smallest reasonable assumption and move on — do not ask the user questions.
 - 1-4 sentences unless the email genuinely requires more.
-- Sign off with just "${firstName}".${profileBlock ? `\n\n${profileBlock}\nUse this to answer accurately as them (their role, family, commitments) and to match their voice — never contradict it.` : ""}`,
+- Sign off with just "${firstName}".${profileBlock ? `\n\n${profileBlock}\nUse it only for facts about them (their role, family, commitments) and their voice.` : ""}`,
       prompt: JSON.stringify({
         from: `${message.fromName} <${message.fromEmail}>`,
         subject: message.subject,
