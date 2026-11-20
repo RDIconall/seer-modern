@@ -2,6 +2,7 @@ import { requireMailSession } from "@/lib/mail/session";
 import { getAssistantStatus } from "@/lib/inbox/gemini-triage";
 import { pgEnabled, pgHealth } from "@/lib/store/pg";
 import { NextResponse } from "next/server";
+import { readRequestAllowed } from "@/lib/security/origin";
 
 /**
  * Integration health — every external dependency probed live, so
@@ -53,6 +54,9 @@ export async function GET(req: Request) {
     });
   }
 
+  if (!readRequestAllowed(req)) {
+    return NextResponse.json({ error: "invalid request origin" }, { status: 403 });
+  }
   const session = await requireMailSession();
   if (!session) {
     return NextResponse.json({ error: "Not signed in" }, { status: 401 });

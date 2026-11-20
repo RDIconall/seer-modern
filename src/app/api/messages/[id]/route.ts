@@ -26,6 +26,7 @@ import { requireMailSession } from "@/lib/mail/session";
 import { getSenderOverride } from "@/lib/store/senders";
 import type { RsvpStatus } from "@/lib/inbox/personal-context";
 import { NextResponse } from "next/server";
+import { readRequestAllowed } from "@/lib/security/origin";
 
 type ReaderEvent = {
   id: string;
@@ -76,9 +77,12 @@ async function lookupGoogleEventByUid(
 }
 
 export async function GET(
-  _request: Request,
+  request: Request,
   context: { params: Promise<{ id: string }> },
 ) {
+  if (!readRequestAllowed(request)) {
+    return NextResponse.json({ error: "invalid request origin" }, { status: 403 });
+  }
   const { id } = await context.params;
   try {
     const session = await requireMailSession();

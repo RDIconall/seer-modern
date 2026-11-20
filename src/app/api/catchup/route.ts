@@ -14,6 +14,7 @@ import { requireMailSession } from "@/lib/mail/session";
 import { markOpened, readLastOpen } from "@/lib/store/last-open";
 import { getSenderOverride } from "@/lib/store/senders";
 import { NextResponse } from "next/server";
+import { readRequestAllowed } from "@/lib/security/origin";
 
 /** Deep enough to cover a real 500+ inbox in one pass */
 const INBOX_DEPTH = 1200;
@@ -28,7 +29,10 @@ const MIN_NEW = 3;
  * opened the app, already graded, distilled to one glance. Built from
  * the AI's own task lines — no extra model call, so it's instant.
  */
-export async function GET() {
+export async function GET(request: Request) {
+  if (!readRequestAllowed(request)) {
+    return NextResponse.json({ error: "invalid request origin" }, { status: 403 });
+  }
   try {
     const session = await requireMailSession();
     if (!session) {

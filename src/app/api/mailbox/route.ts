@@ -25,6 +25,7 @@ import { requireMailSession } from "@/lib/mail/session";
 import type { MailFolder, MailMessageListItem } from "@/lib/mail/types";
 import { getSenderOverride } from "@/lib/store/senders";
 import { NextResponse, after } from "next/server";
+import { readRequestAllowed } from "@/lib/security/origin";
 
 export const maxDuration = 60;
 
@@ -37,6 +38,9 @@ const SCAN = Math.max(
 );
 
 export async function GET(request: Request) {
+  if (!readRequestAllowed(request)) {
+    return NextResponse.json({ error: "invalid request origin" }, { status: 403 });
+  }
   try {
     const session = await requireMailSession();
     if (!session) {
