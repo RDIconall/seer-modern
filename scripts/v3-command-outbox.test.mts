@@ -217,11 +217,41 @@ try {
 
   const reply = await executeCommand(
     ctx,
-    { type: "reply", providerConversationId: "pc-send", all: false, bodyHtml: "<p>re</p>" },
+    {
+      type: "reply",
+      providerConversationId: "pc-send",
+      all: false,
+      bodyHtml: "<p>re</p>",
+      messageId: "m-send",
+      to: ["s@x.com"],
+    },
     "key-reply",
   );
   assert.equal(reply.ok, true);
   assert.equal(reply.optimistic, undefined);
+
+  // A reply is only sent to the mailboxes the user was shown.
+  const unconfirmed = await executeCommand(
+    ctx,
+    { type: "reply", providerConversationId: "pc-send", all: false, bodyHtml: "<p>re</p>" } as never,
+    "key-reply-unconfirmed",
+  );
+  assert.equal(unconfirmed.ok, false);
+  assert.match(unconfirmed.error ?? "", /not confirmed/);
+  const misdirected = await executeCommand(
+    ctx,
+    {
+      type: "reply",
+      providerConversationId: "pc-send",
+      all: false,
+      bodyHtml: "<p>re</p>",
+      messageId: "m-send",
+      to: ["someone-else@x.com"],
+    },
+    "key-reply-misdirected",
+  );
+  assert.equal(misdirected.ok, false);
+  assert.match(misdirected.error ?? "", /recipients .* changed/);
 
   // Correction and teaching stay on the direct path.
   const corrected = await executeCommand(

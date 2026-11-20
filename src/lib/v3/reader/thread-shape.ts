@@ -1,6 +1,7 @@
 import type { Address, Conversation, Message } from "@/lib/v2/providers/types";
 import { htmlToText, readableBody } from "@/lib/v2/intelligence/html-text";
 import { readableHtml } from "@/lib/v3/reader/email-html";
+import { plainDisplayName } from "@/lib/v2/providers/reply-recipients";
 
 /**
  * The shape of a conversation, which is not the list of messages it is stored
@@ -136,12 +137,14 @@ export function isInternal(message: Message, ownDomain: string): boolean {
 }
 
 export const displayName = (address: Address): string =>
-  address.name?.trim() || address.email?.split("@")[0] || "Unknown";
+  plainDisplayName(address.name) || address.email?.split("@")[0] || "Unknown";
 
 export type Turn = {
   kind: "turn";
   message: Message;
   who: string;
+  /** The sender's mailbox. A display name is the sender's own choice; this is not. */
+  mailbox: string;
   isYou: boolean;
   peek: string;
   body: string;
@@ -157,6 +160,7 @@ export type Branch = {
   turns: {
     message: Message;
     who: string;
+    mailbox: string;
     isYou: boolean;
     text: string;
     html: string | null;
@@ -195,6 +199,7 @@ export function shapeThread(
       const turn = {
         message,
         who,
+        mailbox: message.from.email ?? "",
         isYou: isYou(message),
         text: stripped.text,
         html: stripped.html,
@@ -219,6 +224,7 @@ export function shapeThread(
       kind: "turn",
       message,
       who,
+      mailbox: message.from.email ?? "",
       isYou: isYou(message),
       peek: peekOf(stripped.text),
       body: stripped.text,
@@ -331,6 +337,8 @@ export type ThreadSummary = {
   daysUnanswered: number | null;
   /** The counterparty waiting on a reply, if one is. */
   waitingOn: string | null;
+  /** That counterparty's mailbox. */
+  waitingOnEmail: string | null;
 };
 
 export function summariseThread(
@@ -349,6 +357,7 @@ export function summariseThread(
   // counterparty is still waiting.
   let daysUnanswered: number | null = null;
   let waitingOn: string | null = null;
+  let waitingOnEmail: string | null = null;
   for (let i = lanes.length - 1; i >= 0; i -= 1) {
     const lane = lanes[i];
     if (lane.kind !== "turn") continue;
@@ -357,6 +366,7 @@ export function summariseThread(
       if (!Number.isNaN(at)) {
         daysUnanswered = Math.max(0, Math.floor((now - at) / 86_400_000));
         waitingOn = lane.who;
+        waitingOnEmail = lane.mailbox || null;
       }
     }
     break;
@@ -368,5 +378,6 @@ export function summariseThread(
     people: participants(conversation, ownDomain, ownEmail).length,
     daysUnanswered,
     waitingOn,
+    waitingOnEmail,
   };
 }

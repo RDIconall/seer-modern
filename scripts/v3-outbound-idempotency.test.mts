@@ -152,7 +152,14 @@ try {
   // Reply rejects corpus conversation id.
   const badReply = await executeCommand(
     ctx,
-    { type: "reply", providerConversationId: corpusId, all: false, bodyHtml: "<p>nope</p>" },
+    {
+      type: "reply",
+      providerConversationId: corpusId,
+      all: false,
+      bodyHtml: "<p>nope</p>",
+      messageId: "m-1",
+      to: ["a@b.com"],
+    },
     "key-bad-reply",
   );
   assert.equal(badReply.ok, false);
@@ -162,7 +169,14 @@ try {
   // Valid reply uses provider conversation id.
   const reply = await executeCommand(
     ctx,
-    { type: "reply", providerConversationId: "pc-1", all: false, bodyHtml: "<p>ok</p>" },
+    {
+      type: "reply",
+      providerConversationId: "pc-1",
+      all: false,
+      bodyHtml: "<p>ok</p>",
+      messageId: "m-1",
+      to: ["a@b.com"],
+    },
     "key-reply",
   );
   assert.equal(reply.ok, true);

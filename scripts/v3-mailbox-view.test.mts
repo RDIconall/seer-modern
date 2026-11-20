@@ -136,7 +136,7 @@ try {
   assert.equal(inbox.needsYou, 0, "Triage has no undecided destination");
   assert.equal(inbox.rows.length, 2);
   assert.equal(inbox.rows[0].subject, "New inbox thread");
-  assert.equal(inbox.rows[0].senderDisplayName, "Alice");
+  assert.equal(inbox.rows[0].senderDisplayName, "Alice <alice@example.com>");
   assert.equal(inbox.rows[0].isUnread, true);
   assert.equal(inbox.rows[0].snippet, "needs read");
   assert.deepEqual(inbox.rows[0].attachments, ["brief.pdf"]);

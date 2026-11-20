@@ -1,7 +1,7 @@
 "use client";
 
 import * as React from "react";
-import { useEffect, useId, useState } from "react";
+import { useEffect, useId, useRef, useState } from "react";
 import { ChevronDown, ChevronRight, Paperclip, Sparkles, Trash2, X } from "lucide-react";
 import { MessageHtml } from "@/components/v2/MessageHtml";
 import type { ReaderComposeIntent } from "@/components/v2/Reader";
@@ -23,6 +23,13 @@ import {
 import { RecipientInput } from "./RecipientInput";
 import type { Recipient } from "./recipient-state";
 import { RichComposer, type RichComposerValue } from "./RichComposer";
+import {
+  confirmRecipientsLabel,
+  displayNameWarning,
+  needsRecipientConfirmation,
+  replyBinding,
+  replyRecipientsText,
+} from "./reply-binding";
 import {
   draftStorageKey,
   parseStoredDraft,
@@ -51,6 +58,7 @@ function modeTitle(mode: ComposeMode): string {
 type ConversationResponse = {
   conversation: Conversation;
   provider?: ProviderKind;
+  ownEmail?: string | null;
   error?: string;
 };
 
@@ -79,6 +87,7 @@ export function ComposePane({
   accountId,
   preview,
   previewProvider,
+  ownEmail: ownEmailProp,
   onClose,
   onSent,
 }: {
@@ -90,6 +99,8 @@ export function ComposePane({
   /** Fixture / already-loaded conversation; skips the network when present. */
   preview?: Conversation;
   previewProvider?: ProviderKind;
+  /** The account's own address, left out of a reply-all. */
+  ownEmail?: string | null;
   onClose: () => void;
   onSent: (result: CommandResult) => void;
 }) {
@@ -110,6 +121,9 @@ export function ComposePane({
   const [error, setError] = useState<string | null>(null);
   const [conversation, setConversation] = useState<Conversation | null>(preview ?? null);
   const [provider, setProvider] = useState<ProviderKind | null>(previewProvider ?? null);
+  const [fetchedOwnEmail, setFetchedOwnEmail] = useState<string | null>(null);
+  const [confirmedKey, setConfirmedKey] = useState<string | null>(null);
+  const confirmRef = useRef<HTMLButtonElement>(null);
   const [quoteFailed, setQuoteFailed] = useState(false);
   const [quoteLoading, setQuoteLoading] = useState(Boolean(showQuote && !preview && conversationId));
   // Forward must open expanded so the user can see what they are sending.
@@ -178,6 +192,7 @@ export function ComposePane({
         if (!cancelled) {
           setConversation(next.conversation);
           setProvider(next.provider ?? null);
+          setFetchedOwnEmail(next.ownEmail ?? null);
           setQuoteFailed(false);
         }
       })
@@ -203,12 +218,20 @@ export function ComposePane({
   const threadHasAttachments = conversation ? hasAttachments(conversation) : false;
   const quoted = conversation ? quotedMessages(conversation) : [];
 
-  const canSend = canSendCompose({
-    mode,
-    recipientCount: recipients.length,
-    body: body.text,
-    sending,
-  });
+  const isReply = mode === "reply" || mode === "replyAll";
+  const binding = isReply
+    ? replyBinding(conversation, mode === "replyAll", ownEmailProp ?? fetchedOwnEmail)
+    : null;
+  const holdForConfirmation = needsRecipientConfirmation(binding, confirmedKey);
+
+  const canSend =
+    (!isReply || binding !== null) &&
+    canSendCompose({
+      mode,
+      recipientCount: recipients.length,
+      body: body.text,
+      sending,
+    });
 
   async function addAttachments(files: FileList | null) {
     if (!files) return;
@@ -264,9 +287,13 @@ export function ComposePane({
     }
   }
 
-  async function submit(event: React.FormEvent) {
-    event.preventDefault();
+  async function submit(event?: React.FormEvent, confirmation: string | null = confirmedKey) {
+    event?.preventDefault();
     if (!canSend) return;
+    if (needsRecipientConfirmation(binding, confirmation)) {
+      confirmRef.current?.focus();
+      return;
+    }
     setSending(true);
     setError(null);
     try {
@@ -291,11 +318,14 @@ export function ComposePane({
         });
       } else {
         if (!providerConversationId) throw new Error("conversation required");
+        if (!binding) throw new Error("This message has no address to reply to");
         result = await dispatchCommand({
           type: "reply",
           providerConversationId,
-          all: mode === "replyAll",
+          all: binding.all,
           bodyHtml,
+          messageId: binding.messageId,
+          to: binding.mailboxes,
         });
       }
       window.localStorage.removeItem(draftKey);
@@ -336,6 +366,33 @@ export function ComposePane({
       </header>
 
       <form className="mail-compose-form" onSubmit={(event) => void submit(event)}>
+        {isReply && (
+          <p className="mail-compose-reply-to">
+            {binding
+              ? `To ${replyRecipientsText(binding)}`
+              : quoteLoading
+                ? "Loading who this reply goes to…"
+                : "This reply cannot be sent until the conversation loads."}
+          </p>
+        )}
+        {binding && binding.conflicts.length > 0 ? (
+          <div className="mail-compose-reply-warning">
+            <p role="alert">{displayNameWarning(binding)}</p>
+            {holdForConfirmation ? (
+              <button
+                ref={confirmRef}
+                type="button"
+                className="mail-focus-ring"
+                onClick={() => {
+                  setConfirmedKey(binding.key);
+                  if (canSend) void submit(undefined, binding.key);
+                }}
+              >
+                {confirmRecipientsLabel(binding)}
+              </button>
+            ) : null}
+          </div>
+        ) : null}
         {showTo && (
           <div className="mail-compose-row">
             <label id={toLabelId} className="mail-compose-label" htmlFor={toInputId}>
@@ -377,18 +434,20 @@ export function ComposePane({
         </div>
         <RichComposer value={body} onChange={setBody} />
         <div className="mail-compose-extras">
-          <input
-            id={fileId}
-            className="sr-only"
-            type="file"
-            multiple
-            onChange={(event) => void addAttachments(event.target.files)}
-          />
           {mode === "send" ? (
-            <label htmlFor={fileId} className="mail-compose-extra mail-focus-ring">
-              <Paperclip aria-hidden />
-              Add attachment
-            </label>
+            <>
+              <input
+                id={fileId}
+                className="sr-only"
+                type="file"
+                multiple
+                onChange={(event) => void addAttachments(event.target.files)}
+              />
+              <label htmlFor={fileId} className="mail-compose-extra mail-focus-ring">
+                <Paperclip aria-hidden />
+                Add attachment
+              </label>
+            </>
           ) : null}
           {showQuote ? (
             <button

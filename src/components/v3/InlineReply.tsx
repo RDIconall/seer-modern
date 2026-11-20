@@ -1,7 +1,7 @@
 "use client";
 
 import * as React from "react";
-import { useCallback, useEffect, useId, useState } from "react";
+import { useCallback, useEffect, useId, useRef, useState } from "react";
 import { Expand, Sparkles } from "lucide-react";
 import type { CommandResult } from "@/lib/v2/commands/types";
 import type { Conversation } from "@/lib/v2/providers/types";
@@ -15,6 +15,13 @@ import { describeHttpFailure, readJsonBody } from "@/lib/v3/net/json";
 import { RecipientInput } from "./RecipientInput";
 import type { Recipient } from "./recipient-state";
 import { RichComposer, type RichComposerValue } from "./RichComposer";
+import {
+  confirmRecipientsLabel,
+  displayNameWarning,
+  needsRecipientConfirmation,
+  replyBinding,
+  replyRecipientsText,
+} from "./reply-binding";
 import {
   draftStorageKey,
   parseStoredDraft,
@@ -30,6 +37,7 @@ export function InlineReply({
   conversation,
   providerConversationId,
   accountId,
+  ownEmail,
   intent,
   onActivate,
   onClose,
@@ -39,6 +47,7 @@ export function InlineReply({
   conversation: Conversation;
   providerConversationId: string;
   accountId?: string;
+  ownEmail?: string | null;
   intent: ReaderComposeIntent | null;
   onActivate: (intent: ReaderComposeIntent) => void;
   onClose: () => void;
@@ -57,6 +66,11 @@ export function InlineReply({
   const activeMode = intent?.mode;
   const draftKey = draftStorageKey(accountId, mode, providerConversationId);
   const latest = conversation.messages.at(-1);
+  const binding =
+    mode === "forward" ? null : replyBinding(conversation, mode === "replyAll", ownEmail);
+  const [confirmedKey, setConfirmedKey] = useState<string | null>(null);
+  const confirmRef = useRef<HTMLButtonElement>(null);
+  const holdForConfirmation = needsRecipientConfirmation(binding, confirmedKey);
 
   const saveDraft = useCallback(() => {
     const draft: StoredDraft = {
@@ -130,6 +144,7 @@ export function InlineReply({
 
   const canSend =
     intent !== null &&
+    (mode === "forward" || binding !== null) &&
     canSendCompose({
       mode,
       recipientCount: recipients.length,
@@ -137,26 +152,35 @@ export function InlineReply({
       sending,
     });
 
-  async function submit() {
+  async function submit(confirmation: string | null = confirmedKey) {
     if (!intent || !canSend) return;
+    if (needsRecipientConfirmation(binding, confirmation)) {
+      confirmRef.current?.focus();
+      return;
+    }
     setSending(true);
     setError(null);
     try {
       const bodyHtml = body.html || "<p></p>";
-      const result =
-        mode === "forward"
-          ? await dispatchCommand({
-              type: "forward",
-              providerConversationId,
-              to: recipients.map((recipient) => recipient.email),
-              bodyHtml,
-            })
-          : await dispatchCommand({
-              type: "reply",
-              providerConversationId,
-              all: mode === "replyAll",
-              bodyHtml,
-            });
+      let result: CommandResult;
+      if (mode === "forward") {
+        result = await dispatchCommand({
+          type: "forward",
+          providerConversationId,
+          to: recipients.map((recipient) => recipient.email),
+          bodyHtml,
+        });
+      } else {
+        if (!binding) throw new Error("This message has no address to reply to");
+        result = await dispatchCommand({
+          type: "reply",
+          providerConversationId,
+          all: binding.all,
+          bodyHtml,
+          messageId: binding.messageId,
+          to: binding.mailboxes,
+        });
+      }
       window.localStorage.removeItem(draftKey);
       setBody(EMPTY_RICH);
       setRecipients([]);
@@ -218,8 +242,29 @@ export function InlineReply({
       <p className="inline-reply-context">
         {mode === "forward"
           ? "Forward this conversation"
-          : `${modeLabel(mode)} to ${latest?.from.name || latest?.from.email || "sender"}`}
+          : binding
+            ? `${modeLabel(mode)} to ${replyRecipientsText(binding)}`
+            : `${modeLabel(mode)}: this message has no address to reply to`}
       </p>
+
+      {binding && binding.conflicts.length > 0 ? (
+        <div className="inline-reply-warning">
+          <p role="alert">{displayNameWarning(binding)}</p>
+          {holdForConfirmation ? (
+            <button
+              ref={confirmRef}
+              type="button"
+              className="mail-focus-ring"
+              onClick={() => {
+                setConfirmedKey(binding.key);
+                if (canSend) void submit(binding.key);
+              }}
+            >
+              {confirmRecipientsLabel(binding)}
+            </button>
+          ) : null}
+        </div>
+      ) : null}
 
       {mode === "forward" ? (
         <div className="inline-reply-recipient">

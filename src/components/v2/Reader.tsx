@@ -12,6 +12,7 @@ import {
   type Turn,
 } from "@/lib/v3/reader/thread-shape";
 import { MailReader } from "@/components/mail/MailReader";
+import { mailboxLabel } from "@/lib/v2/providers/reply-recipients";
 import { ConversationActions } from "./ConversationActions";
 import {
   Archive,
@@ -152,7 +153,9 @@ export function Reader({
         {summary.waitingOn && summary.daysUnanswered !== null && (
           <div className="reader-ball">
             <span>
-              {summary.waitingOn} wrote {summary.daysUnanswered === 0
+              {summary.waitingOn}
+              {summary.waitingOnEmail ? ` <${summary.waitingOnEmail}>` : ""} wrote{" "}
+              {summary.daysUnanswered === 0
                 ? "today"
                 : `${summary.daysUnanswered} day${summary.daysUnanswered === 1 ? "" : "s"} ago`}{" "}
               and has had no reply.
@@ -199,6 +202,13 @@ export function Reader({
           if (lane.kind === "branch") {
             const key = `branch:${lane.turns[0].message.providerMessageId}`;
             const isOpen = open.has(key);
+            const senders = [
+              ...new Set(
+                lane.turns
+                  .filter((turn) => !turn.isYou)
+                  .map((turn) => mailboxLabel(turn.message.from)),
+              ),
+            ];
             return (
               <section key={key} className="reader-branch" data-open={isOpen}>
                 <button
@@ -209,6 +219,11 @@ export function Reader({
                 >
                   <span className="reader-branch-tag tabular">INTERNAL</span>
                   <span className="reader-branch-title">You forwarded to {lane.to}</span>
+                  {senders.length > 0 && (
+                    <span className="reader-branch-from reader-branch-senders">
+                      {senders.join(", ")}
+                    </span>
+                  )}
                   <span className="reader-branch-count tabular">{lane.turns.length}</span>
                 </button>
                 {isOpen && (
@@ -221,6 +236,9 @@ export function Reader({
                       >
                         <div className="reader-branch-from">
                           <b>{turn.who}</b>
+                          {!turn.isYou && turn.mailbox ? (
+                            <span className="reader-turn-mailbox">&lt;{turn.mailbox}&gt;</span>
+                          ) : null}
                           <em className="tabular">{shortDate(turn.message.sentAt)}</em>
                         </div>
                         <MailReader
@@ -266,6 +284,9 @@ export function Reader({
                   </span>
                   <span className={`reader-turn-who${lane.isYou ? " reader-turn-you" : ""}`}>
                     {lane.who}
+                    {!lane.isYou && lane.mailbox ? (
+                      <span className="reader-turn-mailbox"> &lt;{lane.mailbox}&gt;</span>
+                    ) : null}
                   </span>
                   {!isOpen && <span className="reader-turn-peek">{lane.peek}</span>}
                   <span className="reader-turn-when tabular">{shortDate(lane.message.sentAt)}</span>
@@ -275,7 +296,7 @@ export function Reader({
                     <p className="reader-turn-to">
                       To{" "}
                       {lane.message.to
-                        .map((recipient) => recipient.name || recipient.email)
+                        .map(mailboxLabel)
                         .join(", ") || "you"}
                     </p>
                     <MailReader
