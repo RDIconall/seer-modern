@@ -19,7 +19,7 @@ import { z } from "zod";
  * from older versions are re-read.
  */
 
-export const UNDERSTANDING_VERSION = 4;
+export const UNDERSTANDING_VERSION = 5;
 
 /**
  * What an email is FOR — the deep read's own verdict on disposal, which

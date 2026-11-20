@@ -46,11 +46,16 @@ import {
 // HTML comments (often huge in marketing mail) are dropped.
 assert.equal(htmlToText("<!-- hidden preheader --><p>Hello</p>"), "Hello");
 
-// readableBody prefers real text, falls back to HTML, then the snippet.
+// readableBody reads the HTML part the reader shows, then the text part, then
+// the snippet. A multipart/alternative text part can say something else.
 {
   assert.equal(
-    readableBody({ bodyText: "plain wins", bodyHtml: "<p>html</p>", snippet: "snip" }),
-    "plain wins",
+    readableBody({ bodyText: "plain hidden", bodyHtml: "<p>html shown</p>", snippet: "snip" }),
+    "html shown",
+  );
+  assert.equal(
+    readableBody({ bodyText: "plain shown", bodyHtml: "<img src=x>", snippet: "snip" }),
+    "plain shown",
   );
   assert.equal(
     readableBody({ bodyText: null, bodyHtml: "<p>from html</p>", snippet: "snip" }),
@@ -67,8 +72,12 @@ assert.equal(htmlToText("<!-- hidden preheader --><p>Hello</p>"), "Hello");
 // storedBodyText persists derived text so later reads can skip body_html.
 {
   assert.equal(
-    storedBodyText({ bodyText: "plain wins", bodyHtml: "<p>html</p>" }),
-    "plain wins",
+    storedBodyText({ bodyText: "plain hidden", bodyHtml: "<p>html shown</p>" }),
+    "html shown",
+  );
+  assert.equal(
+    storedBodyText({ bodyText: "plain shown", bodyHtml: "<style>.a{}</style>" }),
+    "plain shown",
   );
   assert.equal(
     storedBodyText({ bodyText: null, bodyHtml: "<p>from html</p>" }),

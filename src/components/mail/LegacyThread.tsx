@@ -2,15 +2,8 @@
 
 import * as React from "react";
 import type { ReaderMessage } from "@/lib/inbox/types";
+import { legacyDisplayedBody } from "@/lib/mail/displayed-body";
 import { MailReader } from "./MailReader";
-
-function freshText(text: string): { text: string; quoted: boolean } {
-  const marker =
-    /^(?:On .+wrote:|From:\s.+|-----Original Message-----|_{5,})$/im;
-  const match = marker.exec(text);
-  if (!match?.index) return { text, quoted: false };
-  return { text: text.slice(0, match.index).trim(), quoted: true };
-}
 
 export function LegacyThread({ reader }: { reader: ReaderMessage }) {
   const turns =
@@ -31,9 +24,7 @@ export function LegacyThread({ reader }: { reader: ReaderMessage }) {
   return (
     <div className="legacy-thread" aria-label="Conversation">
       {turns.map((turn, index) => {
-        const fresh = freshText(turn.textBody);
-        const htmlContainsQuote =
-          /(?:gmail_quote|blockquote|Original Message)/i.test(turn.htmlBody);
+        const shown = legacyDisplayedBody(turn);
         return (
           <details
             key={turn.id}
@@ -45,11 +36,8 @@ export function LegacyThread({ reader }: { reader: ReaderMessage }) {
               <time>{turn.receivedAt ? new Date(turn.receivedAt).toLocaleString() : ""}</time>
             </summary>
             <div className="legacy-thread-body">
-              <MailReader
-                html={fresh.quoted || htmlContainsQuote ? null : turn.htmlBody}
-                text={fresh.text || turn.textBody}
-              />
-              {(fresh.quoted || htmlContainsQuote) && (
+              <MailReader html={shown.html} text={shown.text} />
+              {shown.quoted && (
                 <p className="reader-stripped">Quoted history hidden</p>
               )}
               {turn.attachments?.length ? (

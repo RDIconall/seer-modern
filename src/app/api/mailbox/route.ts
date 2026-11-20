@@ -2,6 +2,7 @@ import { buildActionGuideQuick } from "@/lib/inbox/action-guide";
 import { classifyMessage } from "@/lib/inbox/classify";
 import { classifyInboxWithAssistant } from "@/lib/inbox/gemini-triage";
 import { getOrBuildMailHistory } from "@/lib/inbox/mail-history-store";
+import { legacyDisplayedBody } from "@/lib/mail/displayed-body";
 import { getInboxSnapshot } from "@/lib/mail/inbox-snapshot";
 import { collapseThreads } from "@/lib/inbox/thread-collapse";
 import { getPersonalContext } from "@/lib/inbox/personal-context";
@@ -148,10 +149,7 @@ export async function GET(request: Request) {
               session.provider === "google"
                 ? await getGmailMessage(session.accessToken, id)
                 : await getGraphMessage(session.accessToken, id);
-            return (
-              msg.textBody ||
-              msg.htmlBody.replace(/<[^>]+>/g, " ").replace(/\s+/g, " ")
-            );
+            return legacyDisplayedBody(msg).bodyText;
           },
           // Superhuman rule: respond NOW, read in the background
           deferAi: true,

@@ -226,6 +226,7 @@ export function Reader({
                         <MailReader
                           className="reader-branch-text"
                           html={
+                            turn.html &&
                             turn.message.bodyHtml &&
                             !/(?:gmail_quote|blockquote|Original Message)/i.test(
                               turn.message.bodyHtml,
@@ -280,7 +281,7 @@ export function Reader({
                     </p>
                     <MailReader
                       html={
-                        lane.quotedCount === 0
+                        lane.quotedCount === 0 && lane.bodyHtml
                           ? lane.message.bodyHtml
                           : null
                       }

@@ -23,6 +23,7 @@ import {
   getGraphMessage,
   listGraphFolder,
 } from "@/lib/mail/graph";
+import { legacyDisplayedBody } from "@/lib/mail/displayed-body";
 import { makeGmailLabelStore } from "@/lib/mail/seer-labels";
 import { withFreshToken } from "@/lib/mail/vault";
 import { listAccountsWithTokens } from "@/lib/store/accounts";
@@ -179,10 +180,7 @@ export async function GET(request: Request) {
             const msg = isGoogle
               ? await getGmailMessage(token, id)
               : await getGraphMessage(token, id);
-            return (
-              msg.textBody ||
-              msg.htmlBody.replace(/<[^>]+>/g, " ").replace(/\s+/g, " ")
-            );
+            return legacyDisplayedBody(msg).bodyText;
           },
         },
       );
@@ -281,10 +279,7 @@ export async function GET(request: Request) {
             const msg = isGoogle
               ? await getGmailMessage(token, id)
               : await getGraphMessage(token, id);
-            return (
-              msg.textBody ||
-              msg.htmlBody.replace(/<[^>]+>/g, " ").replace(/\s+/g, " ")
-            );
+            return legacyDisplayedBody(msg).bodyText;
           },
         });
         deepReads = records.length;

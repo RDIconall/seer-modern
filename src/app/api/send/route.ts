@@ -1,3 +1,4 @@
+import { legacyDisplayedBody } from "@/lib/mail/displayed-body";
 import { getGmailMessage, gmailAction, sendGmailMessage } from "@/lib/mail/gmail";
 import {
   getGraphMessage,
@@ -133,9 +134,7 @@ export async function POST(request: Request) {
       );
 
       const originalText = (
-        original.textBody ||
-        original.htmlBody.replace(/<[^>]+>/g, " ").replace(/\s+/g, " ") ||
-        original.snippet
+        legacyDisplayedBody(original).bodyText || original.snippet
       ).slice(0, 20_000);
 
       if (mode === "forward") {
@@ -257,7 +256,7 @@ export async function POST(request: Request) {
         session.accessToken,
         body.replyToId,
       );
-      const forwarded = `---------- Forwarded message ----------\nFrom: ${original.fromName} <${original.fromEmail}>\nSubject: ${original.subject}\n\n${original.textBody || original.snippet}`;
+      const forwarded = `---------- Forwarded message ----------\nFrom: ${original.fromName} <${original.fromEmail}>\nSubject: ${original.subject}\n\n${legacyDisplayedBody(original).bodyText || original.snippet}`;
       const quoted = `${text ? `${text}\n\n` : ""}${forwarded}`;
       await sendGraphMessage(session.accessToken, {
         to: toList,

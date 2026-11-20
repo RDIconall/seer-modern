@@ -2,6 +2,7 @@ import {
   isGeminiConfigured,
   resolveAssistantModel,
 } from "@/lib/inbox/gemini-triage";
+import { legacyDisplayedBody } from "@/lib/mail/displayed-body";
 import { getGmailMessage } from "@/lib/mail/gmail";
 import { getGraphMessage } from "@/lib/mail/graph";
 import { requireMailSession } from "@/lib/mail/session";
@@ -66,10 +67,7 @@ export async function POST(request: Request) {
         ? await getGmailMessage(session.accessToken, id)
         : await getGraphMessage(session.accessToken, id);
 
-    const bodyText = (
-      message.textBody ||
-      message.htmlBody.replace(/<[^>]+>/g, " ").replace(/\s+/g, " ")
-    ).slice(0, 5000);
+    const bodyText = legacyDisplayedBody(message).bodyText.slice(0, 5000);
 
     const firstName = (session.name || session.email).split(/[\s@]/)[0];
     const hint = intent ? INTENT_HINTS[intent] : undefined;

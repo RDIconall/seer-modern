@@ -21,6 +21,7 @@ import {
   getGraphMessage,
   listGraphFolder,
 } from "@/lib/mail/graph";
+import { legacyDisplayedBody } from "@/lib/mail/displayed-body";
 import { makeGmailLabelStore } from "@/lib/mail/seer-labels";
 import { requireMailSession } from "@/lib/mail/session";
 import { getSenderOverride } from "@/lib/store/senders";
@@ -131,9 +132,7 @@ export async function GET(
         loadRepliedThreads(session.email),
       ]);
 
-    const bodyText =
-      message.textBody ||
-      message.htmlBody.replace(/<[^>]+>/g, " ").replace(/\s+/g, " ");
+    const bodyText = legacyDisplayedBody(message).bodyText;
 
     const decisions = await classifyInboxWithAssistant(
       session.email,
