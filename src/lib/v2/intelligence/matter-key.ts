@@ -212,6 +212,8 @@ export type MatterCandidate = {
   counterparty: string;
   /** The user named this matter themselves, so its scope is their decision. */
   userAuthored?: boolean;
+  /** Lowercased addresses already on this matter's conversations. */
+  participants?: string[];
 };
 
 export type ConversationKey = {
@@ -222,10 +224,25 @@ export type ConversationKey = {
   counterparty: string;
   /** The user's own name/company tokens — never evidence of shared work. */
   own?: Set<string>;
+  /** Lowercased From addresses of every message in the conversation. */
+  senders?: string[];
+  /** The signed-in user is placing this conversation themselves. */
+  userConfirmed?: boolean;
 };
 
 /** How much request overlap is required to tie two conversations together. */
 const MIN_SHARED_WORDS = 2;
+
+function sendersAreParticipants(
+  senders: string[] | undefined,
+  candidate: MatterCandidate,
+): boolean {
+  if (!senders || senders.length === 0) return false;
+  const participants = new Set(
+    (candidate.participants ?? []).map((p) => p.toLowerCase()),
+  );
+  return senders.every((s) => participants.has(s.toLowerCase()));
+}
 
 /** Compare matter names as work, not as strings: case and spacing are noise. */
 function normalizeTitle(title: string): string {
@@ -263,11 +280,18 @@ export function resolveMatterMatch(
   // vendor, a colleague, a portal — so matching it on counterparty would
   // fragment the very grouping the user asked for. Inferred matters get no
   // such licence; they must still prove the counterparty below.
+  //
+  // A title is not proof on its own: anyone who can deliver mail chooses the
+  // subject. Unless the user is filing this themselves, every sender must
+  // already be on the matter.
   const normalized = normalizeTitle(key.title);
   if (normalized) {
     for (const candidate of candidates) {
       if (!candidate.userAuthored) continue;
-      if (normalizeTitle(candidate.title) === normalized) return candidate;
+      if (normalizeTitle(candidate.title) !== normalized) continue;
+      if (key.userConfirmed || sendersAreParticipants(key.senders, candidate)) {
+        return candidate;
+      }
     }
   }
 

@@ -3,6 +3,7 @@ import type { AccountId } from "../db/types";
 import type { ContextInput } from "./context";
 import { loadGuidance } from "./operating-model";
 import { guidanceFor, loadMailboxStyle } from "./mailbox-style-store";
+import { loadMatterParticipants } from "./repository";
 
 /** People/matters/placements change slowly relative to a read tick. */
 export const CONTEXT_INPUT_TTL_MS = 60_000;
@@ -49,7 +50,7 @@ export async function loadContextInput(
   const cached = contextInputCache.get(cacheKey);
   if (cached && cached.expiresAt > Date.now()) return cached.value;
 
-  const [people, matters, interests, placements, operatingGuidance, mailboxStyle] = await Promise.all([
+  const [people, matters, participants, interests, placements, operatingGuidance, mailboxStyle] = await Promise.all([
     db().query<{ email: string; tier: string; vip: boolean }>(
       "select email, tier, vip from seer.people where account_id = $1",
       [accountId],
@@ -72,6 +73,7 @@ export async function loadContextInput(
         group by m.id`,
       [accountId],
     ),
+    loadMatterParticipants(db(), accountId),
     db().query<{ topic: string }>(
       "select topic from seer.interest_signals where account_id = $1",
       [accountId],
@@ -153,6 +155,7 @@ export async function loadContextInput(
       codes: m.codes ?? [],
       counterparty: m.counterparty ?? "",
       userAuthored: m.title_source === "user",
+      participants: participants.get(m.id) ?? [],
     })),
     interests: interests.rows.map((i) => i.topic),
     placements: placements.rows.map((item) => ({
