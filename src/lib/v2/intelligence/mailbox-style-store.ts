@@ -169,6 +169,28 @@ export async function loadMailboxStyle(
   return mapRow(row.rows[0], snapshot);
 }
 
+/**
+ * Read-only view of the style for display. With no stored row it reports the
+ * defaults `effectiveStyle` applies, plus the current hypothesis as `inferred`,
+ * and persists nothing.
+ */
+export async function previewMailboxStyle(
+  accountId: AccountId,
+): Promise<StoredMailboxStyle> {
+  const stored = await loadMailboxStyle(accountId);
+  if (stored) return stored;
+  const snapshot = await loadMailboxSnapshot(accountId);
+  return {
+    ...effectiveStyle(null),
+    confirmed: false,
+    inferred: inferStyle(snapshot),
+    driftPrompt: null,
+    confirmedAt: null,
+    updatedAt: new Date().toISOString(),
+    snapshot,
+  };
+}
+
 export async function refreshMailboxInference(
   accountId: AccountId,
 ): Promise<StoredMailboxStyle> {
