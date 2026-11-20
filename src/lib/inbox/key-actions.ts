@@ -4,6 +4,8 @@
  * call, works on every message.
  */
 
+import { stripTags } from "@/lib/html-scan";
+
 export type KeyAction = { label: string; url: string };
 
 const INTENT_PATTERNS: { re: RegExp; label: string; score: number }[] = [
@@ -27,12 +29,22 @@ const INTENT_PATTERNS: { re: RegExp; label: string; score: number }[] = [
 const JUNK =
   /unsubscribe from|privacy|terms|preferences|view in browser|facebook|twitter|instagram|linkedin\.com\/share|help center|contact us|download (the )?app|app store|google play|mailto:/i;
 
-function stripTags(s: string): string {
-  return s
-    .replace(/<[^>]+>/g, " ")
+function linkText(s: string): string {
+  return stripTags(s)
     .replace(/&nbsp;/g, " ")
     .replace(/\s+/g, " ")
     .trim();
+}
+
+/**
+ * Everything up to the last `</a>`. No anchor can close after it, and without
+ * this bound every unclosed `<a href>` would rescan the rest of the body.
+ */
+function throughLastAnchorClose(html: string): string {
+  const closes = /<\/a>/gi;
+  let end = 0;
+  while (closes.exec(html) !== null) end = closes.lastIndex;
+  return html.slice(0, end);
 }
 
 export function extractKeyActions(
@@ -42,14 +54,15 @@ export function extractKeyActions(
   if (!htmlBody) return [];
   const found: (KeyAction & { score: number })[] = [];
   const seen = new Set<string>();
-  const anchorRe = /<a\b[^>]*href=["'](https?:\/\/[^"']+)["'][^>]*>([\s\S]*?)<\/a>/gi;
+  const anchorRe = /<a\b[^<>]*href=["'](https?:\/\/[^"']+)["'][^>]*>([\s\S]*?)<\/a>/gi;
+  const anchors = throughLastAnchorClose(htmlBody);
 
   let m: RegExpExecArray | null;
   let guard = 0;
-  while ((m = anchorRe.exec(htmlBody)) && guard < 200) {
+  while ((m = anchorRe.exec(anchors)) && guard < 200) {
     guard += 1;
     const url = m[1];
-    const text = stripTags(m[2]).slice(0, 80);
+    const text = linkText(m[2]).slice(0, 80);
     const hay = `${text} ${url}`;
     if (!text && !/track|rsvp|pay|confirm/i.test(url)) continue;
 

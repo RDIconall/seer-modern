@@ -32,6 +32,7 @@ import { makeGmailLabelStore } from "@/lib/mail/seer-labels";
 import { requireMailSession } from "@/lib/mail/session";
 import { getSenderOverride } from "@/lib/store/senders";
 import { NextResponse, after } from "next/server";
+import { stripTags } from "@/lib/html-scan";
 
 export const maxDuration = 60;
 
@@ -149,7 +150,7 @@ export async function GET() {
               : await getGraphMessage(session.accessToken, id);
           return (
             msg.textBody ||
-            msg.htmlBody.replace(/<[^>]+>/g, " ").replace(/\s+/g, " ")
+            stripTags(msg.htmlBody).replace(/\s+/g, " ")
           );
         },
         // Superhuman rule: respond NOW, read in the background
