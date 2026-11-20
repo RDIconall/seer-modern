@@ -10,8 +10,9 @@ import type { AccountId } from "./types";
  * stand on.
  *
  * A sender is known when: the user pinned them (VIP), they resolved to the
- * inner/known tier historically, the user has written to them (sentTo > 0), or
- * they are a saved contact. Machines and first-contact strangers stay unknown.
+ * inner tier historically, the user has written to them (sentTo > 0), or they
+ * are a saved contact. Machines, first-contact strangers, and senders known
+ * only by inbound volume stay unknown.
  */
 
 export type PersonSeed = {
@@ -23,7 +24,10 @@ export type PersonSeed = {
 
 export type RelationshipSources = {
   /** Legacy people DB: email -> { tier, vip, name }. */
-  people?: Record<string, { tier?: string; vip?: boolean; name?: string }> | null;
+  people?: Record<
+    string,
+    { tier?: string; vip?: boolean; name?: string; by?: string; reason?: string }
+  > | null;
   /** Mail history contacts: email -> { sentTo }. */
   history?: { contacts?: Record<string, { sentTo?: number }> } | null;
   /** Saved address-book contacts (emails). */
@@ -49,7 +53,22 @@ export function collectPeople(sources: RelationshipSources): PersonSeed[] {
   };
 
   for (const [email, p] of Object.entries(sources.people ?? {})) {
-    const tier = p.tier && VALID_TIERS.has(p.tier) ? (p.tier as PersonSeed["tier"]) : "unknown";
+    // Legacy "known" is inbound volume alone, which any sender controls.
+    // Here "known" vetoes deletes, so it must come from sent mail or a
+    // saved contact below, never from the legacy tier. Legacy AI verdicts
+    // and meeting evidence (which counted unanswered invites) confirm
+    // nothing either.
+    const unconfirmed =
+      !p.vip &&
+      (p.by === "ai" ||
+        (p.by === "evidence" && p.reason === "You have a meeting with them"));
+    const tier =
+      p.tier &&
+      p.tier !== "known" &&
+      !unconfirmed &&
+      VALID_TIERS.has(p.tier)
+        ? (p.tier as PersonSeed["tier"])
+        : "unknown";
     put(email, { tier, vip: p.vip, name: p.name });
   }
   for (const [email, stat] of Object.entries(sources.history?.contacts ?? {})) {

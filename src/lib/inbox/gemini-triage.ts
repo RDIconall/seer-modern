@@ -38,12 +38,12 @@ import {
   usualLabel,
 } from "@/lib/store/merchants";
 import {
-  MACHINE_LOCALPART,
+  isUnconfirmedRecord,
   loadPeople,
   savePeople,
   tierFromEvidence,
   type PeopleDb,
-  type PersonTier,
+  type PersonRecord,
 } from "@/lib/store/people";
 import {
   profilePromptBlock,
@@ -820,7 +820,12 @@ export async function classifyInboxWithAssistant(
   for (const item of items) {
     const key = item.fromEmail.toLowerCase();
     if (tiers.has(key)) continue;
-    const stored = people[key];
+    let stored: PersonRecord | undefined = people[key];
+    if (stored && isUnconfirmedRecord(stored)) {
+      delete people[key];
+      peopleDirty = true;
+      stored = undefined;
+    }
     if (stored) {
       tiers.set(key, stored.vip ? "vip" : stored.tier);
       continue;
@@ -1152,11 +1157,7 @@ export async function classifyInboxWithAssistant(
     // in front of us wins when it says money/action/unpaid bill.
     const escape = needsYouEscape(item.subject, item.snippet);
     const tier = tiers.get(item.fromEmail.toLowerCase());
-    const personTier =
-      tier === "vip" ||
-      tier === "inner" ||
-      tier === "known" ||
-      tier === "new-credible";
+    const personTier = tier === "vip" || tier === "inner" || tier === "known";
 
     const hit = cachedHits.get(item.id);
     // A cached dismissal that came from RULES (a snippet-level shortcut,
@@ -1337,29 +1338,11 @@ export async function classifyInboxWithAssistant(
             tiers,
             merchants,
           );
+          // The verdict grades THIS message only. It never becomes a
+          // sender tier: the sender wrote the text the model judged.
           for (const [id, r] of mapped) {
             sinkResults.set(id, r);
             sinkSave.set(id, toCached(r));
-            // Grow the personal database: AI verdicts on unknown
-            // senders are stored forever (outbound mail later promotes)
-            const src = chunk.find((c) => c.id === id);
-            const key = src?.fromEmail.toLowerCase();
-            if (key && tiers.get(key) === "new" && r.senderKind) {
-              const tier: PersonTier =
-                r.senderKind === "person" && r.credible
-                  ? "new-credible"
-                  : "machine";
-              people[key] = {
-                email: key,
-                name: src?.fromName,
-                tier,
-                reason: r.reason.slice(0, 120),
-                by: "ai",
-                judgedAt: new Date().toISOString(),
-              };
-              tiers.set(key, tier);
-              peopleDirty = true;
-            }
           }
         } catch (e) {
           const msg = e instanceof Error ? e.message : String(e);
@@ -1468,8 +1451,7 @@ export async function classifyInboxWithAssistant(
     // mail surfaces — rules must never quietly bin a human. ("How are
     // you?" from a friend is a respond, not a skim-and-delete.)
     const tier = tiers.get(item.fromEmail.toLowerCase());
-    const personTier =
-      tier === "vip" || tier === "inner" || tier === "new-credible";
+    const personTier = tier === "vip" || tier === "inner";
     const dismissive =
       r.action === "delete_now" ||
       r.action === "unsubscribe" ||
@@ -1582,20 +1564,15 @@ export async function classifyInboxWithAssistant(
     if (!r || r.source === "override") continue;
     const tier = tiers.get(item.fromEmail.toLowerCase());
     const ctx = contextSignals(extras?.personal, item.fromEmail);
-    // Google auto-collects "other contacts" from every interaction —
-    // that list is NOT a relationship. An auto-contact only earns
-    // person protection when the mail graph shows real strength
-    // (the user has actually written to them). And "known" earned by
-    // volume alone never covers machine-shaped addresses — a tracking
-    // robot that writes daily is not a colleague.
+    // Protection needs something the USER did: wrote to them, saved
+    // them, met them, pinned them. Anything an outsider controls —
+    // how often they write, or a model's read of their own words —
+    // earns nothing here. Google auto-collects "other contacts" from
+    // every interaction, so an auto-contact only counts once the user
+    // has actually written to them.
     const rel = historySignals(history, item.fromEmail);
-    const machineShaped = MACHINE_LOCALPART.test(
-      item.fromEmail.split("@")[0] ?? "",
-    );
     const personish =
       tier === "inner" ||
-      tier === "new-credible" ||
-      (tier === "known" && !machineShaped) ||
       ctx.inContacts ||
       (ctx.autoContact && (rel.sentTo > 0 || rel.relationship === "engaged"));
     if (personish && DELETEY.has(r.action)) {

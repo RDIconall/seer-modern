@@ -7,14 +7,13 @@ import { accountKey, kvGet, kvSet } from "@/lib/store/kv";
  * - inner:        you write to them / they're in contacts / you're
  *                 meeting them — they matter, historically proven
  * - known:        writes to you repeatedly, human-shaped, no outbound yet
- * - new-credible: no history, but the AI read the full email and judged
- *                 a real, credible person (specific ask, real project,
- *                 mutual context — not a template blast)
+ * - new-credible: legacy — an AI read of the sender's own email. No
+ *                 longer written, and never trusted.
  * - machine:      automated sender — notifications, marketing, robots
  *
- * Local evidence decides most senders for free; the AI judges only the
- * genuinely unknown, once, and the verdict is stored here forever
- * (self-correcting: outbound mail later promotes anyone to inner).
+ * Only tiers backed by the user's own action (vip pin, inner) protect
+ * mail from deletion. "known" is inbound volume, which any sender
+ * controls. AI verdicts grade one message and are never stored here.
  */
 
 export type PersonTier = "inner" | "known" | "new-credible" | "machine";
@@ -62,6 +61,24 @@ export async function savePeople(
 export const MACHINE_LOCALPART =
   /^(no-?reply|donotreply|noreply|notifications?|alerts?|updates?|news(letter)?|marketing|promo(tions)?|deals|offers|info|hello|hi|support|help|billing|receipts?|orders?|shipping|tracking(updates)?|delivery|auto-?send|messages?\+|mcinfo|store|shop|sales|team|admin|system|mailer|bounce|digest|community|feedback|survey|invite|calendar-notification|drive-shares|comments)/i;
 
+const MEETING_REASON = "You have a meeting with them";
+
+/**
+ * True for records that must not be trusted from storage: AI verdicts on
+ * the sender's own words, and meeting evidence (older loads counted
+ * invites the user never accepted, which any sender can create). The
+ * caller re-derives these from live evidence every load.
+ */
+export function isUnconfirmedRecord(record: {
+  by?: unknown;
+  vip?: boolean;
+  reason?: unknown;
+}): boolean {
+  if (record.vip) return false;
+  if (record.by === "ai") return true;
+  return record.by === "evidence" && record.reason === MEETING_REASON;
+}
+
 /**
  * Resolve a sender's tier from FREE local evidence. Returns null when
  * the evidence is inconclusive — those go to the AI's full-text read.
@@ -81,7 +98,7 @@ export function tierFromEvidence(input: {
     return { tier: "inner", reason: "In your contacts" };
   }
   if (input.hasMeeting) {
-    return { tier: "inner", reason: "You have a meeting with them" };
+    return { tier: "inner", reason: MEETING_REASON };
   }
   if (MACHINE_LOCALPART.test(local)) {
     return { tier: "machine", reason: "Automated address" };
