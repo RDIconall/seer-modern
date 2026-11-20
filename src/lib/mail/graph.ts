@@ -295,7 +295,7 @@ function parseAddresses(raw: string): { emailAddress: { address: string } }[] {
     .map((s) => s.trim())
     .filter(Boolean)
     .map((address) => {
-      const m = address.match(/<([^>]+)>/);
+      const m = address.match(/<([^<>]+)>/);
       return { emailAddress: { address: (m?.[1] ?? address).trim() } };
     });
 }
