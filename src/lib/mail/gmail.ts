@@ -4,6 +4,7 @@ import type {
   MailMessageListItem,
   SendMailInput,
 } from "@/lib/mail/types";
+import { forEachMimePart } from "@/lib/mail/mime-walk";
 import { compileGmailSearch, parseMailSearch } from "@/lib/v3/search/parser";
 
 export type {
@@ -52,7 +53,7 @@ function extractBodies(payload: GmailPayload): {
     mimeType: string;
     size: number;
   }[] = [];
-  function walk(part: GmailPayload) {
+  function visit(part: GmailPayload) {
     if (part.filename && part.body?.attachmentId) {
       attachments.push({
         id: part.body.attachmentId,
@@ -69,7 +70,6 @@ function extractBodies(payload: GmailPayload): {
       const m = decodeBase64Url(part.body.data).match(/^UID:(.+)$/m);
       if (m) icalUid = m[1].trim();
     }
-    part.parts?.forEach(walk);
   }
   if (payload.body?.data) {
     if (payload.mimeType === "text/plain")
@@ -77,7 +77,7 @@ function extractBodies(payload: GmailPayload): {
     if (payload.mimeType === "text/html")
       html = decodeBase64Url(payload.body.data);
   }
-  walk(payload);
+  forEachMimePart(payload, visit);
   return { text, html, icalUid, attachments };
 }
 
@@ -403,11 +403,26 @@ export async function getGmailThreadMessages(
     accessToken,
     `/users/me/threads/${threadId}?format=minimal`,
   )) as { messages?: { id: string }[] };
-  const messages = await Promise.all(
+  const settled = await Promise.allSettled(
     (thread.messages ?? []).map((message) =>
       getGmailMessage(accessToken, message.id),
     ),
   );
+  // One message that won't load must not take its neighbors down with it.
+  const messages: MailMessageDetail[] = [];
+  let firstError: unknown;
+  for (const s of settled) {
+    if (s.status === "fulfilled") {
+      messages.push(s.value);
+      continue;
+    }
+    firstError ??= s.reason;
+    console.warn(
+      "[seer] thread message skipped:",
+      s.reason instanceof Error ? s.reason.message.slice(0, 160) : s.reason,
+    );
+  }
+  if (messages.length === 0 && settled.length > 0) throw firstError;
   return messages.sort((a, b) => a.receivedAt.localeCompare(b.receivedAt));
 }
 
