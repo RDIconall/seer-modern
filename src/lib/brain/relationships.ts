@@ -9,12 +9,15 @@
  * in bulk. It can still be deleted — one row, one deliberate tap.
  *
  * A sender is KNOWN when any of these hold:
- *   - the user pinned them (VIP) or they resolved to the inner/known tier
- *     (machines and first-contact strangers do not qualify);
+ *   - the user pinned them (VIP) or they resolved to the inner tier
+ *     (machines, first-contact strangers, and "known" — inbound volume
+ *     alone, which any sender controls — do not qualify);
  *   - the user has ever written to them (sent mail is the strongest,
  *     cheapest relationship signal there is);
  *   - they are in the user's saved address book.
  */
+
+import { isUnconfirmedRecord } from "@/lib/store/people";
 
 /** Structural inputs so callers and tests can pass partial records. */
 type PersonLike = { tier?: string; vip?: boolean } & Record<string, unknown>;
@@ -30,7 +33,10 @@ export function knownSenders(sources: {
 }): Set<string> {
   const known = new Set<string>();
   for (const [email, person] of Object.entries(sources.people ?? {})) {
-    if (person.vip || person.tier === "inner" || person.tier === "known") {
+    if (
+      person.vip ||
+      (person.tier === "inner" && !isUnconfirmedRecord(person))
+    ) {
       known.add(email.toLowerCase().trim());
     }
   }
