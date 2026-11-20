@@ -165,7 +165,7 @@ export function useMailbox(initialTab: ViewTab = "inbox") {
   }, [refreshIdentity]);
 
   // "While you were away" — one fetch per app open. The server compares
-  // against your last open, summarizes what arrived, and re-arms.
+  // against your last open and summarizes what arrived; a POST re-arms it.
   const [catchup, setCatchup] = useState<{
     since: string;
     newCount: number;
@@ -711,13 +711,39 @@ export function useMailbox(initialTab: ViewTab = "inbox") {
     [],
   );
 
+  // The open is recorded on the person's first real interaction, so a page
+  // load someone else triggered (a link, a popup closed straight away) does
+  // not mark the away mail as seen.
   useEffect(() => {
+    let cancelled = false;
+    let stopListening = () => {};
     fetch("/api/catchup", { cache: "no-store" })
-      .then((r) => r.json())
-      .then((j) => {
+      .then(async (r) => {
+        const j = await r.json();
+        if (cancelled || !r.ok) return;
         if (j && j.quiet === false) setCatchup(j);
+        const at = typeof j?.openedAt === "string" ? j.openedAt : undefined;
+        const record = (event: Event) => {
+          if (!event.isTrusted) return;
+          stopListening();
+          fetch("/api/catchup", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ at }),
+          }).catch(() => {});
+        };
+        window.addEventListener("pointerdown", record, true);
+        window.addEventListener("keydown", record, true);
+        stopListening = () => {
+          window.removeEventListener("pointerdown", record, true);
+          window.removeEventListener("keydown", record, true);
+        };
       })
       .catch(() => {});
+    return () => {
+      cancelled = true;
+      stopListening();
+    };
   }, []);
 
   const accountEmail =
