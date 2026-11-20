@@ -59,8 +59,9 @@ async function importGoogleDoc(
     return { error: "That doesn't look like a Google Docs URL" };
   }
 
-  // 1. Docs API with the user's own OAuth token (needs the Docs read
-  //    scope — granted on next sign-in after this update).
+  // Only the Docs API with the user's own OAuth token (needs the Docs read
+  // scope). No anonymous public export: that would let anyone's
+  // link-shared doc become this user's profile.
   try {
     const res = await fetch(
       `https://docs.googleapis.com/v1/documents/${id}`,
@@ -73,29 +74,12 @@ async function importGoogleDoc(
       if (text) return { text };
     }
   } catch {
-    /* try public export next */
-  }
-
-  // 2. Public export — works when the doc is shared "anyone with link".
-  try {
-    const res = await fetch(
-      `https://docs.google.com/document/d/${id}/export?format=txt`,
-      { cache: "no-store", redirect: "follow" },
-    );
-    if (res.ok) {
-      const text = (await res.text()).trim();
-      // A sign-in interstitial means it wasn't actually public
-      if (text && !/Google Docs: Sign-in/i.test(text.slice(0, 400))) {
-        return { text };
-      }
-    }
-  } catch {
     /* fall through */
   }
 
   return {
     error:
-      "Couldn't read that doc. Either sign in again (Settings → Connect Gmail) to grant the Docs read permission, share the doc as 'Anyone with the link can view', or paste the text directly.",
+      "Couldn't read that doc with your Google account. Sign in again (Settings → Connect Gmail) to grant the Docs read permission, or paste the text directly.",
   };
 }
 
