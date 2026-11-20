@@ -27,6 +27,7 @@ import type {
   SyncPage,
 } from "./types";
 import { compileGmailSearch, parseMailSearch } from "@/lib/v3/search/parser";
+import { walkMimeParts } from "@/lib/mail/mime-walk";
 import { assertSyncBudget } from "./types";
 
 /**
@@ -86,22 +87,22 @@ function parseAddresses(raw: string): Address[] {
     });
 }
 
-function walkBodies(part: GmailPart | undefined, out: { html?: string; text?: string; attachments: Message["attachments"] }): void {
-  if (!part) return;
-  const mime = part.mimeType ?? "";
-  if (part.filename && part.body?.attachmentId) {
-    out.attachments.push({
-      id: part.body.attachmentId,
-      filename: part.filename,
-      mimeType: mime,
-      sizeBytes: part.body.size ?? 0,
-    });
-  } else if (mime === "text/html" && part.body?.data) {
-    out.html = decodeBase64Url(part.body.data);
-  } else if (mime === "text/plain" && part.body?.data) {
-    out.text = decodeBase64Url(part.body.data);
-  }
-  for (const child of part.parts ?? []) walkBodies(child, out);
+function walkBodies(root: GmailPart | undefined, out: { html?: string; text?: string; attachments: Message["attachments"] }): void {
+  walkMimeParts(root, (part) => {
+    const mime = part.mimeType ?? "";
+    if (part.filename && part.body?.attachmentId) {
+      out.attachments.push({
+        id: part.body.attachmentId,
+        filename: part.filename,
+        mimeType: mime,
+        sizeBytes: part.body.size ?? 0,
+      });
+    } else if (mime === "text/html" && part.body?.data) {
+      out.html = decodeBase64Url(part.body.data);
+    } else if (mime === "text/plain" && part.body?.data) {
+      out.text = decodeBase64Url(part.body.data);
+    }
+  });
 }
 
 function toMessage(m: GmailMessage, selfEmail: string): Message {
