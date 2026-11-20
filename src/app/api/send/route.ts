@@ -1,3 +1,4 @@
+import { htmlBodyText } from "@/lib/html/strip-tags";
 import { getGmailMessage, gmailAction, sendGmailMessage } from "@/lib/mail/gmail";
 import {
   getGraphMessage,
@@ -134,7 +135,7 @@ export async function POST(request: Request) {
 
       const originalText = (
         original.textBody ||
-        original.htmlBody.replace(/<[^>]+>/g, " ").replace(/\s+/g, " ") ||
+        htmlBodyText(original.htmlBody) ||
         original.snippet
       ).slice(0, 20_000);
 

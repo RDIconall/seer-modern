@@ -15,6 +15,7 @@ import { getPersonalContext } from "@/lib/inbox/personal-context";
 import { loadActionMemory } from "@/lib/store/action-memory";
 import { loadRepliedThreads } from "@/lib/store/replied-threads";
 import { loadUserProfile } from "@/lib/store/user-profile";
+import { htmlBodyText } from "@/lib/html/strip-tags";
 import {
   getGmailMessage,
   getGmailThreadLast,
@@ -149,7 +150,7 @@ export async function GET() {
               : await getGraphMessage(session.accessToken, id);
           return (
             msg.textBody ||
-            msg.htmlBody.replace(/<[^>]+>/g, " ").replace(/\s+/g, " ")
+            htmlBodyText(msg.htmlBody)
           );
         },
         // Superhuman rule: respond NOW, read in the background

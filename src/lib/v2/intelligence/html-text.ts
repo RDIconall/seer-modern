@@ -7,7 +7,35 @@
  * hold this to: what you would see if you pasted the email into a chat.
  */
 
-const BLOCK_LEVEL = /<\/?(p|div|tr|li|h[1-6]|blockquote|table|section|article)\b[^>]*>/gi;
+import { rewriteTags, type TagResult, type TagScan } from "../../html/strip-tags";
+
+const BLOCK_LEVEL = /^<\/?(p|div|tr|li|h[1-6]|blockquote|table|section|article)\b/i;
+const LINE_BREAK = /^<br\s*\/?>$/i;
+const DROPPED = /^<(script|style|head|noscript)\b/i;
+const COMMENT_END = /-->/g;
+const DROPPED_END: Record<string, RegExp> = {
+  script: /<\/script>/gi,
+  style: /<\/style>/gi,
+  head: /<\/head>/gi,
+  noscript: /<\/noscript>/gi,
+};
+
+function markupToText(tag: string, start: number, scan: TagScan): TagResult {
+  // Drop non-content regions entirely, including their contents.
+  if (tag.startsWith("<!--")) {
+    const end = scan.find(COMMENT_END, start + 4);
+    if (end) return { text: " ", resume: end.index + end.length };
+  }
+  const dropped = DROPPED.exec(tag);
+  if (dropped) {
+    const end = scan.find(DROPPED_END[dropped[1].toLowerCase()], start + tag.length);
+    if (end) return { text: " ", resume: end.index + end.length };
+  }
+  // Preserve document structure as line breaks so sentences don't fuse.
+  if (LINE_BREAK.test(tag) || BLOCK_LEVEL.test(tag)) return "\n";
+  // Everything else is markup.
+  return " ";
+}
 
 const ENTITIES: Record<string, string> = {
   amp: "&",
@@ -35,17 +63,7 @@ function decodeEntities(s: string): string {
 }
 
 export function htmlToText(html: string): string {
-  return decodeEntities(
-    html
-      // Drop non-content regions entirely, including their contents.
-      .replace(/<!--[\s\S]*?-->/g, " ")
-      .replace(/<(script|style|head|noscript)\b[^>]*>[\s\S]*?<\/\1>/gi, " ")
-      // Preserve document structure as line breaks so sentences don't fuse.
-      .replace(/<br\s*\/?>/gi, "\n")
-      .replace(BLOCK_LEVEL, "\n")
-      // Everything else is markup.
-      .replace(/<[^>]+>/g, " "),
-  )
+  return decodeEntities(rewriteTags(html, markupToText))
     .replace(/[ \t\u00a0]+/g, " ")
     .replace(/\n\s*\n\s*\n+/g, "\n\n")
     .split("\n")

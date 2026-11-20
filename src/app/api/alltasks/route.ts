@@ -9,6 +9,7 @@ import { loadRepliedThreads } from "@/lib/store/replied-threads";
 import { loadUserProfile } from "@/lib/store/user-profile";
 import type { IphoneTask } from "@/lib/api-parity/iphone-task-types";
 import { LEGACY_SESSION_COOKIE } from "@/lib/future-ios";
+import { htmlBodyText } from "@/lib/html/strip-tags";
 import {
   getGmailMessage,
   getGmailThreadLast,
@@ -109,7 +110,7 @@ export async function GET() {
               : await getGraphMessage(session.accessToken, id);
           return (
             msg.textBody ||
-            msg.htmlBody.replace(/<[^>]+>/g, " ").replace(/\s+/g, " ")
+            htmlBodyText(msg.htmlBody)
           );
         },
       },

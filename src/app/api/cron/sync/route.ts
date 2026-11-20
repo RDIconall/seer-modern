@@ -11,6 +11,7 @@ import { loadSalesforce } from "@/lib/store/salesforce";
 import { pgEnabled, pgHealth } from "@/lib/store/pg";
 import type { EmailItem } from "@/lib/inbox/types";
 import { getInboxSnapshot } from "@/lib/mail/inbox-snapshot";
+import { htmlBodyText } from "@/lib/html/strip-tags";
 import {
   getGmailInboxTotals,
   getGmailMessage,
@@ -181,7 +182,7 @@ export async function GET(request: Request) {
               : await getGraphMessage(token, id);
             return (
               msg.textBody ||
-              msg.htmlBody.replace(/<[^>]+>/g, " ").replace(/\s+/g, " ")
+              htmlBodyText(msg.htmlBody)
             );
           },
         },
@@ -283,7 +284,7 @@ export async function GET(request: Request) {
               : await getGraphMessage(token, id);
             return (
               msg.textBody ||
-              msg.htmlBody.replace(/<[^>]+>/g, " ").replace(/\s+/g, " ")
+              htmlBodyText(msg.htmlBody)
             );
           },
         });
