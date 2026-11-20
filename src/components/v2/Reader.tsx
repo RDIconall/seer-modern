@@ -184,8 +184,11 @@ export function Reader({
               <span>
                 <b>{file.filename}</b>
                 <em className="tabular">
+                  {file.sender}
+                  {shortDate(file.sentAt) ? ` · ${shortDate(file.sentAt)}` : ""}
+                  {" · "}
                   {file.versions > 1
-                    ? `${file.versions} versions`
+                    ? `${file.isLatest ? "newest" : `version ${file.version}`} of ${file.versions}`
                     : fileSize(file.sizeBytes)}
                 </em>
               </span>

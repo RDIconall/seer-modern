@@ -866,7 +866,7 @@ body {
   min-height: 34px;
 }
 
-/* Everything attached, once, instead of hunting turn by turn. */
+/* Everything attached, each copy with its own sender, instead of hunting turn by turn. */
 .reader-files {
   display: flex;
   gap: 8px;
