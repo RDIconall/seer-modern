@@ -229,8 +229,9 @@ const URGENCY_BAIT =
 const PRODUCT_NOTIFY_DOMAINS =
   /(github\.com|noreply\.github\.com|users\.noreply\.github\.com|gitlab\.com|bitbucket\.org|vercel\.com|netlify\.com|cursor\.com|cursor\.sh|slack\.com|discord\.com|notion\.so|figma\.com|linear\.app|atlassian\.net|jira\.|asana\.com|trello\.com|dropbox\.com|box\.com|zoom\.us|calendly\.com|linkedin\.com|twitter\.com|x\.com|facebookmail\.com|instagram\.com|spotify\.com|apple\.com|accounts\.google\.com|microsoft\.com|office365\.com|google\.com|amazonses\.com|sendgrid\.net|mailchimp\.com|intercom-mail\.com|stripe\.com)/i;
 
+/** Anchored to the whole domain: "chase.com.example" is not Chase. */
 const FINANCE_DOMAINS =
-  /(bankofamerica|chase\.com|wellsfargo|plaid\.com|stripe\.com|amex|americanexpress|paypal\.com|venmo\.com|citi\.com|schwab|fidelity|coinbase)/i;
+  /(^|\.)(bankofamerica\.com|chase\.com|wellsfargo\.com|plaid\.com|stripe\.com|americanexpress\.com|aexp\.com|paypal\.com|venmo\.com|citi\.com|citibank\.com|schwab\.com|fidelity\.com|coinbase\.com)$/i;
 
 const SHOPPING_DOMAINS =
   /(capitaloneshopping|retailmenot|honey\.|rakuten|slickdeals|groupon|shopify|email\.amazon\.|marketing\.amazon)/i;
@@ -262,6 +263,31 @@ function domain(email: string): string {
 
 function localPart(email: string): string {
   return email.split("@")[0]?.toLowerCase() ?? "";
+}
+
+/**
+ * Receipt/statement wording is free for anyone to type, so it only files
+ * mail as a record when the sender is one the user has already vouched
+ * for: a known biller domain, someone they write to or keep in contacts,
+ * or a sender whose mail they have read and kept before.
+ */
+function isTrustedBiller(dom: string, ctx: Ctx): boolean {
+  return (
+    FINANCE_DOMAINS.test(dom) ||
+    ctx.extras?.inContacts === true ||
+    ctx.signals.sentTo > 0 ||
+    (ctx.signals.keptFrom ?? 0) >= 2
+  );
+}
+
+function unverifiedRecordReview(ctx: Ctx): ClassifyResult {
+  return hit(
+    "needs_review",
+    "LOW",
+    "Receipt/billing wording from a sender you haven't vouched for — check before filing",
+    "unverified-record-review",
+    ctx,
+  );
 }
 
 function isMarketingShape(local: string, dom: string, blob: string): boolean {
@@ -469,6 +495,7 @@ function classifyCore(
     BILL_READY_BLOB.test(blob) &&
     !FINANCE_RISK.test(blob)
   ) {
+    if (!isTrustedBiller(dom, ctx)) return unverifiedRecordReview(ctx);
     return hit(
       "read_and_archive",
       "HIGH",
@@ -562,6 +589,7 @@ function classifyCore(
     }
     // Receipts/invoices from product senders are records, not noise
     if (RECEIPT_BLOB.test(blob)) {
+      if (!isTrustedBiller(dom, ctx)) return unverifiedRecordReview(ctx);
       return hit(
         "read_and_archive",
         "MED",
@@ -612,6 +640,7 @@ function classifyCore(
       );
     }
     // Receipts/statements are records: no action, but future value — archive
+    if (!isTrustedBiller(dom, ctx)) return unverifiedRecordReview(ctx);
     return hit(
       "read_and_archive",
       "MED",
