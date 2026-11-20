@@ -55,25 +55,35 @@ export function htmlToText(html: string): string {
 }
 
 /**
- * Persistable plain text for a message. Prefers the provider's text part;
- * otherwise derives it from HTML so later reads do not have to detoast
- * `body_html`. Empty HTML (style-only mail) falls through to the original
- * text part, which may still be null.
+ * The plain text of an email whose parts arrive as separate strings.
+ *
+ * Every reading pane renders the HTML part when there is one, and the sender
+ * writes both parts of a multipart/alternative message, so a text/plain part
+ * may say something the person never sees. Whatever is graded, stored, quoted
+ * or forwarded therefore comes from the HTML whenever it exists; the text part
+ * stands in only for mail that has no HTML part.
+ */
+export function visibleBodyText(
+  html: string | null | undefined,
+  text: string | null | undefined,
+): string | null {
+  if (html?.trim()) return htmlToText(html) || null;
+  return text ?? null;
+}
+
+/**
+ * Persistable plain text for a message, derived the way the reader shows it
+ * (see `visibleBodyText`) so later reads do not have to detoast `body_html`.
+ * HTML with no text in it (style-only mail) stores null.
  */
 export function storedBodyText(message: {
   bodyText: string | null;
   bodyHtml: string | null;
 }): string | null {
-  const text = message.bodyText?.trim();
-  if (text) return message.bodyText;
-  if (message.bodyHtml) {
-    const converted = htmlToText(message.bodyHtml);
-    if (converted) return converted;
-  }
-  return message.bodyText;
+  return visibleBodyText(message.bodyHtml, message.bodyText);
 }
 
-/** The readable body of a message, preferring real text over derived text. */
+/** The readable body of a message: the text the reading pane shows. */
 export function readableBody(message: {
   bodyText: string | null;
   bodyHtml: string | null;
