@@ -5,6 +5,7 @@ import type {
   SendMailInput,
 } from "@/lib/mail/types";
 import { compileGmailSearch, parseMailSearch } from "@/lib/v3/search/parser";
+import { walkMimeParts } from "@/lib/mail/mime-walk";
 
 export type {
   MailFolder,
@@ -52,7 +53,13 @@ function extractBodies(payload: GmailPayload): {
     mimeType: string;
     size: number;
   }[] = [];
-  function walk(part: GmailPayload) {
+  if (payload.body?.data) {
+    if (payload.mimeType === "text/plain")
+      text = decodeBase64Url(payload.body.data);
+    if (payload.mimeType === "text/html")
+      html = decodeBase64Url(payload.body.data);
+  }
+  walkMimeParts(payload, (part) => {
     if (part.filename && part.body?.attachmentId) {
       attachments.push({
         id: part.body.attachmentId,
@@ -69,15 +76,7 @@ function extractBodies(payload: GmailPayload): {
       const m = decodeBase64Url(part.body.data).match(/^UID:(.+)$/m);
       if (m) icalUid = m[1].trim();
     }
-    part.parts?.forEach(walk);
-  }
-  if (payload.body?.data) {
-    if (payload.mimeType === "text/plain")
-      text = decodeBase64Url(payload.body.data);
-    if (payload.mimeType === "text/html")
-      html = decodeBase64Url(payload.body.data);
-  }
-  walk(payload);
+  });
   return { text, html, icalUid, attachments };
 }
 
