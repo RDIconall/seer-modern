@@ -7,7 +7,15 @@
  * hold this to: what you would see if you pasted the email into a chat.
  */
 
-const BLOCK_LEVEL = /<\/?(p|div|tr|li|h[1-6]|blockquote|table|section|article)\b[^>]*>/gi;
+import { capHtml, htmlTokens } from "../../html/scan";
+
+/** Regions that are not content: they leave with everything inside them. */
+const NON_CONTENT = new Set(["script", "style", "head", "noscript"]);
+
+const BLOCK_LEVEL = new Set([
+  "p", "div", "tr", "li", "h1", "h2", "h3", "h4", "h5", "h6",
+  "blockquote", "table", "section", "article",
+]);
 
 const ENTITIES: Record<string, string> = {
   amp: "&",
@@ -34,24 +42,45 @@ function decodeEntities(s: string): string {
     .replace(/&([a-z]+);/gi, (match, name: string) => ENTITIES[name.toLowerCase()] ?? match);
 }
 
+function markupToText(html: string): string {
+  const out: string[] = [];
+  for (const token of htmlTokens(html, NON_CONTENT)) {
+    if (token.kind === "text") {
+      out.push(html.slice(token.start, token.end));
+    } else if (
+      token.kind === "tag" &&
+      // Document structure becomes line breaks so sentences don't fuse.
+      ((token.name === "br" && token.attrs.trim() === "") || BLOCK_LEVEL.has(token.name))
+    ) {
+      out.push("\n");
+    } else {
+      out.push(" ");
+    }
+  }
+  return out.join("");
+}
+
+/** Trimmed lines, with any run of blank lines kept as one. */
+function tidyLines(text: string): string {
+  const out: string[] = [];
+  let blankPending = false;
+  for (const raw of text.split("\n")) {
+    const line = raw.trim();
+    if (!line) {
+      blankPending = out.length > 0;
+      continue;
+    }
+    if (blankPending) out.push("");
+    out.push(line);
+    blankPending = false;
+  }
+  return out.join("\n");
+}
+
 export function htmlToText(html: string): string {
-  return decodeEntities(
-    html
-      // Drop non-content regions entirely, including their contents.
-      .replace(/<!--[\s\S]*?-->/g, " ")
-      .replace(/<(script|style|head|noscript)\b[^>]*>[\s\S]*?<\/\1>/gi, " ")
-      // Preserve document structure as line breaks so sentences don't fuse.
-      .replace(/<br\s*\/?>/gi, "\n")
-      .replace(BLOCK_LEVEL, "\n")
-      // Everything else is markup.
-      .replace(/<[^>]+>/g, " "),
-  )
-    .replace(/[ \t\u00a0]+/g, " ")
-    .replace(/\n\s*\n\s*\n+/g, "\n\n")
-    .split("\n")
-    .map((line) => line.trim())
-    .join("\n")
-    .trim();
+  return tidyLines(
+    decodeEntities(markupToText(capHtml(html))).replace(/[ \t\u00a0]+/g, " "),
+  );
 }
 
 /**
