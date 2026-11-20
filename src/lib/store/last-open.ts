@@ -15,6 +15,9 @@ export async function readLastOpen(
   return await kvGet<string>(keyFor(accountEmail));
 }
 
-export async function markOpened(accountEmail: string): Promise<void> {
-  await kvSet(keyFor(accountEmail), new Date().toISOString());
+export async function markOpened(
+  accountEmail: string,
+  at: Date = new Date(),
+): Promise<void> {
+  await kvSet(keyFor(accountEmail), at.toISOString());
 }
