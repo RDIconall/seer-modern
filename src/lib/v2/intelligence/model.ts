@@ -282,6 +282,17 @@ async function persistUsage(
   }
 }
 
+/**
+ * A daily budget refused the call. This is never a model outage: it must not
+ * route to another tier, and the conversation stays on the queue for later.
+ */
+export class ModelBudgetRefusedError extends Error {
+  constructor(readonly tier: RoutedTier) {
+    super(`${tier} daily model-call limit reached`);
+    this.name = "ModelBudgetRefusedError";
+  }
+}
+
 export function createReaderRouter(deps: {
   call?: ModelCaller;
   recordUsage?: UsageRecorder;
@@ -296,13 +307,14 @@ export function createReaderRouter(deps: {
 
   return async (input) => {
     const fastModel = requestedModel("fast");
+    // The budget refusal stays outside the outage handler below: a mailbox
+    // past its fast ceiling must not have its overflow served by strong.
+    if (!(await allowCall(input.accountId, "fast"))) {
+      throw new ModelBudgetRefusedError("fast");
+    }
     let fast: ModelCallResult;
     try {
-      if (!(await allowCall(input.accountId, "fast"))) {
-        throw new Error("fast daily model-call limit reached");
-      }
       fast = await call(fastModel, "fast", input);
-      await persistUsage(recorder, input, "fast", fastModel, [], fast);
     } catch (fastError) {
       // A fast-model outage is itself an escalation reason. The strong route
       // may still serve the read through a different provider.
@@ -320,6 +332,7 @@ export function createReaderRouter(deps: {
       );
       return strong.output;
     }
+    await persistUsage(recorder, input, "fast", fastModel, [], fast);
 
     const reasons = escalationReasons(fast.output, input);
     if (reasons.length === 0) return fast.output;
