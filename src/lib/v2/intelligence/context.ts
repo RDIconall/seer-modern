@@ -25,7 +25,19 @@ export type LiveMatter = {
   codes: string[];
   counterparty: string;
   userAuthored: boolean;
+  /** Lowercased addresses already on this matter's conversations. */
+  participants?: string[];
 };
+
+/** Every distinct From address in the conversation, lowercased. */
+export function sendersOf(conversation: Conversation): string[] {
+  const senders = new Set<string>();
+  for (const message of conversation.messages) {
+    const email = message.from.email?.trim().toLowerCase();
+    if (email) senders.add(email);
+  }
+  return [...senders];
+}
 
 export type PlacementFeedback = {
   senderEmail: string;
@@ -147,6 +159,7 @@ export function compileContext(
       text: matterText,
       counterparty,
       own: ownTokens(input.ownEmail ?? `x@${input.ownDomain}`),
+      senders: sendersOf(conversation),
     },
     input.matters.map((matter) => ({
       matterId: matter.id,
@@ -154,6 +167,7 @@ export function compileContext(
       codes: matter.codes ?? [],
       counterparty: matter.counterparty ?? "",
       userAuthored: Boolean(matter.userAuthored),
+      participants: matter.participants ?? [],
     })),
   );
   const candidateMatterId = matterMatch?.matterId ?? null;

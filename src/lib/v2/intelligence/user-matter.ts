@@ -128,8 +128,15 @@ export async function suggestMattersForConversation(
     text,
     ownTokens(context.ownEmail),
   );
+  // Only a ranking: the user still picks the matter.
   const match = resolveMatterMatch(
-    { title: proposed, text, counterparty, own: ownTokens(context.ownEmail) },
+    {
+      title: proposed,
+      text,
+      counterparty,
+      own: ownTokens(context.ownEmail),
+      userConfirmed: true,
+    },
     matters.rows.map((matter) => ({
       matterId: matter.id,
       title: matter.title,
@@ -229,6 +236,7 @@ export async function placeConversationOnMatter(
         text,
         counterparty,
         own: ownTokens(context.ownEmail),
+        userConfirmed: true,
       });
     }
   }

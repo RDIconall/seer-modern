@@ -93,13 +93,19 @@ const roche = (title: string, codes: string[] = []): MatterCandidate => ({
     codes: [],
     counterparty: "sales — leads",
     userAuthored: true,
+    participants: ["amy@bizdevlabs.com", "lee@rditrials.com", "lead@gmail.com"],
   };
-  for (const counterparty of ["bizdevlabs", "internal", ""]) {
+  for (const [counterparty, sender] of [
+    ["bizdevlabs", "amy@bizdevlabs.com"],
+    ["internal", "lee@rditrials.com"],
+    ["", "lead@gmail.com"],
+  ]) {
     const match = resolveMatterMatch(
       {
         title: "Canadian startup CRO monitoring lead",
         text: "x",
         counterparty,
+        senders: [sender],
       },
       [userMatter],
     );
@@ -109,6 +115,37 @@ const roche = (title: string, codes: string[] = []): MatterCandidate => ({
       `a user-named matter must collect work from ${counterparty || "unknown"}`,
     );
   }
+
+  // The title alone is chosen by whoever sends the mail.
+  for (const senders of [undefined, [], ["stranger@gmail.com"], ["amy@bizdevlabs.com", "stranger@gmail.com"]]) {
+    const match = resolveMatterMatch(
+      {
+        title: "CANADIAN startup: CRO monitoring lead!",
+        text: "x",
+        counterparty: "",
+        senders,
+      },
+      [userMatter],
+    );
+    assert.equal(
+      match,
+      null,
+      `a sender not on the user's matter must not join it by title (${JSON.stringify(senders)})`,
+    );
+  }
+
+  // The user filing it themselves may still use the name they gave it.
+  const filed = resolveMatterMatch(
+    {
+      title: "Canadian startup CRO monitoring lead",
+      text: "x",
+      counterparty: "",
+      senders: ["stranger@gmail.com"],
+      userConfirmed: true,
+    },
+    [userMatter],
+  );
+  assert.equal(filed?.matterId, "m-user");
 }
 
 // --- ...but a user-named matter still does not swallow different work ---

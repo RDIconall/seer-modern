@@ -168,7 +168,13 @@ export async function saveDecision(
 export async function ensureMatter(
   accountId: AccountId,
   title: string,
-  tie?: { text: string; counterparty: string; own?: Set<string> },
+  tie?: {
+    text: string;
+    counterparty: string;
+    own?: Set<string>;
+    senders?: string[];
+    userConfirmed?: boolean;
+  },
 ): Promise<string> {
   const clean = title.trim().slice(0, 120) || "Untitled matter";
   return inTransaction(async (client) => {
@@ -191,14 +197,23 @@ export async function ensureMatter(
           group by m.id, m.title, m.org_unit, m.title_source`,
         [accountId],
       );
+      const participants = await loadMatterParticipants(client, accountId);
       const match = resolveMatterMatch(
-        { title: clean, text: tie.text, counterparty: tie.counterparty, own: tie.own },
+        {
+          title: clean,
+          text: tie.text,
+          counterparty: tie.counterparty,
+          own: tie.own,
+          senders: tie.senders,
+          userConfirmed: tie.userConfirmed,
+        },
         open.rows.map((r) => ({
           matterId: r.id,
           title: r.title,
           codes: r.codes ?? [],
           counterparty: r.counterparty ?? "",
           userAuthored: r.title_source === "user",
+          participants: participants.get(r.id) ?? [],
         })),
       );
       if (match) {
@@ -224,6 +239,57 @@ export async function ensureMatter(
     );
     return created.rows[0].id;
   });
+}
+
+/**
+ * Who is already on each open matter: everyone who sent a message on one of
+ * its conversations, and everyone the user wrote to there.
+ */
+export async function loadMatterParticipants(
+  q: Pick<PoolClient, "query">,
+  accountId: AccountId,
+): Promise<Map<string, string[]>> {
+  const result = await q.query<{ matter_id: string; participants: string[] }>(
+    `select mc.matter_id, array_agg(distinct p.email) as participants
+       from seer.matter_conversations mc
+       join seer.matters m
+         on m.id = mc.matter_id and m.account_id = $1 and m.status <> 'closed'
+       join seer.messages msg
+         on msg.conversation_id = mc.conversation_id and msg.account_id = $1
+       cross join lateral (
+         select lower(msg.from_email) as email
+         union
+         select lower(r)
+           from unnest(
+             case when msg.is_outgoing
+                  then msg.to_emails || msg.cc_emails
+                  else '{}'::text[]
+             end
+           ) as r
+       ) p
+      where p.email is not null and p.email <> ''
+      group by mc.matter_id`,
+    [accountId],
+  );
+  return new Map(result.rows.map((row) => [row.matter_id, row.participants]));
+}
+
+/** Record codes on a matter the caller has already bound the conversation to. */
+export async function recordMatterCodes(
+  accountId: AccountId,
+  matterId: string,
+  codes: string[],
+): Promise<void> {
+  if (codes.length === 0) return;
+  const { db } = await import("../db/pool");
+  await db().query(
+    `insert into seer.matter_codes (matter_id, code)
+       select m.id, code
+         from seer.matters m, unnest($3::text[]) as code
+        where m.id = $2 and m.account_id = $1
+       on conflict do nothing`,
+    [accountId, matterId, codes],
+  );
 }
 
 /** Remember the codes a matter is known by, so later mail ties to it. */
