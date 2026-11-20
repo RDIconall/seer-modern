@@ -5,7 +5,17 @@
  * <style> and <script>, so the model ends up reading CSS rules as if they were
  * the message. It also leaves entities raw ("&gt;", "&nbsp;"). The standard we
  * hold this to: what you would see if you pasted the email into a chat.
+ *
+ * Sync runs this on every stored HTML body and the reader runs it on open, so
+ * each pass must stay linear in the length of the body; see `@/lib/html-scan`.
  */
+
+import {
+  removeDelimited,
+  removeElements,
+  replaceTerminated,
+  stripTags,
+} from "../../html-scan";
 
 const BLOCK_LEVEL = /<\/?(p|div|tr|li|h[1-6]|blockquote|table|section|article)\b[^>]*>/gi;
 
@@ -35,17 +45,14 @@ function decodeEntities(s: string): string {
 }
 
 export function htmlToText(html: string): string {
-  return decodeEntities(
-    html
-      // Drop non-content regions entirely, including their contents.
-      .replace(/<!--[\s\S]*?-->/g, " ")
-      .replace(/<(script|style|head|noscript)\b[^>]*>[\s\S]*?<\/\1>/gi, " ")
-      // Preserve document structure as line breaks so sentences don't fuse.
-      .replace(/<br\s*\/?>/gi, "\n")
-      .replace(BLOCK_LEVEL, "\n")
-      // Everything else is markup.
-      .replace(/<[^>]+>/g, " "),
-  )
+  // Drop non-content regions entirely, including their contents.
+  let markup = removeDelimited(html, "<!--", "-->", " ");
+  markup = removeElements(markup, ["script", "style", "head", "noscript"], " ");
+  // Preserve document structure as line breaks so sentences don't fuse.
+  markup = markup.replace(/<br\s*\/?>/gi, "\n");
+  markup = replaceTerminated(markup, BLOCK_LEVEL, "\n");
+  // Everything else is markup.
+  return decodeEntities(stripTags(markup, " "))
     .replace(/[ \t\u00a0]+/g, " ")
     .replace(/\n\s*\n\s*\n+/g, "\n\n")
     .split("\n")

@@ -15,7 +15,19 @@
  * This module runs on the server as well as the client, so it cannot lean on
  * the DOM. DOMPurify still runs over the result in the browser — this is the
  * structural pass, not the only line of defence.
+ *
+ * The body is whatever a sender chose to write, at any length, and this runs
+ * while the reading pane opens. Every pass must stay linear in the length of
+ * the body: no pattern may rescan the rest of the string from each "<", "-" or
+ * space it fails at. See `@/lib/html-scan`.
  */
+
+import {
+  removeDelimited,
+  removeElements,
+  replaceTerminated,
+  stripTags,
+} from "@/lib/html-scan";
 
 /** Elements that carry meaning. Anything else is unwrapped, keeping its text. */
 const ALLOWED_TAGS = new Set([
@@ -27,13 +39,22 @@ const ALLOWED_TAGS = new Set([
 ]);
 
 /** Elements whose CONTENT is not message text and must go with them. */
-const VOID_CONTENT =
-  /<(script|style|head|noscript|iframe|object|embed|template|form|svg|math|title)\b[^>]*>[\s\S]*?<\/\1\s*>/gi;
+const VOID_CONTENT = [
+  "script", "style", "head", "noscript", "iframe", "object", "embed",
+  "template", "form", "svg", "math", "title",
+];
 
 const ORPHAN_DANGEROUS =
   /<\/?(script|style|head|noscript|iframe|object|embed|template|form|svg|math|title|link|meta|base|input|button|select|textarea)\b[^>]*>/gi;
 
-const ATTRIBUTE = /([a-zA-Z_:][-a-zA-Z0-9_:.]*)\s*=\s*("([^"]*)"|'([^']*)'|([^\s"'>]+))/g;
+const TAG = /<(\/?)([a-zA-Z][a-zA-Z0-9]*)\b([^>]*?)(\/?)>/g;
+
+/** A name only starts where a run of name characters does. */
+const ATTRIBUTE =
+  /(?<![-a-zA-Z0-9_:.])([a-zA-Z_:][-a-zA-Z0-9_:.]*)\s*=\s*("([^"]*)"|'([^']*)'|([^\s"'>]+))/g;
+
+/** Three or more line breaks; the run only starts where whitespace does. */
+const BREAK_RUN = /(?<!\s)\s*<br\s*\/>(?:\s*<br\s*\/>){2,}\s*/gi;
 
 /**
  * Style declarations worth keeping. Colour, font and size are deliberately
@@ -131,23 +152,21 @@ function rebuildAttributes(tag: string, raw: string): string {
  */
 export function sanitizeStructuralHtml(html: string): string {
   if (!html) return "";
-  return html
-    .replace(/<!--[\s\S]*?-->/g, "")
-    .replace(/<!DOCTYPE[^>]*>/gi, "")
-    .replace(/<\?[\s\S]*?\?>/g, "")
-    .replace(VOID_CONTENT, " ")
-    .replace(ORPHAN_DANGEROUS, " ")
-    .replace(/<(\/?)([a-zA-Z][a-zA-Z0-9]*)\b([^>]*?)(\/?)>/g, (_all, close: string, name: string, attrs: string, selfClose: string) => {
-      const tag = name.toLowerCase();
-      if (!ALLOWED_TAGS.has(tag)) return "";
-      if (close) return `</${tag}>`;
-      if (tag === "br" || tag === "hr" || tag === "img" || tag === "col") {
-        return `<${tag}${rebuildAttributes(tag, attrs)} />`;
-      }
-      return `<${tag}${rebuildAttributes(tag, attrs)}${selfClose ? " /" : ""}>`;
-    })
-    .replace(/(\s*<br\s*\/>\s*){3,}/gi, "<br /><br />")
-    .trim();
+  let out = removeDelimited(html, "<!--", "-->");
+  out = replaceTerminated(out, /<!DOCTYPE[^>]*>/gi, "");
+  out = removeDelimited(out, "<?", "?>");
+  out = removeElements(out, VOID_CONTENT, " ");
+  out = replaceTerminated(out, ORPHAN_DANGEROUS, " ");
+  out = replaceTerminated(out, TAG, (_all, close: string, name: string, attrs: string, selfClose: string) => {
+    const tag = name.toLowerCase();
+    if (!ALLOWED_TAGS.has(tag)) return "";
+    if (close) return `</${tag}>`;
+    if (tag === "br" || tag === "hr" || tag === "img" || tag === "col") {
+      return `<${tag}${rebuildAttributes(tag, attrs)} />`;
+    }
+    return `<${tag}${rebuildAttributes(tag, attrs)}${selfClose ? " /" : ""}>`;
+  });
+  return out.replace(BREAK_RUN, "<br /><br />").trim();
 }
 
 /**
@@ -157,14 +176,14 @@ export function sanitizeStructuralHtml(html: string): string {
  * an "Original Message" divider.
  */
 const QUOTE_OPENERS: RegExp[] = [
-  /<div[^>]*id=["']?appendonsend["']?/i,
-  /<div[^>]*id=["']?divRplyFwdMsg["']?/i,
-  /<div[^>]*class=["'][^"']*gmail_quote/i,
-  /<div[^>]*class=["'][^"']*moz-cite-prefix/i,
-  /<div[^>]*(?:id|class)=["'][^"']*yahoo_quoted/i,
-  /<blockquote[^>]*type=["']?cite/i,
-  /<blockquote[^>]*class=["'][^"']*(?:gmail_quote|moz-cite|yahoo_quoted)/i,
-  /-{2,}\s*Original Message\s*-{2,}/i,
+  /<div[^<>]*id=["']?appendonsend["']?/i,
+  /<div[^<>]*id=["']?divRplyFwdMsg["']?/i,
+  /<div[^<>]*class=["'][^"']*gmail_quote/i,
+  /<div[^<>]*class=["'][^"']*moz-cite-prefix/i,
+  /<div[^<>]*(?:id|class)=["'][^"']*yahoo_quoted/i,
+  /<blockquote[^<>]*type=["']?cite/i,
+  /<blockquote[^<>]*class=["'][^"']*(?:gmail_quote|moz-cite|yahoo_quoted)/i,
+  /(?<!-)-{2,}\s*Original Message\s*-{2,}/i,
 ];
 
 /** Every blockquote, so each can be judged on what stands above it. */
@@ -183,25 +202,23 @@ const ANY_BLOCKQUOTE = /<blockquote\b/gi;
 const ATTRIBUTIONS: RegExp[] = [
   /\bwrote:\s*$/i,
   /\bsaid:\s*$/i,
-  /-{2,}\s*original message\s*-{2,}\s*$/i,
+  /(?<!-)-{2,}\s*original message\s*-{2,}\s*$/i,
   /\bbegin forwarded message:\s*$/i,
   /\bfrom:[\s\S]{0,300}?\b(?:sent|date|to):[\s\S]{0,300}$/i,
 ];
 
 /** Markers that each open one more quoted message, for the hidden count. */
 const QUOTE_COUNTERS: RegExp[] = [
-  /<div[^>]*id=["']?divRplyFwdMsg["']?/gi,
-  /<div[^>]*class=["'][^"']*gmail_quote/gi,
-  /<blockquote[^>]*type=["']?cite/gi,
-  /-{2,}\s*Original Message\s*-{2,}/gi,
+  /<div[^<>]*id=["']?divRplyFwdMsg["']?/gi,
+  /<div[^<>]*class=["'][^"']*gmail_quote/gi,
+  /<blockquote[^<>]*type=["']?cite/gi,
+  /(?<!-)-{2,}\s*Original Message\s*-{2,}/gi,
   /\bwrote:/gi,
 ];
 
 /** The last of the text a reader would see before `index`, tags removed. */
 function textBefore(html: string, index: number): string {
-  return html
-    .slice(Math.max(0, index - 600), index)
-    .replace(/<[^>]*>/g, " ")
+  return stripTags(html.slice(Math.max(0, index - 600), index))
     .replace(/&nbsp;/gi, " ")
     .replace(/&[a-z#0-9]+;/gi, " ")
     .replace(/\s+/g, " ")
@@ -225,8 +242,7 @@ function announcedBlockquote(html: string): number {
 /** Does this fragment still say anything once the tags are gone? */
 function hasVisibleText(html: string): boolean {
   return (
-    html
-      .replace(/<[^>]+>/g, " ")
+    stripTags(html)
       .replace(/&nbsp;/gi, " ")
       .replace(/&[a-z#0-9]+;/gi, "x")
       .trim().length > 0
@@ -276,9 +292,10 @@ export function stripQuotedHtml(html: string): StrippedHtml {
  * phone is the message greyed out against the edge of the screen.
  */
 function unwrapLayoutBlockquotes(html: string): string {
-  return html
-    .replace(/<blockquote\b[^>]*>/gi, "<div>")
-    .replace(/<\/blockquote\s*>/gi, "</div>");
+  return replaceTerminated(html, /<blockquote\b[^>]*>/gi, "<div>").replace(
+    /<\/blockquote\s*>/gi,
+    "</div>",
+  );
 }
 
 /** The readable body of one message: new text only, structure kept, theme safe. */
