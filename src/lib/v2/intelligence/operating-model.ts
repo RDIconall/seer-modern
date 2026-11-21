@@ -221,13 +221,14 @@ export async function sampleCorpus(
   };
 
   const stored = await db().query<{
+    provider_conversation_id: string;
     subject: string | null;
     from_email: string | null;
     snippet: string | null;
     folders: string[];
     is_deleted: boolean;
   }>(
-    `select c.subject, c.is_deleted, c.folders,
+    `select c.provider_conversation_id, c.subject, c.is_deleted, c.folders,
             (select m.from_email from seer.messages m
               where m.conversation_id = c.id
               order by m.sent_at desc nulls last limit 1) as from_email,
@@ -271,13 +272,16 @@ export async function sampleCorpus(
     await sampleProviderFolder(provider, "trash", add);
     try {
       const saved = await provider.search("label:STARRED", null);
+      const byProvider = new Map(
+        stored.rows.map((row) => [row.provider_conversation_id, row]),
+      );
       for (const c of saved.conversations.slice(0, BUCKET_LIMIT)) {
-        const last = c.messages[c.messages.length - 1];
+        const known = byProvider.get(c.providerConversationId);
         add(
           "saved",
-          c.subject,
-          last?.from.email ?? "",
-          last?.snippet || last?.bodyText || "",
+          c.subject || known?.subject || "",
+          c.from?.email || known?.from_email || "",
+          c.snippet || known?.snippet || "",
         );
       }
     } catch {

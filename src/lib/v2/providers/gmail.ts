@@ -19,6 +19,7 @@ import type {
   ProviderFolder,
   ProviderKind,
   ReplyCommand,
+  SearchHit,
   SearchResult,
   SendCommand,
   SendReceipt,
@@ -27,7 +28,7 @@ import type {
   SyncPage,
 } from "./types";
 import { compileGmailSearch, parseMailSearch } from "@/lib/v3/search/parser";
-import { assertSyncBudget } from "./types";
+import { SEARCH_PAGE_SIZE, assertSyncBudget } from "./types";
 
 /**
  * Gmail adapter. Translates Gmail REST v1 payloads into the neutral model and
@@ -228,13 +229,23 @@ export class GmailProvider implements MailProvider {
 
   async search(query: string, cursor?: string | null): Promise<SearchResult> {
     const providerQuery = compileGmailSearch(parseMailSearch(query));
-    const list = await this.get<{ threads?: { id: string }[]; nextPageToken?: string }>(
-      `/threads?q=${encodeURIComponent(providerQuery)}&maxResults=${this.pageSize}` +
+    const pageSize = Math.min(this.pageSize, SEARCH_PAGE_SIZE);
+    const list = await this.get<{
+      threads?: { id: string; snippet?: string }[];
+      nextPageToken?: string;
+    }>(
+      `/threads?q=${encodeURIComponent(providerQuery)}&maxResults=${pageSize}` +
         (cursor ? `&pageToken=${encodeURIComponent(cursor)}` : ""),
     );
-    const conversations = await Promise.all(
-      (list.threads ?? []).map((t) => this.thread(t.id)),
-    );
+    const conversations: SearchHit[] = (list.threads ?? [])
+      .slice(0, pageSize)
+      .map((t) => ({
+        providerConversationId: t.id,
+        subject: "",
+        snippet: t.snippet ?? "",
+        from: null,
+        lastMessageAt: "",
+      }));
     return { conversations, nextCursor: list.nextPageToken ?? null };
   }
 

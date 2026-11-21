@@ -25,7 +25,10 @@ export async function fetchSearch(
   query: string,
   signal?: AbortSignal,
 ): Promise<SearchResult[]> {
-  const response = await fetchFresh(`/api/v3/search?q=${encodeURIComponent(query)}`, {
+  const response = await fetchFresh("/api/v3/search", {
+    method: "POST",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify({ q: query }),
     signal,
   });
   const json = (await response.json()) as {

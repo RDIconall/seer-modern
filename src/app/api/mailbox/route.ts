@@ -24,6 +24,7 @@ import { makeGmailLabelStore } from "@/lib/mail/seer-labels";
 import { requireMailSession } from "@/lib/mail/session";
 import type { MailFolder, MailMessageListItem } from "@/lib/mail/types";
 import { getSenderOverride } from "@/lib/store/senders";
+import { crossSiteRequest } from "@/lib/security/origin";
 import { NextResponse, after } from "next/server";
 
 export const maxDuration = 60;
@@ -37,6 +38,9 @@ const SCAN = Math.max(
 );
 
 export async function GET(request: Request) {
+  if (crossSiteRequest(request.headers)) {
+    return NextResponse.json({ error: "invalid request origin" }, { status: 403 });
+  }
   try {
     const session = await requireMailSession();
     if (!session) {
