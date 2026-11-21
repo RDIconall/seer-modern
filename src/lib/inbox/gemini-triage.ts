@@ -57,7 +57,7 @@ import { z } from "zod";
  * Bump when the prompt/actions change so stale cached decisions
  * are ignored and re-classified.
  */
-export const PROMPT_VERSION = 24;
+export const PROMPT_VERSION = 25;
 
 const ACTIONS = [
   "respond",
@@ -728,11 +728,15 @@ async function geminiBatch(
     const src = batch.find((b) => b.id === row.id);
     if (!src) continue;
     let action = row.action as TriageAction;
-    // Soften: if model picks needs_review with medium+ confidence, force a decisive default
-    if (action === "needs_review" && row.confidence >= 0.55) {
-      const sig = historySignals(history, src.fromEmail);
-      action =
-        sig.relationship === "engaged" ? "respond" : "read_and_delete";
+    // needs_review means a wrong call could cost a relationship or money:
+    // it may only escalate (someone the user writes to → respond), never
+    // drop to a dismissive grade, however confident the model is.
+    if (
+      action === "needs_review" &&
+      row.confidence >= 0.55 &&
+      historySignals(history, src.fromEmail).relationship === "engaged"
+    ) {
+      action = "respond";
     }
     out.set(row.id, {
       action,
