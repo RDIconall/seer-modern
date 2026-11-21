@@ -4,6 +4,8 @@
  * call, works on every message.
  */
 
+import { anchorLinks, replaceTags } from "@/lib/mail/html-scan";
+
 export type KeyAction = { label: string; url: string };
 
 const INTENT_PATTERNS: { re: RegExp; label: string; score: number }[] = [
@@ -28,8 +30,7 @@ const JUNK =
   /unsubscribe from|privacy|terms|preferences|view in browser|facebook|twitter|instagram|linkedin\.com\/share|help center|contact us|download (the )?app|app store|google play|mailto:/i;
 
 function stripTags(s: string): string {
-  return s
-    .replace(/<[^>]+>/g, " ")
+  return replaceTags(s, " ")
     .replace(/&nbsp;/g, " ")
     .replace(/\s+/g, " ")
     .trim();
@@ -42,14 +43,13 @@ export function extractKeyActions(
   if (!htmlBody) return [];
   const found: (KeyAction & { score: number })[] = [];
   const seen = new Set<string>();
-  const anchorRe = /<a\b[^>]*href=["'](https?:\/\/[^"']+)["'][^>]*>([\s\S]*?)<\/a>/gi;
 
-  let m: RegExpExecArray | null;
   let guard = 0;
-  while ((m = anchorRe.exec(htmlBody)) && guard < 200) {
+  for (const anchor of anchorLinks(htmlBody)) {
+    if (guard >= 200) break;
     guard += 1;
-    const url = m[1];
-    const text = stripTags(m[2]).slice(0, 80);
+    const url = anchor.url;
+    const text = stripTags(anchor.text).slice(0, 80);
     const hay = `${text} ${url}`;
     if (!text && !/track|rsvp|pay|confirm/i.test(url)) continue;
 

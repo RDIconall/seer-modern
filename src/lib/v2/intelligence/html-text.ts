@@ -7,7 +7,20 @@
  * hold this to: what you would see if you pasted the email into a chat.
  */
 
-const BLOCK_LEVEL = /<\/?(p|div|tr|li|h[1-6]|blockquote|table|section|article)\b[^>]*>/gi;
+import {
+  capHtml,
+  removeElements,
+  replaceBetween,
+  replaceNamedTags,
+  replaceTags,
+} from "@/lib/mail/html-scan";
+
+const BLOCK_LEVEL = new Set([
+  "p", "div", "tr", "li", "h1", "h2", "h3", "h4", "h5", "h6",
+  "blockquote", "table", "section", "article",
+]);
+
+const NON_CONTENT = new Set(["script", "style", "head", "noscript"]);
 
 const ENTITIES: Record<string, string> = {
   amp: "&",
@@ -35,17 +48,14 @@ function decodeEntities(s: string): string {
 }
 
 export function htmlToText(html: string): string {
-  return decodeEntities(
-    html
-      // Drop non-content regions entirely, including their contents.
-      .replace(/<!--[\s\S]*?-->/g, " ")
-      .replace(/<(script|style|head|noscript)\b[^>]*>[\s\S]*?<\/\1>/gi, " ")
-      // Preserve document structure as line breaks so sentences don't fuse.
-      .replace(/<br\s*\/?>/gi, "\n")
-      .replace(BLOCK_LEVEL, "\n")
-      // Everything else is markup.
-      .replace(/<[^>]+>/g, " "),
-  )
+  // Drop non-content regions entirely, including their contents.
+  let text = replaceBetween(capHtml(html), "<!--", "-->", " ");
+  text = removeElements(text, NON_CONTENT, " ", false);
+  // Preserve document structure as line breaks so sentences don't fuse.
+  text = text.replace(/<br\s*\/?>/gi, "\n");
+  text = replaceNamedTags(text, BLOCK_LEVEL, "\n", true);
+  // Everything else is markup.
+  return decodeEntities(replaceTags(text, " "))
     .replace(/[ \t\u00a0]+/g, " ")
     .replace(/\n\s*\n\s*\n+/g, "\n\n")
     .split("\n")

@@ -17,6 +17,7 @@ import {
   RSVP_RECEIPT_SUBJECT,
   type PersonalContext,
 } from "@/lib/inbox/personal-context";
+import { stripTextResidue } from "@/lib/mail/html-scan";
 import type { SeerLabelStore } from "@/lib/mail/seer-labels";
 import { intelBreakdown, intelContainsAny } from "@/lib/nlp/intel";
 import {
@@ -642,11 +643,7 @@ function compactPayload(
       // wastes tokens and poisons Gemini's instructions
       // Deep-read bodies arrive pre-sliced at DEEP_BODY_CHARS; plain
       // list snippets are ~200 chars — this cap protects tokens either way
-      snippet: m.snippet
-        .replace(/\[image:[^\]]*\]/gi, " ")
-        .replace(/<https?:\/\/[^>\s]+>/g, " ")
-        .replace(/\s+/g, " ")
-        .slice(0, DEEP_BODY_CHARS),
+      snippet: stripTextResidue(m.snippet).slice(0, DEEP_BODY_CHARS),
     };
     const tier = tiers?.get(m.fromEmail.toLowerCase());
     if (tier) item.tier = tier;
