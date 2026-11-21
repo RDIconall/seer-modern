@@ -233,14 +233,16 @@ function readerGuide(
 }
 
 function assertReaderDoesNotDiscard(grade: Grade, fromName: string, where: string) {
-  assertHeld(grade, where);
   const shown = readerGuide(grade, fromName);
+  assert.ok(
+    SAFE.has(shown.guide.action),
+    `${where}: Today would show "${shown.sectionLabel}" (bulk "${shown.bulkLabel}", harm "${shown.guide.harm}") for ${describeGrade(grade)}; want needs_review or read_and_archive`,
+  );
   assert.equal(
     shown.guide.harm.includes("nothing here is load-bearing"),
     false,
     `${where}: reader harm text treats the message as safe to delete (${shown.guide.harm})`,
   );
-  assert.equal(shown.sectionLabel === "Read and delete", false, where);
   assert.equal(shown.bulkLabel === "Delete all", false, `${where}: bulk action ${shown.bulkLabel}`);
 }
 
