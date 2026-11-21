@@ -2,6 +2,7 @@ import { db } from "@/lib/v2/db/pool";
 import type { AccountId } from "@/lib/v2/db/types";
 import { nativeUrlFor } from "@/lib/v2/providers/native-url";
 import type { Conversation, ProviderKind } from "@/lib/v2/providers/types";
+import { CONVERSATION_PAGE_SIZE, MAX_BODY_CHARS } from "@/lib/mail/body-budget";
 
 export type CorpusConversationView = {
   conversation: Conversation;
@@ -9,7 +10,8 @@ export type CorpusConversationView = {
 };
 
 /**
- * Load a corpus-backed conversation thread for the reader. Returns null when
+ * Load a corpus-backed conversation thread for the reader: its newest
+ * messages, oldest-first, each body within the body budget. Returns null when
  * the conversation does not belong to the account.
  */
 export async function getCorpusConversation(
@@ -45,10 +47,18 @@ export async function getCorpusConversation(
   }>(
     `select provider_message_id, from_email, from_name, to_emails, cc_emails, sent_at,
             body_html, body_text, snippet, is_unread, is_outgoing, attachment_names
-       from seer.messages
-      where conversation_id = $1 and account_id = $2
+       from (
+         select provider_message_id, from_email, from_name, to_emails, cc_emails, sent_at,
+                substr(body_html, 1, $3) as body_html,
+                substr(body_text, 1, $3) as body_text,
+                snippet, is_unread, is_outgoing, attachment_names
+           from seer.messages
+          where conversation_id = $1 and account_id = $2
+          order by sent_at desc nulls first, provider_message_id desc
+          limit $4
+       ) newest
       order by sent_at asc nulls last, provider_message_id asc`,
-    [conversationId, accountId],
+    [conversationId, accountId, MAX_BODY_CHARS, CONVERSATION_PAGE_SIZE],
   );
 
   const providerConversationId = c.rows[0].provider_conversation_id;
