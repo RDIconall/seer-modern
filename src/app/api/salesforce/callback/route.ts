@@ -17,9 +17,6 @@ export async function GET(req: Request) {
       new URL(`${returnTo}?settings=1&sf=${note}`, origin),
     );
 
-  const session = await requireMailSession();
-  if (!session) return settings("signin");
-
   const url = new URL(req.url);
   const code = url.searchParams.get("code");
   const state = url.searchParams.get("state");
@@ -27,9 +24,14 @@ export async function GET(req: Request) {
   if (denied) return settings(encodeURIComponent(denied));
   if (!code) return settings("no-code");
 
+  // Salesforce returns the user here cross-site, so the browser check cannot
+  // apply; the state cookie /connect set is what ties this visit to the user.
   const verifier = jarEarly.get("sf_verifier")?.value;
   const expected = jarEarly.get("sf_state")?.value;
   if (!verifier || !expected || expected !== state) return settings("state");
+
+  const session = await requireMailSession("state-verified");
+  if (!session) return settings("signin");
 
   const app = await loadApp(session.email);
   if (!app) return settings("no-app");

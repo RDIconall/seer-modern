@@ -7,7 +7,7 @@ import { NextResponse } from "next/server";
 export const maxDuration = 30;
 
 export async function GET(request: Request) {
-  const session = await requireMailSession();
+  const session = await requireMailSession("navigation");
   if (!session) {
     return NextResponse.json({ error: "Not signed in" }, { status: 401 });
   }

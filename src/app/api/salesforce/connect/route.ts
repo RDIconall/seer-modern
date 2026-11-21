@@ -10,7 +10,7 @@ import { NextResponse } from "next/server";
  * that comes back is worthless to anyone who intercepts it.
  */
 export async function GET(req: Request) {
-  const session = await requireMailSession();
+  const session = await requireMailSession("navigation");
   if (!session) {
     return NextResponse.json({ error: "Not signed in" }, { status: 401 });
   }
