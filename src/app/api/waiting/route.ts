@@ -1,6 +1,7 @@
 import { MACHINE_LOCALPART } from "@/lib/store/people";
 import { listGmailFolder } from "@/lib/mail/gmail";
 import { requireMailSession } from "@/lib/mail/session";
+import { refuseCrossSiteRequest } from "@/lib/security/request-origin";
 import { accountKey, kvGet, kvSet } from "@/lib/store/kv";
 import { NextResponse } from "next/server";
 
@@ -33,6 +34,8 @@ function cacheKey(email: string) {
 }
 
 export async function GET(request: Request) {
+  const refused = refuseCrossSiteRequest(request);
+  if (refused) return refused;
   try {
     const session = await requireMailSession();
     if (!session) {

@@ -1,4 +1,5 @@
 import { requireMailSession } from "@/lib/mail/session";
+import { refuseCrossSiteRequest } from "@/lib/security/request-origin";
 import { getAssistantStatus } from "@/lib/inbox/gemini-triage";
 import { pgEnabled, pgHealth } from "@/lib/store/pg";
 import { NextResponse } from "next/server";
@@ -53,6 +54,8 @@ export async function GET(req: Request) {
     });
   }
 
+  const refused = refuseCrossSiteRequest(req);
+  if (refused) return refused;
   const session = await requireMailSession();
   if (!session) {
     return NextResponse.json({ error: "Not signed in" }, { status: 401 });

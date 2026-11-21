@@ -1,5 +1,6 @@
 import { NextResponse } from "next/server";
 import { getActiveV2Account } from "@/lib/v2/session";
+import { refuseCrossSiteRequest } from "@/lib/security/request-origin";
 import { refreshMailboxInference } from "@/lib/v2/intelligence/mailbox-style-store";
 
 export const dynamic = "force-dynamic";
@@ -8,7 +9,9 @@ export const dynamic = "force-dynamic";
  * Hypothesis + confirmed style for this mailbox. GET refreshes inference but
  * does not overwrite a confirmed style.
  */
-export async function GET() {
+export async function GET(request: Request) {
+  const refused = refuseCrossSiteRequest(request);
+  if (refused) return refused;
   const account = await getActiveV2Account();
   if (!account) {
     return NextResponse.json({ error: "no active account" }, { status: 404 });

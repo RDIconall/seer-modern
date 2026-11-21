@@ -16,8 +16,20 @@ import {
   resolveActiveAccount,
 } from "@/lib/store/accounts";
 import { isAllowedOrgEmail } from "@/lib/auth/org";
+import { currentRequestIsSameOrigin } from "@/lib/security/request-origin";
 
-export async function requireMailSession() {
+/**
+ * A request the app's own pages did not make gets no mailbox, so a cross-site
+ * navigation cannot refresh the token or spend the account's provider access.
+ * `allowCrossSite` is only for an OAuth callback that has already verified its
+ * one-time state.
+ */
+export async function requireMailSession(
+  options: { allowCrossSite?: boolean } = {},
+) {
+  if (!options.allowCrossSite && !(await currentRequestIsSameOrigin())) {
+    return null;
+  }
   const session = await auth();
   if (!session?.user) {
     return null;

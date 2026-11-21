@@ -1,5 +1,6 @@
 import { NextResponse } from "next/server";
 import { getActiveV2Account } from "@/lib/v2/session";
+import { refuseCrossSiteRequest } from "@/lib/security/request-origin";
 import { suggestContacts } from "@/lib/v3/contacts/repository";
 
 export const dynamic = "force-dynamic";
@@ -9,6 +10,8 @@ export const dynamic = "force-dynamic";
  * top-ranked contacts for the active account (freshly-focused To field).
  */
 export async function GET(request: Request) {
+  const refused = refuseCrossSiteRequest(request);
+  if (refused) return refused;
   const account = await getActiveV2Account();
   if (!account) {
     return NextResponse.json({ error: "no active v2 account" }, { status: 404 });

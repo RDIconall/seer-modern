@@ -1,4 +1,5 @@
 import { requireMailSession } from "@/lib/mail/session";
+import { refuseCrossSiteRequest } from "@/lib/security/request-origin";
 import { clearDecisions } from "@/lib/store/decision-cache";
 import {
   clearUserProfile,
@@ -99,7 +100,9 @@ async function importGoogleDoc(
   };
 }
 
-export async function GET() {
+export async function GET(request: Request) {
+  const refused = refuseCrossSiteRequest(request);
+  if (refused) return refused;
   try {
     const session = await requireMailSession();
     if (!session) {

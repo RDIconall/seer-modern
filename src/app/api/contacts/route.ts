@@ -3,6 +3,7 @@ import { getPersonalContext } from "@/lib/inbox/personal-context";
 import { listGmailFolder } from "@/lib/mail/gmail";
 import { listGraphFolder } from "@/lib/mail/graph";
 import { requireMailSession } from "@/lib/mail/session";
+import { refuseCrossSiteRequest } from "@/lib/security/request-origin";
 import { loadPeople } from "@/lib/store/people";
 import { NextResponse } from "next/server";
 
@@ -20,6 +21,8 @@ import { NextResponse } from "next/server";
 type Suggestion = { name?: string; email: string; score: number };
 
 export async function GET(request: Request) {
+  const refused = refuseCrossSiteRequest(request);
+  if (refused) return refused;
   const session = await requireMailSession();
   if (!session) {
     return NextResponse.json({ error: "Not signed in" }, { status: 401 });

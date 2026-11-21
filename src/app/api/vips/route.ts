@@ -3,6 +3,7 @@ import { getPersonalContext } from "@/lib/inbox/personal-context";
 import { listGmailFolder } from "@/lib/mail/gmail";
 import { listGraphFolder } from "@/lib/mail/graph";
 import { requireMailSession } from "@/lib/mail/session";
+import { refuseCrossSiteRequest } from "@/lib/security/request-origin";
 import { clearDecisions } from "@/lib/store/decision-cache";
 import {
   loadPeople,
@@ -21,7 +22,9 @@ export const maxDuration = 30;
  * user just confirms or adjusts. Pins live in the Person Graph.
  */
 
-export async function GET() {
+export async function GET(request: Request) {
+  const refused = refuseCrossSiteRequest(request);
+  if (refused) return refused;
   try {
     const session = await requireMailSession();
     if (!session) {

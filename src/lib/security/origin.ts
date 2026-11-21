@@ -20,3 +20,25 @@ export function originAllowed(input: {
     return false;
   }
 }
+
+/**
+ * Same-origin protection for any request that acts with the signed-in
+ * mailbox, reads included. The session cookie rides along on a cross-site
+ * top-level navigation, so the cookie alone does not show the app asked.
+ *
+ * Browsers omit Origin on same-origin GETs but always send Sec-Fetch-Site,
+ * which a page cannot set. A supplied Origin is checked as above; otherwise
+ * only `Sec-Fetch-Site: same-origin` passes. With neither header the request
+ * is refused in production and allowed for local tools and tests.
+ */
+export function sameOriginRequest(input: {
+  origin: string | null;
+  fetchSite: string | null;
+  requestOrigin: string;
+  allowedOrigin?: string;
+  production: boolean;
+}): boolean {
+  if (input.origin) return originAllowed(input);
+  if (input.fetchSite) return input.fetchSite === "same-origin";
+  return !input.production;
+}

@@ -1,5 +1,6 @@
 import { NextResponse } from "next/server";
 import { getActiveV2Account } from "@/lib/v2/session";
+import { refuseCrossSiteRequest } from "@/lib/security/request-origin";
 import { providerFor } from "@/lib/v2/providers/provider";
 import {
   findProviderAttachmentId,
@@ -16,9 +17,11 @@ export const maxDuration = 60;
  * message belongs to the active account.
  */
 export async function GET(
-  _request: Request,
+  request: Request,
   context: { params: Promise<{ id: string; attachmentId: string }> },
 ) {
+  const refused = refuseCrossSiteRequest(request);
+  if (refused) return refused;
   const account = await getActiveV2Account();
   if (!account) {
     return NextResponse.json({ error: "no active v2 account" }, { status: 404 });
