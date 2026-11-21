@@ -39,6 +39,7 @@ import { resolveCreds } from "@/lib/store/salesforce-auth";
 import { syncSalesforce } from "@/lib/crm/salesforce-sync";
 import { loadUserProfile } from "@/lib/store/user-profile";
 import { getSenderOverride } from "@/lib/store/senders";
+import { htmlBodyText } from "@/lib/mail/html-scan";
 import { NextResponse } from "next/server";
 
 /** Deep enough to cover a real 500+ inbox in one pass */
@@ -181,7 +182,7 @@ export async function GET(request: Request) {
               : await getGraphMessage(token, id);
             return (
               msg.textBody ||
-              msg.htmlBody.replace(/<[^>]+>/g, " ").replace(/\s+/g, " ")
+              htmlBodyText(msg.htmlBody)
             );
           },
         },
@@ -283,7 +284,7 @@ export async function GET(request: Request) {
               : await getGraphMessage(token, id);
             return (
               msg.textBody ||
-              msg.htmlBody.replace(/<[^>]+>/g, " ").replace(/\s+/g, " ")
+              htmlBodyText(msg.htmlBody)
             );
           },
         });

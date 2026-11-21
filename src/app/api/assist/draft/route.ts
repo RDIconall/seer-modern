@@ -10,6 +10,7 @@ import {
   profilePromptBlock,
 } from "@/lib/store/user-profile";
 import { generateText, Output } from "ai";
+import { htmlBodyText } from "@/lib/mail/html-scan";
 import { NextResponse } from "next/server";
 import { z } from "zod";
 
@@ -68,7 +69,7 @@ export async function POST(request: Request) {
 
     const bodyText = (
       message.textBody ||
-      message.htmlBody.replace(/<[^>]+>/g, " ").replace(/\s+/g, " ")
+      htmlBodyText(message.htmlBody)
     ).slice(0, 5000);
 
     const firstName = (session.name || session.email).split(/[\s@]/)[0];
