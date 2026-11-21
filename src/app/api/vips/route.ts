@@ -3,6 +3,7 @@ import { getPersonalContext } from "@/lib/inbox/personal-context";
 import { listGmailFolder } from "@/lib/mail/gmail";
 import { listGraphFolder } from "@/lib/mail/graph";
 import { requireMailSession } from "@/lib/mail/session";
+import { currentRequestAllowed } from "@/lib/security/fetch-metadata";
 import { clearDecisions } from "@/lib/store/decision-cache";
 import {
   loadPeople,
@@ -10,6 +11,7 @@ import {
   savePeople,
 } from "@/lib/store/people";
 import { loadUserProfile } from "@/lib/store/user-profile";
+import { cookies } from "next/headers";
 import { NextResponse } from "next/server";
 
 export const maxDuration = 30;
@@ -21,8 +23,28 @@ export const maxDuration = 30;
  * user just confirms or adjusts. Pins live in the Person Graph.
  */
 
+const SESSION_COOKIES = ["__Secure-authjs.session-token", "authjs.session-token"];
+
+/** Presence only: a refused request must not decode or refresh the session. */
+async function hasSessionCookie(): Promise<boolean> {
+  const jar = await cookies();
+  return SESSION_COOKIES.some(
+    (name) => Boolean(jar.get(name)?.value || jar.get(`${name}.0`)?.value),
+  );
+}
+
 export async function GET() {
   try {
+    // Suggestions rebuild provider-backed caches, so only the app's own fetch
+    // may ask for them — never a navigation another site can trigger.
+    if (!(await currentRequestAllowed("fetch"))) {
+      return (await hasSessionCookie())
+        ? NextResponse.json(
+            { error: "Load VIP suggestions from the app" },
+            { status: 403 },
+          )
+        : NextResponse.json({ error: "Not signed in" }, { status: 401 });
+    }
     const session = await requireMailSession();
     if (!session) {
       return NextResponse.json({ error: "Not signed in" }, { status: 401 });

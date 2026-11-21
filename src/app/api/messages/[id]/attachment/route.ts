@@ -11,7 +11,7 @@ export async function GET(
   context: { params: Promise<{ id: string }> },
 ) {
   try {
-    const session = await requireMailSession();
+    const session = await requireMailSession("navigation");
     if (!session) {
       return NextResponse.json({ error: "Not signed in" }, { status: 401 });
     }

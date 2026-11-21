@@ -6,6 +6,10 @@ import {
 } from "./db/accounts";
 import { getActiveAccountId } from "../store/accounts";
 import { isAllowedOrgEmail } from "@/lib/auth/org";
+import {
+  currentRequestAllowed,
+  type BrowserRequestPolicy,
+} from "@/lib/security/fetch-metadata";
 
 /**
  * Resolve the signed-in user's active v2 mail account. Returns null when the
@@ -67,7 +71,15 @@ export function effectiveActiveAccountId(
   return selectV2Account(accounts, activeId, sessionEmail)?.id ?? null;
 }
 
-export async function getActiveV2Account(): Promise<MailAccount | null> {
+/**
+ * Returns null for a request the browser did not send from the app itself
+ * (see fetch-metadata.ts): the account it yields is what routes sync and call
+ * the provider with.
+ */
+export async function getActiveV2Account(
+  policy: BrowserRequestPolicy = "fetch",
+): Promise<MailAccount | null> {
+  if (!(await currentRequestAllowed(policy))) return null;
   const session = await auth();
   const email = session?.user?.email?.toLowerCase();
   if (!email || !isV2Enabled(email)) return null;

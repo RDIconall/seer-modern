@@ -16,8 +16,20 @@ import {
   resolveActiveAccount,
 } from "@/lib/store/accounts";
 import { isAllowedOrgEmail } from "@/lib/auth/org";
+import {
+  currentRequestAllowed,
+  type BrowserRequestPolicy,
+} from "@/lib/security/fetch-metadata";
 
-export async function requireMailSession() {
+/**
+ * The signed-in mailbox and a live provider token. Returns null for a request
+ * the browser did not send from the app itself (see fetch-metadata.ts), before
+ * touching the session, the database, or the provider.
+ */
+export async function requireMailSession(
+  policy: BrowserRequestPolicy = "fetch",
+) {
+  if (!(await currentRequestAllowed(policy))) return null;
   const session = await auth();
   if (!session?.user) {
     return null;

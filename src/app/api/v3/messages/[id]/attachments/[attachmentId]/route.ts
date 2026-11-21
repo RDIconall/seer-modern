@@ -19,7 +19,7 @@ export async function GET(
   _request: Request,
   context: { params: Promise<{ id: string; attachmentId: string }> },
 ) {
-  const account = await getActiveV2Account();
+  const account = await getActiveV2Account("navigation");
   if (!account) {
     return NextResponse.json({ error: "no active v2 account" }, { status: 404 });
   }
