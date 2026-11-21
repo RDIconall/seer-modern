@@ -235,8 +235,13 @@ const FINANCE_DOMAINS =
 const SHOPPING_DOMAINS =
   /(capitaloneshopping|retailmenot|honey\.|rakuten|slickdeals|groupon|shopify|email\.amazon\.|marketing\.amazon)/i;
 
+/**
+ * A whole marketing role, not a prefix: newstudent@ and marketingliaison@
+ * are people. The role must end the local part or be followed by a
+ * non-letter (news@, news.digest@, newsletter2@).
+ */
 const MARKETING_LOCAL =
-  /^(promo|deals|offers|newsletter|news|marketing|hello@|info@|team@|notifications@|noreply@|no-reply@)/i;
+  /^(promos?|promotions?|deals|offers|newsletters?|news|marketing)(?![a-z])/i;
 
 const MARKETING_SUBDOMAIN = /^(mail|email|m|e|news|promo|marketing|go|em)\./i;
 
@@ -262,6 +267,10 @@ function domain(email: string): string {
 
 function localPart(email: string): string {
   return email.split("@")[0]?.toLowerCase() ?? "";
+}
+
+function isEduGov(dom: string): boolean {
+  return dom.endsWith(".edu") || dom.endsWith(".gov");
 }
 
 function isMarketingShape(local: string, dom: string, blob: string): boolean {
@@ -521,10 +530,12 @@ function classifyCore(
       );
     }
     // Untrusted urgency = marketing costume. Bulk/noreply shape → bin it.
+    // School and government mail goes to its own rule below instead.
     if (
-      signals.relationship === "bulk" ||
-      NOREPLY.test(local) ||
-      isMarketingShape(local, dom, blob)
+      !isEduGov(dom) &&
+      (signals.relationship === "bulk" ||
+        NOREPLY.test(local) ||
+        isMarketingShape(local, dom, blob))
     ) {
       return hit(
         "delete_now",
@@ -539,7 +550,10 @@ function classifyCore(
 
   // Known product / finance / shopping before bulk-noreply relationship,
   // so GitHub/Vercel/etc. aren't hard-deleted just because local is noreply.
-  if (SHOPPING_DOMAINS.test(dom) || SHOPPING_DOMAINS.test(fromBlob)) {
+  if (
+    !isEduGov(dom) &&
+    (SHOPPING_DOMAINS.test(dom) || SHOPPING_DOMAINS.test(fromBlob))
+  ) {
     // Deals mail is noise unless the user buys from them (engaged/taught)
     return hit(
       signals.relationship === "engaged" ? "glance_promo" : "delete_now",
@@ -624,6 +638,18 @@ function classifyCore(
   const humanHit = classifyByRelationship(ctx, email, blob);
   if (humanHit) return humanHit;
 
+  // Before any marketing delete: a first note from a school or agency is
+  // never graded as noise on address or wording shape.
+  if (isEduGov(dom)) {
+    return hit(
+      actionable ? "respond" : "read_and_archive",
+      "MED",
+      "Educational or government domain",
+      actionable ? "edu-gov-respond" : "edu-gov-archive",
+      ctx,
+    );
+  }
+
   if (isMarketingShape(local, dom, blob) || MARKETING_SUBDOMAIN.test(dom)) {
     if (/\bunsubscribe\b/i.test(blob) && signals.sentTo === 0) {
       return hit(
@@ -679,16 +705,6 @@ function classifyCore(
       "MED",
       "Automated noreply — nothing worth keeping",
       "noreply-known-delete",
-      ctx,
-    );
-  }
-
-  if (dom.endsWith(".edu") || dom.endsWith(".gov")) {
-    return hit(
-      actionable ? "respond" : "read_and_archive",
-      "MED",
-      "Educational or government domain",
-      actionable ? "edu-gov-respond" : "edu-gov-archive",
       ctx,
     );
   }

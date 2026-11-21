@@ -64,9 +64,10 @@ function daysBetween(iso: string | undefined, now = Date.now()): number | null {
   return (now - t) / (1000 * 60 * 60 * 24);
 }
 
+/** Whole bulk roles only: alertsmith@ or offerman@ are people. */
 function looksBulkAddress(email: string): boolean {
   const local = email.split("@")[0] ?? "";
-  return /^(no-?reply|donotreply|noreply|notifications|alert|updates|mailer-daemon|newsletter|promo|deals|offers)/i.test(
+  return /^(no-?reply|donotreply|noreply|notifications?|alerts?|updates?|mailer-daemon|newsletters?|promos?|promotions?|deals|offers)(?![a-z])/i.test(
     local,
   );
 }
