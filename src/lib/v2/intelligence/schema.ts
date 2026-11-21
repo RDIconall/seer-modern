@@ -132,4 +132,4 @@ export type ConversationDecision = {
 
 /** Bump when the read prompt or schema changes; invalidates cached reads. */
 export const MODEL_VERSION = "v2-read-3-strict-three-way";
-export const CONTEXT_VERSION = "v2-ctx-3-total-placement";
+export const CONTEXT_VERSION = "v2-ctx-4-bound-placement-sender";

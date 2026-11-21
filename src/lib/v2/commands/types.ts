@@ -55,6 +55,8 @@ export type Command =
       matterTitle?: string | null;
       /** Do not reuse a related matter; create this user-named concern. */
       createMatter?: boolean;
+      /** The message the row showed; its sender is the one the correction teaches. */
+      messageId?: string | null;
     }
   | {
       /**
@@ -67,6 +69,8 @@ export type Command =
       matterId?: string | null;
       matterTitle?: string | null;
       createMatter?: boolean;
+      /** The message the row showed; its sender is the one the correction teaches. */
+      messageId?: string | null;
     }
   | { type: "teachSender"; email: string; instruction: "vip" | "always_delete" | "never_delete" }
   | {
@@ -103,6 +107,8 @@ export type Command =
       conversationId: string;
       relevant: boolean;
       reason?: "taken_care_of" | "ended" | "never_was" | "not_for_me" | null;
+      /** The message the row showed; its sender is the one the correction teaches. */
+      messageId?: string | null;
     }
   | { type: "dismissStyleDrift" }
   | {

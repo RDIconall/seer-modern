@@ -41,7 +41,39 @@ export type SaveDecisionInput = {
   evidence: Evidence[];
   modelVersion?: string;
   contextVersion?: string;
+  /**
+   * Present only for a user's own placement. `messageId` is the message the
+   * row showed when they acted; its sender is learned only if it is inbound
+   * and still the newest message on the conversation.
+   */
+  placement?: { messageId?: string | null };
 };
+
+async function placementSender(
+  client: PoolClient,
+  input: SaveDecisionInput,
+): Promise<string | null> {
+  const shown = input.placement?.messageId;
+  if (!shown) return null;
+  const latest = await client.query<{
+    provider_message_id: string | null;
+    from_email: string | null;
+    is_outgoing: boolean | null;
+  }>(
+    `select m.provider_message_id, m.from_email, m.is_outgoing
+       from seer.messages m
+      where m.account_id = $1 and m.conversation_id = $2
+      order by m.sent_at desc nulls last, m.provider_message_id desc
+      limit 1`,
+    [input.accountId, input.conversationId],
+  );
+  const row = latest.rows[0];
+  if (!row || row.provider_message_id !== shown || row.is_outgoing !== false) {
+    return null;
+  }
+  const email = row.from_email?.trim().toLowerCase();
+  return email ? email : null;
+}
 
 export async function saveDecision(
   input: SaveDecisionInput,
@@ -84,13 +116,14 @@ export async function saveDecision(
       [input.accountId, input.conversationId],
     );
 
+    const sender = await placementSender(client, input);
     const decided = new Date().toISOString();
     const decisionRow = await client.query<{ id: string }>(
       `insert into seer.conversation_decisions
          (account_id, conversation_id, home, proposed_home, summary, rationale,
           owner, ask, matter_id, veto_reasons, priority, due_date, model_version,
-          context_version, is_current, decided_at)
-         values ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,true,$15)
+          context_version, is_current, decided_at, placement_sender)
+         values ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,true,$15,$16)
          returning id`,
       [
         input.accountId,
@@ -108,6 +141,7 @@ export async function saveDecision(
         input.modelVersion ?? MODEL_VERSION,
         input.contextVersion ?? CONTEXT_VERSION,
         decided,
+        sender,
       ],
     );
     const decisionId = decisionRow.rows[0].id;
