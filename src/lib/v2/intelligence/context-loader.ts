@@ -81,62 +81,20 @@ export async function loadContextInput(
       home: "matter" | "record" | "delete";
       count: number;
     }>(
-      `with explicit_placements as (
-         select d.account_id,
-                d.conversation_id,
-                d.home,
-                d.decided_at
-           from seer.conversation_decisions d
-          where d.account_id = $1
-            and d.is_current
-            and d.model_version = 'user-correction'
-            and d.home in ('matter', 'record', 'delete')
-            and d.decided_at > now() - interval '180 days'
-       ),
-       -- Before Triage actions became first-class feedback, moving a model
-       -- matter to Archive/Trash was the only correction the UI could express.
-       -- Recover those choices from the durable outbox so the user does not
-       -- have to make them again for the same sender.
-       historical_placements as (
-         select o.account_id,
-                (o.command->>'conversationId')::uuid as conversation_id,
-                case o.command->>'type'
-                  when 'archive' then 'record'
-                  when 'trash' then 'delete'
-                end as home,
-                o.updated_at as decided_at
-           from seer.outbox o
-           join seer.conversation_decisions d
-             on d.account_id = o.account_id
-            and d.conversation_id::text = o.command->>'conversationId'
-            and d.is_current
-            and d.home = 'matter'
-            and d.model_version <> 'user-correction'
-          where o.account_id = $1
-            and o.status = 'done'
-            and o.command->>'type' in ('archive', 'trash')
-            and o.updated_at > now() - interval '180 days'
-       ),
-       placement as (
-         select * from explicit_placements
-         union all
-         select * from historical_placements
-       )
-       select lower(sender.from_email) as sender_email,
-              p.home,
+      // Only a Triage correction is a statement about a sender, and only the
+      // sender bound when the user acted. A mailbox archive/trash is about the
+      // thread, and a From header that arrives later was never in front of them.
+      `select d.placement_sender as sender_email,
+              d.home,
               count(*)::int as count
-         from placement p
-         join lateral (
-           select m.from_email
-             from seer.messages m
-            where m.account_id = p.account_id
-              and m.conversation_id = p.conversation_id
-              and m.is_outgoing = false
-              and m.from_email is not null
-            order by m.sent_at desc nulls last
-            limit 1
-         ) sender on true
-        group by lower(sender.from_email), p.home`,
+         from seer.conversation_decisions d
+        where d.account_id = $1
+          and d.is_current
+          and d.model_version = 'user-correction'
+          and d.home in ('matter', 'record', 'delete')
+          and d.placement_sender is not null
+          and d.decided_at > now() - interval '180 days'
+        group by d.placement_sender, d.home`,
       [accountId],
     ),
     optionalContext("operating guidance", () => loadGuidance(accountId), ""),

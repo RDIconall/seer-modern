@@ -196,6 +196,7 @@ async function recordTriageCorrection(
   conversationId: string,
   home: "record" | "delete",
   idempotencyKey: string,
+  messageId: string | null | undefined,
 ): Promise<void> {
   await inTransaction(async (client) => {
     await recordEvent(
@@ -226,6 +227,7 @@ async function recordTriageCorrection(
     evidence: [],
     modelVersion: "user-correction",
     contextVersion: "user",
+    placement: { messageId },
   });
 }
 
@@ -264,6 +266,7 @@ async function run(
             matterId: command.matterId,
             matterTitle: command.matterTitle,
             createMatter: command.createMatter,
+            messageId: command.messageId,
           },
           idempotencyKey,
         );
@@ -278,6 +281,7 @@ async function run(
             command.conversationId,
             command.destination === "delete" ? "delete" : "record",
             idempotencyKey,
+            command.messageId,
           );
         } catch (cause) {
           return fail(
@@ -310,6 +314,7 @@ async function run(
           command.conversationId,
           command.destination === "delete" ? "delete" : "record",
           idempotencyKey,
+          command.messageId,
         );
       } catch (cause) {
         return {
@@ -500,6 +505,7 @@ async function run(
         evidence: [],
         modelVersion: "user-correction",
         contextVersion: "user",
+        placement: { messageId: command.messageId },
       });
       return {
         ok: true,
@@ -670,6 +676,7 @@ async function run(
             conversationId: command.conversationId,
             home: "matter",
             note: "Still relevant — kept as live work",
+            messageId: command.messageId,
           },
           idempotencyKey,
         );
@@ -695,6 +702,7 @@ async function run(
             command.conversationId,
             outcome.home,
             idempotencyKey,
+            command.messageId,
           );
         } catch (cause) {
           return {
@@ -722,6 +730,7 @@ async function run(
           command.conversationId,
           outcome.home,
           idempotencyKey,
+          command.messageId,
         );
       } catch (cause) {
         return fail(
