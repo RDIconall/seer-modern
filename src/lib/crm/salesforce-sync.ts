@@ -85,11 +85,11 @@ export async function syncSalesforce(
       Amount?: number;
       CloseDate?: string;
       Account?: { Name?: string } | null;
-      Owner?: { Name?: string } | null;
+      Owner?: { Name?: string; Email?: string } | null;
     };
     const rows = await soql<OppRow>(
       auth,
-      `SELECT Name, StageName, Amount, CloseDate, Account.Name, Owner.Name
+      `SELECT Name, StageName, Amount, CloseDate, Account.Name, Owner.Name, Owner.Email
        FROM Opportunity
        WHERE IsClosed = false
        ORDER BY Amount DESC NULLS LAST
@@ -103,7 +103,11 @@ export async function syncSalesforce(
       stage: r.StageName?.slice(0, 40),
       amount: typeof r.Amount === "number" ? r.Amount : undefined,
       closeDate: r.CloseDate ?? undefined,
-      owner: r.Owner?.Name?.slice(0, 60),
+      // The address is what ties the owner's own mail to this record
+      owner:
+        [r.Owner?.Name?.slice(0, 60), r.Owner?.Email && `<${r.Owner.Email}>`]
+          .filter(Boolean)
+          .join(" ") || undefined,
     }));
   } catch (e) {
     notes.push(
