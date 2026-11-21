@@ -1,4 +1,8 @@
 import { loadBrief, saveBrief, type Matter } from "@/lib/inbox/matters";
+import {
+  automatedCloseThreadIds,
+  isAutomatedMatterId,
+} from "@/lib/inbox/sender-domain";
 import { requireMailSession } from "@/lib/mail/session";
 import { gmailThreadAction } from "@/lib/mail/gmail";
 import { graphThreadAction } from "@/lib/mail/graph";
@@ -85,7 +89,20 @@ export async function POST(req: Request) {
     if (!matter) {
       return NextResponse.json({ error: "Matter not found" }, { status: 404 });
     }
-    const threadIds = matter.threadIds ?? [];
+    let threadIds = matter.threadIds ?? [];
+    if (isAutomatedMatterId(matter.id)) {
+      const scoped = automatedCloseThreadIds(matter);
+      if (scoped.mixed) {
+        return NextResponse.json(
+          {
+            error:
+              "This card mixes senders from different domains — refresh the brief before closing it",
+          },
+          { status: 409 },
+        );
+      }
+      threadIds = scoped.threadIds;
+    }
     const runThread =
       session.provider === "google" ? gmailThreadAction : graphThreadAction;
     await Promise.allSettled(

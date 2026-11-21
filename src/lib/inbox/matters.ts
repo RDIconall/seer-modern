@@ -4,6 +4,12 @@ import {
   isModelBudgetError,
 } from "@/lib/inbox/gemini-triage";
 import { collapseThreads } from "@/lib/inbox/thread-collapse";
+import {
+  AUTOMATED_MATTER_PREFIX,
+  automatedSenderKey,
+  FREEMAIL,
+  registrableDomain,
+} from "@/lib/inbox/sender-domain";
 import { stripEmoji, type EmailItem } from "@/lib/inbox/types";
 import type {
   Understanding,
@@ -570,9 +576,6 @@ function headline(who: string, oneLine: string): string {
     : `${who} — ${oneLine}`;
 }
 
-const FREEMAIL =
-  /^(gmail|googlemail|outlook|hotmail|live|yahoo|ymail|aol|icloud|me|msn|proton|protonmail|comcast|sbcglobal|att|verizon)\./;
-
 /** The company (or person, for personal mail) this email came from. */
 function counterparty(item: EmailItem, ownDomain: string): string {
   const domain = item.fromEmail.split("@")[1]?.toLowerCase() ?? "";
@@ -594,23 +597,21 @@ function counterparty(item: EmailItem, ownDomain: string): string {
  */
 const AUTOMATED_SENDER =
   /(^|[._-])(no-?reply|do-?not-?reply|donotreply|notifications?|notify|alerts?|mailer|automated|autonotify|mybuy|ariba|coupa|concur|workday|servicenow|zendesk|jira|confluence)([._-]|@|$)/i;
+/** Judged by the address alone: a display name is whatever the sender typed. */
 function isAutomatedSender(item: EmailItem): boolean {
-  return (
-    AUTOMATED_SENDER.test(item.fromEmail) ||
-    AUTOMATED_SENDER.test(item.fromName ?? "")
-  );
+  return AUTOMATED_SENDER.test(item.fromEmail);
 }
 
 /**
  * The registrable company behind a sender, ignoring subdomains: both
  * no-reply@mybuy.roche.com and notifications@roche.com resolve to "Roche",
- * so one company's automated mail collapses into one place.
+ * so one company's automated mail collapses into one place. Display only;
+ * grouping keys on automatedSenderKey.
  */
 function senderCompany(item: EmailItem, ownDomain: string): string {
-  const domain = item.fromEmail.split("@")[1]?.toLowerCase() ?? "";
-  const labels = domain.split(".").filter(Boolean);
-  const root = labels.length >= 2 ? labels[labels.length - 2] : labels[0] ?? "";
-  if (!root || FREEMAIL.test(`${root}.`)) return counterparty(item, ownDomain);
+  const domain = registrableDomain(item.fromEmail);
+  const root = domain.split(".")[0] ?? "";
+  if (!root || FREEMAIL.test(domain)) return counterparty(item, ownDomain);
   return root.length <= 3
     ? root.toUpperCase()
     : root.charAt(0).toUpperCase() + root.slice(1);
@@ -628,6 +629,7 @@ function collapseAutomatedSeeds(
 ): Matter {
   const items = seeds.map((s) => s.item);
   const company = senderCompany(items[0], ownDomain);
+  const key = automatedSenderKey(items[0].fromEmail);
   const nameCounts = new Map<string, number>();
   for (const it of items) {
     const n = stripEmoji(it.fromName || "").trim();
@@ -650,7 +652,7 @@ function collapseAutomatedSeeds(
   )[0];
   const ask = newest.understanding?.ask?.trim();
   return {
-    id: `read:auto:${company.toLowerCase()}`,
+    id: `${AUTOMATED_MATTER_PREFIX}${key}`,
     title: display,
     category: "read",
     orgUnit: seeds[0].matter.orgUnit,
@@ -664,7 +666,8 @@ function collapseAutomatedSeeds(
     owner,
     urgency,
     status: owner === "them" ? "waiting" : "active",
-    emails: rows.slice(0, 60),
+    // Uncapped: closing archives only threads with a row on the card.
+    emails: rows,
     emailIds,
     threadIds,
     updatedAt: at,
@@ -1672,10 +1675,10 @@ export async function buildBrief(
       // A human's promoted read stands alone. An automated sender's is held
       // for collapse — but never when the user already renamed this exact
       // thread's matter, since that is a deliberate one-off.
-      if (isAutomatedSender(i) && !edits.renames[matterId]) {
-        const key = senderCompany(i, ownDomain).toLowerCase();
-        autoSeeds.set(key, [
-          ...(autoSeeds.get(key) ?? []),
+      const autoKey = automatedSenderKey(i.fromEmail);
+      if (autoKey && isAutomatedSender(i) && !edits.renames[matterId]) {
+        autoSeeds.set(autoKey, [
+          ...(autoSeeds.get(autoKey) ?? []),
           { matter: seed, item: i, understanding: u },
         ]);
       } else {
