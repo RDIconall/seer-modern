@@ -1,4 +1,4 @@
-import type { PoolClient } from "pg";
+import type { Pool, PoolClient } from "pg";
 import { inTransaction } from "../db/transaction";
 import {
   extractCodes,
@@ -19,7 +19,16 @@ import {
  * yields are written in one transaction. The partial unique index in the schema
  * guarantees exactly one current decision per conversation; here we flip the
  * previous current row off before inserting the new one.
+ *
+ * Every write of a decision, and of the matter link that goes with it, holds
+ * the conversation row lock. A model read never replaces a current user
+ * correction: the model call runs outside any lock, so the owner may have
+ * placed the thread while it was in flight.
  */
+
+export const USER_CORRECTION = "user-correction";
+
+export type MatterTie = { text: string; counterparty: string; own?: Set<string> };
 
 export type SaveDecisionInput = {
   accountId: AccountId;
@@ -36,11 +45,24 @@ export type SaveDecisionInput = {
   priority?: number;
   /** A date the email stated; orders within a bucket, never promotes. */
   dueDate?: string | null;
-  /** Yields may carry the matter they were resolved to, so meaning lands on it. */
-  yields: (Yield & { matterId?: string | null })[];
+  /**
+   * Yields may carry the matter they were resolved to, so meaning lands on it.
+   * `inheritDecisionMatter` lands an unresolved yield on the decision's matter.
+   */
+  yields: (Yield & { matterId?: string | null; inheritDecisionMatter?: boolean })[];
   evidence: Evidence[];
   modelVersion?: string;
   contextVersion?: string;
+  /**
+   * A model read that promotes live work: reuse or create the matter and link
+   * it as inferred, under the same lock as the decision. Replaces `matterId`.
+   */
+  promoteMatter?: { title: string; tie: MatterTie };
+  /**
+   * The owner placed this conversation on `matterId`: it becomes the one
+   * matter the conversation is linked to, as a user link.
+   */
+  userMatterLink?: boolean;
 };
 
 export async function saveDecision(
@@ -48,6 +70,14 @@ export async function saveDecision(
 ): Promise<ConversationDecision> {
   if (!input.modelVersion && !MODEL_VERSION) {
     throw new Error("decision requires a model version");
+  }
+  const modelVersion = input.modelVersion ?? MODEL_VERSION;
+  const fromUser = modelVersion === USER_CORRECTION;
+  if (input.promoteMatter && fromUser) {
+    throw new Error("a user correction names its matter");
+  }
+  if (input.userMatterLink && !fromUser) {
+    throw new Error("only a user correction places a conversation on a matter");
   }
   return inTransaction(async (client) => {
     const conversation = await client.query(
@@ -61,9 +91,32 @@ export async function saveDecision(
       throw new Error("conversation does not belong to account");
     }
 
+    if (!fromUser) {
+      const kept = await currentDecisionWith(
+        client,
+        input.accountId,
+        input.conversationId,
+      );
+      if (kept?.modelVersion === USER_CORRECTION) return kept;
+    }
+
+    let matterId = input.matterId ?? null;
+    if (input.promoteMatter) {
+      matterId = await ensureMatterWith(
+        client,
+        input.accountId,
+        input.promoteMatter.title,
+        input.promoteMatter.tie,
+      );
+    }
+    const yields = input.yields.map(({ inheritDecisionMatter, ...y }) => ({
+      ...y,
+      matterId: y.matterId ?? (inheritDecisionMatter ? matterId : null),
+    }));
+
     const matterIds = [
-      input.matterId,
-      ...input.yields.map((yieldValue) => yieldValue.matterId ?? null),
+      matterId,
+      ...yields.map((yieldValue) => yieldValue.matterId ?? null),
     ].filter((id): id is string => Boolean(id));
     if (matterIds.length > 0) {
       const matters = await client.query(
@@ -75,6 +128,37 @@ export async function saveDecision(
       if (matters.rowCount !== new Set(matterIds).size) {
         throw new Error("matter does not belong to account");
       }
+    }
+
+    if (input.promoteMatter && matterId) {
+      await linkConversationToMatterWith(
+        client,
+        input.accountId,
+        matterId,
+        input.conversationId,
+        "inferred",
+      );
+    }
+    if (input.userMatterLink && matterId) {
+      // A conversation has one current home. Remove an older inferred/user
+      // link before recording the explicit choice, otherwise later sweeps see
+      // it in two concerns even though the current decision names only one.
+      await client.query(
+        `delete from seer.matter_conversations mc
+          using seer.matters m
+          where mc.matter_id = m.id
+            and m.account_id = $1
+            and mc.conversation_id = $2
+            and mc.matter_id <> $3`,
+        [input.accountId, input.conversationId, matterId],
+      );
+      await linkConversationToMatterWith(
+        client,
+        input.accountId,
+        matterId,
+        input.conversationId,
+        "user",
+      );
     }
 
     await client.query(
@@ -101,11 +185,11 @@ export async function saveDecision(
         input.rationale,
         input.owner,
         input.ask ?? null,
-        input.matterId ?? null,
+        matterId,
         input.vetoReasons,
         input.priority ?? 0,
         input.dueDate ?? null,
-        input.modelVersion ?? MODEL_VERSION,
+        modelVersion,
         input.contextVersion ?? CONTEXT_VERSION,
         decided,
       ],
@@ -122,7 +206,7 @@ export async function saveDecision(
 
     // Yields are attached to the persisted decision. Only after this commit is
     // a `delete` home allowed to be acted on (safety checks yieldPersisted).
-    for (const y of input.yields) {
+    for (const y of yields) {
       await client.query(
         `insert into seer.yields
            (account_id, decision_id, conversation_id, kind, matter_id, headline, detail, evidence_ref)
@@ -149,10 +233,10 @@ export async function saveDecision(
       rationale: input.rationale,
       owner: input.owner,
       ask: input.ask,
-      matterId: input.matterId ?? undefined,
+      matterId: matterId ?? undefined,
       vetoReasons: input.vetoReasons,
-      yields: input.yields,
-      modelVersion: input.modelVersion ?? MODEL_VERSION,
+      yields,
+      modelVersion,
       contextVersion: input.contextVersion ?? CONTEXT_VERSION,
       decidedAt: decided,
     };
@@ -168,62 +252,69 @@ export async function saveDecision(
 export async function ensureMatter(
   accountId: AccountId,
   title: string,
-  tie?: { text: string; counterparty: string; own?: Set<string> },
+  tie?: MatterTie,
+): Promise<string> {
+  return inTransaction((client) => ensureMatterWith(client, accountId, title, tie));
+}
+
+async function ensureMatterWith(
+  client: PoolClient,
+  accountId: AccountId,
+  title: string,
+  tie?: MatterTie,
 ): Promise<string> {
   const clean = title.trim().slice(0, 120) || "Untitled matter";
-  return inTransaction(async (client) => {
-    // Tie this conversation to the unit of work it belongs to: a shared study
-    // or event code is proof; otherwise the counterparty must match and the
-    // requests must overlap. Falls back to exact title when no tie info given.
-    if (tie) {
-      const open = await client.query<{
-        id: string;
-        title: string;
-        counterparty: string | null;
-        codes: string[] | null;
-        title_source: string | null;
-      }>(
-        `select m.id, m.title, m.org_unit as counterparty, m.title_source,
-                array_remove(array_agg(distinct mc.code), null) as codes
-           from seer.matters m
-           left join seer.matter_codes mc on mc.matter_id = m.id
-          where m.account_id = $1 and m.status <> 'closed'
-          group by m.id, m.title, m.org_unit, m.title_source`,
-        [accountId],
-      );
-      const match = resolveMatterMatch(
-        { title: clean, text: tie.text, counterparty: tie.counterparty, own: tie.own },
-        open.rows.map((r) => ({
-          matterId: r.id,
-          title: r.title,
-          codes: r.codes ?? [],
-          counterparty: r.counterparty ?? "",
-          userAuthored: r.title_source === "user",
-        })),
-      );
-      if (match) {
-        await recordCodes(client, match.matterId, extractCodes(tie.text));
-        return match.matterId;
-      }
-      const created = await client.query<{ id: string }>(
-        "insert into seer.matters (account_id, title, org_unit) values ($1, $2, $3) returning id",
-        [accountId, clean, tie.counterparty || null],
-      );
-      await recordCodes(client, created.rows[0].id, extractCodes(tie.text));
-      return created.rows[0].id;
+  // Tie this conversation to the unit of work it belongs to: a shared study
+  // or event code is proof; otherwise the counterparty must match and the
+  // requests must overlap. Falls back to exact title when no tie info given.
+  if (tie) {
+    const open = await client.query<{
+      id: string;
+      title: string;
+      counterparty: string | null;
+      codes: string[] | null;
+      title_source: string | null;
+    }>(
+      `select m.id, m.title, m.org_unit as counterparty, m.title_source,
+              array_remove(array_agg(distinct mc.code), null) as codes
+         from seer.matters m
+         left join seer.matter_codes mc on mc.matter_id = m.id
+        where m.account_id = $1 and m.status <> 'closed'
+        group by m.id, m.title, m.org_unit, m.title_source`,
+      [accountId],
+    );
+    const match = resolveMatterMatch(
+      { title: clean, text: tie.text, counterparty: tie.counterparty, own: tie.own },
+      open.rows.map((r) => ({
+        matterId: r.id,
+        title: r.title,
+        codes: r.codes ?? [],
+        counterparty: r.counterparty ?? "",
+        userAuthored: r.title_source === "user",
+      })),
+    );
+    if (match) {
+      await recordCodes(client, match.matterId, extractCodes(tie.text));
+      return match.matterId;
     }
-
-    const existing = await client.query<{ id: string }>(
-      "select id from seer.matters where account_id = $1 and lower(title) = lower($2) and status <> 'closed' limit 1",
-      [accountId, clean],
-    );
-    if (existing.rows[0]) return existing.rows[0].id;
     const created = await client.query<{ id: string }>(
-      "insert into seer.matters (account_id, title) values ($1, $2) returning id",
-      [accountId, clean],
+      "insert into seer.matters (account_id, title, org_unit) values ($1, $2, $3) returning id",
+      [accountId, clean, tie.counterparty || null],
     );
+    await recordCodes(client, created.rows[0].id, extractCodes(tie.text));
     return created.rows[0].id;
-  });
+  }
+
+  const existing = await client.query<{ id: string }>(
+    "select id from seer.matters where account_id = $1 and lower(title) = lower($2) and status <> 'closed' limit 1",
+    [accountId, clean],
+  );
+  if (existing.rows[0]) return existing.rows[0].id;
+  const created = await client.query<{ id: string }>(
+    "insert into seer.matters (account_id, title) values ($1, $2) returning id",
+    [accountId, clean],
+  );
+  return created.rows[0].id;
 }
 
 /** Remember the codes a matter is known by, so later mail ties to it. */
@@ -298,7 +389,17 @@ export async function linkConversationToMatter(
   source: "inferred" | "user" = "inferred",
 ): Promise<void> {
   const { db } = await import("../db/pool");
-  const result = await db().query(
+  await linkConversationToMatterWith(db(), accountId, matterId, conversationId, source);
+}
+
+async function linkConversationToMatterWith(
+  client: Pool | PoolClient,
+  accountId: AccountId,
+  matterId: string,
+  conversationId: ConversationId,
+  source: "inferred" | "user",
+): Promise<void> {
+  const result = await client.query(
     `insert into seer.matter_conversations (matter_id, conversation_id, link_source)
        select m.id, c.id, $3
          from seer.matters m
@@ -321,7 +422,15 @@ export async function currentDecision(
   conversationId: ConversationId,
 ): Promise<ConversationDecision | null> {
   const { db } = await import("../db/pool");
-  const r = await db().query(
+  return currentDecisionWith(db(), accountId, conversationId);
+}
+
+async function currentDecisionWith(
+  client: Pool | PoolClient,
+  accountId: AccountId,
+  conversationId: ConversationId,
+): Promise<ConversationDecision | null> {
+  const r = await client.query(
     `select id, conversation_id, home, proposed_home, summary, rationale, owner,
             ask, matter_id, veto_reasons, model_version, context_version, decided_at
        from seer.conversation_decisions

@@ -12,10 +12,9 @@ import {
   validDueDate,
 } from "./salience";
 import {
-  ensureMatter,
   findMatterByRef,
-  linkConversationToMatter,
   saveDecision,
+  type SaveDecisionInput,
 } from "./repository";
 import {
   validateDelete,
@@ -195,9 +194,10 @@ export async function readConversation(
 
   // Promotion: live work must land on the board. Reuse the matched matter, or
   // create one from the read's proposed name — otherwise a `matter` decision
-  // has no matter to belong to and would be misfiled.
-  let matterId =
-    safety.home === "matter" ? compiled.candidateMatterId : null;
+  // has no matter to belong to and would be misfiled. The matter is resolved
+  // and linked inside `saveDecision`, under the conversation lock, so a thread
+  // the owner placed while the model was reading is never relinked.
+  let promoteMatter: SaveDecisionInput["promoteMatter"];
   if (safety.home === "matter") {
     // Tie on what this is ABOUT: codes in the subject/name/body plus the
     // counterparty. Sender type is irrelevant — an automated portal notice
@@ -215,24 +215,23 @@ export async function readConversation(
     // The user's own name and company identify nothing: they are in every
     // matter on this desk, so they neither name work nor tie it together.
     const own = ownTokens(input.context.ownEmail ?? `x@${input.context.ownDomain}`);
-    matterId = await ensureMatter(
-      input.accountId,
-      matterNameFrom(read.matterRef, input.conversation.subject, counterparty, tieText, own),
-      { text: tieText, counterparty, own },
-    );
-    await linkConversationToMatter(input.accountId, matterId, input.conversationId);
+    promoteMatter = {
+      title: matterNameFrom(read.matterRef, input.conversation.subject, counterparty, tieText, own),
+      tie: { text: tieText, counterparty, own },
+    };
   }
 
   // Attach extracted meaning to the matter it names, so a development lands on
   // the concern it belongs to — including when the conversation itself is
   // disposable (a newsletter that touches a live matter keeps its insight).
-  const resolvedYields = await Promise.all(
+  const resolvedYields: SaveDecisionInput["yields"] = await Promise.all(
     read.yields.map(async (y) => {
       if (y.kind !== "matter_connection") return y;
       const ref = y.matterRef?.trim();
-      if (!ref) return { ...y, matterId: matterId ?? null };
-      const found = await findMatterByRef(input.accountId, ref);
-      return { ...y, matterId: found ?? matterId ?? null };
+      const found = ref ? await findMatterByRef(input.accountId, ref) : null;
+      return found
+        ? { ...y, matterId: found }
+        : { ...y, matterId: null, inheritDecisionMatter: true };
     }),
   );
 
@@ -245,7 +244,7 @@ export async function readConversation(
     rationale: read.rationale,
     owner: read.owner,
     ask: read.ask,
-    matterId,
+    promoteMatter,
     vetoReasons: safety.vetoReasons,
     priority,
     dueDate: validDueDate(read.dueDate),
