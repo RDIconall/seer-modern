@@ -6,10 +6,7 @@ import {
   ownTokens,
   resolveMatterMatch,
 } from "./matter-key";
-import {
-  ensureMatter,
-  linkConversationToMatter,
-} from "./repository";
+import { ensureMatter } from "./repository";
 
 type ConversationMatterContext = {
   subject: string;
@@ -170,10 +167,12 @@ async function currentMatter(
 }
 
 /**
- * Put a conversation on an exact existing matter, force a new user-named one,
- * or let Seer's relation sweep reuse/create the right concern.
+ * Choose the matter a conversation is being put on: an exact existing matter,
+ * a new user-named one, or the concern Seer's relation sweep reuses/creates.
+ * The link itself is written by `saveDecision` with `userMatterLink`, under the
+ * conversation lock and together with the user correction.
  */
-export async function placeConversationOnMatter(
+export async function resolveMatterPlacement(
   accountId: AccountId,
   conversationId: ConversationId,
   input: {
@@ -233,18 +232,5 @@ export async function placeConversationOnMatter(
     }
   }
 
-  // A conversation has one current home. Remove an older inferred/user link
-  // before recording the explicit choice, otherwise later sweeps see it in two
-  // concerns even though the current decision names only one.
-  await db().query(
-    `delete from seer.matter_conversations mc
-      using seer.matters m
-      where mc.matter_id = m.id
-        and m.account_id = $1
-        and mc.conversation_id = $2
-        and mc.matter_id <> $3`,
-    [accountId, conversationId, matterId],
-  );
-  await linkConversationToMatter(accountId, matterId, conversationId, "user");
   return { matterId, title };
 }

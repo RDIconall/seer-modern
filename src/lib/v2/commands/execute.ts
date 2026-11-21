@@ -18,7 +18,7 @@ import {
 } from "./repository";
 import type { Command, CommandResult } from "./types";
 import { db } from "../db/pool";
-import { placeConversationOnMatter } from "../intelligence/user-matter";
+import { resolveMatterPlacement } from "../intelligence/user-matter";
 import {
   saveMatterOrder,
   saveMatterOrders,
@@ -457,7 +457,7 @@ async function run(
         | undefined;
       if (command.home === "matter") {
         try {
-          matter = await placeConversationOnMatter(
+          matter = await resolveMatterPlacement(
             ctx.accountId,
             asConversationId(command.conversationId),
             {
@@ -495,6 +495,7 @@ async function run(
         rationale: "Corrected by you",
         owner: "nobody",
         matterId: matter?.matterId,
+        userMatterLink: Boolean(matter),
         vetoReasons: [],
         yields: [],
         evidence: [],
