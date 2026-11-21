@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 import { getActiveV2Account } from "@/lib/v2/session";
 import { findOutboxById } from "@/lib/v3/outbox/repository";
+import { refuseCrossSiteRequest } from "@/lib/security/same-origin";
 
 export const dynamic = "force-dynamic";
 
@@ -8,6 +9,8 @@ type RouteContext = { params: Promise<{ id: string }> };
 
 /** Provider confirmation state for one queued mailbox action. */
 export async function GET(_request: Request, context: RouteContext) {
+  const refused = await refuseCrossSiteRequest();
+  if (refused) return refused;
   const account = await getActiveV2Account();
   if (!account) {
     return NextResponse.json({ error: "no active v2 account" }, { status: 404 });

@@ -11,6 +11,7 @@ import {
 } from "@/lib/store/people";
 import { loadUserProfile } from "@/lib/store/user-profile";
 import { NextResponse } from "next/server";
+import { refuseCrossSiteRequest } from "@/lib/security/same-origin";
 
 export const maxDuration = 30;
 
@@ -22,6 +23,8 @@ export const maxDuration = 30;
  */
 
 export async function GET() {
+  const refused = await refuseCrossSiteRequest();
+  if (refused) return refused;
   try {
     const session = await requireMailSession();
     if (!session) {

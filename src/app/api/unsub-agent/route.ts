@@ -12,6 +12,7 @@ import { getSenderOverride } from "@/lib/store/senders";
 import { generateText, Output } from "ai";
 import { NextResponse } from "next/server";
 import { z } from "zod";
+import { refuseCrossSiteRequest } from "@/lib/security/same-origin";
 
 export const maxDuration = 60;
 
@@ -42,6 +43,8 @@ For each sender decide:
 Do NOT suggest unsubscribing from real people. Receipts/security-only senders stay unless every email they send is also a phone push.`;
 
 export async function GET() {
+  const refused = await refuseCrossSiteRequest();
+  if (refused) return refused;
   try {
     const session = await requireMailSession();
     if (!session) {

@@ -3,10 +3,13 @@ import { buildExportRows, toCsv } from "@/lib/inbox/export";
 import { requireMailSession } from "@/lib/mail/session";
 import { loadUnderstanding } from "@/lib/store/understanding-store";
 import { NextResponse } from "next/server";
+import { refuseCrossSiteRequest } from "@/lib/security/same-origin";
 
 export const maxDuration = 30;
 
 export async function GET(request: Request) {
+  const refused = await refuseCrossSiteRequest();
+  if (refused) return refused;
   const session = await requireMailSession();
   if (!session) {
     return NextResponse.json({ error: "Not signed in" }, { status: 401 });

@@ -23,6 +23,7 @@ import { knownSenders } from "@/lib/brain/relationships";
 import { loadPeople } from "@/lib/store/people";
 import { getPersonalContext } from "@/lib/inbox/personal-context";
 import { NextResponse, after } from "next/server";
+import { refuseCrossSiteRequest } from "@/lib/security/same-origin";
 
 /** Deep enough to cover a real 500+ inbox in one pass */
 const INBOX_DEPTH = 1200;
@@ -62,6 +63,8 @@ export async function PATCH(req: Request) {
 
 /** GET: the stored brief. POST: rebuild it (AI pass runs after response). */
 export async function GET() {
+  const refused = await refuseCrossSiteRequest();
+  if (refused) return refused;
   const session = await requireMailSession();
   if (!session) {
     return NextResponse.json({ error: "Not signed in" }, { status: 401 });

@@ -16,8 +16,18 @@ import {
   resolveActiveAccount,
 } from "@/lib/store/accounts";
 import { isAllowedOrgEmail } from "@/lib/auth/org";
+import { isSameOriginRequest } from "@/lib/security/same-origin";
 
-export async function requireMailSession() {
+/**
+ * The session cookie rides along on cross-site top-level navigations, and
+ * resolving a session can refresh the provider token. A request that did not
+ * come from this app gets no session unless the caller is an OAuth return
+ * that has already verified its own state.
+ */
+export async function requireMailSession(
+  options: { allowCrossSite?: boolean } = {},
+) {
+  if (!options.allowCrossSite && !(await isSameOriginRequest())) return null;
   const session = await auth();
   if (!session?.user) {
     return null;

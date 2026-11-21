@@ -14,6 +14,7 @@ import { requireMailSession } from "@/lib/mail/session";
 import { markOpened, readLastOpen } from "@/lib/store/last-open";
 import { getSenderOverride } from "@/lib/store/senders";
 import { NextResponse } from "next/server";
+import { refuseCrossSiteRequest } from "@/lib/security/same-origin";
 
 /** Deep enough to cover a real 500+ inbox in one pass */
 const INBOX_DEPTH = 1200;
@@ -29,6 +30,8 @@ const MIN_NEW = 3;
  * the AI's own task lines — no extra model call, so it's instant.
  */
 export async function GET() {
+  const refused = await refuseCrossSiteRequest();
+  if (refused) return refused;
   try {
     const session = await requireMailSession();
     if (!session) {

@@ -6,6 +6,7 @@ import {
 } from "./db/accounts";
 import { getActiveAccountId } from "../store/accounts";
 import { isAllowedOrgEmail } from "@/lib/auth/org";
+import { isSameOriginRequest } from "@/lib/security/same-origin";
 
 /**
  * Resolve the signed-in user's active v2 mail account. Returns null when the
@@ -68,6 +69,9 @@ export function effectiveActiveAccountId(
 }
 
 export async function getActiveV2Account(): Promise<MailAccount | null> {
+  // The session cookie rides along on cross-site navigations; callers go on to
+  // spend the mailbox's provider quota with the account this returns.
+  if (!(await isSameOriginRequest())) return null;
   const session = await auth();
   const email = session?.user?.email?.toLowerCase();
   if (!email || !isV2Enabled(email)) return null;

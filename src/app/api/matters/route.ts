@@ -20,6 +20,7 @@ import {
 } from "@/lib/store/manual-matters";
 import { loadMatterOrder, saveMatterOrder } from "@/lib/store/matter-order";
 import { NextResponse } from "next/server";
+import { refuseCrossSiteRequest } from "@/lib/security/same-origin";
 
 /**
  * The user's own matters: rename anything, create their own, add emails to
@@ -27,6 +28,8 @@ import { NextResponse } from "next/server";
  * without waiting for a rebuild, and persisted so rebuilds respect it.
  */
 export async function GET() {
+  const refused = await refuseCrossSiteRequest();
+  if (refused) return refused;
   const session = await requireMailSession();
   if (!session) {
     return NextResponse.json({ error: "Not signed in" }, { status: 401 });

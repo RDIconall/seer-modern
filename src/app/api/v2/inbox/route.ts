@@ -2,6 +2,7 @@ import { after, NextResponse } from "next/server";
 import { getActiveV2Account } from "@/lib/v2/session";
 import { kickInboxCatchUp } from "@/lib/v2/sync/catch-up";
 import { buildInboxView } from "@/lib/v2/view/build";
+import { refuseCrossSiteRequest } from "@/lib/security/same-origin";
 
 export const dynamic = "force-dynamic";
 
@@ -11,6 +12,8 @@ export const dynamic = "force-dynamic";
  * server-computed projection. The client renders it and computes no placement.
  */
 export async function GET() {
+  const refused = await refuseCrossSiteRequest();
+  if (refused) return refused;
   const account = await getActiveV2Account();
   if (!account) {
     return NextResponse.json({ error: "no active v2 account" }, { status: 404 });

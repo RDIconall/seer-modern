@@ -10,12 +10,15 @@ import { listGraphFolder, listGraphInbox } from "@/lib/mail/graph";
 import { requireMailSession } from "@/lib/mail/session";
 import { listSenderOverrides } from "@/lib/store/senders";
 import { NextResponse } from "next/server";
+import { refuseCrossSiteRequest } from "@/lib/security/same-origin";
 
 /**
  * Export snippet-level inbox samples + current predictions for offline tuning.
  * Does not include message bodies/HTML.
  */
 export async function GET() {
+  const refused = await refuseCrossSiteRequest();
+  if (refused) return refused;
   try {
     const session = await requireMailSession();
     if (!session) {

@@ -2,6 +2,7 @@ import { requireMailSession } from "@/lib/mail/session";
 import { loadApp } from "@/lib/store/salesforce-auth";
 import { randomBytes, createHash } from "node:crypto";
 import { NextResponse } from "next/server";
+import { refuseCrossSiteRequest } from "@/lib/security/same-origin";
 
 /**
  * Start "Log in with Salesforce": the OAuth 2.0 web server flow with
@@ -10,6 +11,8 @@ import { NextResponse } from "next/server";
  * that comes back is worthless to anyone who intercepts it.
  */
 export async function GET(req: Request) {
+  const refused = await refuseCrossSiteRequest();
+  if (refused) return refused;
   const session = await requireMailSession();
   if (!session) {
     return NextResponse.json({ error: "Not signed in" }, { status: 401 });

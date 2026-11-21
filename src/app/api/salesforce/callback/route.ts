@@ -17,9 +17,6 @@ export async function GET(req: Request) {
       new URL(`${returnTo}?settings=1&sf=${note}`, origin),
     );
 
-  const session = await requireMailSession();
-  if (!session) return settings("signin");
-
   const url = new URL(req.url);
   const code = url.searchParams.get("code");
   const state = url.searchParams.get("state");
@@ -30,6 +27,12 @@ export async function GET(req: Request) {
   const verifier = jarEarly.get("sf_verifier")?.value;
   const expected = jarEarly.get("sf_state")?.value;
   if (!verifier || !expected || expected !== state) return settings("state");
+
+  // Salesforce's redirect back here is a cross-site navigation by design.
+  // The state cookie set by /api/salesforce/connect, checked above, is what
+  // ties it to a login this browser started.
+  const session = await requireMailSession({ allowCrossSite: true });
+  if (!session) return settings("signin");
 
   const app = await loadApp(session.email);
   if (!app) return settings("no-app");
