@@ -22,6 +22,7 @@ import {
 } from "@/lib/mail/graph";
 import { makeGmailLabelStore } from "@/lib/mail/seer-labels";
 import { requireMailSession } from "@/lib/mail/session";
+import { refuseCrossSiteRequest } from "@/lib/security/request-origin";
 import type { MailFolder, MailMessageListItem } from "@/lib/mail/types";
 import { getSenderOverride } from "@/lib/store/senders";
 import { NextResponse, after } from "next/server";
@@ -37,6 +38,8 @@ const SCAN = Math.max(
 );
 
 export async function GET(request: Request) {
+  const refused = refuseCrossSiteRequest(request);
+  if (refused) return refused;
   try {
     const session = await requireMailSession();
     if (!session) {

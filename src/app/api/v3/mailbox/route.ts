@@ -1,5 +1,6 @@
 import { after, NextResponse } from "next/server";
 import { getActiveV2Account } from "@/lib/v2/session";
+import { refuseCrossSiteRequest } from "@/lib/security/request-origin";
 import { kickInboxCatchUp } from "@/lib/v2/sync/catch-up";
 import { parseMailboxLimit } from "@/lib/v3/mailbox/limit";
 import { getMailboxView } from "@/lib/v3/mailbox/repository";
@@ -17,6 +18,8 @@ export const dynamic = "force-dynamic";
  * after being away cannot leave last week's mail on screen.
  */
 export async function GET(request: Request) {
+  const refused = refuseCrossSiteRequest(request);
+  if (refused) return refused;
   const account = await getActiveV2Account();
   if (!account) {
     return NextResponse.json({ error: "no active v2 account" }, { status: 404 });

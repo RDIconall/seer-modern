@@ -23,6 +23,7 @@ import {
 } from "@/lib/mail/graph";
 import { makeGmailLabelStore } from "@/lib/mail/seer-labels";
 import { requireMailSession } from "@/lib/mail/session";
+import { refuseCrossSiteRequest } from "@/lib/security/request-origin";
 import { getSenderOverride } from "@/lib/store/senders";
 import type { RsvpStatus } from "@/lib/inbox/personal-context";
 import { NextResponse } from "next/server";
@@ -76,9 +77,11 @@ async function lookupGoogleEventByUid(
 }
 
 export async function GET(
-  _request: Request,
+  request: Request,
   context: { params: Promise<{ id: string }> },
 ) {
+  const refused = refuseCrossSiteRequest(request);
+  if (refused) return refused;
   const { id } = await context.params;
   try {
     const session = await requireMailSession();

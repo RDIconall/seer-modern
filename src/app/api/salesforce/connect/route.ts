@@ -1,4 +1,5 @@
 import { requireMailSession } from "@/lib/mail/session";
+import { refuseCrossSiteRequest } from "@/lib/security/request-origin";
 import { loadApp } from "@/lib/store/salesforce-auth";
 import { randomBytes, createHash } from "node:crypto";
 import { NextResponse } from "next/server";
@@ -10,6 +11,8 @@ import { NextResponse } from "next/server";
  * that comes back is worthless to anyone who intercepts it.
  */
 export async function GET(req: Request) {
+  const refused = refuseCrossSiteRequest(req);
+  if (refused) return refused;
   const session = await requireMailSession();
   if (!session) {
     return NextResponse.json({ error: "Not signed in" }, { status: 401 });

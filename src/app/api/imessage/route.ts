@@ -8,6 +8,7 @@ import {
 } from "@/lib/imessage/bluebubbles";
 import { loadPeople, savePeople } from "@/lib/store/people";
 import { requireMailSession } from "@/lib/mail/session";
+import { refuseCrossSiteRequest } from "@/lib/security/request-origin";
 import { NextResponse } from "next/server";
 
 export const maxDuration = 60;
@@ -18,7 +19,9 @@ export const maxDuration = 60;
  * "you text them 400 times a month" is the definition of inner.
  */
 
-export async function GET() {
+export async function GET(request: Request) {
+  const refused = refuseCrossSiteRequest(request);
+  if (refused) return refused;
   const session = await requireMailSession();
   if (!session) {
     return NextResponse.json({ error: "Not signed in" }, { status: 401 });

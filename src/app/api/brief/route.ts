@@ -16,6 +16,7 @@ import {
 import { getGraphInboxTotals, listGraphFolder } from "@/lib/mail/graph";
 import { makeGmailLabelStore } from "@/lib/mail/seer-labels";
 import { requireMailSession } from "@/lib/mail/session";
+import { refuseCrossSiteRequest } from "@/lib/security/request-origin";
 import { loadUnderstanding } from "@/lib/store/understanding-store";
 import { loadUserProfile } from "@/lib/store/user-profile";
 import { getSenderOverride } from "@/lib/store/senders";
@@ -61,7 +62,9 @@ export async function PATCH(req: Request) {
 }
 
 /** GET: the stored brief. POST: rebuild it (AI pass runs after response). */
-export async function GET() {
+export async function GET(request: Request) {
+  const refused = refuseCrossSiteRequest(request);
+  if (refused) return refused;
   const session = await requireMailSession();
   if (!session) {
     return NextResponse.json({ error: "Not signed in" }, { status: 401 });

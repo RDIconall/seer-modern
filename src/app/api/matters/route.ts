@@ -1,5 +1,6 @@
 import { loadBrief, saveBrief, type Matter } from "@/lib/inbox/matters";
 import { requireMailSession } from "@/lib/mail/session";
+import { refuseCrossSiteRequest } from "@/lib/security/request-origin";
 import { gmailThreadAction } from "@/lib/mail/gmail";
 import { graphThreadAction } from "@/lib/mail/graph";
 import {
@@ -26,7 +27,9 @@ import { NextResponse } from "next/server";
  * it. Applied to the stored brief immediately so Atlas reflects the change
  * without waiting for a rebuild, and persisted so rebuilds respect it.
  */
-export async function GET() {
+export async function GET(request: Request) {
+  const refused = refuseCrossSiteRequest(request);
+  if (refused) return refused;
   const session = await requireMailSession();
   if (!session) {
     return NextResponse.json({ error: "Not signed in" }, { status: 401 });

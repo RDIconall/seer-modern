@@ -11,6 +11,7 @@ import {
 import { listGraphFolder } from "@/lib/mail/graph";
 import { makeGmailLabelStore } from "@/lib/mail/seer-labels";
 import { requireMailSession } from "@/lib/mail/session";
+import { refuseCrossSiteRequest } from "@/lib/security/request-origin";
 import { markOpened, readLastOpen } from "@/lib/store/last-open";
 import { getSenderOverride } from "@/lib/store/senders";
 import { NextResponse } from "next/server";
@@ -28,7 +29,9 @@ const MIN_NEW = 3;
  * opened the app, already graded, distilled to one glance. Built from
  * the AI's own task lines — no extra model call, so it's instant.
  */
-export async function GET() {
+export async function GET(request: Request) {
+  const refused = refuseCrossSiteRequest(request);
+  if (refused) return refused;
   try {
     const session = await requireMailSession();
     if (!session) {

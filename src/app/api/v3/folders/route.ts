@@ -1,10 +1,13 @@
 import { NextResponse } from "next/server";
 import { getActiveV2Account } from "@/lib/v2/session";
+import { refuseCrossSiteRequest } from "@/lib/security/request-origin";
 import { providerFor } from "@/lib/v2/providers/provider";
 
 export const dynamic = "force-dynamic";
 
-export async function GET() {
+export async function GET(request: Request) {
+  const refused = refuseCrossSiteRequest(request);
+  if (refused) return refused;
   const account = await getActiveV2Account();
   if (!account) {
     return NextResponse.json({ error: "no active v2 account" }, { status: 404 });

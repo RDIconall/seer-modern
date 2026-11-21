@@ -30,6 +30,7 @@ import {
 import { getInboxSnapshot } from "@/lib/mail/inbox-snapshot";
 import { makeGmailLabelStore } from "@/lib/mail/seer-labels";
 import { requireMailSession } from "@/lib/mail/session";
+import { refuseCrossSiteRequest } from "@/lib/security/request-origin";
 import { getSenderOverride } from "@/lib/store/senders";
 import { NextResponse, after } from "next/server";
 
@@ -68,7 +69,9 @@ export type TodaySection = {
   items: TodayEmail[];
 };
 
-export async function GET() {
+export async function GET(request: Request) {
+  const refused = refuseCrossSiteRequest(request);
+  if (refused) return refused;
   const started = Date.now();
   try {
     const session = await requireMailSession();

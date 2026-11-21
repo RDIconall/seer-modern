@@ -8,6 +8,7 @@ import { getOrBuildMailHistory } from "@/lib/inbox/mail-history-store";
 import { listGmailFolder, listGmailInbox } from "@/lib/mail/gmail";
 import { listGraphFolder, listGraphInbox } from "@/lib/mail/graph";
 import { requireMailSession } from "@/lib/mail/session";
+import { refuseCrossSiteRequest } from "@/lib/security/request-origin";
 import { listSenderOverrides } from "@/lib/store/senders";
 import { NextResponse } from "next/server";
 
@@ -15,7 +16,9 @@ import { NextResponse } from "next/server";
  * Export snippet-level inbox samples + current predictions for offline tuning.
  * Does not include message bodies/HTML.
  */
-export async function GET() {
+export async function GET(request: Request) {
+  const refused = refuseCrossSiteRequest(request);
+  if (refused) return refused;
   try {
     const session = await requireMailSession();
     if (!session) {

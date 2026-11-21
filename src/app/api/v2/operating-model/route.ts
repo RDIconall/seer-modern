@@ -1,5 +1,6 @@
 import { NextResponse } from "next/server";
 import { getActiveV2Account } from "@/lib/v2/session";
+import { refuseCrossSiteRequest } from "@/lib/security/request-origin";
 import { providerFor } from "@/lib/v2/providers/provider";
 import { originAllowed } from "@/lib/security/origin";
 import {
@@ -19,7 +20,9 @@ function requestOriginAllowed(request: Request): boolean {
   });
 }
 
-export async function GET() {
+export async function GET(request: Request) {
+  const refused = refuseCrossSiteRequest(request);
+  if (refused) return refused;
   const account = await getActiveV2Account();
   if (!account) {
     return NextResponse.json({ error: "no active account" }, { status: 404 });

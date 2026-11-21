@@ -7,6 +7,7 @@ import { historySignals } from "@/lib/inbox/mail-history";
 import { listGmailFolder, listGmailInbox } from "@/lib/mail/gmail";
 import { listGraphFolder, listGraphInbox } from "@/lib/mail/graph";
 import { requireMailSession } from "@/lib/mail/session";
+import { refuseCrossSiteRequest } from "@/lib/security/request-origin";
 import { loadActionMemory } from "@/lib/store/action-memory";
 import { getSenderOverride } from "@/lib/store/senders";
 import { generateText, Output } from "ai";
@@ -41,7 +42,9 @@ For each sender decide:
 
 Do NOT suggest unsubscribing from real people. Receipts/security-only senders stay unless every email they send is also a phone push.`;
 
-export async function GET() {
+export async function GET(request: Request) {
+  const refused = refuseCrossSiteRequest(request);
+  if (refused) return refused;
   try {
     const session = await requireMailSession();
     if (!session) {

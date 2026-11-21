@@ -1,12 +1,15 @@
 import { loadBrief } from "@/lib/inbox/matters";
 import { buildExportRows, toCsv } from "@/lib/inbox/export";
 import { requireMailSession } from "@/lib/mail/session";
+import { refuseCrossSiteRequest } from "@/lib/security/request-origin";
 import { loadUnderstanding } from "@/lib/store/understanding-store";
 import { NextResponse } from "next/server";
 
 export const maxDuration = 30;
 
 export async function GET(request: Request) {
+  const refused = refuseCrossSiteRequest(request);
+  if (refused) return refused;
   const session = await requireMailSession();
   if (!session) {
     return NextResponse.json({ error: "Not signed in" }, { status: 401 });

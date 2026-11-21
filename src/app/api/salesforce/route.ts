@@ -1,5 +1,6 @@
 import { syncSalesforce } from "@/lib/crm/salesforce-sync";
 import { requireMailSession } from "@/lib/mail/session";
+import { refuseCrossSiteRequest } from "@/lib/security/request-origin";
 import {
   loadSalesforce,
   parseSalesforceReport,
@@ -26,7 +27,9 @@ export const maxDuration = 120;
  * POST { action: "sync" }   → pull live from the Salesforce API
  * POST { report: "<csv>" }  → fall back to a pasted report
  */
-export async function GET() {
+export async function GET(request: Request) {
+  const refused = refuseCrossSiteRequest(request);
+  if (refused) return refused;
   const session = await requireMailSession();
   if (!session) {
     return NextResponse.json({ error: "Not signed in" }, { status: 401 });
