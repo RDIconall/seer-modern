@@ -1,3 +1,9 @@
+import {
+  CONVERSATION_FETCH_BATCH,
+  CONVERSATION_MESSAGE_LIMIT,
+  capMessageDetail,
+  mapInBatches,
+} from "@/lib/mail/conversation-budget";
 import type {
   MailFolder,
   MailMessageDetail,
@@ -403,10 +409,10 @@ export async function getGmailThreadMessages(
     accessToken,
     `/users/me/threads/${threadId}?format=minimal`,
   )) as { messages?: { id: string }[] };
-  const messages = await Promise.all(
-    (thread.messages ?? []).map((message) =>
-      getGmailMessage(accessToken, message.id),
-    ),
+  // Gmail lists a thread oldest-first; keep the newest turns.
+  const ids = (thread.messages ?? []).slice(-CONVERSATION_MESSAGE_LIMIT);
+  const messages = await mapInBatches(ids, CONVERSATION_FETCH_BATCH, async (m) =>
+    capMessageDetail(await getGmailMessage(accessToken, m.id)),
   );
   return messages.sort((a, b) => a.receivedAt.localeCompare(b.receivedAt));
 }

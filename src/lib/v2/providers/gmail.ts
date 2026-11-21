@@ -26,6 +26,13 @@ import type {
   SyncFolder,
   SyncPage,
 } from "./types";
+import {
+  CONVERSATION_FETCH_BATCH,
+  CONVERSATION_MESSAGE_LIMIT,
+  capHtml,
+  capText,
+  mapInBatches,
+} from "@/lib/mail/conversation-budget";
 import { compileGmailSearch, parseMailSearch } from "@/lib/v3/search/parser";
 import { assertSyncBudget } from "./types";
 
@@ -120,12 +127,18 @@ function toMessage(m: GmailMessage, selfEmail: string): Message {
       ? new Date(Number(m.internalDate)).toISOString()
       : new Date().toISOString(),
     snippet: m.snippet ?? "",
-    bodyHtml: bodies.html ?? null,
-    bodyText: bodies.text ?? null,
+    bodyHtml: capHtml(bodies.html ?? null),
+    bodyText: capText(bodies.text ?? null),
     isUnread: (m.labelIds ?? []).includes("UNREAD"),
     isOutgoing: from.email === selfEmail.toLowerCase(),
     attachments: bodies.attachments,
   };
+}
+
+/** Oldest first. Gmail already lists a thread that way; internalDate settles it when present. */
+function chronological(refs: GmailMessage[]): GmailMessage[] {
+  if (!refs.every((m) => m.internalDate)) return refs;
+  return [...refs].sort((a, b) => Number(a.internalDate) - Number(b.internalDate));
 }
 
 export class GmailProvider implements MailProvider {
@@ -163,18 +176,67 @@ export class GmailProvider implements MailProvider {
     )) as T;
   }
 
-  private async thread(id: string, context?: SyncContext): Promise<Conversation> {
-    assertSyncBudget(context);
-    const t = await this.get<GmailThread>(`/threads/${id}?format=full`, context);
-    const messages = (t.messages ?? [])
-      .map((m) => toMessage(m, this.deps.accountEmail))
-      .sort((a, b) => a.sentAt.localeCompare(b.sentAt));
+  /** Message ids, labels and dates only — no headers or bodies. */
+  private threadRefs(id: string, context?: SyncContext): Promise<GmailThread> {
+    return this.get<GmailThread>(`/threads/${id}?format=minimal`, context);
+  }
+
+  private headersOnly(messageId: string, context?: SyncContext): Promise<GmailMessage> {
+    return this.get<GmailMessage>(
+      `/messages/${messageId}?format=metadata&metadataHeaders=From&metadataHeaders=To&metadataHeaders=Cc&metadataHeaders=Subject`,
+      context,
+    );
+  }
+
+  private toConversation(id: string, subject: string, unsorted: Message[]): Conversation {
+    const messages = [...unsorted].sort((a, b) => a.sentAt.localeCompare(b.sentAt));
     return {
       providerConversationId: id,
-      subject: header(t.messages?.[0]?.payload?.headers, "subject"),
+      subject,
       messages,
       lastMessageAt: messages[messages.length - 1]?.sentAt ?? "",
     };
+  }
+
+  /** The newest messages of a thread, bodies fetched a few at a time and capped. */
+  private async thread(id: string, context?: SyncContext): Promise<Conversation> {
+    assertSyncBudget(context);
+    const refs = chronological((await this.threadRefs(id, context)).messages ?? []);
+    const loaded = await mapInBatches(
+      refs.slice(-CONVERSATION_MESSAGE_LIMIT),
+      CONVERSATION_FETCH_BATCH,
+      async (ref) => {
+        const m = await this.get<GmailMessage>(`/messages/${ref.id}?format=full`, context);
+        return {
+          subject: header(m.payload?.headers, "subject"),
+          message: toMessage(m, this.deps.accountEmail),
+        };
+      },
+    );
+    const oldestLoaded = loaded[0]?.subject ?? "";
+    // Older turns were not loaded, so the oldest loaded one is usually a reply.
+    const subject =
+      refs.length > CONVERSATION_MESSAGE_LIMIT
+        ? oldestLoaded.replace(/^(\s*(re|fwd?)\s*:\s*)+/i, "")
+        : oldestLoaded;
+    return this.toConversation(
+      id,
+      subject,
+      loaded.map((item) => item.message),
+    );
+  }
+
+  /** Headers of every message in a thread, no bodies. */
+  private async threadSummary(id: string): Promise<Conversation> {
+    const t = await this.get<GmailThread>(
+      `/threads/${id}?format=metadata&metadataHeaders=From&metadataHeaders=To&metadataHeaders=Cc&metadataHeaders=Subject`,
+    );
+    const raw = t.messages ?? [];
+    return this.toConversation(
+      id,
+      header(raw[0]?.payload?.headers, "subject"),
+      raw.map((m) => toMessage(m, this.deps.accountEmail)),
+    );
   }
 
   private folderQuery(folder: SyncFolder): string {
@@ -232,9 +294,10 @@ export class GmailProvider implements MailProvider {
       `/threads?q=${encodeURIComponent(providerQuery)}&maxResults=${this.pageSize}` +
         (cursor ? `&pageToken=${encodeURIComponent(cursor)}` : ""),
     );
-    const conversations = await Promise.all(
-      (list.threads ?? []).map((t) => this.thread(t.id)),
-    );
+    const conversations: Conversation[] = [];
+    for (const t of list.threads ?? []) {
+      conversations.push(await this.threadSummary(t.id));
+    }
     return { conversations, nextCursor: list.nextPageToken ?? null };
   }
 
@@ -307,8 +370,14 @@ export class GmailProvider implements MailProvider {
 
   async reply(command: ReplyCommand, _key: string): Promise<SendReceipt> {
     void _key;
-    const convo = await this.thread(command.conversationId);
-    const last = convo.messages[convo.messages.length - 1];
+    const refs = chronological((await this.threadRefs(command.conversationId)).messages ?? []);
+    const firstRef = refs[0];
+    const lastRef = refs[refs.length - 1];
+    const firstRaw = firstRef ? await this.headersOnly(firstRef.id) : undefined;
+    const lastRaw =
+      lastRef && lastRef !== firstRef ? await this.headersOnly(lastRef.id) : firstRaw;
+    const last = lastRaw ? toMessage(lastRaw, this.deps.accountEmail) : undefined;
+    const subject = header(firstRaw?.payload?.headers, "subject");
     const recipients = new Set<string>();
     if (last?.from.email) recipients.add(last.from.email);
     if (command.all) {
@@ -319,7 +388,7 @@ export class GmailProvider implements MailProvider {
     const raw = this.encodeRaw(
       [
         `To: ${[...recipients].join(", ")}`,
-        `Subject: Re: ${convo.subject}`,
+        `Subject: Re: ${subject}`,
       ],
       command.bodyHtml,
     );
@@ -416,7 +485,7 @@ export class GmailProvider implements MailProvider {
     void _key;
     let raw: GmailThread;
     try {
-      raw = await this.get<GmailThread>(`/threads/${id}?format=full`);
+      raw = await this.threadRefs(id);
     } catch (err) {
       conversationFetchNotFound(err, "gmail", id);
     }

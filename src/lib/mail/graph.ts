@@ -1,3 +1,9 @@
+import {
+  CONVERSATION_FETCH_BATCH,
+  CONVERSATION_MESSAGE_LIMIT,
+  capMessageDetail,
+  mapInBatches,
+} from "@/lib/mail/conversation-budget";
 import type {
   MailFolder,
   MailMessageDetail,
@@ -263,14 +269,17 @@ export async function getGraphConversationMessages(
   conversationId: string,
 ): Promise<MailMessageDetail[]> {
   const safeId = conversationId.replaceAll("'", "''");
+  // Graph rejects $orderby unless the ordered property leads the $filter.
+  const filter = encodeURIComponent(
+    `receivedDateTime ge 1900-01-01T00:00:00Z and conversationId eq '${safeId}'`,
+  );
   const page = (await graphFetch(
     accessToken,
-    `/me/messages?$filter=conversationId eq '${safeId}'&$select=id&$top=100`,
+    `/me/messages?$filter=${filter}&$orderby=receivedDateTime%20desc&$select=id&$top=${CONVERSATION_MESSAGE_LIMIT}`,
   )) as { value?: { id: string }[] };
-  const messages = await Promise.all(
-    (page.value ?? []).map((message) =>
-      getGraphMessage(accessToken, message.id),
-    ),
+  const ids = (page.value ?? []).slice(0, CONVERSATION_MESSAGE_LIMIT);
+  const messages = await mapInBatches(ids, CONVERSATION_FETCH_BATCH, async (m) =>
+    capMessageDetail(await getGraphMessage(accessToken, m.id)),
   );
   return messages.sort((a, b) => a.receivedAt.localeCompare(b.receivedAt));
 }
