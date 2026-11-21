@@ -5,6 +5,14 @@ import type {
   SendMailInput,
 } from "@/lib/mail/types";
 import { compileOutlookSearch, parseMailSearch } from "@/lib/v3/search/parser";
+import {
+  BODY_FETCH_CONCURRENCY,
+  CONVERSATION_PAGE_SIZE,
+  GRAPH_BODY_LIMITS,
+  mapInBatches,
+  readCappedJson,
+  type JsonReadLimits,
+} from "@/lib/mail/body-budget";
 
 /**
  * Graph throttles bursts with 429 + Retry-After. One throttled call
@@ -34,6 +42,7 @@ async function graphFetch(
   accessToken: string,
   path: string,
   init?: RequestInit,
+  limits?: JsonReadLimits,
 ) {
   const res = await graphRawFetch(`https://graph.microsoft.com/v1.0${path}`, {
     ...init,
@@ -57,6 +66,14 @@ async function graphFetch(
   // res.json() on that throws "Unexpected end of JSON input", which the send
   // route then reported as a failure — for mail Microsoft had already
   // accepted. Success with an empty body is success.
+  if (limits) {
+    try {
+      return await readCappedJson(res, limits);
+    } catch (error) {
+      if (error instanceof SyntaxError) return null;
+      throw error;
+    }
+  }
   const text = await res.text();
   if (!text) return null;
   try {
@@ -211,15 +228,45 @@ function recipientsToString(
     .join(", ");
 }
 
+const DETAIL_SELECT =
+  "id,conversationId,subject,bodyPreview,receivedDateTime,isRead,from,toRecipients,ccRecipients,internetMessageId,hasAttachments";
+
+type GraphDetailMeta = GraphMessage & { hasAttachments?: boolean };
+
+/**
+ * The body alone, read through the body budget. Graph serializes `body` ahead
+ * of the sender and recipients, so those come from a separate metadata read
+ * rather than from a response that may be cut short.
+ */
+async function getGraphMessageBody(
+  accessToken: string,
+  id: string,
+): Promise<GraphMessage["body"]> {
+  const r = (await graphFetch(
+    accessToken,
+    `/me/messages/${id}?$select=body`,
+    undefined,
+    GRAPH_BODY_LIMITS,
+  )) as { body?: GraphMessage["body"] } | null;
+  return r?.body;
+}
+
 export async function getGraphMessage(
   accessToken: string,
   id: string,
 ): Promise<MailMessageDetail> {
-  const m = (await graphFetch(
-    accessToken,
-    `/me/messages/${id}?$select=id,conversationId,subject,body,bodyPreview,receivedDateTime,isRead,from,toRecipients,ccRecipients,internetMessageId,hasAttachments`,
-  )) as GraphMessage & { hasAttachments?: boolean };
+  const [meta, body] = await Promise.all([
+    graphFetch(accessToken, `/me/messages/${id}?$select=${DETAIL_SELECT}`),
+    getGraphMessageBody(accessToken, id),
+  ]);
+  return toGraphDetail(accessToken, { ...(meta as GraphDetailMeta), body });
+}
 
+async function toGraphDetail(
+  accessToken: string,
+  m: GraphDetailMeta,
+): Promise<MailMessageDetail> {
+  const id = m.id;
   let attachments: MailMessageDetail["attachments"];
   if (m.hasAttachments) {
     const list = (await graphFetch(
@@ -258,19 +305,29 @@ export async function getGraphMessage(
   };
 }
 
+/**
+ * The newest messages of a conversation, oldest-first. Graph only sorts a
+ * filtered message list when the sort property also leads the filter, hence
+ * the always-true receivedDateTime clause.
+ */
 export async function getGraphConversationMessages(
   accessToken: string,
   conversationId: string,
 ): Promise<MailMessageDetail[]> {
   const safeId = conversationId.replaceAll("'", "''");
+  const filter = encodeURIComponent(
+    `receivedDateTime ge 1900-01-01T00:00:00Z and conversationId eq '${safeId}'`,
+  );
   const page = (await graphFetch(
     accessToken,
-    `/me/messages?$filter=conversationId eq '${safeId}'&$select=id&$top=100`,
-  )) as { value?: { id: string }[] };
-  const messages = await Promise.all(
-    (page.value ?? []).map((message) =>
-      getGraphMessage(accessToken, message.id),
-    ),
+    `/me/messages?$filter=${filter}&$orderby=${encodeURIComponent("receivedDateTime desc")}&$select=${DETAIL_SELECT}&$top=${CONVERSATION_PAGE_SIZE}`,
+  )) as { value?: GraphDetailMeta[] };
+  const metas = (page?.value ?? []).slice(0, CONVERSATION_PAGE_SIZE);
+  const messages = await mapInBatches(metas, BODY_FETCH_CONCURRENCY, async (meta) =>
+    toGraphDetail(accessToken, {
+      ...meta,
+      body: await getGraphMessageBody(accessToken, meta.id),
+    }),
   );
   return messages.sort((a, b) => a.receivedAt.localeCompare(b.receivedAt));
 }

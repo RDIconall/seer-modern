@@ -27,13 +27,21 @@ import type {
   SyncPage,
 } from "./types";
 import { compileGmailSearch, parseMailSearch } from "@/lib/v3/search/parser";
+import {
+  BODY_FETCH_CONCURRENCY,
+  CONVERSATION_PAGE_SIZE,
+  GMAIL_BODY_LIMITS,
+  mapInBatches,
+} from "@/lib/mail/body-budget";
 import { assertSyncBudget } from "./types";
 
 /**
  * Gmail adapter. Translates Gmail REST v1 payloads into the neutral model and
  * satisfies the shared provider contract. Conversation mutations enumerate the
  * thread's messages and act per message, so a single message failure is
- * reported rather than hiding behind an atomic thread call.
+ * reported rather than hiding behind an atomic thread call. Conversation reads
+ * keep the newest messages and fetch each one separately through the body
+ * budget.
  */
 
 const API = "https://gmail.googleapis.com/gmail/v1/users/me";
@@ -142,12 +150,21 @@ export class GmailProvider implements MailProvider {
     return { authorization: `Bearer ${this.deps.accessToken}` };
   }
 
-  private async get<T>(path: string, context?: SyncContext): Promise<T> {
+  private async get<T>(
+    path: string,
+    context?: SyncContext,
+    bodyLimits?: ProviderHttpOptions["bodyLimits"],
+  ): Promise<T> {
     assertSyncBudget(context);
     return (await providerFetch(
       `${API}${path}`,
       { headers: this.auth() },
-      { ...this.http, deadlineMs: context?.deadlineMs, signal: context?.signal },
+      {
+        ...this.http,
+        deadlineMs: context?.deadlineMs,
+        signal: context?.signal,
+        bodyLimits,
+      },
     )) as T;
   }
 
@@ -163,15 +180,51 @@ export class GmailProvider implements MailProvider {
     )) as T;
   }
 
-  private async thread(id: string, context?: SyncContext): Promise<Conversation> {
+  /**
+   * The newest `limit` messages of a thread. `format=minimal` lists every
+   * message (oldest-first) without content; each kept message is then read on
+   * its own, with bodies through the body budget or as headers only.
+   */
+  private async thread(
+    id: string,
+    context?: SyncContext,
+    opts: { limit?: number; bodies?: boolean } = {},
+  ): Promise<Conversation> {
     assertSyncBudget(context);
-    const t = await this.get<GmailThread>(`/threads/${id}?format=full`, context);
-    const messages = (t.messages ?? [])
+    const limit = opts.limit ?? CONVERSATION_PAGE_SIZE;
+    const bodies = opts.bodies ?? true;
+    const t = await this.get<GmailThread>(`/threads/${id}?format=minimal`, context);
+    const refs = t.messages ?? [];
+    const kept = refs.slice(-limit);
+    const full = await mapInBatches(kept, BODY_FETCH_CONCURRENCY, async (ref) => {
+      const m = bodies
+        ? await this.get<GmailMessage>(
+            `/messages/${ref.id}?format=full`,
+            context,
+            GMAIL_BODY_LIMITS,
+          )
+        : await this.get<GmailMessage>(`/messages/${ref.id}?format=metadata`, context);
+      // Gmail serializes internalDate after the payload, so a body cut short
+      // by the budget loses it; the minimal listing already carries it.
+      return {
+        ...m,
+        internalDate: m.internalDate ?? ref.internalDate,
+        labelIds: m.labelIds ?? ref.labelIds,
+      };
+    });
+    const messages = full
       .map((m) => toMessage(m, this.deps.accountEmail))
       .sort((a, b) => a.sentAt.localeCompare(b.sentAt));
+    const oldest =
+      refs.length > kept.length && refs[0]
+        ? await this.get<GmailMessage>(
+            `/messages/${refs[0].id}?format=metadata&metadataHeaders=Subject`,
+            context,
+          )
+        : full[0];
     return {
       providerConversationId: id,
-      subject: header(t.messages?.[0]?.payload?.headers, "subject"),
+      subject: header(oldest?.payload?.headers, "subject"),
       messages,
       lastMessageAt: messages[messages.length - 1]?.sentAt ?? "",
     };
@@ -232,8 +285,11 @@ export class GmailProvider implements MailProvider {
       `/threads?q=${encodeURIComponent(providerQuery)}&maxResults=${this.pageSize}` +
         (cursor ? `&pageToken=${encodeURIComponent(cursor)}` : ""),
     );
-    const conversations = await Promise.all(
-      (list.threads ?? []).map((t) => this.thread(t.id)),
+    // A search row shows each conversation by its latest message.
+    const conversations = await mapInBatches(
+      list.threads ?? [],
+      BODY_FETCH_CONCURRENCY,
+      (t) => this.thread(t.id, undefined, { limit: 1 }),
     );
     return { conversations, nextCursor: list.nextPageToken ?? null };
   }
@@ -307,7 +363,10 @@ export class GmailProvider implements MailProvider {
 
   async reply(command: ReplyCommand, _key: string): Promise<SendReceipt> {
     void _key;
-    const convo = await this.thread(command.conversationId);
+    const convo = await this.thread(command.conversationId, undefined, {
+      limit: 1,
+      bodies: false,
+    });
     const last = convo.messages[convo.messages.length - 1];
     const recipients = new Set<string>();
     if (last?.from.email) recipients.add(last.from.email);
@@ -416,7 +475,7 @@ export class GmailProvider implements MailProvider {
     void _key;
     let raw: GmailThread;
     try {
-      raw = await this.get<GmailThread>(`/threads/${id}?format=full`);
+      raw = await this.get<GmailThread>(`/threads/${id}?format=minimal`);
     } catch (err) {
       conversationFetchNotFound(err, "gmail", id);
     }

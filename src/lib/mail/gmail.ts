@@ -5,6 +5,14 @@ import type {
   SendMailInput,
 } from "@/lib/mail/types";
 import { compileGmailSearch, parseMailSearch } from "@/lib/v3/search/parser";
+import {
+  BODY_FETCH_CONCURRENCY,
+  CONVERSATION_PAGE_SIZE,
+  GMAIL_BODY_LIMITS,
+  mapInBatches,
+  readCappedJson,
+  type JsonReadLimits,
+} from "@/lib/mail/body-budget";
 
 export type {
   MailFolder,
@@ -93,6 +101,7 @@ async function gmailFetch(
   accessToken: string,
   path: string,
   init?: RequestInit,
+  limits?: JsonReadLimits,
 ) {
   // Inbox loads fire ~100 calls in a burst — Gmail will occasionally
   // 429/5xx one of them. Transient failures retry with backoff instead
@@ -112,6 +121,14 @@ async function gmailFetch(
       cache: "no-store",
     });
     if (res.ok) {
+      if (limits) {
+        try {
+          return await readCappedJson(res, limits);
+        } catch (error) {
+          if (error instanceof SyntaxError) return null;
+          throw error;
+        }
+      }
       // An empty 2xx body is a success, not a parse error.
       const text = await res.text();
       if (!text) return null;
@@ -358,21 +375,34 @@ export async function getGmailMessage(
   const msg = (await gmailFetch(
     accessToken,
     `/users/me/messages/${id}?format=full`,
+    undefined,
+    GMAIL_BODY_LIMITS,
   )) as {
     id: string;
     threadId: string;
     snippet?: string;
     internalDate?: string;
     labelIds?: string[];
-    payload: GmailPayload;
+    payload?: GmailPayload;
   };
-  const headers = msg.payload.headers ?? [];
+  // Gmail serializes internalDate after the payload, so a body cut short by
+  // the budget loses it; the minimal format carries it without any body.
+  if (!msg.internalDate) {
+    const minimal = (await gmailFetch(
+      accessToken,
+      `/users/me/messages/${id}?format=minimal`,
+    ).catch(() => null)) as { internalDate?: string; labelIds?: string[] } | null;
+    msg.internalDate = minimal?.internalDate;
+    msg.labelIds ??= minimal?.labelIds;
+  }
+  const payload = msg.payload ?? {};
+  const headers = payload.headers ?? [];
   const header = (name: string) =>
     headers.find((h) => h.name.toLowerCase() === name.toLowerCase())?.value ??
     "";
   const fromRaw = header("From");
   const { name, email } = parseAddress(fromRaw);
-  const { text, html, icalUid, attachments } = extractBodies(msg.payload);
+  const { text, html, icalUid, attachments } = extractBodies(payload);
   return {
     icalUid,
     attachments,
@@ -395,6 +425,7 @@ export async function getGmailMessage(
   };
 }
 
+/** The newest messages of a thread, oldest-first. */
 export async function getGmailThreadMessages(
   accessToken: string,
   threadId: string,
@@ -403,10 +434,10 @@ export async function getGmailThreadMessages(
     accessToken,
     `/users/me/threads/${threadId}?format=minimal`,
   )) as { messages?: { id: string }[] };
-  const messages = await Promise.all(
-    (thread.messages ?? []).map((message) =>
-      getGmailMessage(accessToken, message.id),
-    ),
+  // Gmail lists a thread's messages oldest-first.
+  const newest = (thread.messages ?? []).slice(-CONVERSATION_PAGE_SIZE);
+  const messages = await mapInBatches(newest, BODY_FETCH_CONCURRENCY, (message) =>
+    getGmailMessage(accessToken, message.id),
   );
   return messages.sort((a, b) => a.receivedAt.localeCompare(b.receivedAt));
 }

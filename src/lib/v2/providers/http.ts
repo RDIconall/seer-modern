@@ -6,6 +6,7 @@
  */
 
 import { SyncDeadlineError } from "./types";
+import { readCappedJson, type JsonReadLimits } from "@/lib/mail/body-budget";
 
 export class ProviderHttpError extends Error {
   constructor(
@@ -29,6 +30,8 @@ export type ProviderHttpOptions = {
   /** Optional sync-slice deadline and cancellation signal. */
   deadlineMs?: number;
   signal?: AbortSignal;
+  /** Read a successful body through these limits instead of in full. */
+  bodyLimits?: JsonReadLimits;
 };
 
 const RETRYABLE = new Set([429, 500, 502, 503, 504]);
@@ -77,8 +80,22 @@ export async function providerFetch(
         throw new SyncDeadlineError();
       }
 
-      const text = await responseText(
-        res,
+      if (res.ok && opts.bodyLimits) {
+        const limits = opts.bodyLimits;
+        const capped = await readWithin(
+          () => readCappedJson(res, limits),
+          controller.signal,
+          callerSignal,
+          opts.deadlineMs,
+        );
+        if (opts.deadlineMs !== undefined && Date.now() >= opts.deadlineMs) {
+          throw new SyncDeadlineError();
+        }
+        return capped;
+      }
+
+      const text = await readWithin(
+        () => res.text(),
         controller.signal,
         callerSignal,
         opts.deadlineMs,
@@ -171,18 +188,18 @@ async function abortableSleep(
   }
 }
 
-async function responseText(
-  res: Response,
+async function readWithin<T>(
+  read: () => Promise<T>,
   signal: AbortSignal,
   callerSignal: AbortSignal | undefined,
   deadlineMs: number | undefined,
-): Promise<string> {
+): Promise<T> {
   if (signal.aborted) {
     if (callerSignal?.aborted || (deadlineMs !== undefined && Date.now() >= deadlineMs)) {
       throw new SyncDeadlineError();
     }
   }
-  return new Promise<string>((resolve, reject) => {
+  return new Promise<T>((resolve, reject) => {
     const onAbort = () => {
       signal.removeEventListener("abort", onAbort);
       if (callerSignal?.aborted || (deadlineMs !== undefined && Date.now() >= deadlineMs)) {
@@ -192,10 +209,10 @@ async function responseText(
       }
     };
     signal.addEventListener("abort", onAbort, { once: true });
-    res.text().then(
-      (text) => {
+    read().then(
+      (value) => {
         signal.removeEventListener("abort", onAbort);
-        resolve(text);
+        resolve(value);
       },
       (error) => {
         signal.removeEventListener("abort", onAbort);

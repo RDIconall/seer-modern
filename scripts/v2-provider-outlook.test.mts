@@ -110,6 +110,15 @@ const mockFetch = (async (url: string, init?: RequestInit) => {
     return json({ value: CONVOS[conv[1]] ?? [] });
   }
 
+  // One message body (conversation reads fetch bodies per message).
+  const bodyGet = u.match(/\/messages\/([^/?]+)\?\$select=body$/);
+  if (method === "GET" && bodyGet) {
+    const found = Object.values(CONVOS)
+      .flat()
+      .find((m) => m.id === bodyGet[1]);
+    if (found) return json({ id: found.id, body: found.body });
+  }
+
   // Search.
   if (method === "GET" && u.includes("/messages?$search")) {
     return json({ value: CONVOS.c2 });

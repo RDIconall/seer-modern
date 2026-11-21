@@ -397,7 +397,7 @@ try {
   const gmailFetch404 = (async (url: string, init?: RequestInit) => {
     const u = String(url);
     const method = init?.method ?? "GET";
-    const threadGet = u.match(/\/threads\/([^?]+)\?format=full/);
+    const threadGet = u.match(/\/threads\/([^?]+)\?format=(?:full|minimal)/);
     if (method === "GET" && threadGet) {
       return new Response("not found", { status: 404 });
     }

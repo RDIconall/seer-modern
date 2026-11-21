@@ -112,14 +112,36 @@ const mockFetch = (async (url: string, init?: RequestInit) => {
     return json({ threads: [{ id: "c2" }], resultSizeEstimate: 3 });
   }
 
-  const threadGet = u.match(/\/threads\/([^?]+)\?format=full/);
+  const threadGet = u.match(/\/threads\/([^?]+)\?format=(full|minimal)/);
   if (method === "GET" && threadGet) {
     const threadId = decodeURIComponent(threadGet[1]);
     if (threadId === "missing-thread") {
       return new Response("not found", { status: 404 });
     }
     const t = THREADS[threadId];
+    if (threadGet[2] === "minimal") {
+      return json({
+        id: t.id,
+        messages: t.messages.map(({ id, threadId, labelIds, internalDate }) => ({
+          id,
+          threadId,
+          labelIds,
+          internalDate,
+        })),
+      });
+    }
     return json({ id: t.id, messages: t.messages });
+  }
+
+  const messageGet = u.match(/\/messages\/([^/?]+)\?format=(full|metadata)/);
+  if (method === "GET" && messageGet) {
+    const found = Object.values(THREADS)
+      .flatMap((t) => t.messages)
+      .find((m) => m.id === messageGet[1]);
+    if (found) {
+      if (messageGet[2] === "full") return json(found);
+      return json({ ...found, payload: { headers: found.payload.headers } });
+    }
   }
 
   if (method === "POST" && u.endsWith("/messages/send")) {
