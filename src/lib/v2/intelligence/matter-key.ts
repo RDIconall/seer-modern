@@ -11,6 +11,8 @@
  * similarity alone never merges.
  */
 
+import { packetText } from "./packet-field";
+
 /**
  * Project, study, and sourcing-event codes used across this corpus:
  * RD007704, RCD_2818, BIM_2747, LMD_2801, TGRP32, EUR2875, TZC0430556,
@@ -131,16 +133,18 @@ export function matterNameFrom(
   own?: Set<string>,
 ): string {
   const clean = (s: string) =>
-    s
-      .replace(/^(?:re|fw|fwd|inform|action|reminder|notification|automatic reply)\s*:\s*/gi, "")
-      .replace(/\s+/g, " ")
-      .trim();
+    packetText(s, 500).replace(
+      /^(?:re|fw|fwd|inform|action|reminder|notification|automatic reply)\s*:\s*/gi,
+      "",
+    ).trim();
 
   // A proposal is only a name if it names WORK. "RDI engagement / Conall
   // call" survives every format check and identifies nothing — the user and a
   // conversation are present in every matter on the desk. Reject it and let
   // the code/subject path produce something that actually distinguishes.
-  const fromModel = proposed?.trim();
+  // Titles are later echoed into the reader's context packet, so they carry
+  // no line breaks or authority markers from the mail they were named from.
+  const fromModel = packetText(proposed, 500);
   if (
     fromModel &&
     !/^(?:re|fw|fwd|inform|action)\s*:/i.test(fromModel) &&
@@ -151,7 +155,10 @@ export function matterNameFrom(
   }
 
   const codes = extractCodes(text);
-  const company = counterparty && counterparty !== "internal" ? titleCase(counterparty) : "";
+  const company =
+    counterparty && counterparty !== "internal"
+      ? titleCase(packetText(counterparty, 60))
+      : "";
   if (codes.length > 0) {
     return [company, codes[0]].filter(Boolean).join(" ").slice(0, 120);
   }
