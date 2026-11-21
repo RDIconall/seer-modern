@@ -60,6 +60,7 @@ export function commandForVerdict(
     type: "triageConversation",
     conversationId: row.conversationId,
     destination: verdict,
+    ...shownMessage(row),
   };
 }
 
@@ -73,7 +74,16 @@ export function commandForRelevance(
     conversationId: row.conversationId,
     relevant,
     reason: relevant ? null : (reason ?? "never_was"),
+    ...shownMessage(row),
   };
+}
+
+/**
+ * The message on the card is the only sender the user saw. The server learns
+ * a placement for it only while it is still the newest message on the thread.
+ */
+export function shownMessage(row: MailboxRow): { messageId?: string } {
+  return row.latestMessageId ? { messageId: row.latestMessageId } : {};
 }
 
 export function decide(state: DeckState, verdict: DeckVerdict): DeckState {

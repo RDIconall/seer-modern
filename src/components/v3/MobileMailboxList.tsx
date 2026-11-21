@@ -8,6 +8,7 @@ import type { MailboxRow, MailboxView } from "@/lib/v3/mailbox/types";
 import { triagePiles } from "@/lib/v3/mailbox/triage-verb";
 import { groupState } from "@/components/v2/triage-select";
 import { MobileMailRow } from "./MobileMailRow";
+import { shownMessage } from "./triage-deck";
 import {
   EMPTY_SELECTION,
   reduceSelection,
@@ -48,6 +49,7 @@ const matterCommand = (
   type: "triageConversation",
   conversationId: row.conversationId,
   destination: "matter",
+  ...shownMessage(row),
   ...options,
 });
 
@@ -55,12 +57,14 @@ const triageArchiveCommand = (row: MailboxRow): Command => ({
   type: "triageConversation",
   conversationId: row.conversationId,
   destination: "archive",
+  ...shownMessage(row),
 });
 
 const triageDeleteCommand = (row: MailboxRow): Command => ({
   type: "triageConversation",
   conversationId: row.conversationId,
   destination: "delete",
+  ...shownMessage(row),
 });
 
 const archiveCommand = (row: MailboxRow): Command => ({
