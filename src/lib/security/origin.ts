@@ -20,3 +20,29 @@ export function originAllowed(input: {
     return false;
   }
 }
+
+/**
+ * Strict same-origin test for a cookie-authenticated GET that does expensive
+ * or state-replacing work. A cross-site top-level navigation carries the
+ * SameSite=Lax session cookie but no Origin header, so a missing Origin is
+ * never enough on its own: the request must either name the app as its
+ * Origin or carry the browser-set `Sec-Fetch-Site: same-origin`. Any other
+ * Fetch Metadata value (cross-site, same-site, none) is refused.
+ */
+export function strictSameOrigin(input: {
+  origin: string | null;
+  secFetchSite: string | null;
+  requestOrigin: string;
+  allowedOrigin?: string;
+}): boolean {
+  if (input.secFetchSite !== null && input.secFetchSite !== "same-origin") {
+    return false;
+  }
+  if (input.origin === null) return input.secFetchSite === "same-origin";
+  return originAllowed({
+    origin: input.origin,
+    requestOrigin: input.requestOrigin,
+    allowedOrigin: input.allowedOrigin,
+    production: true,
+  });
+}

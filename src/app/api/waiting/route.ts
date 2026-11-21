@@ -2,6 +2,7 @@ import { MACHINE_LOCALPART } from "@/lib/store/people";
 import { listGmailFolder } from "@/lib/mail/gmail";
 import { requireMailSession } from "@/lib/mail/session";
 import { accountKey, kvGet, kvSet } from "@/lib/store/kv";
+import { strictSameOrigin } from "@/lib/security/origin";
 import { NextResponse } from "next/server";
 
 export const maxDuration = 30;
@@ -42,7 +43,17 @@ export async function GET(request: Request) {
       return NextResponse.json({ items: [] });
     }
 
-    const fresh = new URL(request.url).searchParams.get("fresh") === "1";
+    // A rescan spends the mailbox token and replaces the cache, so only the
+    // app itself may skip the cache; cross-site requests get the cached queue.
+    const url = new URL(request.url);
+    const fresh =
+      url.searchParams.get("fresh") === "1" &&
+      strictSameOrigin({
+        origin: request.headers.get("origin"),
+        secFetchSite: request.headers.get("sec-fetch-site"),
+        requestOrigin: url.origin,
+        allowedOrigin: process.env.SEER_ALLOWED_ORIGIN,
+      });
     if (!fresh) {
       const cached = await kvGet<CacheFile>(cacheKey(session.email));
       if (
