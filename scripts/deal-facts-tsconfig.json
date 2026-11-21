@@ -1,0 +1,10 @@
+{
+  "extends": "../tsconfig.json",
+  "compilerOptions": {
+    "baseUrl": "..",
+    "paths": {
+      "@/*": ["./src/*"],
+      "ai": ["./scripts/deal-facts-ai-stub.mjs"]
+    }
+  }
+}
