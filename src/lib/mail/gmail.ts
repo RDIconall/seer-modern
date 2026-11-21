@@ -5,6 +5,7 @@ import type {
   SendMailInput,
 } from "@/lib/mail/types";
 import { compileGmailSearch, parseMailSearch } from "@/lib/v3/search/parser";
+import { selectMimeBody } from "@/lib/mail/mime-body";
 
 export type {
   MailFolder,
@@ -43,8 +44,6 @@ function extractBodies(payload: GmailPayload): {
     size: number;
   }[];
 } {
-  let text = "";
-  let html = "";
   let icalUid: string | undefined;
   const attachments: {
     id: string;
@@ -60,10 +59,6 @@ function extractBodies(payload: GmailPayload): {
         mimeType: part.mimeType ?? "application/octet-stream",
         size: part.body.size ?? 0,
       });
-    } else if (part.mimeType === "text/plain" && part.body?.data) {
-      text += decodeBase64Url(part.body.data);
-    } else if (part.mimeType === "text/html" && part.body?.data) {
-      html += decodeBase64Url(part.body.data);
     } else if (part.mimeType === "text/calendar" && part.body?.data) {
       // The invite's own .ics names the exact event — no guessing
       const m = decodeBase64Url(part.body.data).match(/^UID:(.+)$/m);
@@ -71,14 +66,9 @@ function extractBodies(payload: GmailPayload): {
     }
     part.parts?.forEach(walk);
   }
-  if (payload.body?.data) {
-    if (payload.mimeType === "text/plain")
-      text = decodeBase64Url(payload.body.data);
-    if (payload.mimeType === "text/html")
-      html = decodeBase64Url(payload.body.data);
-  }
   walk(payload);
-  return { text, html, icalUid, attachments };
+  const body = selectMimeBody(payload, decodeBase64Url);
+  return { text: body.text ?? "", html: body.html ?? "", icalUid, attachments };
 }
 
 type GmailPayload = {
