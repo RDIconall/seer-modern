@@ -16,6 +16,7 @@ import type {
   SyncFolder,
   SyncPage,
 } from "./types";
+import { SEARCH_PAGE_SIZE } from "./types";
 
 /**
  * The FAKE provider is the executable reference for how every provider must
@@ -143,11 +144,22 @@ export class FakeProvider implements MailProvider {
         c.subject.toLowerCase().includes(q) ||
         c.messages.some((m) => (m.bodyText ?? "").toLowerCase().includes(q)),
     );
+    const pageSize = Math.min(this.pageSize, SEARCH_PAGE_SIZE);
     const start = cursor ? Number(cursor) : 0;
-    const slice = matches.slice(start, start + this.pageSize);
-    const next = start + this.pageSize;
+    const slice = matches.slice(start, start + pageSize);
+    const next = start + pageSize;
     return {
-      conversations: slice.map((c) => this.live(c)),
+      conversations: slice.map((c) => {
+        const live = this.live(c);
+        const last = live.messages[live.messages.length - 1];
+        return {
+          providerConversationId: live.providerConversationId,
+          subject: live.subject,
+          snippet: last?.snippet ?? "",
+          from: last?.from ?? null,
+          lastMessageAt: live.lastMessageAt,
+        };
+      }),
       nextCursor: next < matches.length ? String(next) : null,
     };
   }

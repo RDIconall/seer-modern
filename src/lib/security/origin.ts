@@ -20,3 +20,14 @@ export function originAllowed(input: {
     return false;
   }
 }
+
+/**
+ * True when the browser reports a GET as started by another site (a link, a
+ * redirect, an embedded resource). Browsers do not send Origin on same-origin
+ * GETs, so expensive reads that must stay GET use Fetch Metadata instead.
+ * A direct navigation ("none") and non-browser clients (no header) pass.
+ */
+export function crossSiteRequest(headers: Headers): boolean {
+  const site = headers.get("sec-fetch-site");
+  return site === "cross-site" || site === "same-site";
+}

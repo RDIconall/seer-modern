@@ -24,6 +24,8 @@ export type SearchView = {
 type MetadataRow = {
   provider_conversation_id: string;
   conversation_id: string;
+  subject: string | null;
+  last_message_at: string | Date | null;
   decision_summary: string | null;
   matter_title: string | null;
   priority: number | null;
@@ -34,6 +36,12 @@ function isoDate(value: string | Date | null): string | null {
   if (!value) return null;
   const text = value instanceof Date ? value.toISOString() : String(value);
   return text.slice(0, 10);
+}
+
+function isoTimestamp(value: string | Date | null): string {
+  if (!value) return "";
+  const date = value instanceof Date ? value : new Date(value);
+  return Number.isNaN(date.getTime()) ? "" : date.toISOString();
 }
 
 /**
@@ -55,6 +63,8 @@ export async function searchWithMetadata(
   const meta = await db().query<MetadataRow>(
     `select c.provider_conversation_id,
             c.id as conversation_id,
+            c.subject,
+            c.last_message_at,
             d.summary as decision_summary,
             mt.title as matter_title,
             d.priority,
@@ -74,15 +84,14 @@ export async function searchWithMetadata(
   );
   const byProvider = new Map(meta.rows.map((row) => [row.provider_conversation_id, row]));
 
-  const rows: SearchRow[] = page.conversations.map((convo) => {
-    const last = convo.messages[convo.messages.length - 1];
-    const stored = byProvider.get(convo.providerConversationId);
+  const rows: SearchRow[] = page.conversations.map((hit) => {
+    const stored = byProvider.get(hit.providerConversationId);
     const synced = Boolean(stored);
     return {
-      providerConversationId: convo.providerConversationId,
-      subject: convo.subject,
-      snippet: last?.snippet ?? "",
-      lastMessageAt: convo.lastMessageAt,
+      providerConversationId: hit.providerConversationId,
+      subject: hit.subject || stored?.subject || "",
+      snippet: hit.snippet,
+      lastMessageAt: hit.lastMessageAt || isoTimestamp(stored?.last_message_at ?? null),
       synced,
       transient: !synced,
       conversationId: stored?.conversation_id,

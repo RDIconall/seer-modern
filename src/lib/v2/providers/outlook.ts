@@ -19,6 +19,7 @@ import type {
   ProviderFolder,
   ProviderKind,
   ReplyCommand,
+  SearchHit,
   SearchResult,
   SendCommand,
   SendReceipt,
@@ -27,7 +28,7 @@ import type {
   SyncPage,
 } from "./types";
 import { compileOutlookSearch, parseMailSearch } from "@/lib/v3/search/parser";
-import { SyncDeadlineError, assertSyncBudget } from "./types";
+import { SEARCH_PAGE_SIZE, SyncDeadlineError, assertSyncBudget } from "./types";
 
 /**
  * Outlook / Microsoft Graph adapter. Translates Graph message payloads into the
@@ -37,6 +38,8 @@ import { SyncDeadlineError, assertSyncBudget } from "./types";
  */
 
 const API = "https://graph.microsoft.com/v1.0/me";
+/** List fields only — search never downloads message bodies. */
+const SEARCH_SELECT = "id,conversationId,subject,from,receivedDateTime,bodyPreview";
 
 type GraphRecipient = { emailAddress?: { address?: string; name?: string } };
 type GraphMessage = {
@@ -66,6 +69,34 @@ function addr(r: GraphRecipient | undefined): Address | null {
   const email = r?.emailAddress?.address?.toLowerCase();
   if (!email) return null;
   return { email, name: r?.emailAddress?.name };
+}
+
+const SEARCH_CURSOR_PARAMS = new Set(["$search", "$top", "$select", "$skip", "$skiptoken"]);
+
+/**
+ * A search cursor is a Graph nextLink echoed back by the client and fetched
+ * with this account's bearer token, so it may only address a bounded,
+ * body-free message search.
+ */
+function searchCursorAllowed(cursor: string, top: number): boolean {
+  let url: URL;
+  try {
+    url = new URL(cursor);
+  } catch {
+    return false;
+  }
+  if (url.origin + url.pathname !== `${API}/messages` || url.username || url.password) {
+    return false;
+  }
+  for (const key of url.searchParams.keys()) {
+    if (!SEARCH_CURSOR_PARAMS.has(key)) return false;
+  }
+  if (url.searchParams.getAll("$select").join() !== SEARCH_SELECT) return false;
+  const pageTop = url.searchParams.getAll("$top");
+  if (pageTop.length !== 1) return false;
+  const pageSize = Number(pageTop[0]);
+  if (!Number.isInteger(pageSize) || pageSize < 1 || pageSize > top) return false;
+  return url.searchParams.has("$search");
 }
 
 function addrs(list: GraphRecipient[] | undefined): Address[] {
@@ -245,22 +276,36 @@ export class OutlookProvider implements MailProvider {
   }
 
   async search(query: string, cursor?: string | null): Promise<SearchResult> {
-    const providerQuery = compileOutlookSearch(parseMailSearch(query));
-    const url =
-      cursor ??
-      `${API}/messages?$search=${encodeURIComponent(`"${providerQuery}"`)}&$top=${this.pageSize}&$select=id,conversationId,subject,from,toRecipients,ccRecipients,receivedDateTime,bodyPreview,body,isRead`;
+    const top = Math.min(this.pageSize, SEARCH_PAGE_SIZE);
+    let url: string;
+    if (cursor) {
+      if (!searchCursorAllowed(cursor, top)) {
+        throw new Error("outlook search: invalid cursor");
+      }
+      url = cursor;
+    } else {
+      const providerQuery = compileOutlookSearch(parseMailSearch(query));
+      url =
+        `${API}/messages?$search=${encodeURIComponent(`"${providerQuery}"`)}` +
+        `&$top=${top}&$select=${SEARCH_SELECT}`;
+    }
     const page: { value?: GraphMessage[]; "@odata.nextLink"?: string } =
       await this.get(url);
-    const byConversation = new Map<string, GraphMessage[]>();
-    for (const m of page.value ?? []) {
-      const arr = byConversation.get(m.conversationId) ?? [];
-      arr.push(m);
-      byConversation.set(m.conversationId, arr);
+    const byConversation = new Map<string, SearchHit>();
+    for (const m of (page.value ?? []).slice(0, top)) {
+      const sentAt = m.receivedDateTime ?? "";
+      const existing = byConversation.get(m.conversationId);
+      if (existing && existing.lastMessageAt >= sentAt) continue;
+      byConversation.set(m.conversationId, {
+        providerConversationId: m.conversationId,
+        subject: m.subject ?? existing?.subject ?? "",
+        snippet: m.bodyPreview ?? "",
+        from: addr(m.from),
+        lastMessageAt: sentAt,
+      });
     }
     return {
-      conversations: [...byConversation.entries()].map(([id, msgs]) =>
-        this.toConversation(id, msgs),
-      ),
+      conversations: [...byConversation.values()],
       nextCursor: page["@odata.nextLink"] ?? null,
     };
   }

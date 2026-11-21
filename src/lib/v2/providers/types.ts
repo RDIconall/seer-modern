@@ -118,8 +118,24 @@ export type ForwardCommand = {
   bodyHtml: string;
 };
 
+/**
+ * Interactive search is one provider list call. A hit carries only what that
+ * call returns (ids, subject, snippet); the thread itself is read when opened.
+ */
+export const SEARCH_PAGE_SIZE = 20;
+
+export type SearchHit = {
+  providerConversationId: string;
+  /** Empty when the provider's list call does not return it (Gmail). */
+  subject: string;
+  snippet: string;
+  from: Address | null;
+  /** ISO, or empty when the provider's list call does not return it (Gmail). */
+  lastMessageAt: string;
+};
+
 export type SearchResult = {
-  conversations: Conversation[];
+  conversations: SearchHit[];
   nextCursor: string | null;
 };
 
