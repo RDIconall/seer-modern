@@ -7,6 +7,7 @@ import {
   saveUserProfile,
 } from "@/lib/store/user-profile";
 import { NextResponse } from "next/server";
+import { refuseCrossSiteRequest } from "@/lib/security/same-origin";
 
 export const maxDuration = 30;
 
@@ -100,6 +101,8 @@ async function importGoogleDoc(
 }
 
 export async function GET() {
+  const refused = await refuseCrossSiteRequest();
+  if (refused) return refused;
   try {
     const session = await requireMailSession();
     if (!session) {

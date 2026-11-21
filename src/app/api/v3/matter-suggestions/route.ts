@@ -2,11 +2,14 @@ import { NextResponse } from "next/server";
 import { getActiveV2Account } from "@/lib/v2/session";
 import { asConversationId } from "@/lib/v2/db/types";
 import { suggestMattersForConversation } from "@/lib/v2/intelligence/user-matter";
+import { refuseCrossSiteRequest } from "@/lib/security/same-origin";
 
 export const dynamic = "force-dynamic";
 
 /** Related/open matters for the long-press picker in mobile Triage. */
 export async function GET(request: Request) {
+  const refused = await refuseCrossSiteRequest();
+  if (refused) return refused;
   const account = await getActiveV2Account();
   if (!account) {
     return NextResponse.json({ error: "no active v2 account" }, { status: 404 });

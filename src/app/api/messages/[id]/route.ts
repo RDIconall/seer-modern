@@ -26,6 +26,7 @@ import { requireMailSession } from "@/lib/mail/session";
 import { getSenderOverride } from "@/lib/store/senders";
 import type { RsvpStatus } from "@/lib/inbox/personal-context";
 import { NextResponse } from "next/server";
+import { refuseCrossSiteRequest } from "@/lib/security/same-origin";
 
 type ReaderEvent = {
   id: string;
@@ -79,6 +80,8 @@ export async function GET(
   _request: Request,
   context: { params: Promise<{ id: string }> },
 ) {
+  const refused = await refuseCrossSiteRequest();
+  if (refused) return refused;
   const { id } = await context.params;
   try {
     const session = await requireMailSession();

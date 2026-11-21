@@ -2,6 +2,7 @@ import { getGmailAttachment } from "@/lib/mail/gmail";
 import { getGraphAttachment } from "@/lib/mail/graph";
 import { requireMailSession } from "@/lib/mail/session";
 import { NextResponse } from "next/server";
+import { refuseCrossSiteRequest } from "@/lib/security/same-origin";
 
 export const maxDuration = 60;
 
@@ -10,6 +11,8 @@ export async function GET(
   request: Request,
   context: { params: Promise<{ id: string }> },
 ) {
+  const refused = await refuseCrossSiteRequest();
+  if (refused) return refused;
   try {
     const session = await requireMailSession();
     if (!session) {

@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 import { getActiveV2Account } from "@/lib/v2/session";
 import { getCorpusConversation } from "@/lib/v3/reader/repository";
+import { refuseCrossSiteRequest } from "@/lib/security/same-origin";
 
 export const dynamic = "force-dynamic";
 
@@ -12,6 +13,8 @@ export async function GET(
   _request: Request,
   context: { params: Promise<{ id: string }> },
 ) {
+  const refused = await refuseCrossSiteRequest();
+  if (refused) return refused;
   const account = await getActiveV2Account();
   if (!account) {
     return NextResponse.json({ error: "no active v2 account" }, { status: 404 });

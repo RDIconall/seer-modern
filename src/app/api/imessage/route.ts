@@ -9,6 +9,7 @@ import {
 import { loadPeople, savePeople } from "@/lib/store/people";
 import { requireMailSession } from "@/lib/mail/session";
 import { NextResponse } from "next/server";
+import { refuseCrossSiteRequest } from "@/lib/security/same-origin";
 
 export const maxDuration = 60;
 
@@ -19,6 +20,8 @@ export const maxDuration = 60;
  */
 
 export async function GET() {
+  const refused = await refuseCrossSiteRequest();
+  if (refused) return refused;
   const session = await requireMailSession();
   if (!session) {
     return NextResponse.json({ error: "Not signed in" }, { status: 401 });

@@ -5,6 +5,7 @@ import { listGraphFolder } from "@/lib/mail/graph";
 import { requireMailSession } from "@/lib/mail/session";
 import { loadPeople } from "@/lib/store/people";
 import { NextResponse } from "next/server";
+import { refuseCrossSiteRequest } from "@/lib/security/same-origin";
 
 /**
  * CONTACT SUGGESTIONS for compose. Three sources, merged and ranked by
@@ -20,6 +21,8 @@ import { NextResponse } from "next/server";
 type Suggestion = { name?: string; email: string; score: number };
 
 export async function GET(request: Request) {
+  const refused = await refuseCrossSiteRequest();
+  if (refused) return refused;
   const session = await requireMailSession();
   if (!session) {
     return NextResponse.json({ error: "Not signed in" }, { status: 401 });

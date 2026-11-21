@@ -15,6 +15,7 @@ import {
   saveApp,
 } from "@/lib/store/salesforce-auth";
 import { NextResponse } from "next/server";
+import { refuseCrossSiteRequest } from "@/lib/security/same-origin";
 
 export const maxDuration = 120;
 
@@ -27,6 +28,8 @@ export const maxDuration = 120;
  * POST { report: "<csv>" }  → fall back to a pasted report
  */
 export async function GET() {
+  const refused = await refuseCrossSiteRequest();
+  if (refused) return refused;
   const session = await requireMailSession();
   if (!session) {
     return NextResponse.json({ error: "Not signed in" }, { status: 401 });

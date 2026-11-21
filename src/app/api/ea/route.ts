@@ -1,10 +1,13 @@
 import { requireMailSession } from "@/lib/mail/session";
 import { clearEa, loadEa, saveEa } from "@/lib/store/ea";
 import { NextResponse } from "next/server";
+import { refuseCrossSiteRequest } from "@/lib/security/same-origin";
 
 /** The user's EA — the address "Delegate" forwards to. */
 
 export async function GET() {
+  const refused = await refuseCrossSiteRequest();
+  if (refused) return refused;
   try {
     const session = await requireMailSession();
     if (!session) {

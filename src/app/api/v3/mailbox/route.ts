@@ -4,6 +4,7 @@ import { kickInboxCatchUp } from "@/lib/v2/sync/catch-up";
 import { parseMailboxLimit } from "@/lib/v3/mailbox/limit";
 import { getMailboxView } from "@/lib/v3/mailbox/repository";
 import type { MailboxFolder, MailboxSort } from "@/lib/v3/mailbox/types";
+import { refuseCrossSiteRequest } from "@/lib/security/same-origin";
 
 const FOLDERS = new Set<MailboxFolder>(["inbox", "sent", "trash"]);
 const SORTS = new Set<MailboxSort>(["date", "triage", "focus"]);
@@ -17,6 +18,8 @@ export const dynamic = "force-dynamic";
  * after being away cannot leave last week's mail on screen.
  */
 export async function GET(request: Request) {
+  const refused = await refuseCrossSiteRequest();
+  if (refused) return refused;
   const account = await getActiveV2Account();
   if (!account) {
     return NextResponse.json({ error: "no active v2 account" }, { status: 404 });

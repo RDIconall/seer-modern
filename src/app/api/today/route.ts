@@ -32,6 +32,7 @@ import { makeGmailLabelStore } from "@/lib/mail/seer-labels";
 import { requireMailSession } from "@/lib/mail/session";
 import { getSenderOverride } from "@/lib/store/senders";
 import { NextResponse, after } from "next/server";
+import { refuseCrossSiteRequest } from "@/lib/security/same-origin";
 
 export const maxDuration = 60;
 
@@ -69,6 +70,8 @@ export type TodaySection = {
 };
 
 export async function GET() {
+  const refused = await refuseCrossSiteRequest();
+  if (refused) return refused;
   const started = Date.now();
   try {
     const session = await requireMailSession();

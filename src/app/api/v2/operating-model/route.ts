@@ -6,6 +6,7 @@ import {
   loadOperatingModel,
   proposeOperatingModel,
 } from "@/lib/v2/intelligence/operating-model";
+import { refuseCrossSiteRequest } from "@/lib/security/same-origin";
 
 export const dynamic = "force-dynamic";
 export const maxDuration = 120;
@@ -20,6 +21,8 @@ function requestOriginAllowed(request: Request): boolean {
 }
 
 export async function GET() {
+  const refused = await refuseCrossSiteRequest();
+  if (refused) return refused;
   const account = await getActiveV2Account();
   if (!account) {
     return NextResponse.json({ error: "no active account" }, { status: 404 });
