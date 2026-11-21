@@ -1,0 +1,10 @@
+{
+  "extends": "../tsconfig.json",
+  "compilerOptions": {
+    "baseUrl": "..",
+    "paths": {
+      "@/lib/mail/session": ["scripts/fixtures/mail-session-mock.ts"],
+      "@/*": ["src/*"]
+    }
+  }
+}
