@@ -6,6 +6,7 @@ import {
 } from "./mutation-idempotent";
 import { nativeUrlFor } from "./native-url";
 import { gmailForwardHtml } from "./forward-html";
+import { selectMessageBody } from "./mime-body";
 import type {
   Address,
   AttachmentContent,
@@ -86,30 +87,24 @@ function parseAddresses(raw: string): Address[] {
     });
 }
 
-function walkBodies(part: GmailPart | undefined, out: { html?: string; text?: string; attachments: Message["attachments"] }): void {
+function collectAttachments(part: GmailPart | undefined, out: Message["attachments"]): void {
   if (!part) return;
-  const mime = part.mimeType ?? "";
   if (part.filename && part.body?.attachmentId) {
-    out.attachments.push({
+    out.push({
       id: part.body.attachmentId,
       filename: part.filename,
-      mimeType: mime,
+      mimeType: part.mimeType ?? "",
       sizeBytes: part.body.size ?? 0,
     });
-  } else if (mime === "text/html" && part.body?.data) {
-    out.html = decodeBase64Url(part.body.data);
-  } else if (mime === "text/plain" && part.body?.data) {
-    out.text = decodeBase64Url(part.body.data);
   }
-  for (const child of part.parts ?? []) walkBodies(child, out);
+  for (const child of part.parts ?? []) collectAttachments(child, out);
 }
 
 function toMessage(m: GmailMessage, selfEmail: string): Message {
   const headers = m.payload?.headers;
-  const bodies: { html?: string; text?: string; attachments: Message["attachments"] } = {
-    attachments: [],
-  };
-  walkBodies(m.payload, bodies);
+  const body = selectMessageBody(m.payload, decodeBase64Url);
+  const attachments: Message["attachments"] = [];
+  collectAttachments(m.payload, attachments);
   const from = parseAddresses(header(headers, "from"))[0] ?? { email: "" };
   return {
     providerMessageId: m.id,
@@ -120,11 +115,11 @@ function toMessage(m: GmailMessage, selfEmail: string): Message {
       ? new Date(Number(m.internalDate)).toISOString()
       : new Date().toISOString(),
     snippet: m.snippet ?? "",
-    bodyHtml: bodies.html ?? null,
-    bodyText: bodies.text ?? null,
+    bodyHtml: body.html ?? null,
+    bodyText: body.text ?? null,
     isUnread: (m.labelIds ?? []).includes("UNREAD"),
     isOutgoing: from.email === selfEmail.toLowerCase(),
-    attachments: bodies.attachments,
+    attachments,
   };
 }
 
@@ -345,11 +340,9 @@ export class GmailProvider implements MailProvider {
   }
 
   private attachmentList(message: GmailMessage): Message["attachments"] {
-    const out: { html?: string; text?: string; attachments: Message["attachments"] } = {
-      attachments: [],
-    };
-    walkBodies(message.payload, out);
-    return out.attachments;
+    const out: Message["attachments"] = [];
+    collectAttachments(message.payload, out);
+    return out;
   }
 
   async getAttachment(messageId: string, attachmentId: string): Promise<AttachmentContent> {
