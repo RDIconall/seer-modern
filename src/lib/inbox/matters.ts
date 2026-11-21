@@ -1,3 +1,4 @@
+import { isEmptyAsk } from "@/lib/ask";
 import {
   getFallbackModel,
   getTriageModel,
@@ -182,7 +183,10 @@ export type FiledEmail = {
   fromName?: string;
   fromEmail?: string;
   subject?: string;
-  /** The deep read's verdict: matter | record | fyi | disposable */
+  /**
+   * The deep read's verdict: matter | record, or "held" when the read said
+   * fyi/disposable but the conversation was kept out of the digest.
+   */
   disposition?: string;
   /** True when the sender has a real relationship (VIP / written-to /
    *  saved contact) — such rows are never bulk-deletable. */
@@ -660,7 +664,7 @@ function collapseAutomatedSeeds(
       rows.length === 1 ? "notice" : "notices"
     } from ${display}`,
     nextAction:
-      ask && !/^nothing/i.test(ask) ? ask.slice(0, 80) : "none — review or clear",
+      ask && !isEmptyAsk(ask) ? ask.slice(0, 80) : "none — review or clear",
     owner,
     urgency,
     status: owner === "them" ? "waiting" : "active",
@@ -917,7 +921,11 @@ export function mergeMatters<M extends MergeableMatter>(
 function protectedFromDigest(u: Understanding): boolean {
   if (u.owner === "you") return true;
   if (u.signature) return true;
-  if (u.ask && !/^nothing/i.test(u.ask.trim())) return true;
+  if (!isEmptyAsk(u.ask)) return true;
+  if (u.deadline) return true;
+  if (u.importance > 0) return true;
+  // Records read before the body scan existed cannot vouch for the body.
+  if (!u.bodyMarkers || u.bodyMarkers.length > 0) return true;
   return false;
 }
 
@@ -939,7 +947,7 @@ function digestVerdict(
 /** What to do, straight from the read: the ask, or its absence. */
 function askSuggestion(u: Understanding): string {
   if (u.signature) return `Sign: ${u.signature.document}`;
-  if (/^nothing/i.test(u.ask)) return u.importance >= 1 ? "Worth knowing" : "Disposable";
+  if (isEmptyAsk(u.ask)) return u.importance >= 1 ? "Worth knowing" : "Disposable";
   return u.owner === "you"
     ? u.ask.slice(0, 60)
     : u.owner === "them"
@@ -1013,11 +1021,21 @@ export async function buildBrief(
   // and it is not protected. Everything else — including not-yet-read
   // mail — stays a matter candidate and remains visible. Headlines stay
   // as the per-line fallback for clients that predate the digest.
-  const digestItems = items.filter(
-    (i) => digestVerdict(understanding[i.id]) !== null && !isKnown(i),
+  // Clearing a digest row trashes its whole conversation, so one held
+  // message holds every message in its thread.
+  const heldThreads = new Set(
+    items
+      .filter((i) => digestVerdict(understanding[i.id]) === null || isKnown(i))
+      .map((i) => i.threadId),
   );
-  const headlineItems = items.filter(
-    (i) => digestVerdict(understanding[i.id]) === "fyi" && !isKnown(i),
+  const digestItems = items.filter(
+    (i) =>
+      digestVerdict(understanding[i.id]) !== null &&
+      !isKnown(i) &&
+      !heldThreads.has(i.threadId),
+  );
+  const headlineItems = digestItems.filter(
+    (i) => digestVerdict(understanding[i.id]) === "fyi",
   );
   const headlines: Headline[] = headlineItems.map((i) => ({
     id: i.id,
@@ -1614,7 +1632,16 @@ export async function buildBrief(
       fromName: personName(i),
       fromEmail: i.fromEmail,
       subject: stripEmoji(i.subject),
-      ...(u?.disposition ? { disposition: u.disposition } : {}),
+      // Only held conversations reach here (the rest are in the digest), so
+      // a fyi/disposable read must not make the row bulk-deletable.
+      ...(u?.disposition
+        ? {
+            disposition:
+              u.disposition === "fyi" || u.disposition === "disposable"
+                ? "held"
+                : u.disposition,
+          }
+        : {}),
       ...(isKnown(i) ? { known: true } : {}),
       line: u
         ? headline(who, stripEmoji(u.oneLine)).slice(0, 140)

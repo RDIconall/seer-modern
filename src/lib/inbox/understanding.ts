@@ -19,7 +19,7 @@ import { z } from "zod";
  * from older versions are re-read.
  */
 
-export const UNDERSTANDING_VERSION = 4;
+export const UNDERSTANDING_VERSION = 5;
 
 /**
  * What an email is FOR — the deep read's own verdict on disposal, which
@@ -59,6 +59,12 @@ export type Understanding = {
   deadline?: string;
   /** Extracted deterministically from the body, never model-authored */
   amounts?: number[];
+  /**
+   * Request / signature / deadline wording found in the raw body by regex,
+   * never model-authored. Non-empty keeps the message out of the digest
+   * whatever the read concluded.
+   */
+  bodyMarkers?: BodyMarker[];
   entities: string[];
   /** Present ⇒ a document is waiting for the user's signature */
   signature?: SignatureAsk;
@@ -208,6 +214,53 @@ function extractAmounts(text: string): number[] {
   return [...new Set(out)].sort((a, b) => b - a).slice(0, 6);
 }
 
+export type BodyMarker = "request" | "signature" | "deadline";
+
+const WEEKDAY =
+  "(?:monday|tuesday|wednesday|thursday|friday|saturday|sunday|mon|tue|wed|thu|fri)";
+
+/**
+ * Wording that means someone wants something from the reader. Matched on
+ * the body itself so a read that calls the message noise cannot clear it.
+ */
+const BODY_MARKERS: [BodyMarker, RegExp][] = [
+  [
+    "request",
+    /\bplease\s+(?:kindly\s+)?(?:approve|sign|review|confirm|send|pay|reply|respond|complete|execute|authori[sz]e|wire|transfer|remit|submit|provide|call|advise|let\s+(?:me|us)\s+know)\b/i,
+  ],
+  [
+    "request",
+    /(?<!\bno\s)\b(?:action|response|reply|approval|signature|payment)\s+(?:is\s+)?(?:required|needed|requested)\b/i,
+  ],
+  [
+    "request",
+    /(?:^|[.!?:]\s+)(?:kindly\s+)?(?:approve|wire|pay|transfer|remit|authori[sz]e|execute|countersign|sign(?!\s+(?:up|in|out)\b))\b/im,
+  ],
+  [
+    "signature",
+    /\b(?:docusign|adobe\s+sign|signnow|hellosign|dropbox\s+sign|e-?signature|countersign\w*)\b/i,
+  ],
+  [
+    "signature",
+    /\b(?:your|the)\s+signature\b|\bsign\s+(?:the|this|your|and\s+return|here)\b/i,
+  ],
+  [
+    "deadline",
+    new RegExp(
+      `\\b(?:deadline|due\\s+(?:date|by|on)|no\\s+later\\s+than|by\\s+(?:${WEEKDAY}|tomorrow|today|tonight|eod|cob|end\\s+of\\s+(?:day|week|month)))\\b`,
+      "i",
+    ),
+  ],
+];
+
+export function extractBodyMarkers(text: string): BodyMarker[] {
+  const found = new Set<BodyMarker>();
+  for (const [marker, pattern] of BODY_MARKERS) {
+    if (pattern.test(text)) found.add(marker);
+  }
+  return [...found];
+}
+
 export type ReadInput = Pick<
   MailMessageListItem,
   "id" | "threadId" | "fromEmail" | "fromName" | "subject" | "snippet"
@@ -342,6 +395,7 @@ export async function readEmails(
               );
               return amounts.length ? { amounts } : {};
             })(),
+            bodyMarkers: extractBodyMarkers(`${src.subject}\n${bodyText}`),
             entities: r.entities.slice(0, 6).map((e) => stripEmoji(e).slice(0, 60)),
             ...(r.awaitsSignature && r.signatureDocument
               ? {

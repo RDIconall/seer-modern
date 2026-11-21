@@ -1,3 +1,4 @@
+import { hasOpenAsk } from "@/lib/ask";
 import type { AccountId, ConversationId } from "../db/types";
 import type { Conversation } from "../providers/types";
 import {
@@ -89,11 +90,10 @@ function factsFrom(
   isHuman: boolean,
   isDirect: boolean,
 ): SafetyFacts {
-  const openAsk = Boolean(read.ask && !/^\s*nothing/i.test(read.ask));
   return {
     ownerIsYou: read.owner === "you",
     ownerIsNobody: read.owner === "nobody",
-    hasOpenAsk: openAsk,
+    hasOpenAsk: hasOpenAsk(read.ask),
     hasPendingObligation: read.obligation,
     liveMatterId: compiled.candidateMatterId,
     senderIsKnown: compiled.senderIsKnown,

@@ -1,4 +1,5 @@
 import { generateText, Output } from "ai";
+import { hasOpenAsk } from "@/lib/ask";
 import type { Conversation } from "../providers/types";
 import {
   modelReadResultSchema,
@@ -164,9 +165,7 @@ export function escalationReasons(
     // relationship below, not by the envelope alone.
     if (read.owner === "you") reasons.push("delete_owner_you");
     if (read.obligation) reasons.push("delete_obligation");
-    if (read.ask && !/^\s*nothing/i.test(read.ask)) {
-      reasons.push("delete_open_ask");
-    }
+    if (hasOpenAsk(read.ask)) reasons.push("delete_open_ask");
   }
   return [...new Set(reasons)];
 }
