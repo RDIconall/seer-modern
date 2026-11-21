@@ -24,6 +24,7 @@ import {
   ensureRe,
   primaryMailAction,
 } from "@/lib/inbox/types";
+import { publicUnsubscribeUrl } from "@/lib/mail/unsubscribe-url";
 
 export type SettledMatter = { at: string; matter?: Matter };
 
@@ -136,6 +137,10 @@ export function useMailbox(initialTab: ViewTab = "inbox") {
   const [reader, setReader] = useState<ReaderMessage | null>(null);
   const [compose, setCompose] = useState<ComposeDraft | null>(null);
   const [toast, setToast] = useState<string | null>(null);
+  // Unsubscribe page awaiting the user's explicit go-ahead. The ref is the
+  // authority for confirmation so a stale render can't open it twice.
+  const [pendingUnsubscribeUrl, setPendingUnsubscribeUrl] = useState<string | null>(null);
+  const pendingUnsubscribeRef = useRef<string | null>(null);
   const [busyId, setBusyId] = useState<string | null>(null);
   const [identity, setIdentity] = useState<{
     email: string;
@@ -909,12 +914,37 @@ export function useMailbox(initialTab: ViewTab = "inbox") {
     [load, markActed, removeFromLists],
   );
 
+  const setPendingUnsubscribe = useCallback((url: string | null) => {
+    pendingUnsubscribeRef.current = url;
+    setPendingUnsubscribeUrl(url);
+  }, []);
+
+  const dismissPendingUnsubscribe = useCallback(() => {
+    setPendingUnsubscribe(null);
+  }, [setPendingUnsubscribe]);
+
+  /**
+   * Second step of a link-only unsubscribe: open the page the user was
+   * shown, and nothing else. `url` must be exactly the pending address.
+   */
+  const confirmPendingUnsubscribe = useCallback(
+    (url: string) => {
+      const pending = pendingUnsubscribeRef.current;
+      if (!pending || url !== pending) return;
+      setPendingUnsubscribe(null);
+      if (publicUnsubscribeUrl(pending) !== pending) return;
+      window.open(pending, "_blank", "noopener,noreferrer");
+    },
+    [setPendingUnsubscribe],
+  );
+
   /** Unsubscribe a single message for real, then trash + mute sender. */
   const unsubscribe = useCallback(
     async (id: string, fromEmail?: string, threadId?: string) => {
       markActed(id, threadId);
       removeFromLists(id);
       if (readerId === id) closeReader();
+      setPendingUnsubscribe(null);
       try {
         const res = await fetch("/api/unsubscribe", {
           method: "POST",
@@ -923,10 +953,13 @@ export function useMailbox(initialTab: ViewTab = "inbox") {
         });
         const json = await res.json();
         if (!res.ok) throw new Error(json.error ?? "Unsubscribe failed");
-        if (json.links?.length) {
-          // No machine-readable path — one tap on the list's own page
-          window.open(json.links[0].url, "_blank", "noopener");
-          setToast("Opened the unsubscribe page — email trashed & sender muted");
+        const offered: unknown = json.links?.[0]?.url;
+        const link = typeof offered === "string" ? publicUnsubscribeUrl(offered) : null;
+        if (link) {
+          // No machine-readable path. The address comes from the sender, so
+          // the user sees it and decides whether to open it.
+          setPendingUnsubscribe(link);
+          setToast("Email trashed & sender muted — review the unsubscribe page before opening it");
         } else if (json.unsubscribed > 0) {
           setToast("Unsubscribed — email trashed & sender muted");
         } else {
@@ -937,7 +970,7 @@ export function useMailbox(initialTab: ViewTab = "inbox") {
         load();
       }
     },
-    [closeReader, load, markActed, readerId, removeFromLists],
+    [closeReader, load, markActed, readerId, removeFromLists, setPendingUnsubscribe],
   );
 
   /**
@@ -1472,6 +1505,9 @@ export function useMailbox(initialTab: ViewTab = "inbox") {
     bulkSection,
     runBulk,
     unsubscribe,
+    pendingUnsubscribeUrl,
+    confirmPendingUnsubscribe,
+    dismissPendingUnsubscribe,
     teachSender,
     markActionable,
     catchup,
