@@ -2,8 +2,10 @@ import { accountKey, kvDelete, kvGet, kvSet } from "@/lib/store/kv";
 
 /**
  * The user's "about me" memory — a plain-text profile (role, family,
- * companies, priorities, VIPs) that Seer injects into every Gemini call
- * so triage and drafting decisions are made AS this specific person.
+ * companies, priorities, VIPs) that Seer injects into triage and brief
+ * calls so those decisions are made AS this specific person. Reply drafts
+ * never receive it: their output is sendable mail, and the email being
+ * answered is attacker-controlled text in the same prompt.
  *
  * Stored per account on disk, like every other Seer memory
  * (decisions, action memory, personal context). One document, always
