@@ -9,6 +9,7 @@ import {
 } from "@/lib/inbox/personal-context";
 import { loadActionMemory } from "@/lib/store/action-memory";
 import { loadRepliedThreads } from "@/lib/store/replied-threads";
+import { capMessageDetail } from "@/lib/mail/conversation-budget";
 import {
   getGmailMessage,
   getGmailThreadMessages,
@@ -86,10 +87,11 @@ export async function GET(
       return NextResponse.json({ error: "Not signed in" }, { status: 401 });
     }
 
-    const message =
+    const message = capMessageDetail(
       session.provider === "google"
         ? await getGmailMessage(session.accessToken, id)
-        : await getGraphMessage(session.accessToken, id);
+        : await getGraphMessage(session.accessToken, id),
+    );
     const thread =
       session.provider === "google"
         ? await getGmailThreadMessages(session.accessToken, message.threadId)

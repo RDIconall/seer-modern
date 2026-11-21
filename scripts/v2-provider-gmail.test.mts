@@ -83,6 +83,14 @@ const THREADS: Record<string, { id: string; messages: ReturnType<typeof gmailMes
   },
 };
 
+/** Gmail's `format` parameter: minimal has no payload, metadata has headers only. */
+function asFormat(m: ReturnType<typeof gmailMessage>, format: string) {
+  if (format === "full") return m;
+  const { payload, ...rest } = m;
+  if (format === "minimal") return rest;
+  return { ...rest, payload: { headers: payload.headers, mimeType: payload.mimeType } };
+}
+
 let lastSendRaw = "";
 
 const mockFetch = (async (url: string, init?: RequestInit) => {
@@ -112,14 +120,24 @@ const mockFetch = (async (url: string, init?: RequestInit) => {
     return json({ threads: [{ id: "c2" }], resultSizeEstimate: 3 });
   }
 
-  const threadGet = u.match(/\/threads\/([^?]+)\?format=full/);
+  const threadGet = u.match(/\/threads\/([^?]+)\?format=(full|minimal|metadata)/);
   if (method === "GET" && threadGet) {
     const threadId = decodeURIComponent(threadGet[1]);
     if (threadId === "missing-thread") {
       return new Response("not found", { status: 404 });
     }
     const t = THREADS[threadId];
-    return json({ id: t.id, messages: t.messages });
+    return json({ id: t.id, messages: t.messages.map((m) => asFormat(m, threadGet[2])) });
+  }
+
+  const messageGet = u.match(/\/messages\/([^/?]+)\?format=(full|minimal|metadata)/);
+  if (method === "GET" && messageGet) {
+    const id = decodeURIComponent(messageGet[1]);
+    const message = Object.values(THREADS)
+      .flatMap((t) => t.messages)
+      .find((m) => m.id === id);
+    if (!message) return new Response("not found", { status: 404 });
+    return json(asFormat(message, messageGet[2]));
   }
 
   if (method === "POST" && u.endsWith("/messages/send")) {

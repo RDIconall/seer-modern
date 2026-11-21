@@ -48,13 +48,19 @@ export async function GET(
         providerMessageId,
         meta,
       );
-      if (!resolvedId) {
+      const loaded = conversation.messages.some(
+        (message) => message.providerMessageId === providerMessageId,
+      );
+      if (resolvedId) {
+        providerAttachmentId = resolvedId;
+      } else if (loaded) {
         return NextResponse.json(
           { error: "attachment not found" },
           { status: 404 },
         );
       }
-      providerAttachmentId = resolvedId;
+      // A message older than the conversation page provider reads load keeps
+      // its synthetic id; the provider adapters resolve `messageId-index`.
     }
 
     const content = await provider.getAttachment(
