@@ -39,6 +39,7 @@ import {
   ReaderGuideBar,
 } from "@/components/inbox/LogicExplain";
 import { SettingsPanel } from "@/components/inbox/SettingsPanel";
+import { UnsubscribePrompt } from "@/components/inbox/UnsubscribePrompt";
 import { useMailbox } from "@/lib/inbox/use-mailbox";
 import {
   actionThreadId,
@@ -107,6 +108,9 @@ export function DesktopMailApp() {
     bulkSection,
     runBulk,
     unsubscribe,
+    pendingUnsubscribeUrl,
+    confirmPendingUnsubscribe,
+    dismissPendingUnsubscribe,
     teachSender,
     catchup,
     dismissCatchup,
@@ -766,6 +770,13 @@ export function DesktopMailApp() {
       </>
       ) : null}
 
+      {pendingUnsubscribeUrl ? (
+        <UnsubscribePrompt
+          url={pendingUnsubscribeUrl}
+          onConfirm={confirmPendingUnsubscribe}
+          onDismiss={dismissPendingUnsubscribe}
+        />
+      ) : null}
       {toast ? <Toast message={toast} /> : null}
     </div>
   );

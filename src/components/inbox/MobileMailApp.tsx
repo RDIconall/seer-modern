@@ -47,6 +47,7 @@ import { AssistBar } from "@/components/inbox/AssistBar";
 import { ReaderMore } from "@/components/inbox/ReaderMore";
 import { LogicExplain } from "@/components/inbox/LogicExplain";
 import { SettingsPanel } from "@/components/inbox/SettingsPanel";
+import { UnsubscribePrompt } from "@/components/inbox/UnsubscribePrompt";
 import { useMailbox } from "@/lib/inbox/use-mailbox";
 import {
   actionThreadId,
@@ -107,6 +108,9 @@ export function MobileMailApp() {
     bulkSection,
     runBulk,
     unsubscribe,
+    pendingUnsubscribeUrl,
+    confirmPendingUnsubscribe,
+    dismissPendingUnsubscribe,
     teachSender,
     catchup,
     dismissCatchup,
@@ -131,6 +135,15 @@ export function MobileMailApp() {
     rsvp,
     rsvping,
   } = useMailbox();
+
+  const unsubscribePrompt = pendingUnsubscribeUrl ? (
+    <UnsubscribePrompt
+      url={pendingUnsubscribeUrl}
+      onConfirm={confirmPendingUnsubscribe}
+      onDismiss={dismissPendingUnsubscribe}
+      mobile
+    />
+  ) : null;
 
   const searchParams = useSearchParams();
   const [drawer, setDrawer] = useState(false);
@@ -396,6 +409,7 @@ export function MobileMailApp() {
             />
           </footer>
         ) : null}
+        {unsubscribePrompt}
         {toast ? <Toast message={toast} /> : null}
       </div>
     );
@@ -420,6 +434,7 @@ export function MobileMailApp() {
           onReply={replyToEmail}
           mobile
         />
+        {unsubscribePrompt}
         {toast ? <Toast message={toast} /> : null}
       </div>
     );
@@ -830,6 +845,7 @@ export function MobileMailApp() {
         </button>
       ) : null}
 
+      {unsubscribePrompt}
       {toast ? <Toast message={toast} /> : null}
     </div>
   );
