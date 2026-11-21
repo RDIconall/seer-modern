@@ -2,6 +2,7 @@ import { db } from "../db/pool";
 import type { AccountId } from "../db/types";
 import type { Conversation, Message } from "../providers/types";
 import { storedBodyText } from "./html-text";
+import { CONVERSATION_PAGE_SIZE, MAX_BODY_CHARS } from "@/lib/mail/body-budget";
 
 /**
  * Columns the chief-of-staff read needs. `body_html` is only detoasted when
@@ -14,6 +15,15 @@ export const MESSAGES_FOR_READ_SQL = `m.provider_message_id, m.from_email, m.fro
             else m.body_html
        end as body_html,
        m.body_text, m.snippet, m.is_unread, m.is_outgoing, m.attachment_names`;
+
+/**
+ * Outer projection over MESSAGES_FOR_READ_SQL: bodies are sliced in Postgres so
+ * no row carries more than the body budget to the worker.
+ */
+const CAPPED_READ_COLUMNS = `provider_message_id, from_email, from_name, to_emails, cc_emails, sent_at,
+       substr(body_html, 1, ${MAX_BODY_CHARS}) as body_html,
+       substr(body_text, 1, ${MAX_BODY_CHARS}) as body_text,
+       snippet, is_unread, is_outgoing, attachment_names`;
 
 export type MessageReadRow = {
   provider_message_id: string | null;
@@ -64,8 +74,9 @@ export function messageFromReadRow(row: MessageReadRow): Message | null {
 }
 
 /**
- * Load one conversation for classification. Combines the conversation row and
- * its messages so the read path does not pay two round trips per thread.
+ * Load one conversation for classification: its newest messages, oldest-first.
+ * Combines the conversation row and its messages so the read path does not pay
+ * two round trips per thread.
  */
 export async function loadConversation(
   conversationId: string,
@@ -77,15 +88,20 @@ export async function loadConversation(
       last_message_at: string | Date | null;
     }
   >(
-    `select c.provider_conversation_id,
-            c.subject,
-            c.last_message_at,
-            ${MESSAGES_FOR_READ_SQL}
-       from seer.conversations c
-       left join seer.messages m on m.conversation_id = c.id
-      where c.id = $1
-      order by m.sent_at asc nulls last, m.provider_message_id asc`,
-    [conversationId],
+    `select provider_conversation_id, subject, last_message_at, ${CAPPED_READ_COLUMNS}
+       from (
+         select c.provider_conversation_id,
+                c.subject,
+                c.last_message_at,
+                ${MESSAGES_FOR_READ_SQL}
+           from seer.conversations c
+           left join seer.messages m on m.conversation_id = c.id
+          where c.id = $1
+          order by m.sent_at desc nulls first, m.provider_message_id desc
+          limit $2
+       ) newest
+      order by sent_at asc nulls last, provider_message_id asc`,
+    [conversationId, CONVERSATION_PAGE_SIZE],
   );
   if ((rows.rowCount ?? 0) === 0) return null;
   const head = rows.rows[0];
@@ -103,8 +119,9 @@ export async function loadConversation(
 }
 
 /**
- * Load every stored conversation for an account (shadow rebuild). Messages
- * are fetched in one query so a 10k-thread mailbox is not 10k round trips.
+ * Load every stored conversation for an account (shadow rebuild), each with
+ * its newest messages. Messages are fetched in one query so a 10k-thread
+ * mailbox is not 10k round trips.
  */
 export async function loadStoredConversations(
   accountId: AccountId,
@@ -123,11 +140,19 @@ export async function loadStoredConversations(
   if ((convs.rowCount ?? 0) === 0) return [];
   const ids = convs.rows.map((c) => c.id);
   const msgs = await db().query<MessageReadRow & { conversation_id: string }>(
-    `select m.conversation_id, ${MESSAGES_FOR_READ_SQL}
-       from seer.messages m
-      where m.conversation_id = any($1::uuid[])
-      order by m.sent_at asc nulls last, m.provider_message_id asc`,
-    [ids],
+    `select conversation_id, ${CAPPED_READ_COLUMNS}
+       from (
+         select m.conversation_id, ${MESSAGES_FOR_READ_SQL},
+                row_number() over (
+                  partition by m.conversation_id
+                  order by m.sent_at desc nulls first, m.provider_message_id desc
+                ) as recency
+           from seer.messages m
+          where m.conversation_id = any($1::uuid[])
+       ) newest
+      where recency <= $2
+      order by sent_at asc nulls last, provider_message_id asc`,
+    [ids, CONVERSATION_PAGE_SIZE],
   );
   const byConv = new Map<string, Message[]>();
   for (const row of msgs.rows) {

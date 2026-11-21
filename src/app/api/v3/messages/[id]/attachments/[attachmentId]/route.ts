@@ -48,13 +48,18 @@ export async function GET(
         providerMessageId,
         meta,
       );
-      if (!resolvedId) {
+      // A conversation read holds only the newest messages; an older message
+      // is left to the adapter, which resolves `messageId-index` on its own.
+      const inThread = conversation.messages.some(
+        (item) => item.providerMessageId === providerMessageId,
+      );
+      if (!resolvedId && inThread) {
         return NextResponse.json(
           { error: "attachment not found" },
           { status: 404 },
         );
       }
-      providerAttachmentId = resolvedId;
+      if (resolvedId) providerAttachmentId = resolvedId;
     }
 
     const content = await provider.getAttachment(

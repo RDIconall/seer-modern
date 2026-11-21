@@ -27,16 +27,26 @@ import type {
   SyncPage,
 } from "./types";
 import { compileOutlookSearch, parseMailSearch } from "@/lib/v3/search/parser";
+import {
+  BODY_FETCH_CONCURRENCY,
+  CONVERSATION_PAGE_SIZE,
+  GRAPH_BODY_LIMITS,
+  mapInBatches,
+} from "@/lib/mail/body-budget";
 import { SyncDeadlineError, assertSyncBudget } from "./types";
 
 /**
  * Outlook / Microsoft Graph adapter. Translates Graph message payloads into the
- * neutral model. Conversation reads and mutations gather every message in the
- * conversation across folders (via conversationId), so a thread is acted on
- * completely and per-message failures are reported.
+ * neutral model. Mutations gather every message in the conversation across
+ * folders (via conversationId), so a thread is acted on completely and
+ * per-message failures are reported. Conversation reads keep the newest
+ * messages and fetch each body separately through the body budget.
  */
 
 const API = "https://graph.microsoft.com/v1.0/me";
+
+const MESSAGE_SELECT =
+  "id,conversationId,subject,from,toRecipients,ccRecipients,receivedDateTime,bodyPreview,isRead,hasAttachments,parentFolderId";
 
 type GraphRecipient = { emailAddress?: { address?: string; name?: string } };
 type GraphMessage = {
@@ -109,12 +119,21 @@ export class OutlookProvider implements MailProvider {
     return { authorization: `Bearer ${this.deps.accessToken}` };
   }
 
-  private async get<T>(url: string, context?: SyncContext): Promise<T> {
+  private async get<T>(
+    url: string,
+    context?: SyncContext,
+    bodyLimits?: ProviderHttpOptions["bodyLimits"],
+  ): Promise<T> {
     assertSyncBudget(context);
     return (await providerFetch(
       url,
       { headers: this.auth() },
-      { ...this.http, deadlineMs: context?.deadlineMs, signal: context?.signal },
+      {
+        ...this.http,
+        deadlineMs: context?.deadlineMs,
+        signal: context?.signal,
+        bodyLimits,
+      },
     )) as T;
   }
 
@@ -142,8 +161,11 @@ export class OutlookProvider implements MailProvider {
     );
   }
 
-  /** Every message in a conversation, across all folders, paginated. */
-  private async conversationMessages(
+  /**
+   * Every message in a conversation, across all folders, paginated — ids and
+   * folders only, never bodies.
+   */
+  private async conversationMessageRefs(
     conversationId: string,
     context?: SyncContext,
   ): Promise<GraphMessage[]> {
@@ -151,9 +173,7 @@ export class OutlookProvider implements MailProvider {
     let url: string | null =
       `${API}/messages?$filter=${encodeURIComponent(
         `conversationId eq '${conversationId.replace(/'/g, "''")}'`,
-      )}&$top=50&$select=id,conversationId,subject,from,toRecipients,ccRecipients,receivedDateTime,bodyPreview,body,isRead,hasAttachments,parentFolderId` +
-      // Metadata only — never the file bytes.
-      `&$expand=attachments($select=id,name,contentType,size)`;
+      )}&$top=50&$select=id,conversationId,parentFolderId`;
     while (url) {
       assertSyncBudget(context);
       const page: { value?: GraphMessage[]; "@odata.nextLink"?: string } =
@@ -162,6 +182,57 @@ export class OutlookProvider implements MailProvider {
       url = page["@odata.nextLink"] ?? null;
     }
     return messages;
+  }
+
+  /**
+   * The newest messages of a conversation with their bodies. Graph only sorts
+   * a filtered message list when the sort property also leads the filter,
+   * hence the always-true receivedDateTime clause.
+   */
+  private async conversationMessages(
+    conversationId: string,
+    context?: SyncContext,
+  ): Promise<GraphMessage[]> {
+    const filter = encodeURIComponent(
+      `receivedDateTime ge 1900-01-01T00:00:00Z and conversationId eq '${conversationId.replace(/'/g, "''")}'`,
+    );
+    const page: { value?: GraphMessage[] } = await this.get(
+      `${API}/messages?$filter=${filter}&$orderby=${encodeURIComponent("receivedDateTime desc")}` +
+        `&$top=${CONVERSATION_PAGE_SIZE}&$select=${MESSAGE_SELECT}` +
+        // Metadata only — never the file bytes.
+        `&$expand=attachments($select=id,name,contentType,size)`,
+      context,
+    );
+    return this.withBodies((page.value ?? []).slice(0, CONVERSATION_PAGE_SIZE), context);
+  }
+
+  /**
+   * Attach each message's body, read separately through the body budget:
+   * Graph serializes `body` ahead of the sender and recipients, so those stay
+   * from the metadata listing rather than from a response that may be cut.
+   */
+  private async withBodies(
+    messages: GraphMessage[],
+    context?: SyncContext,
+  ): Promise<GraphMessage[]> {
+    return mapInBatches(messages, BODY_FETCH_CONCURRENCY, async (m) => {
+      const r: { body?: GraphMessage["body"] } | null = await this.get(
+        `${API}/messages/${m.id}?$select=body`,
+        context,
+        GRAPH_BODY_LIMITS,
+      );
+      return { ...m, body: r?.body };
+    });
+  }
+
+  private newest(messages: GraphMessage[]): GraphMessage | undefined {
+    let newest: GraphMessage | undefined;
+    for (const m of messages) {
+      if (!newest || (m.receivedDateTime ?? "") >= (newest.receivedDateTime ?? "")) {
+        newest = m;
+      }
+    }
+    return newest;
   }
 
   private toConversation(id: string, msgs: GraphMessage[]): Conversation {
@@ -248,7 +319,7 @@ export class OutlookProvider implements MailProvider {
     const providerQuery = compileOutlookSearch(parseMailSearch(query));
     const url =
       cursor ??
-      `${API}/messages?$search=${encodeURIComponent(`"${providerQuery}"`)}&$top=${this.pageSize}&$select=id,conversationId,subject,from,toRecipients,ccRecipients,receivedDateTime,bodyPreview,body,isRead`;
+      `${API}/messages?$search=${encodeURIComponent(`"${providerQuery}"`)}&$top=${this.pageSize}&$select=id,conversationId,subject,from,toRecipients,ccRecipients,receivedDateTime,bodyPreview,isRead`;
     const page: { value?: GraphMessage[]; "@odata.nextLink"?: string } =
       await this.get(url);
     const byConversation = new Map<string, GraphMessage[]>();
@@ -257,9 +328,18 @@ export class OutlookProvider implements MailProvider {
       arr.push(m);
       byConversation.set(m.conversationId, arr);
     }
+    const hits = [...byConversation.entries()].map(([id, msgs]) => {
+      const newest = this.newest(msgs);
+      return { id, msgs: newest ? [newest] : [] };
+    });
+    const withBodies = await this.withBodies(hits.flatMap((hit) => hit.msgs));
+    const byId = new Map(withBodies.map((m) => [m.id, m]));
     return {
-      conversations: [...byConversation.entries()].map(([id, msgs]) =>
-        this.toConversation(id, msgs),
+      conversations: hits.map((hit) =>
+        this.toConversation(
+          hit.id,
+          hit.msgs.map((m) => byId.get(m.id) ?? m),
+        ),
       ),
       nextCursor: page["@odata.nextLink"] ?? null,
     };
@@ -289,8 +369,9 @@ export class OutlookProvider implements MailProvider {
 
   async reply(command: ReplyCommand, _key: string): Promise<SendReceipt> {
     void _key;
-    const msgs = await this.conversationMessages(command.conversationId);
-    const last = msgs[msgs.length - 1];
+    const refs = await this.conversationMessageRefs(command.conversationId);
+    const last = refs[refs.length - 1];
+    if (!last) throw new Error(`outlook conversation ${command.conversationId} is empty`);
     const endpoint = command.all ? "replyAll" : "reply";
     await this.post(`/messages/${last.id}/${endpoint}`, {
       comment: command.bodyHtml,
@@ -303,8 +384,9 @@ export class OutlookProvider implements MailProvider {
 
   async forward(command: ForwardCommand, _key: string): Promise<SendReceipt> {
     void _key;
-    const msgs = await this.conversationMessages(command.conversationId);
-    const last = msgs[msgs.length - 1];
+    const refs = await this.conversationMessageRefs(command.conversationId);
+    const last = refs[refs.length - 1];
+    if (!last) throw new Error(`outlook conversation ${command.conversationId} is empty`);
     await this.post(`/messages/${last.id}/forward`, {
       comment: command.bodyHtml,
       toRecipients: command.to.map((a) => ({ emailAddress: { address: a.email } })),
@@ -364,7 +446,7 @@ export class OutlookProvider implements MailProvider {
     _key: string,
   ): Promise<MoveReceipt> {
     void _key;
-    const messages = await this.conversationMessages(id);
+    const messages = await this.conversationMessageRefs(id);
     const processed: string[] = [];
     const failed: string[] = [];
     for (const message of messages) {
@@ -386,7 +468,7 @@ export class OutlookProvider implements MailProvider {
     void _key;
     let msgs: GraphMessage[];
     try {
-      msgs = await this.conversationMessages(id);
+      msgs = await this.conversationMessageRefs(id);
     } catch (err) {
       conversationFetchNotFound(err, "outlook", id);
     }

@@ -21,6 +21,7 @@ import {
 } from "../src/lib/v2/intelligence/context-loader.ts";
 import { getCorpusConversation } from "../src/lib/v3/reader/repository.ts";
 import { readableBody } from "../src/lib/v2/intelligence/html-text.ts";
+import { MAX_BODY_CHARS } from "../src/lib/mail/body-budget.ts";
 import type { AccountId } from "../src/lib/v2/db/types.ts";
 import type { Pool } from "pg";
 
@@ -152,7 +153,7 @@ try {
   assert.equal(stored.length, 2);
 
   const ui = await getCorpusConversation(accountId, withText, "google");
-  assert.equal(ui?.conversation.messages[0]?.bodyHtml, HUGE_HTML);
+  assert.equal(ui?.conversation.messages[0]?.bodyHtml, HUGE_HTML.slice(0, MAX_BODY_CHARS));
   assert.equal(ui?.conversation.messages[0]?.bodyText, "Please countersign the CDA by Friday.");
 
   await dbh.pool.query(

@@ -5,8 +5,8 @@ import { getCorpusConversation } from "@/lib/v3/reader/repository";
 export const dynamic = "force-dynamic";
 
 /**
- * Corpus-backed conversation reader. Returns the full thread oldest-first plus
- * a provider deep link. No provider credentials are exposed.
+ * Corpus-backed conversation reader. Returns the thread's newest messages
+ * oldest-first plus a provider deep link. No provider credentials are exposed.
  */
 export async function GET(
   _request: Request,
