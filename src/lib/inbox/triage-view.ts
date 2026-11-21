@@ -1,3 +1,4 @@
+import { isEmptyAsk } from "@/lib/ask";
 import type { Digest, Matter } from "@/lib/inbox/matters";
 import type { Understanding } from "@/lib/inbox/understanding";
 
@@ -85,7 +86,7 @@ export function matterFromRead(input: {
     people: [],
     narrative: candidate.why,
     nextAction:
-      ask && !/^nothing/i.test(ask) ? ask.slice(0, 80) : "none — yours to define",
+      ask && !isEmptyAsk(ask) ? ask.slice(0, 80) : "none — yours to define",
     owner: u?.owner ?? "you",
     urgency: Math.min(3, Math.max(1, u?.importance ?? 2)),
     status: input.reopenedBecause
