@@ -1,12 +1,14 @@
 import { sendGmailMessage } from "@/lib/mail/gmail";
 import { sendGraphMessage } from "@/lib/mail/graph";
+import { publicUnsubscribeUrl } from "@/lib/mail/unsubscribe-url";
 
 /**
  * Actually get the user OFF the list, not just trash the email.
  * Standards-based, no scraping:
  * - RFC 8058 one-click: POST the List-Unsubscribe URL server-side. Done.
  * - mailto: variant: send the unsubscribe email from the user's account.
- * - Plain https link: hand the URL back for one tap.
+ * - Plain https link: hand the URL back for the user to review and open.
+ * Only http(s) targets on public hosts are ever used (see unsubscribe-url).
  */
 
 export type UnsubscribeResult =
@@ -24,7 +26,9 @@ function parseHeaders(
   const out: Parsed = { oneClick: /one-click/i.test(listUnsubPost ?? "") };
   for (const m of (listUnsub ?? "").matchAll(/<([^>]+)>/g)) {
     const url = m[1].trim();
-    if (/^https?:\/\//i.test(url) && !out.https) out.https = url;
+    if (/^https?:/i.test(url) && !out.https) {
+      out.https = publicUnsubscribeUrl(url) ?? undefined;
+    }
     if (/^mailto:/i.test(url) && !out.mailto) out.mailto = url;
   }
   return out;
