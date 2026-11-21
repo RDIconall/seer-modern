@@ -4,6 +4,16 @@ import type { ContactSuggestion } from "./types";
 
 const DEFAULT_LIMIT = 8;
 const MAX_LIMIT = 25;
+/** Longest search text accepted; no address or display name needs more. */
+export const MAX_QUERY_CHARS = 256;
+/**
+ * Exchange counts come from this many of the account's most recent messages.
+ * A suggestion's cost is fixed by these caps, not by how much mail the
+ * account has stored.
+ */
+const RECENT_MESSAGE_WINDOW = 256;
+/** Recipients counted per message, so one mass mailing cannot inflate the read. */
+const MAX_RECIPIENTS_PER_MESSAGE = 50;
 
 /**
  * VIP first, then relationship strength, then how often we actually write.
@@ -39,7 +49,7 @@ type ContactRow = {
 
 /**
  * Suggest recipients for compose from the active account's person graph and
- * real correspondence. Account isolation is absolute: every source row is
+ * recent correspondence. Account isolation is absolute: every source row is
  * filtered by account_id, so an address that only exists on another mailbox
  * can never appear.
  */
@@ -48,33 +58,57 @@ export async function suggestContacts(
   query: string,
   limit?: number,
 ): Promise<ContactSuggestion[]> {
+  if (query.length > MAX_QUERY_CHARS) {
+    throw new RangeError(`contact search longer than ${MAX_QUERY_CHARS} characters`);
+  }
   const capped = clampLimit(limit);
   const q = query.trim();
   const pattern = q ? `%${escapeLike(q)}%` : null;
 
   // The mailbox owner is not a recipient suggestion — same invariant as the
   // legacy compose endpoint, and it keeps self-addresses out of the rank list.
+  //
+  // `recent` steps through messages_account_sent_idx one row per iteration.
+  // A single `order by sent_at desc limit N` is not enough: when the planner
+  // underestimates a mailbox (fresh or unanalyzed statistics) it reads and
+  // sorts every row for the account. A `limit 1` step stays one index probe.
   const result = await db().query<ContactRow>(
-    `with self as (
+    `with recursive self as (
        select lower(trim(email)) as email_key
          from seer.mail_accounts
         where id = $1
+     ),
+     recent as (
+       (select m.id, m.sent_at, m.from_email, m.to_emails, 1 as n
+          from seer.messages m
+         where m.account_id = $1
+           and m.sent_at is not null
+         order by m.sent_at desc, m.id desc
+         limit 1)
+       union all
+       select nx.id, nx.sent_at, nx.from_email, nx.to_emails, r.n + 1
+         from recent r
+         cross join lateral (
+           select m.id, m.sent_at, m.from_email, m.to_emails
+             from seer.messages m
+            where m.account_id = $1
+              and m.sent_at is not null
+              and (m.sent_at, m.id) < (r.sent_at, r.id)
+            order by m.sent_at desc, m.id desc
+            limit 1
+         ) nx
+        where r.n < ${RECENT_MESSAGE_WINDOW}
      ),
      exchanges as (
        select lower(trim(addr)) as email_key,
               count(*)::int as exchanges,
               min(trim(addr)) as sample_email
-         from (
-           select m.from_email as addr
-             from seer.messages m
-            where m.account_id = $1
-              and m.from_email is not null
-              and trim(m.from_email) <> ''
+         from recent r
+         cross join lateral (
+           select r.from_email
            union all
-           select unnest(m.to_emails) as addr
-             from seer.messages m
-            where m.account_id = $1
-         ) addrs
+           select unnest(r.to_emails[1:${MAX_RECIPIENTS_PER_MESSAGE}])
+         ) addrs(addr)
         where addr is not null and trim(addr) <> ''
           and lower(trim(addr)) <> (select email_key from self)
         group by lower(trim(addr))

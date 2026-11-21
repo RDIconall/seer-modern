@@ -20,3 +20,23 @@ export function originAllowed(input: {
     return false;
   }
 }
+
+/**
+ * Same-origin protection for credentialed browser reads.
+ *
+ * Browsers omit Origin on same-origin GETs, so an absent Origin passes only
+ * when Sec-Fetch-Site says the request came from this origin. A cross-site
+ * link or navigation is refused even though it carries the session cookie.
+ */
+export function readOriginAllowed(input: {
+  origin: string | null;
+  fetchSite: string | null;
+  requestOrigin: string;
+  allowedOrigin?: string;
+  production: boolean;
+}): boolean {
+  if (input.fetchSite && input.fetchSite !== "same-origin") return false;
+  if (input.origin) return originAllowed(input);
+  if (input.fetchSite === "same-origin") return true;
+  return !input.production;
+}
