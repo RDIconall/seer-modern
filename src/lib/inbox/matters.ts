@@ -5,6 +5,7 @@ import {
 } from "@/lib/inbox/gemini-triage";
 import { collapseThreads } from "@/lib/inbox/thread-collapse";
 import { stripEmoji, type EmailItem } from "@/lib/inbox/types";
+import { companyKey, companyLabel, senderDomain } from "@/lib/mail/sender-domain";
 import type {
   Understanding,
   UnderstandingMap,
@@ -573,16 +574,25 @@ function headline(who: string, oneLine: string): string {
 const FREEMAIL =
   /^(gmail|googlemail|outlook|hotmail|live|yahoo|ymail|aol|icloud|me|msn|proton|protonmail|comcast|sbcglobal|att|verizon)\./;
 
+/**
+ * Who a conversation is with, as a grouping key: the sender's full company
+ * domain (see companyKey), or — for colleagues and personal mail, where the
+ * domain names no company — the address itself. A display name is never
+ * part of the key; anyone can call themselves "Roche".
+ */
+function partyKey(item: EmailItem, ownDomain: string): string {
+  const domain = senderDomain(item.fromEmail);
+  const key =
+    (ownDomain && domain === ownDomain) || FREEMAIL.test(`${domain}.`)
+      ? ""
+      : companyKey(domain);
+  return key || `person:${item.fromEmail.trim().toLowerCase()}`;
+}
+
 /** The company (or person, for personal mail) this email came from. */
 function counterparty(item: EmailItem, ownDomain: string): string {
-  const domain = item.fromEmail.split("@")[1]?.toLowerCase() ?? "";
-  if (ownDomain && domain === ownDomain) return personName(item);
-  const bare = domain.replace(/^(mail|email|e|smtp|notifications?|no-?reply|info|reply|bounce|em|mailer|send|go|links?)\./, "");
-  if (!bare || FREEMAIL.test(`${bare}.`)) return personName(item);
-  const label = bare.split(".")[0];
-  return label.length <= 3
-    ? label.toUpperCase()
-    : label.charAt(0).toUpperCase() + label.slice(1);
+  const key = partyKey(item, ownDomain);
+  return key.startsWith("person:") ? personName(item) : companyLabel(key);
 }
 
 /**
@@ -602,18 +612,13 @@ function isAutomatedSender(item: EmailItem): boolean {
 }
 
 /**
- * The registrable company behind a sender, ignoring subdomains: both
- * no-reply@mybuy.roche.com and notifications@roche.com resolve to "Roche",
- * so one company's automated mail collapses into one place.
+ * The automated system a sender belongs to, so one system's notices collapse
+ * into one place: no-reply@roche.com and notifications@roche.com are one,
+ * but alerts@mail.roche.com is not — a subdomain is just another From
+ * domain, and nothing here proves it was sent by Roche.
  */
 function senderCompany(item: EmailItem, ownDomain: string): string {
-  const domain = item.fromEmail.split("@")[1]?.toLowerCase() ?? "";
-  const labels = domain.split(".").filter(Boolean);
-  const root = labels.length >= 2 ? labels[labels.length - 2] : labels[0] ?? "";
-  if (!root || FREEMAIL.test(`${root}.`)) return counterparty(item, ownDomain);
-  return root.length <= 3
-    ? root.toUpperCase()
-    : root.charAt(0).toUpperCase() + root.slice(1);
+  return partyKey(item, ownDomain);
 }
 
 /**
@@ -628,13 +633,14 @@ function collapseAutomatedSeeds(
 ): Matter {
   const items = seeds.map((s) => s.item);
   const company = senderCompany(items[0], ownDomain);
+  const companyName = counterparty(items[0], ownDomain);
   const nameCounts = new Map<string, number>();
   for (const it of items) {
     const n = stripEmoji(it.fromName || "").trim();
     if (n && n.length <= 40) nameCounts.set(n, (nameCounts.get(n) ?? 0) + 1);
   }
   const display =
-    [...nameCounts.entries()].sort((a, b) => b[1] - a[1])[0]?.[0] || company;
+    [...nameCounts.entries()].sort((a, b) => b[1] - a[1])[0]?.[0] || companyName;
   const owner = seeds.some((s) => s.understanding?.owner === "you")
     ? "you"
     : "them";
@@ -734,7 +740,7 @@ function affinityKey(
     // dozens of singletons the model never sees together. Fall through to
     // the counterparty so the whole relationship is read as one.
   }
-  return `party:${counterparty(item, ownDomain).toLowerCase()}`;
+  return `party:${partyKey(item, ownDomain)}`;
 }
 
 /**

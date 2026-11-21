@@ -18,6 +18,7 @@ import {
 import type { ActionMemory } from "@/lib/store/action-memory";
 import type { PeopleDb } from "@/lib/store/people";
 import { latestSignalFor, type WorkSignal } from "@/lib/brain/signals";
+import { companyKey, senderDomain } from "@/lib/mail/sender-domain";
 
 /**
  * THE CONTEXT COMPILER — the center of the Seer brain.
@@ -80,18 +81,18 @@ const PACKET_MAX_CHARS = 1000;
 const FREEMAIL =
   /^(gmail|googlemail|outlook|hotmail|live|yahoo|ymail|aol|icloud|me|msn|proton|protonmail|comcast|sbcglobal|att|verizon)\./;
 
-/** The company (or person, for freemail) an address belongs to. */
+/**
+ * The company an address belongs to (see companyKey), or the colleague's
+ * name for the user's own domain. Personal mail has no company, and its
+ * local part is the sender's own choice, so it matches nothing.
+ */
 function counterpartyLabel(email: string, ownDomain: string): string {
-  const domain = email.split("@")[1]?.toLowerCase() ?? "";
+  const domain = senderDomain(email);
   if (!domain || (ownDomain && domain === ownDomain)) {
     return email.split("@")[0] ?? "";
   }
-  const bare = domain.replace(
-    /^(mail|email|e|smtp|notifications?|no-?reply|info|reply|bounce|em|mailer|send|go|links?)\./,
-    "",
-  );
-  if (!bare || FREEMAIL.test(`${bare}.`)) return email.split("@")[0] ?? "";
-  return bare.split(".")[0] ?? "";
+  if (FREEMAIL.test(`${domain}.`)) return "";
+  return companyKey(domain);
 }
 
 /** Lowercase word set for loose token matching in titles/narratives. */
@@ -245,7 +246,10 @@ export function compileEmailContext(
   // Drive, notes). Joins by counterparty and any code in the email.
   if (sources.workSignals?.length) {
     const codes = (hay.match(CODE_PATTERN) ?? []).map((c) => normalizeCode(c));
-    const sig = latestSignalFor(sources.workSignals, [counterparty, ...codes]);
+    const sig = latestSignalFor(
+      sources.workSignals,
+      [counterparty, ...codes].filter(Boolean),
+    );
     if (sig) {
       const when = sig.at.slice(0, 10);
       const mins = sig.minutes ? ` (${sig.minutes}m)` : "";

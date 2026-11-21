@@ -11,6 +11,8 @@
  * similarity alone never merges.
  */
 
+import { companyKey, senderDomain } from "../../mail/sender-domain";
+
 /**
  * Project, study, and sourcing-event codes used across this corpus:
  * RD007704, RCD_2818, BIM_2747, LMD_2801, TGRP32, EUR2875, TZC0430556,
@@ -91,19 +93,21 @@ export function extractCodes(text: string): string[] {
   return [...found];
 }
 
-/** The counterparty a conversation belongs to, from the sender's domain. */
 const FREEMAIL = /^(gmail|googlemail|outlook|hotmail|live|yahoo|icloud|me|aol|proton|protonmail)\./;
 
+/**
+ * The counterparty a conversation belongs to: the sender's full company
+ * domain (see companyKey), "internal" for the user's own domain, or "" when
+ * the domain names no company. A company whose key would read "internal"
+ * keeps its full domain so it can never pass for the user's own mail.
+ */
 export function counterpartyOf(fromEmail: string, ownDomain: string): string {
-  const domain = (fromEmail.split("@")[1] ?? "").toLowerCase();
+  const domain = senderDomain(fromEmail);
   if (!domain) return "";
   if (ownDomain && domain === ownDomain.toLowerCase()) return "internal";
-  const bare = domain.replace(
-    /^(mail|email|e|smtp|notifications?|no-?reply|info|reply|bounce|em|mailer|send|go|links?|vendor|global|list|news|newsletters?)\./,
-    "",
-  );
-  if (!bare || FREEMAIL.test(`${bare}.`)) return "";
-  return bare.split(".")[0];
+  if (FREEMAIL.test(`${domain}.`)) return "";
+  const key = companyKey(domain);
+  return key === "internal" ? domain : key;
 }
 
 export function significantWords(text: string): Set<string> {
@@ -151,7 +155,12 @@ export function matterNameFrom(
   }
 
   const codes = extractCodes(text);
-  const company = counterparty && counterparty !== "internal" ? titleCase(counterparty) : "";
+  const company =
+    !counterparty || counterparty === "internal"
+      ? ""
+      : counterparty.includes(".")
+        ? counterparty
+        : titleCase(counterparty);
   if (codes.length > 0) {
     return [company, codes[0]].filter(Boolean).join(" ").slice(0, 120);
   }

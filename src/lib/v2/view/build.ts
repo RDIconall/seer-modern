@@ -51,6 +51,7 @@ function counterpartyLabel(fromEmail: string | null, ownDomain: string): string 
   const counterparty = counterpartyOf(fromEmail ?? "", ownDomain);
   if (!counterparty) return "";
   if (counterparty === "internal") return "Internal";
+  if (counterparty.includes(".")) return counterparty;
   return counterparty.charAt(0).toUpperCase() + counterparty.slice(1);
 }
 
