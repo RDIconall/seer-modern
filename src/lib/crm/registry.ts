@@ -102,6 +102,62 @@ export function opportunityIndex(
   return map;
 }
 
+const ADDRESS = /[^\s<>()[\]",;:@]+@[^\s<>()[\]",;:@]+\.[^\s<>()[\]",;:@]+/g;
+const BARE_ADDRESS = /^[^\s<>()[\]",;:@]+@[^\s<>()[\]",;:@]+\.[^\s<>()[\]",;:@]+$/;
+
+/** Every email address written into a CRM field, lowercased. */
+function addressesIn(value?: string): string[] {
+  return (value?.match(ADDRESS) ?? []).map((a) => a.toLowerCase());
+}
+
+/**
+ * The part of the registry one sender is tied to: opportunities whose owner
+ * field holds that address, and studies with a site whose investigator field
+ * holds it. A code in a subject or preview is something anyone can type, so
+ * registry facts attach to mail only through this slice. Matching is on the
+ * address the CRM holds — never the display name, which the sender chooses.
+ */
+export function senderRegistry(
+  reg: SalesforceRegistry,
+): (fromEmail: string) => SalesforceRegistry {
+  const oppsBy = new Map<string, SalesforceOpportunity[]>();
+  for (const o of reg.opportunities) {
+    for (const a of new Set(addressesIn(o.owner))) {
+      oppsBy.set(a, [...(oppsBy.get(a) ?? []), o]);
+    }
+  }
+  const studiesBy = new Map<string, Set<string>>();
+  for (const site of reg.sites ?? []) {
+    const k = site.studyCode ? normalizeCode(site.studyCode) : "";
+    if (!k) continue;
+    for (const a of addressesIn(site.investigator)) {
+      studiesBy.set(a, (studiesBy.get(a) ?? new Set()).add(k));
+    }
+  }
+  const cache = new Map<string, SalesforceRegistry>();
+  return (fromEmail) => {
+    const sender = fromEmail.trim().toLowerCase();
+    const hit = cache.get(sender);
+    if (hit) return hit;
+    const codes = BARE_ADDRESS.test(sender)
+      ? (studiesBy.get(sender) ?? new Set<string>())
+      : new Set<string>();
+    const tied: SalesforceRegistry = {
+      studies: reg.studies.filter((s) => codes.has(normalizeCode(s.code))),
+      opportunities: BARE_ADDRESS.test(sender)
+        ? (oppsBy.get(sender) ?? [])
+        : [],
+      sites: (reg.sites ?? []).filter(
+        (s) => s.studyCode && codes.has(normalizeCode(s.studyCode)),
+      ),
+      source: reg.source,
+      syncedAt: reg.syncedAt,
+    };
+    cache.set(sender, tied);
+    return tied;
+  };
+}
+
 /**
  * Parse a pasted Salesforce report (CSV or TSV). Column names are
  * matched loosely so any of the standard report layouts works.

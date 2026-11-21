@@ -13,6 +13,7 @@ import {
   formatAmount,
   normalizeCode,
   opportunityIndex,
+  senderRegistry,
   type SalesforceRegistry,
 } from "@/lib/crm/registry";
 import type { ActionMemory } from "@/lib/store/action-memory";
@@ -202,7 +203,12 @@ export function compileEmailContext(
   }
   if (ctx.inContacts) senderBits.push("in your saved contacts [explicit]");
   if ((sig.keptFrom ?? 0) > 0) senderBits.push(`you keep their mail (${sig.keptFrom}) [observed]`);
-  const who = input.fromName || counterparty || email;
+  // The display name is the sender's own text: it must not forge a
+  // provenance tag or start a line of its own.
+  const who =
+    (input.fromName ?? "").replace(/[[\]\r\n]+/g, " ").trim() ||
+    counterparty ||
+    email;
   if (senderBits.length) {
     lines.push(`SENDER: ${who} <${email}> — ${senderBits.join("; ")}`);
     refs.push(`person:${email}`);
@@ -232,9 +238,10 @@ export function compileEmailContext(
     }
   }
 
-  // CRM — authoritative facts for any code in the email
+  // CRM — authoritative facts for any code in the email, only from the
+  // records this sender is tied to
   if (sources.salesforce) {
-    const crm = crmLine(hay, sources.salesforce);
+    const crm = crmLine(hay, senderRegistry(sources.salesforce)(email));
     if (crm) {
       lines.push(`CRM: ${crm.text} [system]`);
       refs.push(crm.ref);
@@ -267,9 +274,11 @@ export function compileEmailContext(
 
   if (lines.length === 0) return { text: "", refs: [] };
 
+  // The [system] tag is named only when a CRM record is in this packet, so
+  // a packet for an untied sender carries no CRM authority at all.
   const header =
     "CONTEXT (evidence about this sender and the work it belongs to; " +
-    "[explicit] and [system] facts OUTRANK your own read, [inference] is a hint, " +
+    `[explicit]${refs.some((r) => r.startsWith("crm:")) ? " and [system]" : ""} facts OUTRANK your own read, [inference] is a hint, ` +
     "and no context means the sender is genuinely peripheral):";
   let text = `${header}\n${lines.join("\n")}`;
   if (text.length > PACKET_MAX_CHARS) text = `${text.slice(0, PACKET_MAX_CHARS)}…`;

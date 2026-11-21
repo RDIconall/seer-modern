@@ -37,6 +37,7 @@ import {
   loadSalesforce,
   normalizeCode,
   opportunityIndex,
+  senderRegistry,
   type SalesforceRegistry,
 } from "@/lib/store/salesforce";
 
@@ -672,27 +673,39 @@ function collapseAutomatedSeeds(
 }
 
 /**
- * The CRM record behind a matter, resolved by the codes its emails cite.
+ * The CRM record behind a matter, resolved by the codes its emails cite —
+ * only from an email whose sender the registry ties to that record.
  * Amounts and stages come from Salesforce, never from the model.
  */
 function crmFactsFor(
   emails: EmailItem[],
-  idx: {
-    opps: Map<string, { account?: string; stage?: string; amount?: number; closeDate?: string; code: string }>;
-    studyIndex: Map<string, { account?: string; status?: string; name?: string; code: string }>;
-    sitesByStudy: Map<string, string[]>;
-  },
+  tiedTo: (fromEmail: string) => SalesforceRegistry,
 ): Matter["crm"] {
   for (const e of emails) {
     const codes =
       `${e.subject}\n${e.snippet}\n${e.guide?.task ?? ""}`.match(CODE_PATTERN) ??
       [];
+    if (codes.length === 0) continue;
+    const reg = tiedTo(e.fromEmail);
+    const opps = opportunityIndex(reg);
+    const studyIndex = new Map(
+      reg.studies.map((st) => [normalizeCode(st.code), st]),
+    );
     for (const raw of codes) {
       const k = normalizeCode(raw);
-      const opp = idx.opps.get(k);
-      const study = idx.studyIndex.get(k);
+      const opp = opps.get(k);
+      const study = studyIndex.get(k);
       if (!opp && !study) continue;
-      const investigators = idx.sitesByStudy.get(k);
+      const investigators = study
+        ? (reg.sites ?? [])
+            .filter(
+              (s) =>
+                s.investigator &&
+                s.studyCode &&
+                normalizeCode(s.studyCode) === k,
+            )
+            .map((s) => s.investigator as string)
+        : undefined;
       return {
         code: (opp?.code ?? study?.code ?? raw).toUpperCase(),
         account: opp?.account ?? study?.account,
@@ -1077,17 +1090,27 @@ export async function buildBrief(
   const salesforce: SalesforceRegistry = await loadSalesforce(
     accountEmail,
   ).catch(() => ({ studies: [], opportunities: [], sites: [] }));
-  const labels = codeLabels(salesforce);
-  const opps = opportunityIndex(salesforce);
-  const studyIndex = new Map(
-    salesforce.studies.map((st) => [normalizeCode(st.code), st]),
-  );
-  const sitesByStudy = new Map<string, string[]>();
-  for (const site of salesforce.sites ?? []) {
-    if (!site.studyCode || !site.investigator) continue;
-    const k = normalizeCode(site.studyCode);
-    sitesByStudy.set(k, [...(sitesByStudy.get(k) ?? []), site.investigator]);
-  }
+  const tiedTo = senderRegistry(salesforce);
+  const labelsBySender = new Map<string, Map<string, string>>();
+  /** Registry labels for the codes this item's sender is tied to */
+  const labelsFor = (item: EmailItem): Map<string, string> => {
+    const key = item.fromEmail.trim().toLowerCase();
+    let found = labelsBySender.get(key);
+    if (!found) {
+      found = codeLabels(tiedTo(item.fromEmail));
+      labelsBySender.set(key, found);
+    }
+    return found;
+  };
+  /** The registry the model may see for a batch: what its senders are tied to */
+  const registryFor = (batch: EmailItem[]): SalesforceRegistry => {
+    const parts = batch.map((i) => tiedTo(i.fromEmail));
+    return {
+      studies: [...new Set(parts.flatMap((p) => p.studies))],
+      opportunities: [...new Set(parts.flatMap((p) => p.opportunities))],
+      sites: [...new Set(parts.flatMap((p) => p.sites ?? []))],
+    };
+  };
   const ownDomain = accountEmail.split("@")[1]?.toLowerCase() ?? "";
   // The user's own org corrections — absolute ground truth
   const fixes: MatterFixes = await loadMatterFixes(accountEmail).catch(
@@ -1127,7 +1150,7 @@ export async function buildBrief(
   const CLUSTER_CONCURRENCY = 4;
   const chunks = packByAffinity(
     threadRows,
-    (r) => affinityKey(r, labels, ownDomain, readOf(r.threadId)),
+    (r) => affinityKey(r, labelsFor(r), ownDomain, readOf(r.threadId)),
     CHUNK,
     MAX_CHUNKS,
   );
@@ -1135,7 +1158,7 @@ export async function buildBrief(
   {
     const sizes = new Map<string, number>();
     for (const r of threadRows) {
-      const k = affinityKey(r, labels, ownDomain, readOf(r.threadId));
+      const k = affinityKey(r, labelsFor(r), ownDomain, readOf(r.threadId));
       sizes.set(k, (sizes.get(k) ?? 0) + 1);
     }
     const top = [...sizes.entries()]
@@ -1162,92 +1185,95 @@ export async function buildBrief(
     if (picked.size >= 24) break;
   }
 
-  const payloadFor = (batch: EmailItem[]) => ({
-    functions,
-    userOrgCorrections: Object.entries(fixes).map(([matterId, f]) => ({
-      matterId,
-      orgUnit: f.orgUnit,
-    })),
-    labeledExamples: [...picked.entries()].map(([subject, category]) => ({
-      subject,
-      category,
-    })),
-    previousMatters: (prev?.matters ?? []).map((m) => ({
-      id: m.id,
-      title: m.title,
-      narrative: m.narrative,
-      owner: m.owner,
-      urgency: m.urgency,
-      orgUnit: m.orgUnit,
-      people: m.people,
-    })),
-    // Live CRM truth: what is actually running, and what it is worth
-    activeStudies: salesforce.studies.slice(0, 80).map((x) =>
-      [x.code, x.name, x.account, x.status].filter(Boolean).join(" · "),
-    ),
-    openOpportunities: salesforce.opportunities.slice(0, 80).map((x) =>
-      [
-        x.code,
-        x.name,
-        x.account,
-        x.stage,
-        x.amount ? `$${Math.round(x.amount).toLocaleString()}` : "",
-        x.closeDate ? `closes ${x.closeDate}` : "",
-      ]
-        .filter(Boolean)
-        .join(" · "),
-    ),
-    knownInvestigators: (salesforce.sites ?? [])
-      .slice(0, 80)
-      .map((s) =>
-        [s.investigator, s.name, s.city, s.studyCode]
+  const payloadFor = (batch: EmailItem[]) => {
+    const crm = registryFor(batch);
+    return {
+      functions,
+      userOrgCorrections: Object.entries(fixes).map(([matterId, f]) => ({
+        matterId,
+        orgUnit: f.orgUnit,
+      })),
+      labeledExamples: [...picked.entries()].map(([subject, category]) => ({
+        subject,
+        category,
+      })),
+      previousMatters: (prev?.matters ?? []).map((m) => ({
+        id: m.id,
+        title: m.title,
+        narrative: m.narrative,
+        owner: m.owner,
+        urgency: m.urgency,
+        orgUnit: m.orgUnit,
+        people: m.people,
+      })),
+      // Live CRM truth: what is actually running, and what it is worth
+      activeStudies: crm.studies.slice(0, 80).map((x) =>
+        [x.code, x.name, x.account, x.status].filter(Boolean).join(" · "),
+      ),
+      openOpportunities: crm.opportunities.slice(0, 80).map((x) =>
+        [
+          x.code,
+          x.name,
+          x.account,
+          x.stage,
+          x.amount ? `$${Math.round(x.amount).toLocaleString()}` : "",
+          x.closeDate ? `closes ${x.closeDate}` : "",
+        ]
           .filter(Boolean)
           .join(" · "),
       ),
-    inbox: batch.map((i) => {
-      const study = `${i.subject}\n${i.snippet}`.match(STUDY_CODE)?.[0];
-      const d = i.guide?.debug;
-      const u = readOf(i.threadId);
-      const msgs = threadMsgs.get(i.threadId)?.length ?? 1;
-      return {
-        id: i.id,
-        from: stripEmoji(i.fromName || i.fromEmail),
-        email: i.fromEmail,
-        subject: stripEmoji(i.subject),
-        // This entry is a conversation: how many replies, and who spoke
-        ...(msgs > 1 ? { messages: msgs } : {}),
-        ...(i.threadSenders?.length ? { voices: i.threadSenders } : {}),
-        // The deep read, when we have it: what this email actually means
-        ...(u
-          ? {
-              kind: u.kind,
-              means: u.oneLine,
-              ask: u.ask,
-              owner: u.owner,
-              ...(u.deadline ? { deadline: u.deadline } : {}),
-              ...(u.amounts?.length ? { amounts: u.amounts } : {}),
-              ...(u.entities.length ? { entities: u.entities } : {}),
-              ...(u.signature ? { awaitsSignature: u.signature.document } : {}),
-              suggestedOrg: u.org.unit,
-              importance: u.importance,
-            }
-          : {
-              gist: stripEmoji(i.guide?.task ?? i.snippet.slice(0, 160)),
-              importance: i.guide?.importance,
-            }),
-        action: i.guide?.action,
-        receivedAt: i.receivedAt.slice(0, 10),
-        // Deterministic evidence: resolved before the model reasons
-        ...(study ? { studyCode: study.toUpperCase() } : {}),
-        ...(vendorEmails.has(i.fromEmail.toLowerCase())
-          ? { vendor: true }
-          : {}),
-        ...(d && d.sentTo === 0 && d.receivedFrom <= 1
-          ? { firstContact: true }
-          : {}),
-      };
-    }),
-  });
+      knownInvestigators: (crm.sites ?? [])
+        .slice(0, 80)
+        .map((s) =>
+          [s.investigator, s.name, s.city, s.studyCode]
+            .filter(Boolean)
+            .join(" · "),
+        ),
+      inbox: batch.map((i) => {
+        const study = `${i.subject}\n${i.snippet}`.match(STUDY_CODE)?.[0];
+        const d = i.guide?.debug;
+        const u = readOf(i.threadId);
+        const msgs = threadMsgs.get(i.threadId)?.length ?? 1;
+        return {
+          id: i.id,
+          from: stripEmoji(i.fromName || i.fromEmail),
+          email: i.fromEmail,
+          subject: stripEmoji(i.subject),
+          // This entry is a conversation: how many replies, and who spoke
+          ...(msgs > 1 ? { messages: msgs } : {}),
+          ...(i.threadSenders?.length ? { voices: i.threadSenders } : {}),
+          // The deep read, when we have it: what this email actually means
+          ...(u
+            ? {
+                kind: u.kind,
+                means: u.oneLine,
+                ask: u.ask,
+                owner: u.owner,
+                ...(u.deadline ? { deadline: u.deadline } : {}),
+                ...(u.amounts?.length ? { amounts: u.amounts } : {}),
+                ...(u.entities.length ? { entities: u.entities } : {}),
+                ...(u.signature ? { awaitsSignature: u.signature.document } : {}),
+                suggestedOrg: u.org.unit,
+                importance: u.importance,
+              }
+            : {
+                gist: stripEmoji(i.guide?.task ?? i.snippet.slice(0, 160)),
+                importance: i.guide?.importance,
+              }),
+          action: i.guide?.action,
+          receivedAt: i.receivedAt.slice(0, 10),
+          // Deterministic evidence: resolved before the model reasons
+          ...(study ? { studyCode: study.toUpperCase() } : {}),
+          ...(vendorEmails.has(i.fromEmail.toLowerCase())
+            ? { vendor: true }
+            : {}),
+          ...(d && d.sentTo === 0 && d.receivedFrom <= 1
+            ? { firstContact: true }
+            : {}),
+        };
+      }),
+    };
+  };
 
   const { model } = await getTriageModel();
   const profileBlock = profilePromptBlock(profile ?? null);
@@ -1472,8 +1498,8 @@ export async function buildBrief(
         // User corrections are ground truth even if the model ignored them
         orgUnit: fixes[m.id]?.orgUnit ?? m.orgUnit,
         orgConfidence: fixes[m.id] ? 1 : m.orgConfidence,
-        subUnit: rows[0] ? subUnitFor(rows[0], labels, ownDomain) : undefined,
-        crm: crmFactsFor(rows, { opps, studyIndex, sitesByStudy }),
+        subUnit: rows[0] ? subUnitFor(rows[0], labelsFor(rows[0]), ownDomain) : undefined,
+        crm: crmFactsFor(rows, tiedTo),
         emails: rows.map((i) => {
           const u = readOf(i.threadId);
           const count = threadMsgs.get(i.threadId)?.length ?? 1;
@@ -1610,7 +1636,7 @@ export async function buildBrief(
       emailId: i.id,
       threadId: i.threadId,
       orgUnit: orgUnitFor(i, functions, u).unit,
-      subUnit: subUnitFor(i, labels, ownDomain),
+      subUnit: subUnitFor(i, labelsFor(i), ownDomain),
       fromName: personName(i),
       fromEmail: i.fromEmail,
       subject: stripEmoji(i.subject),
@@ -1848,7 +1874,7 @@ export async function buildBrief(
       nextAction: mm.nextAction ?? "none — yours to define",
       owner: "you",
       urgency: 2,
-      subUnit: rows[0] ? subUnitFor(rows[0], labels, ownDomain) : undefined,
+      subUnit: rows[0] ? subUnitFor(rows[0], labelsFor(rows[0]), ownDomain) : undefined,
       emails: rows.map((i) => {
         const u = readOf(i.threadId);
         const n = threadMsgs.get(i.threadId)?.length ?? 1;
