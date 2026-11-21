@@ -329,10 +329,24 @@ export async function sendGraphMessage(
   return { id: "sent" };
 }
 
+function encodeHtmlText(text: string): string {
+  return text
+    .replace(/&/g, "&amp;")
+    .replace(/</g, "&lt;")
+    .replace(/>/g, "&gt;")
+    .replace(/"/g, "&quot;")
+    .replace(/'/g, "&#39;");
+}
+
+/**
+ * `text` is plain text. Graph splices `comment` verbatim into the reply's
+ * HTML body, so it must be encoded here or markup in the text renders for
+ * every recipient.
+ */
 export async function replyGraphMessage(
   accessToken: string,
   id: string,
-  body: string,
+  text: string,
   replyAll = false,
 ): Promise<void> {
   const path = replyAll
@@ -340,7 +354,7 @@ export async function replyGraphMessage(
     : `/me/messages/${id}/reply`;
   await graphFetch(accessToken, path, {
     method: "POST",
-    body: JSON.stringify({ comment: body }),
+    body: JSON.stringify({ comment: encodeHtmlText(text) }),
   });
 }
 
