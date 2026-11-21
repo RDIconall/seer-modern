@@ -18,6 +18,7 @@ import {
 import type { ActionMemory } from "@/lib/store/action-memory";
 import type { PeopleDb } from "@/lib/store/people";
 import { latestSignalFor, type WorkSignal } from "@/lib/brain/signals";
+import { packetAddress, packetText } from "@/lib/v2/intelligence/packet-field";
 
 /**
  * THE CONTEXT COMPILER — the center of the Seer brain.
@@ -187,7 +188,9 @@ export function compileEmailContext(
   const senderBits: string[] = [];
   if (person?.vip) senderBits.push("VIP — you pinned them [explicit]");
   else if (person?.tier && person.tier !== "machine") {
-    senderBits.push(`${person.tier} [${person.by === "ai" ? "inference" : "observed"}]`);
+    senderBits.push(
+      `${packetText(person.tier, 20)} [${person.by === "ai" ? "inference" : "observed"}]`,
+    );
   }
   if (sig.relationship === "engaged") {
     senderBits.push(`you email them (sent ${sig.sentTo}) [observed]`);
@@ -202,17 +205,25 @@ export function compileEmailContext(
   }
   if (ctx.inContacts) senderBits.push("in your saved contacts [explicit]");
   if ((sig.keptFrom ?? 0) > 0) senderBits.push(`you keep their mail (${sig.keptFrom}) [observed]`);
-  const who = input.fromName || counterparty || email;
+  const shownAddress = packetAddress(email);
+  const who =
+    packetText(input.fromName, 80) ||
+    packetText(counterparty, 80) ||
+    shownAddress ||
+    "unknown sender";
+  const address = shownAddress
+    ? `<${shownAddress}>`
+    : "(address withheld: not a valid email address)";
   if (senderBits.length) {
-    lines.push(`SENDER: ${who} <${email}> — ${senderBits.join("; ")}`);
+    lines.push(`SENDER: ${who} ${address} — ${senderBits.join("; ")}`);
     refs.push(`person:${email}`);
   } else {
     // Absence is evidence: no relationship on record at all.
-    lines.push(`SENDER: ${who} <${email}> — no prior relationship on record [observed]`);
+    lines.push(`SENDER: ${who} ${address} — no prior relationship on record [observed]`);
   }
 
   // MEETING — a shared calendar event with this sender
-  const meet = meetingLabel(ctx.meeting);
+  const meet = packetText(meetingLabel(ctx.meeting), 160);
   if (meet) {
     lines.push(`MEETING: ${meet} [calendar]`);
     refs.push(`calendar:${ctx.meeting?.subject ?? ""}`);
@@ -223,9 +234,10 @@ export function compileEmailContext(
     const hit = bestPriorMatter(email, hay, counterparty, sources.priorMatters);
     if (hit) {
       const conf = Math.min(0.95, 0.6 + hit.score * 0.1).toFixed(2);
+      const narrative = packetText(hit.matter.narrative, 240);
       lines.push(
-        `LIKELY MATTER: ${hit.matter.title}${
-          hit.matter.narrative ? ` — ${hit.matter.narrative}` : ""
+        `LIKELY MATTER: ${packetText(hit.matter.title, 120)}${
+          narrative ? ` — ${narrative}` : ""
         } [inference ${conf}]`,
       );
       refs.push(`matter:${hit.matter.id}`);
@@ -236,7 +248,7 @@ export function compileEmailContext(
   if (sources.salesforce) {
     const crm = crmLine(hay, sources.salesforce);
     if (crm) {
-      lines.push(`CRM: ${crm.text} [system]`);
+      lines.push(`CRM: ${packetText(crm.text, 240)} [system]`);
       refs.push(crm.ref);
     }
   }
@@ -250,7 +262,7 @@ export function compileEmailContext(
       const when = sig.at.slice(0, 10);
       const mins = sig.minutes ? ` (${sig.minutes}m)` : "";
       lines.push(
-        `WORK: you ${sig.kind} "${sig.label}"${mins} on ${when} — this concern is active [observed]`,
+        `WORK: you ${packetText(sig.kind, 30)} ${JSON.stringify(packetText(sig.label, 120))}${mins} on ${packetText(when, 10)} — this concern is active [observed]`,
       );
       refs.push(`work:${sig.source}:${sig.ref ?? sig.label}`);
     }

@@ -4,6 +4,7 @@ import {
   ownTokens,
   resolveMatterMatch,
 } from "./matter-key";
+import { packetAddress, packetText } from "./packet-field";
 
 /**
  * The context packet fed alongside the full conversation. It is the smallest
@@ -81,17 +82,13 @@ export function compileContext(
   const lines: string[] = [];
   const refs: string[] = [];
 
-  const guidance = input.operatingGuidance?.trim();
+  const guidance = packetText(input.operatingGuidance, 500);
   if (guidance) {
-    lines.push(
-      `[explicit] how this desk is organised (user): ${guidance.slice(0, 500)}`,
-    );
+    lines.push(`[explicit] how this desk is organised (user): ${guidance}`);
   }
-  const mailboxStyle = input.mailboxStyleGuidance?.trim();
+  const mailboxStyle = packetText(input.mailboxStyleGuidance, 400);
   if (mailboxStyle) {
-    lines.push(
-      `[explicit] how this person uses mail (user): ${mailboxStyle.slice(0, 400)}`,
-    );
+    lines.push(`[explicit] how this person uses mail (user): ${mailboxStyle}`);
   }
 
   const senderEmail = conversation.messages[0]?.from.email?.toLowerCase() ?? "";
@@ -104,16 +101,22 @@ export function compileContext(
     person && (person.vip || person.tier === "inner" || person.tier === "known"),
   );
 
+  const shownAddress = packetAddress(senderEmail);
+  const sender = shownAddress
+    ? `sender ${shownAddress}`
+    : "sender (address withheld: not a valid email address)";
   if (person) {
     lines.push(
-      `[observed] sender ${senderEmail} is tier=${person.tier}${person.vip ? " (VIP)" : ""}`,
+      `[observed] ${sender} is tier=${packetText(person.tier, 20)}${person.vip ? " (VIP)" : ""}`,
     );
     refs.push(`person:${senderEmail}`);
   } else if (senderEmail) {
-    lines.push(`[observed] sender ${senderEmail} has no prior relationship on record`);
+    lines.push(`[observed] ${sender} has no prior relationship on record`);
   }
   if (senderIsInternal) {
-    lines.push(`[system] sender is inside your organization (${input.ownDomain})`);
+    lines.push(
+      `[system] sender is inside your organization (${packetText(input.ownDomain, 100)})`,
+    );
   }
 
   const placement = (input.placements ?? []).filter(
@@ -161,7 +164,7 @@ export function compileContext(
     const matter = input.matters.find((item) => item.id === matterMatch.matterId);
     if (matter) {
       lines.push(
-        `[inference] may continue the live matter "${matter.title}" (conservative relation match)`,
+        `[inference] may continue the live matter ${JSON.stringify(packetText(matter.title, 120))} (conservative relation match)`,
       );
       refs.push(`matter:${matter.id}`);
     }
@@ -172,7 +175,9 @@ export function compileContext(
     [...tokens(i)].some((t) => interestHaystack.has(t)),
   );
   for (const interest of relevantInterests) {
-    lines.push(`[explicit] you said you care about: ${interest}`);
+    const shown = packetText(interest, 120);
+    if (!shown) continue;
+    lines.push(`[explicit] you said you care about: ${shown}`);
     refs.push(`interest:${interest}`);
   }
 
