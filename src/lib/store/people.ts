@@ -58,9 +58,13 @@ export async function savePeople(
   await kvSet(keyFor(accountEmail), db);
 }
 
-/** Machine-shaped local part — the cheap half of the main filter. */
+/**
+ * Machine-shaped local part — the cheap half of the main filter. Whole
+ * roles only (followed by the end or a non-letter): hilary@, newstudent@
+ * and teamlead@ are people.
+ */
 export const MACHINE_LOCALPART =
-  /^(no-?reply|donotreply|noreply|notifications?|alerts?|updates?|news(letter)?|marketing|promo(tions)?|deals|offers|info|hello|hi|support|help|billing|receipts?|orders?|shipping|tracking(updates)?|delivery|auto-?send|messages?\+|mcinfo|store|shop|sales|team|admin|system|mailer|bounce|digest|community|feedback|survey|invite|calendar-notification|drive-shares|comments)/i;
+  /^(?:(no-?reply|donotreply|noreply|notifications?|alerts?|updates?|news(letters?)?|marketing|promos?|promotions?|deals|offers|info|hello|hi|support|help|billing|receipts?|orders?|shipping|tracking(updates)?|delivery|auto-?send|mcinfo|store|shop|sales|team|admin|system|mailer|bounces?|digests?|community|feedback|surveys?|invites?|invitations?|calendar-notification|drive-shares|comments)(?![a-z])|messages?\+)/i;
 
 /**
  * Resolve a sender's tier from FREE local evidence. Returns null when
