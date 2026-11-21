@@ -64,11 +64,17 @@ function daysBetween(iso: string | undefined, now = Date.now()): number | null {
   return (now - t) / (1000 * 60 * 60 * 24);
 }
 
+/**
+ * Whole local part only. The From address is chosen by whoever sends the
+ * mail, so a prefix match would let "alerts@" or "updates-weekly@" claim
+ * the bulk shape on the first message.
+ */
+const BULK_LOCALPART =
+  /^(no-?reply|donotreply|noreply|notifications|alert|updates|mailer-daemon|newsletter|promo|deals|offers)$/i;
+
 function looksBulkAddress(email: string): boolean {
   const local = email.split("@")[0] ?? "";
-  return /^(no-?reply|donotreply|noreply|notifications|alert|updates|mailer-daemon|newsletter|promo|deals|offers)/i.test(
-    local,
-  );
+  return BULK_LOCALPART.test(local);
 }
 
 export function buildMailHistory(
@@ -194,7 +200,7 @@ export function historySignals(
   // messages the user reads and files is a signed-up-for service, not
   // bulk ("I signed up for it and there is history for that").
   else if (keptFrom >= 2) relationship = "known";
-  else if (looksBulkAddress(email)) relationship = "bulk";
+  else if (keptFrom === 0 && looksBulkAddress(email)) relationship = "bulk";
   else if (receivedFrom >= 3) relationship = "known";
   else relationship = "cold";
 

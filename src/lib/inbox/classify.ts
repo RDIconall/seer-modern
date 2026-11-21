@@ -235,8 +235,9 @@ const FINANCE_DOMAINS =
 const SHOPPING_DOMAINS =
   /(capitaloneshopping|retailmenot|honey\.|rakuten|slickdeals|groupon|shopify|email\.amazon\.|marketing\.amazon)/i;
 
-const MARKETING_LOCAL =
-  /^(promo|deals|offers|newsletter|news|marketing|hello@|info@|team@|notifications@|noreply@|no-reply@)/i;
+/** Whole local part only — a sender picks its own From address, so a
+ *  prefix ("marketing-team", "newsroom") must not claim the shape. */
+const MARKETING_LOCAL = /^(promo|deals|offers|newsletter|news|marketing)$/i;
 
 const MARKETING_SUBDOMAIN = /^(mail|email|m|e|news|promo|marketing|go|em)\./i;
 
@@ -520,12 +521,11 @@ function classifyCore(
         ctx,
       );
     }
-    // Untrusted urgency = marketing costume. Bulk/noreply shape → bin it.
-    if (
-      signals.relationship === "bulk" ||
-      NOREPLY.test(local) ||
-      isMarketingShape(local, dom, blob)
-    ) {
+    // Untrusted urgency = marketing costume when the mail is marketing.
+    // A bulk/noreply address shape alone is not enough: alerts and
+    // account notices use those mailboxes too, and the address is the
+    // sender's own claim. Those fall through to bulk-keep-until-read.
+    if (isMarketingShape(local, dom, blob)) {
       return hit(
         "delete_now",
         "MED",
