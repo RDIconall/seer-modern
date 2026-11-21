@@ -6,6 +6,7 @@ import {
 } from "./db/accounts";
 import { getActiveAccountId } from "../store/accounts";
 import { isAllowedOrgEmail } from "@/lib/auth/org";
+import { currentRequestIsSameOrigin } from "@/lib/security/request-origin";
 
 /**
  * Resolve the signed-in user's active v2 mail account. Returns null when the
@@ -67,7 +68,12 @@ export function effectiveActiveAccountId(
   return selectV2Account(accounts, activeId, sessionEmail)?.id ?? null;
 }
 
+/**
+ * A request the app's own pages did not make gets no mailbox, so a cross-site
+ * navigation cannot spend the account's provider access.
+ */
 export async function getActiveV2Account(): Promise<MailAccount | null> {
+  if (!(await currentRequestIsSameOrigin())) return null;
   const session = await auth();
   const email = session?.user?.email?.toLowerCase();
   if (!email || !isV2Enabled(email)) return null;

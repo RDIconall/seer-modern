@@ -17,9 +17,6 @@ export async function GET(req: Request) {
       new URL(`${returnTo}?settings=1&sf=${note}`, origin),
     );
 
-  const session = await requireMailSession();
-  if (!session) return settings("signin");
-
   const url = new URL(req.url);
   const code = url.searchParams.get("code");
   const state = url.searchParams.get("state");
@@ -30,6 +27,11 @@ export async function GET(req: Request) {
   const verifier = jarEarly.get("sf_verifier")?.value;
   const expected = jarEarly.get("sf_state")?.value;
   if (!verifier || !expected || expected !== state) return settings("state");
+
+  // Salesforce redirects here cross-site; the state matched above is what
+  // shows this browser started the flow from /api/salesforce/connect.
+  const session = await requireMailSession({ allowCrossSite: true });
+  if (!session) return settings("signin");
 
   const app = await loadApp(session.email);
   if (!app) return settings("no-app");
