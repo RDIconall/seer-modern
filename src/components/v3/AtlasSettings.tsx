@@ -32,6 +32,7 @@ export function AtlasSettings() {
   const [functions, setFunctions] = useState<Draft[]>([]);
   const [topics, setTopics] = useState<Draft[]>([]);
   const [guidance, setGuidance] = useState("");
+  const [suggestedGuidance, setSuggestedGuidance] = useState("");
   const [note, setNote] = useState("");
   const [busy, setBusy] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -42,9 +43,13 @@ export function AtlasSettings() {
     if (fromProposal && next.proposal) {
       setFunctions(next.proposal.functions.map((d) => ({ ...d })));
       setTopics(next.proposal.topics.map((d) => ({ ...d })));
-      setGuidance(next.proposal.guidance || next.guidance);
+      // Proposals are drawn from mail anyone can send, so the guidance box
+      // keeps the owner's words until they choose to adopt the draft.
+      setSuggestedGuidance(next.proposal.guidance);
+      setGuidance(next.guidance);
       return;
     }
+    setSuggestedGuidance("");
     setFunctions(rowsFrom(next.functions));
     setTopics(rowsFrom(next.topics));
     setGuidance(next.guidance);
@@ -193,6 +198,23 @@ export function AtlasSettings() {
           placeholder="Family logistics are matters. Store receipts are records. Promo mail is a topic, never a matter."
         />
       </label>
+
+      {suggestedGuidance && suggestedGuidance !== guidance && (
+        <div className="mail-settings-field">
+          <span>Suggested guidance (drawn from mail — read before using)</span>
+          <p className="mail-settings-hint">{suggestedGuidance}</p>
+          <div className="mail-settings-actions">
+            <button
+              className="mail-settings-button"
+              type="button"
+              disabled={busy !== null}
+              onClick={() => setGuidance(suggestedGuidance)}
+            >
+              Use suggested guidance
+            </button>
+          </div>
+        </div>
+      )}
 
       <div className="mail-settings-actions">
         <button
