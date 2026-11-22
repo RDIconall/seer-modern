@@ -1,3 +1,4 @@
+import { createLimiter, type Limiter } from "@/lib/mail/bounds";
 import type {
   MailFolder,
   MailMessageDetail,
@@ -344,10 +345,31 @@ export async function replyGraphMessage(
   });
 }
 
+async function graphArchiveFolderId(
+  accessToken: string,
+): Promise<string | undefined> {
+  const folders = (await graphFetch(
+    accessToken,
+    `/me/mailFolders?$filter=displayName eq 'Archive'&$select=id`,
+  )) as { value?: { id: string }[] };
+  return folders.value?.[0]?.id;
+}
+
 export async function graphAction(
   accessToken: string,
   id: string,
   action: "archive" | "trash" | "read",
+) {
+  const archiveId =
+    action === "archive" ? await graphArchiveFolderId(accessToken) : undefined;
+  await graphActOn(accessToken, id, action, archiveId);
+}
+
+async function graphActOn(
+  accessToken: string,
+  id: string,
+  action: "archive" | "trash" | "read",
+  archiveId: string | undefined,
 ) {
   if (action === "trash") {
     await graphFetch(accessToken, `/me/messages/${id}`, { method: "DELETE" });
@@ -360,11 +382,6 @@ export async function graphAction(
     });
     return;
   }
-  const folders = (await graphFetch(
-    accessToken,
-    `/me/mailFolders?$filter=displayName eq 'Archive'&$select=id`,
-  )) as { value?: { id: string }[] };
-  const archiveId = folders.value?.[0]?.id;
   if (!archiveId) {
     await graphFetch(accessToken, `/me/messages/${id}`, {
       method: "PATCH",
@@ -381,11 +398,14 @@ export async function graphAction(
 /**
  * Outlook has no thread endpoint — find every inbox message in the
  * conversation and act on each, so the whole thread clears at once.
+ * Pass the caller's limiter when acting on several conversations so the
+ * per-message calls share one in-flight bound.
  */
 export async function graphThreadAction(
   accessToken: string,
   conversationId: string,
   action: "archive" | "trash" | "read",
+  limit: Limiter = createLimiter(),
 ) {
   const url = new URL(
     "https://graph.microsoft.com/v1.0/me/mailFolders/inbox/messages",
@@ -396,12 +416,21 @@ export async function graphThreadAction(
   );
   url.searchParams.set("$select", "id");
   url.searchParams.set("$top", "50");
-  const res = await graphRawFetch(url.toString(), {
-    headers: { Authorization: `Bearer ${accessToken}` },
-    cache: "no-store",
+  const data = await limit(async () => {
+    const res = await graphRawFetch(url.toString(), {
+      headers: { Authorization: `Bearer ${accessToken}` },
+      cache: "no-store",
+    });
+    if (!res.ok) throw new Error(`Graph thread lookup: ${res.status}`);
+    return (await res.json()) as { value?: { id: string }[] };
   });
-  if (!res.ok) throw new Error(`Graph thread lookup: ${res.status}`);
-  const data = (await res.json()) as { value?: { id: string }[] };
   const ids = (data.value ?? []).map((m) => m.id);
-  await Promise.allSettled(ids.map((id) => graphAction(accessToken, id, action)));
+  if (ids.length === 0) return;
+  const archiveId =
+    action === "archive"
+      ? await limit(() => graphArchiveFolderId(accessToken))
+      : undefined;
+  await Promise.allSettled(
+    ids.map((id) => limit(() => graphActOn(accessToken, id, action, archiveId))),
+  );
 }

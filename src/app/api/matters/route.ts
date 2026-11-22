@@ -1,4 +1,5 @@
 import { loadBrief, saveBrief, type Matter } from "@/lib/inbox/matters";
+import { createLimiter } from "@/lib/mail/bounds";
 import { requireMailSession } from "@/lib/mail/session";
 import { gmailThreadAction } from "@/lib/mail/gmail";
 import { graphThreadAction } from "@/lib/mail/graph";
@@ -86,10 +87,13 @@ export async function POST(req: Request) {
       return NextResponse.json({ error: "Matter not found" }, { status: 404 });
     }
     const threadIds = matter.threadIds ?? [];
-    const runThread =
-      session.provider === "google" ? gmailThreadAction : graphThreadAction;
+    const limit = createLimiter();
     await Promise.allSettled(
-      threadIds.map((t) => runThread(session.accessToken, t, "archive")),
+      threadIds.map((t) =>
+        session.provider === "google"
+          ? limit(() => gmailThreadAction(session.accessToken, t, "archive"))
+          : graphThreadAction(session.accessToken, t, "archive", limit),
+      ),
     );
     const closed = await closeMatter(session.email, {
       matterId: matter.id,
@@ -261,9 +265,12 @@ export async function POST(req: Request) {
     const before = await loadClosedMatters(session.email);
     const closure = before[body.matterId];
     if (closure && session.provider === "google") {
+      const limit = createLimiter();
       await Promise.allSettled(
         closure.threadIds.map((threadId) =>
-          gmailThreadAction(session.accessToken, threadId, "restore"),
+          limit(() =>
+            gmailThreadAction(session.accessToken, threadId, "restore"),
+          ),
         ),
       );
     }
