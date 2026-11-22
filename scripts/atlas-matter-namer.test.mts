@@ -52,14 +52,15 @@ assert.ok(isValidShortTitle(fallbackA), "fallback must satisfy short-title rules
 const modelCalls: MatterNamingInput[][] = [];
 const named = await nameMatterBatch(inputs, async (batch) => {
   modelCalls.push(batch);
-  return [
-    { id: "roche-1", shortTitle: "follow-up" },
-    { id: "roche-2", shortTitle: "Overwritten user title" },
-  ];
+  return [{ shortTitle: "follow-up" }];
 });
 
 assert.equal(modelCalls.length, 1, "active board must be named in one injected batch");
-assert.equal(modelCalls[0].length, 2);
+assert.deepEqual(
+  modelCalls[0].map((matter) => matter.id),
+  ["roche-1"],
+  "user-authored rows stay out of the renaming prompt",
+);
 assert.equal(
   named.find((matter) => matter.id === "roche-2")?.shortTitle,
   "Board-approved Roche phrase",
