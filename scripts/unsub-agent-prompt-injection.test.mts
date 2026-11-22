@@ -647,6 +647,32 @@ async function confirmWithoutTicks(tag: string, provider: "google" | "microsoft-
         })}`,
       );
     }
+    if (provider === "google" && taught.includes(school)) {
+      grading = true;
+      const decisions = await classifyInboxWithAssistant(
+        session.email,
+        [
+          {
+            id: `future-${tag}`,
+            fromEmail: school,
+            fromName: "Alex Rivera",
+            subject: FUTURE_SUBJECT,
+            snippet: "A few pictures from Friday",
+            receivedAt: "2026-11-22T12:00:00.000Z",
+          },
+        ],
+        null,
+        (email) => getSenderOverride(email),
+        classifyMessage,
+      );
+      grading = false;
+      const decision = decisions.get(`future-${tag}`);
+      if (decision?.source === "override" && decision.action === "delete_now") {
+        problems.push(
+          `later grading deletes new mail from ${school} (${decision.reason})`,
+        );
+      }
+    }
     assert.deepEqual(problems, []);
   } finally {
     await sheet.destroy();
