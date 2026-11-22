@@ -5,6 +5,7 @@ import {
   resolveMatterByRef,
   resolveMatterMatch,
 } from "./matter-key";
+import { singleLine } from "../../security/prompt-text";
 import type { AccountId, ConversationId, Home, Owner } from "../db/types";
 import {
   CONTEXT_VERSION,
@@ -170,7 +171,7 @@ export async function ensureMatter(
   title: string,
   tie?: { text: string; counterparty: string; own?: Set<string> },
 ): Promise<string> {
-  const clean = title.trim().slice(0, 120) || "Untitled matter";
+  const clean = singleLine(title).slice(0, 120) || "Untitled matter";
   return inTransaction(async (client) => {
     // Tie this conversation to the unit of work it belongs to: a shared study
     // or event code is proof; otherwise the counterparty must match and the
