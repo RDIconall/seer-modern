@@ -1,6 +1,11 @@
 import { gmailAction, gmailThreadAction } from "@/lib/mail/gmail";
 import { graphAction, graphThreadAction } from "@/lib/mail/graph";
 import { requireMailSession } from "@/lib/mail/session";
+import {
+  MAX_MAILBOX_WRITES,
+  MailWriteBudget,
+  MailWriteDeferred,
+} from "@/lib/mail/write-budget";
 import { loadBrief, saveBrief } from "@/lib/inbox/matters";
 import {
   applyTriageClear,
@@ -31,8 +36,14 @@ export async function POST(request: Request) {
     /** "trash" is Triage's delete; "archive" closes something out. */
     mode?: "archive" | "trash";
   };
-  if (!body.rows?.length) {
+  if (!Array.isArray(body.rows) || body.rows.length === 0) {
     return NextResponse.json({ error: "No rows" }, { status: 400 });
+  }
+  if (body.rows.length > MAX_MAILBOX_WRITES) {
+    return NextResponse.json(
+      { error: `At most ${MAX_MAILBOX_WRITES} rows per request` },
+      { status: 400 },
+    );
   }
   const brief = await loadBrief(session.email);
   if (!brief) {
@@ -41,23 +52,29 @@ export async function POST(request: Request) {
 
   const actions = planTriageClear(brief, body.rows);
   const mode = body.mode === "trash" ? "trash" : "archive";
+  const budget = new MailWriteBudget();
   const run = async (action: (typeof actions)[number]) => {
     if (action.threadId) {
       return session.provider === "google"
-        ? gmailThreadAction(session.accessToken, action.threadId, mode)
-        : graphThreadAction(session.accessToken, action.threadId, mode);
+        ? gmailThreadAction(session.accessToken, action.threadId, mode, budget)
+        : graphThreadAction(session.accessToken, action.threadId, mode, budget);
     }
     return session.provider === "google"
-      ? gmailAction(session.accessToken, action.id, mode)
-      : graphAction(session.accessToken, action.id, mode);
+      ? gmailAction(session.accessToken, action.id, mode, budget)
+      : graphAction(session.accessToken, action.id, mode, budget);
   };
 
   const results = await Promise.allSettled(actions.map(run));
   const succeeded = actions.filter((_, index) => results[index].status === "fulfilled");
-  const failed = actions.length - succeeded.length;
+  /** Untouched because this request's write budget ran out — resend these. */
+  const deferred = actions.filter((_, index) => {
+    const r = results[index];
+    return r.status === "rejected" && r.reason instanceof MailWriteDeferred;
+  });
+  const failed = actions.length - succeeded.length - deferred.length;
   if (succeeded.length === 0) {
     return NextResponse.json(
-      { error: "Nothing could be cleared", processed: 0, failed },
+      { error: "Nothing could be cleared", processed: 0, failed, deferred },
       { status: 502 },
     );
   }
@@ -90,6 +107,7 @@ export async function POST(request: Request) {
     processed: succeeded.length,
     removedCount,
     failed,
+    deferred,
     cleared: succeeded,
     brief: updated,
   });

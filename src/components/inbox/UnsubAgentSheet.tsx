@@ -9,6 +9,7 @@ import {
   X,
 } from "lucide-react";
 import { useEffect, useState } from "react";
+import { postUnsubscribes } from "@/lib/inbox/mail-write-batches";
 
 /**
  * The aggressive unsubscribe agent: AI reviews every bulk sender in the
@@ -82,18 +83,12 @@ export function UnsubAgentSheet({
     setRunning(true);
     setError(null);
     try {
-      const res = await fetch("/api/unsubscribe", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          items: chosen.map((s) => ({
-            id: s.latestId,
-            fromEmail: s.fromEmail,
-          })),
-        }),
-      });
-      const json = await res.json();
-      if (!res.ok) throw new Error(json.error ?? "Unsubscribe failed");
+      const json = await postUnsubscribes(
+        chosen.map((s) => ({
+          id: s.latestId,
+          fromEmail: s.fromEmail,
+        })),
+      );
       onDone?.(
         `Cut ${chosen.length} senders — ${json.unsubscribed ?? 0} unsubscribed for real, all muted`,
       );

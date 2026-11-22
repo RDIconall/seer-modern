@@ -5,6 +5,7 @@ import type {
   SendMailInput,
 } from "@/lib/mail/types";
 import { compileGmailSearch, parseMailSearch } from "@/lib/v3/search/parser";
+import { reserveWrite, type MailWriteBudget } from "@/lib/mail/write-budget";
 
 export type {
   MailFolder,
@@ -534,7 +535,9 @@ export async function gmailAction(
   accessToken: string,
   id: string,
   action: "archive" | "trash" | "read" | "restore",
+  budget?: MailWriteBudget,
 ) {
+  reserveWrite(budget);
   if (action === "trash") {
     await gmailFetch(accessToken, `/users/me/messages/${id}/trash`, {
       method: "POST",
@@ -564,7 +567,9 @@ export async function gmailThreadAction(
   accessToken: string,
   threadId: string,
   action: "archive" | "trash" | "read" | "restore",
+  budget?: MailWriteBudget,
 ) {
+  reserveWrite(budget);
   if (action === "trash") {
     await gmailFetch(accessToken, `/users/me/threads/${threadId}/trash`, {
       method: "POST",
