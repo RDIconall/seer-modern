@@ -591,14 +591,51 @@ function counterparty(item: EmailItem, ownDomain: string): string {
  * "a matter", but twenty myBuy purchase-order notices are ONE standing
  * relationship, not twenty matters — so promotions from these senders are
  * collapsed by company instead of each becoming its own board card.
+ *
+ * Judged from the address alone. The display name is whatever the sender
+ * typed, so "Jira" on a person's mail must not fold that person into a
+ * system's card.
  */
 const AUTOMATED_SENDER =
   /(^|[._-])(no-?reply|do-?not-?reply|donotreply|notifications?|notify|alerts?|mailer|automated|autonotify|mybuy|ariba|coupa|concur|workday|servicenow|zendesk|jira|confluence)([._-]|@|$)/i;
+const BARE_ADDRESS = /^[^\s@"<>(),;:\\[\]]+@[a-z0-9-]+(\.[a-z0-9-]+)+$/i;
+
+/** The From address, or "" when the parser left display-name text in it. */
+function senderAddress(item: EmailItem): string {
+  const address = item.fromEmail.trim().toLowerCase();
+  return BARE_ADDRESS.test(address) ? address : "";
+}
+
 function isAutomatedSender(item: EmailItem): boolean {
-  return (
-    AUTOMATED_SENDER.test(item.fromEmail) ||
-    AUTOMATED_SENDER.test(item.fromName ?? "")
-  );
+  const address = senderAddress(item);
+  return Boolean(address) && AUTOMATED_SENDER.test(address);
+}
+
+/** Country-code second levels: roche.co.uk is Roche's, not "co.uk"'s. */
+const SECOND_LEVEL = /^(co|com|net|org|gov|edu|ac|ltd|plc|ne|or|go|gob|nic|mil)$/;
+
+function registrableDomain(domain: string): string {
+  const labels = domain.split(".").filter(Boolean);
+  const n = labels.length;
+  if (n >= 3 && labels[n - 1].length === 2 && SECOND_LEVEL.test(labels[n - 2])) {
+    return labels.slice(-3).join(".");
+  }
+  return labels.slice(-2).join(".");
+}
+
+/**
+ * Which automated senders collapse together: one registrable domain, so
+ * mybuy.roche.com and procure.roche.com share a card but roche.xyz does
+ * not. Freemail and our own domain host unrelated mailboxes, so there the
+ * key is the whole address.
+ */
+function automatedSenderKey(item: EmailItem, ownDomain: string): string {
+  const address = senderAddress(item);
+  const domain = address.split("@")[1] ?? "";
+  if ((ownDomain && domain === ownDomain) || FREEMAIL.test(`${domain}.`)) {
+    return address;
+  }
+  return registrableDomain(domain);
 }
 
 /**
@@ -622,6 +659,7 @@ function senderCompany(item: EmailItem, ownDomain: string): string {
  * the newest actionable ask as the next move.
  */
 function collapseAutomatedSeeds(
+  key: string,
   seeds: { matter: Matter; item: EmailItem; understanding?: Understanding }[],
   ownDomain: string,
   at: string,
@@ -650,7 +688,7 @@ function collapseAutomatedSeeds(
   )[0];
   const ask = newest.understanding?.ask?.trim();
   return {
-    id: `read:auto:${company.toLowerCase()}`,
+    id: `read:auto:${key}`,
     title: display,
     category: "read",
     orgUnit: seeds[0].matter.orgUnit,
@@ -1673,7 +1711,7 @@ export async function buildBrief(
       // for collapse — but never when the user already renamed this exact
       // thread's matter, since that is a deliberate one-off.
       if (isAutomatedSender(i) && !edits.renames[matterId]) {
-        const key = senderCompany(i, ownDomain).toLowerCase();
+        const key = automatedSenderKey(i, ownDomain);
         autoSeeds.set(key, [
           ...(autoSeeds.get(key) ?? []),
           { matter: seed, item: i, understanding: u },
@@ -1689,12 +1727,12 @@ export async function buildBrief(
   // Collapse each automated sender's promotions into one matter. A lone
   // notice from a system stays a normal matter; several become "Roche myBuy
   // — 14 purchase orders" with every thread inside it.
-  for (const [, seeds] of autoSeeds) {
+  for (const [key, seeds] of autoSeeds) {
     if (seeds.length === 1) {
       promoted.push(seeds[0].matter);
       continue;
     }
-    promoted.push(collapseAutomatedSeeds(seeds, ownDomain, promotedAt));
+    promoted.push(collapseAutomatedSeeds(key, seeds, ownDomain, promotedAt));
   }
 
   if (closedDirty) {
