@@ -20,6 +20,10 @@ export type MerchantDb = Record<string, MerchantRecord>;
 
 const MAX_AMOUNTS = 12;
 const MAX_MERCHANTS = 500;
+/** Charges after which a biller's history outranks any first-time sender. */
+const BASELINE_MIN_CHARGES = 2;
+/** A biller this quiet has stopped billing (covers annual charges). */
+const STALE_MS = 400 * 24 * 60 * 60 * 1000;
 
 function keyFor(accountEmail: string) {
   return `merchants:${accountKey(accountEmail)}`;
@@ -50,40 +54,84 @@ export async function loadMerchants(
   return (await kvGet<MerchantDb>(keyFor(accountEmail))) ?? {};
 }
 
+function isStale(rec: MerchantRecord, now: number): boolean {
+  const at = Date.parse(rec.lastAt);
+  return !Number.isFinite(at) || now - at > STALE_MS;
+}
+
+/**
+ * True when a first-time sender may take this record's slot: a one-off
+ * charge, or a biller that has gone quiet. An active multi-charge
+ * baseline is never displaced by a newcomer.
+ */
+function isDisplaceable(rec: MerchantRecord, now: number): boolean {
+  return rec.amounts.length < BASELINE_MIN_CHARGES || isStale(rec, now);
+}
+
+/** Oldest displaceable record, or null when every slot is a live baseline. */
+function displaceableKey(db: MerchantDb): string | null {
+  const now = Date.now();
+  let pick: string | null = null;
+  for (const [k, rec] of Object.entries(db)) {
+    if (!isDisplaceable(rec, now)) continue;
+    if (pick == null || rec.lastAt < db[pick].lastAt) pick = k;
+  }
+  return pick;
+}
+
 export async function saveMerchants(
   accountEmail: string,
   db: MerchantDb,
 ): Promise<void> {
   const keys = Object.keys(db);
   if (keys.length > MAX_MERCHANTS) {
+    // recordCharge keeps the table within the cap; this only trims a
+    // table that arrived oversized, still dropping live baselines last.
+    const now = Date.now();
     keys
-      .sort((a, b) => (db[a].lastAt < db[b].lastAt ? -1 : 1))
+      .sort((a, b) => {
+        const keepA = isDisplaceable(db[a], now) ? 0 : 1;
+        const keepB = isDisplaceable(db[b], now) ? 0 : 1;
+        if (keepA !== keepB) return keepA - keepB;
+        return db[a].lastAt < db[b].lastAt ? -1 : 1;
+      })
       .slice(0, keys.length - MAX_MERCHANTS)
       .forEach((k) => delete db[k]);
   }
   await kvSet(keyFor(accountEmail), db);
 }
 
+/**
+ * Learn one charge. When the table is full, a first-time domain is
+ * stored only if `mayDisplace` (the grade itself called it money, not
+ * just a subject line the sender wrote) and a one-off or long-quiet
+ * record can give up its slot. Returns false when nothing was stored.
+ */
 export function recordCharge(
   db: MerchantDb,
   fromEmail: string,
   fromName: string,
   amount: number,
-): void {
+  opts: { mayDisplace: boolean },
+): boolean {
   const key = merchantKey(fromEmail);
-  if (!key) return;
-  const rec = db[key] ?? {
-    key,
-    name: fromName || key,
-    amounts: [],
-    count: 0,
-    lastAt: "",
-  };
+  if (!key) return false;
+  let rec = db[key];
+  if (!rec) {
+    if (Object.keys(db).length >= MAX_MERCHANTS) {
+      if (!opts.mayDisplace) return false;
+      const victim = displaceableKey(db);
+      if (victim == null) return false;
+      delete db[victim];
+    }
+    rec = { key, name: fromName || key, amounts: [], count: 0, lastAt: "" };
+  }
   rec.amounts.push(amount);
   if (rec.amounts.length > MAX_AMOUNTS) rec.amounts.shift();
   rec.count += 1;
   rec.lastAt = new Date().toISOString();
   db[key] = rec;
+  return true;
 }
 
 function median(nums: number[]): number {

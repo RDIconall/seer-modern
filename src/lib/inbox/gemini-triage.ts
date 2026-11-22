@@ -1260,10 +1260,13 @@ export async function classifyInboxWithAssistant(
       if (!saveMap.has(item.id)) continue;
       const r = resMap.get(item.id);
       if (!r) continue;
-      const moneyish =
+      const gradedMoney =
         /finance|bill|autopay|receipt|money|subscription/i.test(
           `${r.debug.ruleId} ${r.category ?? ""}`,
-        ) || /receipt|invoice|bill|statement|payment/i.test(item.subject);
+        );
+      const moneyish =
+        gradedMoney ||
+        /receipt|invoice|bill|statement|payment/i.test(item.subject);
       if (!moneyish) continue;
       const amount = extractAmount(`${item.subject}\n${item.snippet}`);
       if (amount == null || amount < 1) continue;
@@ -1283,8 +1286,13 @@ export async function classifyInboxWithAssistant(
         resMap.set(item.id, upgraded);
         saveMap.set(item.id, toCached(upgraded));
       }
-      recordCharge(merchants, item.fromEmail, item.fromName, amount);
-      merchantsDirty = true;
+      if (
+        recordCharge(merchants, item.fromEmail, item.fromName, amount, {
+          mayDisplace: gradedMoney,
+        })
+      ) {
+        merchantsDirty = true;
+      }
     }
   };
 
