@@ -7,7 +7,7 @@ import type { MailMessageListItem } from "@/lib/mail/types";
 
 export type Relationship =
   | "engaged" // you email them
-  | "known" // frequent inbound, little/no outbound
+  | "known" // read-and-kept mail, no outbound
   | "cold" // little history either way
   | "bulk"; // automated / never engaged
 
@@ -195,7 +195,7 @@ export function historySignals(
   // bulk ("I signed up for it and there is history for that").
   else if (keptFrom >= 2) relationship = "known";
   else if (looksBulkAddress(email)) relationship = "bulk";
-  else if (receivedFrom >= 3) relationship = "known";
+  // Inbound volume alone stays cold: the sender, not the user, controls it.
   else relationship = "cold";
 
   return {

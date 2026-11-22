@@ -6,7 +6,9 @@ import { accountKey, kvGet, kvSet } from "@/lib/store/kv";
  * Every sender resolves to a tier:
  * - inner:        you write to them / they're in contacts / you're
  *                 meeting them — they matter, historically proven
- * - known:        writes to you repeatedly, human-shaped, no outbound yet
+ * - known:        legacy tier once minted from inbound volume alone. Anyone
+ *                 can mail you three times, so it is no longer issued and
+ *                 stored records carry no trust (see isVolumeOnlyKnown)
  * - new-credible: no history, but the AI read the full email and judged
  *                 a real, credible person (specific ask, real project,
  *                 mutual context — not a template blast)
@@ -86,9 +88,16 @@ export function tierFromEvidence(input: {
   if (MACHINE_LOCALPART.test(local)) {
     return { tier: "machine", reason: "Automated address" };
   }
-  if (input.receivedFrom >= 3) {
-    // Repeat human-shaped inbound — probably a person, not proven
-    return { tier: "known", reason: `Writes to you often (${input.receivedFrom}×)` };
-  }
+  // Inbound volume is not a relationship: any outsider controls it.
   return null; // unknown — the AI reads the full email and decides
+}
+
+/**
+ * A stored "known" record that the user never pinned. Only inbound volume
+ * ever produced that tier, so it must not protect or promote a sender.
+ */
+export function isVolumeOnlyKnown(
+  record: Pick<PersonRecord, "tier" | "vip"> | null | undefined,
+): boolean {
+  return record?.tier === "known" && !record.vip;
 }

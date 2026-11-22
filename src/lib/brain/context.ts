@@ -192,7 +192,7 @@ export function compileEmailContext(
   if (sig.relationship === "engaged") {
     senderBits.push(`you email them (sent ${sig.sentTo}) [observed]`);
   } else if (sig.relationship === "known") {
-    senderBits.push(`writes to you (${sig.receivedFrom}), you rarely reply [observed]`);
+    senderBits.push(`you read and keep their mail (kept ${sig.keptFrom ?? 0}) [observed]`);
   } else if (sig.relationship === "bulk") {
     senderBits.push("bulk/no-reply shape [observed]");
   }
