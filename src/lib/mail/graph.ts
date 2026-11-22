@@ -5,6 +5,11 @@ import type {
   SendMailInput,
 } from "@/lib/mail/types";
 import { compileOutlookSearch, parseMailSearch } from "@/lib/v3/search/parser";
+import {
+  MailWriteBudget,
+  MailWriteDeferred,
+  reserveWrite,
+} from "@/lib/mail/write-budget";
 
 /**
  * Graph throttles bursts with 429 + Retry-After. One throttled call
@@ -348,7 +353,9 @@ export async function graphAction(
   accessToken: string,
   id: string,
   action: "archive" | "trash" | "read",
+  budget?: MailWriteBudget,
 ) {
+  reserveWrite(budget);
   if (action === "trash") {
     await graphFetch(accessToken, `/me/messages/${id}`, { method: "DELETE" });
     return;
@@ -381,12 +388,20 @@ export async function graphAction(
 /**
  * Outlook has no thread endpoint — find every inbox message in the
  * conversation and act on each, so the whole thread clears at once.
+ *
+ * Each message is one write, so the conversation reserves its writes from
+ * `budget` before any is issued. Throws MailWriteDeferred (nothing written)
+ * when it does not fit what is left; a conversation larger than a whole
+ * fresh budget has only its first `budget.limit` inbox messages acted on.
  */
 export async function graphThreadAction(
   accessToken: string,
   conversationId: string,
   action: "archive" | "trash" | "read",
+  budget: MailWriteBudget = new MailWriteBudget(),
 ) {
+  const top = budget.remaining;
+  if (top <= 0) throw new MailWriteDeferred();
   const url = new URL(
     "https://graph.microsoft.com/v1.0/me/mailFolders/inbox/messages",
   );
@@ -395,13 +410,21 @@ export async function graphThreadAction(
     `conversationId eq '${conversationId.replace(/'/g, "''")}'`,
   );
   url.searchParams.set("$select", "id");
-  url.searchParams.set("$top", "50");
+  url.searchParams.set("$top", String(top));
   const res = await graphRawFetch(url.toString(), {
     headers: { Authorization: `Bearer ${accessToken}` },
     cache: "no-store",
   });
   if (!res.ok) throw new Error(`Graph thread lookup: ${res.status}`);
-  const data = (await res.json()) as { value?: { id: string }[] };
-  const ids = (data.value ?? []).map((m) => m.id);
+  const data = (await res.json()) as {
+    value?: { id: string }[];
+    "@odata.nextLink"?: string;
+  };
+  const ids = (data.value ?? []).map((m) => m.id).slice(0, top);
+  const more = Boolean(data["@odata.nextLink"]) || (data.value?.length ?? 0) > top;
+  // Partly spent budget and a conversation that may need more: leave it
+  // whole for a later request rather than clearing half of it here.
+  if (more && top < budget.limit) throw new MailWriteDeferred();
+  if (!budget.reserve(ids.length)) throw new MailWriteDeferred();
   await Promise.allSettled(ids.map((id) => graphAction(accessToken, id, action)));
 }

@@ -6,15 +6,15 @@ import {
   unsubscribeGraph,
   type UnsubscribeResult,
 } from "@/lib/mail/unsubscribe";
+import {
+  MAX_MAILBOX_WRITES,
+  MailWriteBudget,
+  MailWriteDeferred,
+} from "@/lib/mail/write-budget";
 import { setSenderOverride } from "@/lib/store/senders";
 import { NextResponse } from "next/server";
 
 export const maxDuration = 60;
-
-/** Real unsubscribe attempts per call (each can hit a slow third party). */
-const UNSUB_CAP = 30;
-/** Everything beyond the cap still gets trashed + muted — nothing is dropped. */
-const BULK_CAP = 200;
 
 type Item = { id: string; threadId?: string; fromEmail?: string };
 
@@ -36,8 +36,14 @@ export async function POST(request: Request) {
       fromEmail?: string;
       items?: Item[];
     };
-    const items: Item[] = body.items?.length
-      ? body.items.slice(0, BULK_CAP)
+    if (Array.isArray(body.items) && body.items.length > MAX_MAILBOX_WRITES) {
+      return NextResponse.json(
+        { error: `At most ${MAX_MAILBOX_WRITES} items per request` },
+        { status: 400 },
+      );
+    }
+    const items: Item[] = Array.isArray(body.items) && body.items.length
+      ? body.items
       : body.id
         ? [{ id: body.id, threadId: body.threadId, fromEmail: body.fromEmail }]
         : [];
@@ -56,15 +62,14 @@ export async function POST(request: Request) {
     let mailto = 0;
     let trashedOnly = 0;
     const links: { id: string; url: string }[] = [];
+    /** Unsubscribed and muted, but the trash did not fit this request. */
+    const untrashed: { id: string; threadId?: string }[] = [];
+    const budget = new MailWriteBudget();
 
-    let attempts = 0;
     for (const item of items) {
       let result: UnsubscribeResult = { method: "none" };
       try {
-        if (attempts < UNSUB_CAP) {
-          attempts += 1;
-          result = await doUnsub(session.accessToken, item.id);
-        }
+        result = await doUnsub(session.accessToken, item.id);
       } catch {
         /* still trash + teach below */
       }
@@ -73,14 +78,21 @@ export async function POST(request: Request) {
       else if (result.method === "link") links.push({ id: item.id, url: result.url });
       else trashedOnly += 1;
 
+      const keepUntrashed = (e: unknown) => {
+        if (e instanceof MailWriteDeferred) {
+          untrashed.push({ id: item.id, threadId: item.threadId });
+        }
+      };
       if (item.threadId) {
         const threadTrash =
           session.provider === "google" ? gmailThreadAction : graphThreadAction;
-        await threadTrash(session.accessToken, item.threadId, "trash").catch(
-          () => {},
+        await threadTrash(session.accessToken, item.threadId, "trash", budget).catch(
+          keepUntrashed,
         );
       } else {
-        await doTrash(session.accessToken, item.id, "trash").catch(() => {});
+        await doTrash(session.accessToken, item.id, "trash", budget).catch(
+          keepUntrashed,
+        );
       }
       if (item.fromEmail?.includes("@")) {
         await setSenderOverride(item.fromEmail, "delete_now").catch(() => {});
@@ -94,6 +106,7 @@ export async function POST(request: Request) {
       mailto,
       trashedOnly,
       links,
+      untrashed,
     });
   } catch (e) {
     const msg = e instanceof Error ? e.message : "Unsubscribe failed";
