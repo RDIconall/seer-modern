@@ -5,6 +5,7 @@ import {
 } from "@/lib/inbox/gemini-triage";
 import { stripEmoji } from "@/lib/inbox/types";
 import type { MailMessageListItem } from "@/lib/mail/types";
+import { registryOrgUnit, UNSORTED_ORG_UNIT } from "@/lib/store/functions";
 import { generateText, Output } from "ai";
 import { z } from "zod";
 
@@ -365,10 +366,12 @@ export async function readEmails(
                   },
                 }
               : {}),
-            org: {
-              unit: r.orgUnit,
-              confidence: r.orgConfidence,
-            },
+            org: (() => {
+              const unit = registryOrgUnit(r.orgUnit, opts.functions);
+              return unit
+                ? { unit, confidence: r.orgConfidence }
+                : { unit: UNSORTED_ORG_UNIT, confidence: 0 };
+            })(),
             importance: r.importance,
             ...(() => {
               const refs = opts.contextById?.get(r.id)?.refs;
