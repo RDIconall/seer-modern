@@ -38,7 +38,7 @@ import {
   usualLabel,
 } from "@/lib/store/merchants";
 import {
-  MACHINE_LOCALPART,
+  isVolumeOnlyKnown,
   loadPeople,
   savePeople,
   tierFromEvidence,
@@ -821,7 +821,10 @@ export async function classifyInboxWithAssistant(
     const key = item.fromEmail.toLowerCase();
     if (tiers.has(key)) continue;
     const stored = people[key];
-    if (stored) {
+    if (stored && isVolumeOnlyKnown(stored)) {
+      delete people[key];
+      peopleDirty = true;
+    } else if (stored) {
       tiers.set(key, stored.vip ? "vip" : stored.tier);
       continue;
     }
@@ -1153,10 +1156,7 @@ export async function classifyInboxWithAssistant(
     const escape = needsYouEscape(item.subject, item.snippet);
     const tier = tiers.get(item.fromEmail.toLowerCase());
     const personTier =
-      tier === "vip" ||
-      tier === "inner" ||
-      tier === "known" ||
-      tier === "new-credible";
+      tier === "vip" || tier === "inner" || tier === "new-credible";
 
     const hit = cachedHits.get(item.id);
     // A cached dismissal that came from RULES (a snippet-level shortcut,
@@ -1585,17 +1585,12 @@ export async function classifyInboxWithAssistant(
     // Google auto-collects "other contacts" from every interaction —
     // that list is NOT a relationship. An auto-contact only earns
     // person protection when the mail graph shows real strength
-    // (the user has actually written to them). And "known" earned by
-    // volume alone never covers machine-shaped addresses — a tracking
-    // robot that writes daily is not a colleague.
+    // (the user has actually written to them). Inbound volume ("known")
+    // never earns protection — any outsider can mail three times.
     const rel = historySignals(history, item.fromEmail);
-    const machineShaped = MACHINE_LOCALPART.test(
-      item.fromEmail.split("@")[0] ?? "",
-    );
     const personish =
       tier === "inner" ||
       tier === "new-credible" ||
-      (tier === "known" && !machineShaped) ||
       ctx.inContacts ||
       (ctx.autoContact && (rel.sentTo > 0 || rel.relationship === "engaged"));
     if (personish && DELETEY.has(r.action)) {

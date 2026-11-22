@@ -51,8 +51,6 @@ export function senderStory(
     who = d.staleEngagement
       ? `You've emailed them ${d.sentTo}×, but not in the last month.`
       : `A real correspondent — you've emailed them ${d.sentTo}× recently.`;
-  } else if (d?.relationship === "known") {
-    who = `They write you often (${d.receivedFrom} recent) but you've never replied.`;
   } else if ((d?.keptFrom ?? 0) >= 2) {
     who = `A service you signed up for — you've read and kept ${d?.keptFrom} of their emails.`;
   } else if (d?.relationship === "bulk") {

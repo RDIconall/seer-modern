@@ -10,8 +10,9 @@ import type { AccountId } from "./types";
  * stand on.
  *
  * A sender is known when: the user pinned them (VIP), they resolved to the
- * inner/known tier historically, the user has written to them (sentTo > 0), or
- * they are a saved contact. Machines and first-contact strangers stay unknown.
+ * inner tier historically, the user has written to them (sentTo > 0), or they
+ * are a saved contact. Machines, first-contact strangers, and legacy "known"
+ * records minted from inbound volume alone stay unknown.
  */
 
 export type PersonSeed = {
@@ -49,7 +50,11 @@ export function collectPeople(sources: RelationshipSources): PersonSeed[] {
   };
 
   for (const [email, p] of Object.entries(sources.people ?? {})) {
-    const tier = p.tier && VALID_TIERS.has(p.tier) ? (p.tier as PersonSeed["tier"]) : "unknown";
+    // Legacy "known" was minted from inbound volume alone; it is not a relationship.
+    const tier =
+      p.tier && VALID_TIERS.has(p.tier) && !(p.tier === "known" && !p.vip)
+        ? (p.tier as PersonSeed["tier"])
+        : "unknown";
     put(email, { tier, vip: p.vip, name: p.name });
   }
   for (const [email, stat] of Object.entries(sources.history?.contacts ?? {})) {
