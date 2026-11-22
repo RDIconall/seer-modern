@@ -508,7 +508,7 @@ Input fields: id, from, email, subject, snippet (full text), and optional predic
 - replyMins: median minutes the user takes to answer this sender. Under 60 = someone they drop everything for — weight like a VIP.
 Priority when signals conflict: vip/meeting > contact > engaged rel > replyMins > past behavior > content.
 
-OUTPUT one item per input id:
+OUTPUT one item per input id, in input order:
 - importance: 0-3 as scored
 - deed: the specific thing to do, or "none"
 - task: for a deed → a 2-6 word imperative WITH its particulars ("Pay the $140 pool invoice", "Deposit the State Farm check"). For no-deed mail → the ONE specific fact worth knowing, written like a sharp lock-screen notification with names/amounts/dates from the body: "Hilary's groceries land June 27", "Ubiquiti login code — was it you?", "Play terms change Aug 28", "$89 Netflix renewal on the 1st". FORBIDDEN: restating the subject line, generic labels ("statement ready", "order update", "payment receipt"), and filler prefixes ("Be aware:", "FYI:", "Note:"). If you cannot state a specific fact worth the user's eyes, importance is 0 and the action is delete_now with task "none".
@@ -695,8 +695,8 @@ async function geminiBatch(
   via?: { model: LanguageModel | string; label: string },
   tiers?: Map<string, string>,
   merchants?: Awaited<ReturnType<typeof loadMerchants>>,
-): Promise<Map<string, AssistantClassifyResult>> {
-  const out = new Map<string, AssistantClassifyResult>();
+): Promise<{ src: GeminiTriageItem; result: AssistantClassifyResult }[]> {
+  const out: { src: GeminiTriageItem; result: AssistantClassifyResult }[] = [];
   if (batch.length === 0) return out;
 
   const payload = compactPayload(batch, history, extras, tiers, merchants);
@@ -724,9 +724,13 @@ async function geminiBatch(
 
   if (!output?.items?.length) return out;
 
-  for (const row of output.items) {
-    const src = batch.find((b) => b.id === row.id);
-    if (!src) continue;
+  // Every message id is in the prompt, so a message body can steer the
+  // model into naming another message. A row only ever grades the input
+  // at its own index, and only when it echoes that input's id.
+  for (let k = 0; k < Math.min(output.items.length, batch.length); k++) {
+    const row = output.items[k];
+    const src = batch[k];
+    if (row.id !== src.id) continue;
     let action = row.action as TriageAction;
     // Soften: if model picks needs_review with medium+ confidence, force a decisive default
     if (action === "needs_review" && row.confidence >= 0.55) {
@@ -734,22 +738,25 @@ async function geminiBatch(
       action =
         sig.relationship === "engaged" ? "respond" : "read_and_delete";
     }
-    out.set(row.id, {
-      action,
-      confidence: toConfidence(row.confidence),
-      reason: row.reason.slice(0, 200),
-      debug: debugFor(src, history, `gemini:${label}`),
-      source: "gemini",
-      instruction: row.instruction.slice(0, 200),
-      task:
-        row.task && !/^(none|n\/a)$/i.test(row.task.trim())
-          ? row.task.trim().slice(0, 80)
-          : undefined,
-      category: row.category?.trim().slice(0, 40) || undefined,
-      senderKind: row.sender,
-      credible: row.credible,
-      importance: row.importance,
-      deed: row.deed?.trim().slice(0, 100) || undefined,
+    out.push({
+      src,
+      result: {
+        action,
+        confidence: toConfidence(row.confidence),
+        reason: row.reason.slice(0, 200),
+        debug: debugFor(src, history, `gemini:${label}`),
+        source: "gemini",
+        instruction: row.instruction.slice(0, 200),
+        task:
+          row.task && !/^(none|n\/a)$/i.test(row.task.trim())
+            ? row.task.trim().slice(0, 80)
+            : undefined,
+        category: row.category?.trim().slice(0, 40) || undefined,
+        senderKind: row.sender,
+        credible: row.credible,
+        importance: row.importance,
+        deed: row.deed?.trim().slice(0, 100) || undefined,
+      },
     });
   }
   return out;
@@ -1329,7 +1336,7 @@ export async function classifyInboxWithAssistant(
           chunk = await deepenChunk(chunk, extras.fetchBody, bodyDeadline);
         }
         try {
-          const mapped = await geminiBatch(
+          const graded = await geminiBatch(
             chunk,
             history,
             extras,
@@ -1337,13 +1344,12 @@ export async function classifyInboxWithAssistant(
             tiers,
             merchants,
           );
-          for (const [id, r] of mapped) {
-            sinkResults.set(id, r);
-            sinkSave.set(id, toCached(r));
+          for (const { src, result: r } of graded) {
+            sinkResults.set(src.id, r);
+            sinkSave.set(src.id, toCached(r));
             // Grow the personal database: AI verdicts on unknown
             // senders are stored forever (outbound mail later promotes)
-            const src = chunk.find((c) => c.id === id);
-            const key = src?.fromEmail.toLowerCase();
+            const key = src.fromEmail.toLowerCase();
             if (key && tiers.get(key) === "new" && r.senderKind) {
               const tier: PersonTier =
                 r.senderKind === "person" && r.credible
@@ -1351,7 +1357,7 @@ export async function classifyInboxWithAssistant(
                   : "machine";
               people[key] = {
                 email: key,
-                name: src?.fromName,
+                name: src.fromName,
                 tier,
                 reason: r.reason.slice(0, 120),
                 by: "ai",
