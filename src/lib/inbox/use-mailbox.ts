@@ -18,6 +18,11 @@ import {
   planTriageClear,
 } from "@/lib/inbox/triage-clear";
 import {
+  postBulkActions,
+  postUnsubscribes,
+  sendInBatches,
+} from "@/lib/inbox/mail-write-batches";
+import {
   actionThreadId,
   buildCardDeck,
   ensureFwd,
@@ -495,25 +500,38 @@ export function useMailbox(initialTab: ViewTab = "inbox") {
       }
       setToast(`${verb} ${ids.length}`);
 
+      // The server's brief after the last batch it accepted — rolling back
+      // past it would resurrect rows that really were cleared.
+      let confirmed = null as Brief | null;
+      let removed = 0;
+      let failed = 0;
       try {
-        const res = await fetch("/api/triage/clear", {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ rows, reason, mode }),
-        });
-        const json = await res.json().catch(() => ({}));
-        if (!res.ok) {
-          throw new Error(json.error ?? "Clear failed");
-        }
-        // Reconcile with the server's authoritative accounting.
-        if (json.brief) setBrief(json.brief);
-        if (json.failed) {
-          setToast(
-            `${verb} ${json.removedCount ?? json.processed}; ${json.failed} failed`,
+        await sendInBatches(rows, async (batch) => {
+          const res = await fetch("/api/triage/clear", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ rows: batch, reason, mode }),
+          });
+          const json = await res.json().catch(() => ({}));
+          if (!res.ok) {
+            throw new Error(json.error ?? "Clear failed");
+          }
+          // Reconcile with the server's authoritative accounting.
+          if (json.brief) confirmed = json.brief;
+          removed += json.removedCount ?? json.processed ?? 0;
+          failed += json.failed ?? 0;
+          const deferred = new Set(
+            ((json.deferred ?? []) as { id: string }[]).map((d) => d.id),
           );
+          return batch.filter((row) => deferred.has(row.id));
+        });
+        if (confirmed) setBrief(confirmed);
+        if (failed) {
+          setToast(`${verb} ${removed}; ${failed} failed`);
         }
       } catch (e) {
-        if (snapshot) setBrief(snapshot);
+        const restore = confirmed ?? snapshot;
+        if (restore) setBrief(restore);
         setToast(e instanceof Error ? e.message : "Clear failed");
       }
     },
@@ -568,19 +586,10 @@ export function useMailbox(initialTab: ViewTab = "inbox") {
         removeFromLists(r.id);
       }
       try {
-        const res = await fetch("/api/action/bulk", {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({
-            // threadId makes this close the whole conversation, like Gmail
-            items: rows.map((r) => ({
-              id: r.id,
-              threadId: r.threadId,
-              action,
-            })),
-          }),
-        });
-        if (!res.ok) throw new Error((await res.json()).error);
+        // threadId makes this close the whole conversation, like Gmail
+        await postBulkActions(
+          rows.map((r) => ({ id: r.id, threadId: r.threadId, action })),
+        );
         setToast(
           `${action === "archive" ? "Archived" : "Deleted"} ${rows.length} thread${rows.length === 1 ? "" : "s"}`,
         );
@@ -826,19 +835,13 @@ export function useMailbox(initialTab: ViewTab = "inbox") {
         // The unsubscribe section actually unsubscribes (one-click /
         // mailto), then trashes and teaches the sender — not just trash.
         if (section.action === "unsubscribe") {
-          const res = await fetch("/api/unsubscribe", {
-            method: "POST",
-            headers: { "Content-Type": "application/json" },
-            body: JSON.stringify({
-              items: section.items.map((i) => ({
-                id: i.id,
-                threadId: actionThreadId(i),
-                fromEmail: i.fromEmail,
-              })),
-            }),
-          });
-          const json = await res.json();
-          if (!res.ok) throw new Error(json.error ?? "Unsubscribe failed");
+          const json = await postUnsubscribes(
+            section.items.map((i) => ({
+              id: i.id,
+              threadId: actionThreadId(i),
+              fromEmail: i.fromEmail,
+            })),
+          );
           setToast(
             json.unsubscribed > 0
               ? `Unsubscribed from ${json.unsubscribed} of ${ids.length} · all trashed & muted`
@@ -847,19 +850,14 @@ export function useMailbox(initialTab: ViewTab = "inbox") {
           return;
         }
 
-        const res = await fetch("/api/action/bulk", {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({
-            items: section.items.map((i) => ({
-              id: i.id,
-              threadId: actionThreadId(i),
-              action,
-              fromEmail: i.fromEmail,
-            })),
-          }),
-        });
-        if (!res.ok) throw new Error("Bulk failed");
+        await postBulkActions(
+          section.items.map((i) => ({
+            id: i.id,
+            threadId: actionThreadId(i),
+            action,
+            fromEmail: i.fromEmail,
+          })),
+        );
         setToast(`Updated ${ids.length}`);
       } catch {
         setToast("Bulk action failed — refreshing");
@@ -881,19 +879,14 @@ export function useMailbox(initialTab: ViewTab = "inbox") {
         removeFromLists(p.id);
       }
       try {
-        const res = await fetch("/api/action/bulk", {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({
-            items: picked.map((p) => ({
-              id: p.id,
-              threadId: p.threadId,
-              action,
-              fromEmail: p.fromEmail,
-            })),
-          }),
-        });
-        if (!res.ok) throw new Error("Bulk failed");
+        await postBulkActions(
+          picked.map((p) => ({
+            id: p.id,
+            threadId: p.threadId,
+            action,
+            fromEmail: p.fromEmail,
+          })),
+        );
         setToast(
           action === "trash"
             ? `Deleted ${picked.length}`
