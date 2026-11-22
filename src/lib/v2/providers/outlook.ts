@@ -165,12 +165,13 @@ export class OutlookProvider implements MailProvider {
   }
 
   private toConversation(id: string, msgs: GraphMessage[]): Conversation {
-    const messages = msgs
-      .map((m) => toMessage(m, this.deps.accountEmail))
-      .sort((a, b) => a.sentAt.localeCompare(b.sentAt));
+    const ordered = msgs
+      .map((raw) => ({ raw, message: toMessage(raw, this.deps.accountEmail) }))
+      .sort((a, b) => a.message.sentAt.localeCompare(b.message.sentAt));
+    const messages = ordered.map((m) => m.message);
     return {
       providerConversationId: id,
-      subject: msgs[0]?.subject ?? "",
+      subject: ordered[0]?.raw.subject ?? "",
       messages,
       lastMessageAt: messages[messages.length - 1]?.sentAt ?? "",
     };

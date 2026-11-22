@@ -106,6 +106,53 @@ export function counterpartyOf(fromEmail: string, ownDomain: string): string {
   return bare.split(".")[0];
 }
 
+export type ThreadSender = { from: string; to?: string[]; cc?: string[] };
+
+export type ThreadCounterparty = {
+  counterparty: string;
+  /**
+   * Every From on the thread is the opening sender, someone the opening
+   * message addressed, their company, or this mailbox's own domain. When
+   * false, text a later sender wrote must not tie the thread or name codes.
+   */
+  sendersVerified: boolean;
+};
+
+/**
+ * The company a thread's work is with, bound to the opening message: its
+ * sender is the one whose standing decides promotion, and its recipients are
+ * the parties that sender brought in. Anyone can reply onto a thread, so a
+ * later From names the company only when the opening message addressed that
+ * company; any other later sender is ignored.
+ */
+export function threadCounterparty(
+  messages: ThreadSender[],
+  ownDomain: string,
+): ThreadCounterparty {
+  const opening = messages[0];
+  if (!opening) return { counterparty: "", sendersVerified: true };
+  const lower = (email: string) => email.trim().toLowerCase();
+  const openingFrom = lower(opening.from);
+  const addressed = [...(opening.to ?? []), ...(opening.cc ?? [])].map(lower);
+  const parties = new Set([openingFrom, ...addressed].filter(Boolean));
+  const base = counterpartyOf(openingFrom, ownDomain);
+  const companies = new Set(
+    [base, ...addressed.map((email) => counterpartyOf(email, ownDomain))].filter(Boolean),
+  );
+
+  const authorized = (email: string) => {
+    if (parties.has(email)) return true;
+    const company = counterpartyOf(email, ownDomain);
+    return company === "internal" || (company !== "" && companies.has(company));
+  };
+  const sendersVerified = messages.every((m) => authorized(lower(m.from)));
+
+  const newest = counterpartyOf(lower(messages[messages.length - 1].from), ownDomain);
+  const counterparty =
+    newest && newest !== "internal" && companies.has(newest) ? newest : base;
+  return { counterparty, sendersVerified };
+}
+
 export function significantWords(text: string): Set<string> {
   return new Set(
     text

@@ -5,7 +5,7 @@ import {
   type CompiledContext,
   type ContextInput,
 } from "./context";
-import { counterpartyOf, matterNameFrom, ownTokens } from "./matter-key";
+import { matterNameFrom, ownTokens } from "./matter-key";
 import {
   addressedDirectly,
   computeSalience,
@@ -201,17 +201,17 @@ export async function readConversation(
   if (safety.home === "matter") {
     // Tie on what this is ABOUT: codes in the subject/name/body plus the
     // counterparty. Sender type is irrelevant — an automated portal notice
-    // about an event belongs to that event's unit of work.
-    const tieText = [
-      input.conversation.subject,
-      read.matterRef ?? "",
-      read.summary,
-      input.conversation.messages[0]?.bodyText?.slice(0, 400) ?? "",
-    ].join(" ");
-    const counterparty = counterpartyOf(
-      input.conversation.messages[input.conversation.messages.length - 1]?.from.email ?? "",
-      input.context.ownDomain,
-    );
+    // about an event belongs to that event's unit of work. The read's own
+    // words come from the whole thread, so when a later sender is outside
+    // the opening message's parties only the opening message ties and names
+    // codes.
+    const opening = input.conversation.messages[0]?.bodyText?.slice(0, 400) ?? "";
+    const tieText = (
+      compiled.sendersVerified
+        ? [input.conversation.subject, read.matterRef ?? "", read.summary, opening]
+        : [input.conversation.subject, opening]
+    ).join(" ");
+    const counterparty = compiled.counterparty;
     // The user's own name and company identify nothing: they are in every
     // matter on this desk, so they neither name work nor tie it together.
     const own = ownTokens(input.context.ownEmail ?? `x@${input.context.ownDomain}`);
