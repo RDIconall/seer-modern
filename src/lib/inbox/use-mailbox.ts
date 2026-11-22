@@ -16,6 +16,7 @@ import type { Brief, Matter } from "@/lib/inbox/matters";
 import {
   applyTriageClear,
   planTriageClear,
+  TRIAGE_CLEAR_MAX_ROWS,
 } from "@/lib/inbox/triage-clear";
 import {
   actionThreadId,
@@ -24,8 +25,39 @@ import {
   ensureRe,
   primaryMailAction,
 } from "@/lib/inbox/types";
+import { MAX_ACTION_ROWS } from "@/lib/mail/bounds";
 
 export type SettledMatter = { at: string; matter?: Matter };
+
+function inParts<T>(items: T[], size: number): T[][] {
+  const parts: T[][] = [];
+  for (let i = 0; i < items.length; i += size) {
+    parts.push(items.slice(i, i + size));
+  }
+  return parts;
+}
+
+/** The bulk route takes a bounded number of items, so larger sets go in parts. */
+async function postBulkAction(
+  items: {
+    id: string;
+    threadId?: string;
+    action: MailAction;
+    fromEmail?: string;
+  }[],
+) {
+  for (const part of inParts(items, MAX_ACTION_ROWS)) {
+    const res = await fetch("/api/action/bulk", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ items: part }),
+    });
+    if (!res.ok) {
+      const json = await res.json().catch(() => ({}));
+      throw new Error(json.error ?? "Bulk failed");
+    }
+  }
+}
 
 /**
  * Superhuman-style speed:
@@ -495,25 +527,42 @@ export function useMailbox(initialTab: ViewTab = "inbox") {
       }
       setToast(`${verb} ${ids.length}`);
 
+      // The server clears a bounded number of rows per request; a larger
+      // clear goes in parts, each answered with the brief as it now stands.
+      let confirmed: Brief | null = null;
+      let removed = 0;
+      let failed = 0;
       try {
-        const res = await fetch("/api/triage/clear", {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ rows, reason, mode }),
-        });
-        const json = await res.json().catch(() => ({}));
-        if (!res.ok) {
-          throw new Error(json.error ?? "Clear failed");
+        for (const [index, part] of inParts(
+          rows,
+          TRIAGE_CLEAR_MAX_ROWS,
+        ).entries()) {
+          const res = await fetch("/api/triage/clear", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({
+              rows: part,
+              reason,
+              mode,
+              continuation: index > 0,
+            }),
+          });
+          const json = await res.json().catch(() => ({}));
+          if (!res.ok) {
+            throw new Error(json.error ?? "Clear failed");
+          }
+          if (json.brief) confirmed = json.brief;
+          removed += json.removedCount ?? json.processed ?? 0;
+          failed += json.failed ?? 0;
         }
         // Reconcile with the server's authoritative accounting.
-        if (json.brief) setBrief(json.brief);
-        if (json.failed) {
-          setToast(
-            `${verb} ${json.removedCount ?? json.processed}; ${json.failed} failed`,
-          );
+        if (confirmed) setBrief(confirmed);
+        if (failed) {
+          setToast(`${verb} ${removed}; ${failed} failed`);
         }
       } catch (e) {
-        if (snapshot) setBrief(snapshot);
+        const restore = confirmed ?? snapshot;
+        if (restore) setBrief(restore);
         setToast(e instanceof Error ? e.message : "Clear failed");
       }
     },
@@ -568,19 +617,10 @@ export function useMailbox(initialTab: ViewTab = "inbox") {
         removeFromLists(r.id);
       }
       try {
-        const res = await fetch("/api/action/bulk", {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({
-            // threadId makes this close the whole conversation, like Gmail
-            items: rows.map((r) => ({
-              id: r.id,
-              threadId: r.threadId,
-              action,
-            })),
-          }),
-        });
-        if (!res.ok) throw new Error((await res.json()).error);
+        await postBulkAction(
+          // threadId makes this close the whole conversation, like Gmail
+          rows.map((r) => ({ id: r.id, threadId: r.threadId, action })),
+        );
         setToast(
           `${action === "archive" ? "Archived" : "Deleted"} ${rows.length} thread${rows.length === 1 ? "" : "s"}`,
         );
@@ -847,19 +887,14 @@ export function useMailbox(initialTab: ViewTab = "inbox") {
           return;
         }
 
-        const res = await fetch("/api/action/bulk", {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({
-            items: section.items.map((i) => ({
-              id: i.id,
-              threadId: actionThreadId(i),
-              action,
-              fromEmail: i.fromEmail,
-            })),
-          }),
-        });
-        if (!res.ok) throw new Error("Bulk failed");
+        await postBulkAction(
+          section.items.map((i) => ({
+            id: i.id,
+            threadId: actionThreadId(i),
+            action,
+            fromEmail: i.fromEmail,
+          })),
+        );
         setToast(`Updated ${ids.length}`);
       } catch {
         setToast("Bulk action failed — refreshing");
@@ -881,19 +916,14 @@ export function useMailbox(initialTab: ViewTab = "inbox") {
         removeFromLists(p.id);
       }
       try {
-        const res = await fetch("/api/action/bulk", {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({
-            items: picked.map((p) => ({
-              id: p.id,
-              threadId: p.threadId,
-              action,
-              fromEmail: p.fromEmail,
-            })),
-          }),
-        });
-        if (!res.ok) throw new Error("Bulk failed");
+        await postBulkAction(
+          picked.map((p) => ({
+            id: p.id,
+            threadId: p.threadId,
+            action,
+            fromEmail: p.fromEmail,
+          })),
+        );
         setToast(
           action === "trash"
             ? `Deleted ${picked.length}`

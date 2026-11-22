@@ -1,3 +1,4 @@
+import { createLimiter } from "@/lib/mail/bounds";
 import { gmailAction, gmailThreadAction } from "@/lib/mail/gmail";
 import { graphAction, graphThreadAction } from "@/lib/mail/graph";
 import { requireMailSession } from "@/lib/mail/session";
@@ -5,6 +6,7 @@ import { loadBrief, saveBrief } from "@/lib/inbox/matters";
 import {
   applyTriageClear,
   planTriageClear,
+  TRIAGE_CLEAR_MAX_ROWS,
   type TriageClearRequest,
 } from "@/lib/inbox/triage-clear";
 import { appendLedger } from "@/lib/store/triage-ledger";
@@ -30,9 +32,17 @@ export async function POST(request: Request) {
     reason?: string;
     /** "trash" is Triage's delete; "archive" closes something out. */
     mode?: "archive" | "trash";
+    /** A later part of one larger clear — the acceptance is already counted. */
+    continuation?: boolean;
   };
-  if (!body.rows?.length) {
+  if (!Array.isArray(body.rows) || body.rows.length === 0) {
     return NextResponse.json({ error: "No rows" }, { status: 400 });
+  }
+  if (body.rows.length > TRIAGE_CLEAR_MAX_ROWS) {
+    return NextResponse.json(
+      { error: `At most ${TRIAGE_CLEAR_MAX_ROWS} rows per clear` },
+      { status: 413 },
+    );
   }
   const brief = await loadBrief(session.email);
   if (!brief) {
@@ -41,15 +51,19 @@ export async function POST(request: Request) {
 
   const actions = planTriageClear(brief, body.rows);
   const mode = body.mode === "trash" ? "trash" : "archive";
+  const limit = createLimiter();
   const run = async (action: (typeof actions)[number]) => {
-    if (action.threadId) {
+    const { threadId } = action;
+    if (threadId) {
       return session.provider === "google"
-        ? gmailThreadAction(session.accessToken, action.threadId, mode)
-        : graphThreadAction(session.accessToken, action.threadId, mode);
+        ? limit(() => gmailThreadAction(session.accessToken, threadId, mode))
+        : graphThreadAction(session.accessToken, threadId, mode, limit);
     }
-    return session.provider === "google"
-      ? gmailAction(session.accessToken, action.id, mode)
-      : graphAction(session.accessToken, action.id, mode);
+    return limit(() =>
+      session.provider === "google"
+        ? gmailAction(session.accessToken, action.id, mode)
+        : graphAction(session.accessToken, action.id, mode),
+    );
   };
 
   const results = await Promise.allSettled(actions.map(run));
@@ -82,7 +96,7 @@ export async function POST(request: Request) {
         .map((action) => action.threadId)
         .filter((id): id is string => Boolean(id)),
     }),
-    recordAccepted(session.email, reason),
+    body.continuation === true ? null : recordAccepted(session.email, reason),
   ]);
 
   return NextResponse.json({
