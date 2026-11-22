@@ -15,6 +15,10 @@ import { useEffect, useState } from "react";
  * inbox, flags what to cut — including emails that duplicate the push
  * notifications the user's phone already shows — and executes real
  * unsubscribes (one-click / mailto / link) plus sender mutes in bulk.
+ *
+ * The verdicts come from a model that reads sender-written names and
+ * subjects, so none start ticked: only senders the user ticks, after
+ * seeing the address and subjects, are unsubscribed and muted.
  */
 
 type Suggestion = {
@@ -23,6 +27,7 @@ type Suggestion = {
   count: number;
   lastAt: string;
   latestId: string;
+  subjects?: string[];
   phoneDup: boolean;
   reason: string;
 };
@@ -51,11 +56,7 @@ export function UnsubAgentSheet({
         if (!alive) return;
         setSuggestions(json.suggestions ?? []);
         setScanned(json.scanned ?? 0);
-        setPicked(
-          new Set(
-            (json.suggestions ?? []).map((s: Suggestion) => s.fromEmail),
-          ),
-        );
+        setPicked(new Set());
       } catch (e) {
         if (alive) setError(e instanceof Error ? e.message : "Agent failed");
       } finally {
@@ -111,6 +112,8 @@ export function UnsubAgentSheet({
     <li key={s.fromEmail} className="border-b border-[var(--border)]">
       <button
         type="button"
+        role="checkbox"
+        aria-checked={picked.has(s.fromEmail)}
         onClick={() => toggle(s.fromEmail)}
         className="flex w-full items-start gap-2.5 px-4 py-2.5 text-left"
       >
@@ -131,6 +134,18 @@ export function UnsubAgentSheet({
               · {s.count} in inbox
             </span>
           </span>
+          <span className="block truncate text-[12px] text-[var(--muted)]">
+            {s.fromEmail}
+          </span>
+          {s.subjects?.length ? (
+            <span className="mt-0.5 block text-[12px] leading-snug text-[var(--fg)]">
+              {s.subjects.map((subject, i) => (
+                <span key={i} className="block truncate">
+                  “{subject}”
+                </span>
+              ))}
+            </span>
+          ) : null}
           <span className="block text-[14px] leading-snug text-[var(--muted)]">
             {s.reason}
           </span>
@@ -185,8 +200,9 @@ export function UnsubAgentSheet({
         ) : (
           <>
             <p className="px-5 pb-2 text-[14px] text-[var(--muted)]">
-              {scanned} senders scanned · {suggestions.length} worth cutting.
-              Uncheck any you want to keep.
+              {scanned} senders scanned · {suggestions.length} suggested.
+              Tick each sender you want to cut — check the address and
+              subjects first.
             </p>
             <div className="min-h-0 flex-1 overflow-y-auto">
               {phoneDups.length > 0 ? (

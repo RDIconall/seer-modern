@@ -823,30 +823,10 @@ export function useMailbox(initialTab: ViewTab = "inbox") {
         };
       });
       try {
-        // The unsubscribe section actually unsubscribes (one-click /
-        // mailto), then trashes and teaches the sender — not just trash.
-        if (section.action === "unsubscribe") {
-          const res = await fetch("/api/unsubscribe", {
-            method: "POST",
-            headers: { "Content-Type": "application/json" },
-            body: JSON.stringify({
-              items: section.items.map((i) => ({
-                id: i.id,
-                threadId: actionThreadId(i),
-                fromEmail: i.fromEmail,
-              })),
-            }),
-          });
-          const json = await res.json();
-          if (!res.ok) throw new Error(json.error ?? "Unsubscribe failed");
-          setToast(
-            json.unsubscribed > 0
-              ? `Unsubscribed from ${json.unsubscribed} of ${ids.length} · all trashed & muted`
-              : `Trashed ${ids.length} · senders muted`,
-          );
-          return;
-        }
-
+        // The whole-section card is accepting a model grade, not the user
+        // judging each sender, so even the unsubscribe section only trashes
+        // here. Real unsubscribes and sender mutes happen per sender: the
+        // per-message unsubscribe or a ticked row in the unsubscribe agent.
         const res = await fetch("/api/action/bulk", {
           method: "POST",
           headers: { "Content-Type": "application/json" },
