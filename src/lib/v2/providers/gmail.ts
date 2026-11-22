@@ -166,12 +166,13 @@ export class GmailProvider implements MailProvider {
   private async thread(id: string, context?: SyncContext): Promise<Conversation> {
     assertSyncBudget(context);
     const t = await this.get<GmailThread>(`/threads/${id}?format=full`, context);
-    const messages = (t.messages ?? [])
-      .map((m) => toMessage(m, this.deps.accountEmail))
-      .sort((a, b) => a.sentAt.localeCompare(b.sentAt));
+    const ordered = (t.messages ?? [])
+      .map((raw) => ({ raw, message: toMessage(raw, this.deps.accountEmail) }))
+      .sort((a, b) => a.message.sentAt.localeCompare(b.message.sentAt));
+    const messages = ordered.map((m) => m.message);
     return {
       providerConversationId: id,
-      subject: header(t.messages?.[0]?.payload?.headers, "subject"),
+      subject: header(ordered[0]?.raw.payload?.headers, "subject"),
       messages,
       lastMessageAt: messages[messages.length - 1]?.sentAt ?? "",
     };

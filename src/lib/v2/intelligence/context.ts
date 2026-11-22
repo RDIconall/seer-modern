@@ -1,8 +1,8 @@
 import type { Conversation } from "../providers/types";
 import {
-  counterpartyOf,
   ownTokens,
   resolveMatterMatch,
+  threadCounterparty,
 } from "./matter-key";
 
 /**
@@ -55,6 +55,10 @@ export type CompiledContext = {
   senderIsKnown: boolean;
   senderIsInternal: boolean;
   candidateMatterId: string | null;
+  /** The company a matter for this thread is filed under, bound to the opening message. */
+  counterparty: string;
+  /** False when a later From is outside the parties the opening message involved. */
+  sendersVerified: boolean;
   /** The sender's tier and VIP flag, for salience. */
   senderTier: string;
   senderVip: boolean;
@@ -140,7 +144,14 @@ export function compileContext(
   const matterText = `${conversation.subject} ${conversation.messages
     .map((m) => m.bodyText ?? m.snippet)
     .join(" ")}`;
-  const counterparty = counterpartyOf(senderEmail, input.ownDomain);
+  const { counterparty, sendersVerified } = threadCounterparty(
+    conversation.messages.map((m) => ({
+      from: m.from.email ?? "",
+      to: (m.to ?? []).map((a) => a.email),
+      cc: (m.cc ?? []).map((a) => a.email),
+    })),
+    input.ownDomain,
+  );
   const matterMatch = resolveMatterMatch(
     {
       title: conversation.subject,
@@ -182,6 +193,8 @@ export function compileContext(
     senderIsKnown,
     senderIsInternal,
     candidateMatterId,
+    counterparty,
+    sendersVerified,
     senderTier: person?.tier ?? "unknown",
     senderVip: Boolean(person?.vip),
     priorMatterRejections,

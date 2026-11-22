@@ -1,10 +1,11 @@
 import { isUuid, type AccountId, type ConversationId } from "../db/types";
 import { db } from "../db/pool";
 import {
-  counterpartyOf,
   matterNameFrom,
   ownTokens,
   resolveMatterMatch,
+  threadCounterparty,
+  type ThreadSender,
 } from "./matter-key";
 import {
   ensureMatter,
@@ -16,7 +17,8 @@ type ConversationMatterContext = {
   functionName: string | null;
   summary: string;
   bodyText: string;
-  fromEmail: string;
+  openingBodyText: string;
+  senders: ThreadSender[];
   ownEmail: string;
 };
 
@@ -38,7 +40,9 @@ async function conversationContext(
     summary: string | null;
     body_text: string | null;
     snippet: string | null;
-    from_email: string | null;
+    opening_body_text: string | null;
+    opening_snippet: string | null;
+    senders: { from: string | null; to: string[] | null; cc: string[] | null }[] | null;
     own_email: string;
   }>(
     `select c.subject,
@@ -46,7 +50,9 @@ async function conversationContext(
             d.summary,
             lm.body_text,
             lm.snippet,
-            lm.from_email,
+            om.body_text as opening_body_text,
+            om.snippet as opening_snippet,
+            ms.senders,
             a.email as own_email
        from seer.conversations c
        join seer.mail_accounts a on a.id = c.account_id
@@ -55,13 +61,30 @@ async function conversationContext(
         and d.conversation_id = c.id
         and d.is_current
        left join lateral (
-         select m.body_text, m.snippet, m.from_email
+         select m.body_text, m.snippet
            from seer.messages m
           where m.account_id = c.account_id
             and m.conversation_id = c.id
           order by m.sent_at desc nulls last
           limit 1
        ) lm on true
+       left join lateral (
+         select m.body_text, m.snippet
+           from seer.messages m
+          where m.account_id = c.account_id
+            and m.conversation_id = c.id
+          order by m.sent_at asc nulls last, m.provider_message_id asc
+          limit 1
+       ) om on true
+       left join lateral (
+         select json_agg(
+                  json_build_object('from', m.from_email, 'to', m.to_emails, 'cc', m.cc_emails)
+                  order by m.sent_at asc nulls last, m.provider_message_id asc
+                ) as senders
+           from seer.messages m
+          where m.account_id = c.account_id
+            and m.conversation_id = c.id
+       ) ms on true
       where c.account_id = $1 and c.id = $2 and c.is_deleted = false`,
     [accountId, conversationId],
   );
@@ -72,9 +95,30 @@ async function conversationContext(
     functionName: row.function_name,
     summary: row.summary ?? "",
     bodyText: row.body_text ?? row.snippet ?? "",
-    fromEmail: row.from_email ?? "",
+    openingBodyText: row.opening_body_text ?? row.opening_snippet ?? "",
+    senders: (row.senders ?? []).map((s) => ({
+      from: s.from ?? "",
+      to: s.to ?? [],
+      cc: s.cc ?? [],
+    })),
     ownEmail: row.own_email,
   };
+}
+
+/**
+ * The company and tie text for filing. The company is bound to the opening
+ * message; when a later sender is outside its parties, only the subject and
+ * the opening message tie, so that sender's words name no codes.
+ */
+function filingKey(context: ConversationMatterContext) {
+  const ownDomain = context.ownEmail.split("@")[1] ?? "";
+  const { counterparty, sendersVerified } = threadCounterparty(context.senders, ownDomain);
+  const text = (
+    sendersVerified
+      ? [context.subject, context.summary, context.bodyText]
+      : [context.subject, context.openingBodyText]
+  ).join(" ");
+  return { counterparty, text };
 }
 
 async function openMatters(accountId: AccountId) {
@@ -118,9 +162,7 @@ export async function suggestMattersForConversation(
     conversationContext(accountId, conversationId),
     openMatters(accountId),
   ]);
-  const ownDomain = context.ownEmail.split("@")[1] ?? "";
-  const counterparty = counterpartyOf(context.fromEmail, ownDomain);
-  const text = [context.subject, context.summary, context.bodyText].join(" ");
+  const { counterparty, text } = filingKey(context);
   const proposed = matterNameFrom(
     context.summary,
     context.subject,
@@ -215,9 +257,7 @@ export async function placeConversationOnMatter(
       matterId = current.matterId;
       title = current.title;
     } else {
-      const ownDomain = context.ownEmail.split("@")[1] ?? "";
-      const counterparty = counterpartyOf(context.fromEmail, ownDomain);
-      const text = [context.subject, context.summary, context.bodyText].join(" ");
+      const { counterparty, text } = filingKey(context);
       title = matterNameFrom(
         title || context.summary,
         context.subject,
