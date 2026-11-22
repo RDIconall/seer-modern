@@ -4,6 +4,7 @@ import {
   ownTokens,
   resolveMatterMatch,
 } from "./matter-key";
+import { sanitizeGuidance } from "./packet-text";
 
 /**
  * The context packet fed alongside the full conversation. It is the smallest
@@ -81,11 +82,9 @@ export function compileContext(
   const lines: string[] = [];
   const refs: string[] = [];
 
-  const guidance = input.operatingGuidance?.trim();
+  const guidance = sanitizeGuidance(input.operatingGuidance ?? "", 500);
   if (guidance) {
-    lines.push(
-      `[explicit] how this desk is organised (user): ${guidance.slice(0, 500)}`,
-    );
+    lines.push(`[explicit] how this desk is organised (user): ${guidance}`);
   }
   const mailboxStyle = input.mailboxStyleGuidance?.trim();
   if (mailboxStyle) {
@@ -177,7 +176,11 @@ export function compileContext(
   }
 
   return {
-    text: lines.join("\n").slice(0, MAX_CHARS),
+    // Each value above came from storage; none may start a line of its own.
+    text: lines
+      .map((line) => line.replace(/[\r\n\v\f\u0085\u2028\u2029]+/g, " "))
+      .join("\n")
+      .slice(0, MAX_CHARS),
     refs,
     senderIsKnown,
     senderIsInternal,
