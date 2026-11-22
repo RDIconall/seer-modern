@@ -1,5 +1,10 @@
 import type { Conversation } from "../providers/types";
 import {
+  oneLine,
+  quoteUntrusted,
+  UNTRUSTED_TEXT_NOTICE,
+} from "../../security/untrusted-text";
+import {
   counterpartyOf,
   ownTokens,
   resolveMatterMatch,
@@ -64,6 +69,9 @@ export type CompiledContext = {
 
 const MAX_CHARS = 1200;
 
+/** Tiers come from the database as free text; only a plain word is shown. */
+const TIER_WORD = /^[a-z][a-z-]{0,30}$/;
+
 function tokens(s: string): Set<string> {
   return new Set(
     s
@@ -84,17 +92,18 @@ export function compileContext(
   const guidance = input.operatingGuidance?.trim();
   if (guidance) {
     lines.push(
-      `[explicit] how this desk is organised (user): ${guidance.slice(0, 500)}`,
+      `[explicit] how this desk is organised (user): ${quoteUntrusted(guidance.slice(0, 500))}`,
     );
   }
   const mailboxStyle = input.mailboxStyleGuidance?.trim();
   if (mailboxStyle) {
     lines.push(
-      `[explicit] how this person uses mail (user): ${mailboxStyle.slice(0, 400)}`,
+      `[explicit] how this person uses mail (user): ${quoteUntrusted(mailboxStyle.slice(0, 400))}`,
     );
   }
 
   const senderEmail = conversation.messages[0]?.from.email?.toLowerCase() ?? "";
+  const shownSender = oneLine(senderEmail).replace(/[[\]<>"]/g, "");
   const senderDomain = senderEmail.split("@")[1] ?? "";
   const senderIsInternal =
     Boolean(input.ownDomain) && senderDomain === input.ownDomain.toLowerCase();
@@ -106,14 +115,16 @@ export function compileContext(
 
   if (person) {
     lines.push(
-      `[observed] sender ${senderEmail} is tier=${person.tier}${person.vip ? " (VIP)" : ""}`,
+      `[observed] sender ${shownSender} is tier=${TIER_WORD.test(person.tier) ? person.tier : "unknown"}${person.vip ? " (VIP)" : ""}`,
     );
     refs.push(`person:${senderEmail}`);
   } else if (senderEmail) {
-    lines.push(`[observed] sender ${senderEmail} has no prior relationship on record`);
+    lines.push(`[observed] sender ${shownSender} has no prior relationship on record`);
   }
   if (senderIsInternal) {
-    lines.push(`[system] sender is inside your organization (${input.ownDomain})`);
+    lines.push(
+      `[system] sender is inside your organization (${oneLine(input.ownDomain)})`,
+    );
   }
 
   const placement = (input.placements ?? []).filter(
@@ -161,7 +172,7 @@ export function compileContext(
     const matter = input.matters.find((item) => item.id === matterMatch.matterId);
     if (matter) {
       lines.push(
-        `[inference] may continue the live matter "${matter.title}" (conservative relation match)`,
+        `[inference] may continue the live matter ${quoteUntrusted(matter.title)} (conservative relation match)`,
       );
       refs.push(`matter:${matter.id}`);
     }
@@ -172,12 +183,14 @@ export function compileContext(
     [...tokens(i)].some((t) => interestHaystack.has(t)),
   );
   for (const interest of relevantInterests) {
-    lines.push(`[explicit] you said you care about: ${interest}`);
+    lines.push(`[explicit] you said you care about: ${quoteUntrusted(interest)}`);
     refs.push(`interest:${interest}`);
   }
 
   return {
-    text: lines.join("\n").slice(0, MAX_CHARS),
+    text: (lines.length ? [UNTRUSTED_TEXT_NOTICE, ...lines] : [])
+      .join("\n")
+      .slice(0, MAX_CHARS),
     refs,
     senderIsKnown,
     senderIsInternal,

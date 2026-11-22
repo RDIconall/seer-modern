@@ -18,6 +18,11 @@ import {
 import type { ActionMemory } from "@/lib/store/action-memory";
 import type { PeopleDb } from "@/lib/store/people";
 import { latestSignalFor, type WorkSignal } from "@/lib/brain/signals";
+import {
+  oneLine,
+  quoteUntrusted,
+  UNTRUSTED_TEXT_NOTICE,
+} from "@/lib/security/untrusted-text";
 
 /**
  * THE CONTEXT COMPILER — the center of the Seer brain.
@@ -76,6 +81,9 @@ export type CompiledContext = { text: string; refs: string[] };
 
 /** How much context rides along with each read — small on purpose. */
 const PACKET_MAX_CHARS = 1000;
+
+/** Stored tiers are not validated on read; anything else is dropped. */
+const TIER_WORD = /^[a-z][a-z-]{0,30}$/;
 
 const FREEMAIL =
   /^(gmail|googlemail|outlook|hotmail|live|yahoo|ymail|aol|icloud|me|msn|proton|protonmail|comcast|sbcglobal|att|verizon)\./;
@@ -175,6 +183,7 @@ export function compileEmailContext(
   sources: BrainSources,
 ): CompiledContext {
   const email = input.fromEmail.toLowerCase().trim();
+  const shownEmail = oneLine(email).replace(/[[\]<>"]/g, "");
   const hay = `${input.subject}\n${input.snippet}`;
   const counterparty = counterpartyLabel(email, sources.ownDomain);
   const lines: string[] = [];
@@ -186,8 +195,10 @@ export function compileEmailContext(
   const ctx = contextSignals(sources.personal, email);
   const senderBits: string[] = [];
   if (person?.vip) senderBits.push("VIP — you pinned them [explicit]");
-  else if (person?.tier && person.tier !== "machine") {
-    senderBits.push(`${person.tier} [${person.by === "ai" ? "inference" : "observed"}]`);
+  else if (person?.tier && person.tier !== "machine" && TIER_WORD.test(person.tier)) {
+    senderBits.push(
+      `${person.tier} [${person.by === "ai" ? "inference" : "observed"}]`,
+    );
   }
   if (sig.relationship === "engaged") {
     senderBits.push(`you email them (sent ${sig.sentTo}) [observed]`);
@@ -202,19 +213,21 @@ export function compileEmailContext(
   }
   if (ctx.inContacts) senderBits.push("in your saved contacts [explicit]");
   if ((sig.keptFrom ?? 0) > 0) senderBits.push(`you keep their mail (${sig.keptFrom}) [observed]`);
-  const who = input.fromName || counterparty || email;
+  const who = quoteUntrusted(input.fromName || counterparty || email);
   if (senderBits.length) {
-    lines.push(`SENDER: ${who} <${email}> — ${senderBits.join("; ")}`);
+    lines.push(`SENDER: ${who} <${shownEmail}> — ${senderBits.join("; ")}`);
     refs.push(`person:${email}`);
   } else {
     // Absence is evidence: no relationship on record at all.
-    lines.push(`SENDER: ${who} <${email}> — no prior relationship on record [observed]`);
+    lines.push(
+      `SENDER: ${who} <${shownEmail}> — no prior relationship on record [observed]`,
+    );
   }
 
   // MEETING — a shared calendar event with this sender
   const meet = meetingLabel(ctx.meeting);
   if (meet) {
-    lines.push(`MEETING: ${meet} [calendar]`);
+    lines.push(`MEETING: ${quoteUntrusted(meet)} [calendar]`);
     refs.push(`calendar:${ctx.meeting?.subject ?? ""}`);
   }
 
@@ -224,8 +237,8 @@ export function compileEmailContext(
     if (hit) {
       const conf = Math.min(0.95, 0.6 + hit.score * 0.1).toFixed(2);
       lines.push(
-        `LIKELY MATTER: ${hit.matter.title}${
-          hit.matter.narrative ? ` — ${hit.matter.narrative}` : ""
+        `LIKELY MATTER: ${quoteUntrusted(hit.matter.title)}${
+          hit.matter.narrative ? ` — ${quoteUntrusted(hit.matter.narrative)}` : ""
         } [inference ${conf}]`,
       );
       refs.push(`matter:${hit.matter.id}`);
@@ -236,7 +249,7 @@ export function compileEmailContext(
   if (sources.salesforce) {
     const crm = crmLine(hay, sources.salesforce);
     if (crm) {
-      lines.push(`CRM: ${crm.text} [system]`);
+      lines.push(`CRM: ${oneLine(crm.text)} [system]`);
       refs.push(crm.ref);
     }
   }
@@ -247,10 +260,10 @@ export function compileEmailContext(
     const codes = (hay.match(CODE_PATTERN) ?? []).map((c) => normalizeCode(c));
     const sig = latestSignalFor(sources.workSignals, [counterparty, ...codes]);
     if (sig) {
-      const when = sig.at.slice(0, 10);
-      const mins = sig.minutes ? ` (${sig.minutes}m)` : "";
+      const when = oneLine(sig.at.slice(0, 10));
+      const mins = sig.minutes ? ` (${Number(sig.minutes)}m)` : "";
       lines.push(
-        `WORK: you ${sig.kind} "${sig.label}"${mins} on ${when} — this concern is active [observed]`,
+        `WORK: you ${oneLine(sig.kind)} ${quoteUntrusted(sig.label)}${mins} on ${when} — this concern is active [observed]`,
       );
       refs.push(`work:${sig.source}:${sig.ref ?? sig.label}`);
     }
@@ -271,7 +284,7 @@ export function compileEmailContext(
     "CONTEXT (evidence about this sender and the work it belongs to; " +
     "[explicit] and [system] facts OUTRANK your own read, [inference] is a hint, " +
     "and no context means the sender is genuinely peripheral):";
-  let text = `${header}\n${lines.join("\n")}`;
+  let text = `${header}\n${UNTRUSTED_TEXT_NOTICE}\n${lines.join("\n")}`;
   if (text.length > PACKET_MAX_CHARS) text = `${text.slice(0, PACKET_MAX_CHARS)}…`;
   return { text, refs };
 }
