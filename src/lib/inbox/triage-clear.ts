@@ -1,37 +1,58 @@
 import type { Brief } from "@/lib/inbox/matters";
 import { withInboxAccounting } from "@/lib/inbox/inbox-accounting";
+import { MAX_ACTION_ROWS } from "@/lib/mail/bounds";
 
 export type TriageClearRequest = { id: string; threadId: string };
 export type TriageClearAction = { id: string; threadId?: string };
+
+/** Rows one clear request may name; the client sends larger clears in parts. */
+export const TRIAGE_CLEAR_MAX_ROWS = MAX_ACTION_ROWS;
 
 /**
  * Decide whether each requested clear is thread-wide or message-only.
  * A thread that belongs to an active matter is protected: Triage may remove
  * its FYI/noise message, but must not archive the whole live conversation.
+ *
+ * Only messages the brief knows are acted on, and the thread comes from the
+ * brief's own row — never from the request — so a clear cannot reach a
+ * conversation Triage never showed.
  */
 export function planTriageClear(
   brief: Brief,
   requested: TriageClearRequest[],
 ): TriageClearAction[] {
-  const matterThreads = new Set(
-    [...(brief.pinned ?? []), ...brief.matters].flatMap(
-      (matter) => matter.threadIds,
-    ),
-  );
+  const allMatters = [...(brief.pinned ?? []), ...brief.matters];
+  const matterThreads = new Set(allMatters.flatMap((matter) => matter.threadIds));
+  const matterMessages = new Set(allMatters.flatMap((matter) => matter.emailIds));
+  const threadOf = new Map<string, string>();
+  for (const row of brief.filed ?? []) {
+    const ids = row.messageIds?.length ? row.messageIds : [row.emailId];
+    for (const id of ids) threadOf.set(id, row.threadId);
+  }
+  for (const row of [...brief.headlineIds, ...brief.headlines]) {
+    threadOf.set(row.id, row.threadId);
+  }
+  for (const theme of brief.digest?.themes ?? []) {
+    for (const item of theme.items ?? []) threadOf.set(item.id, item.threadId);
+  }
+
   const seenThreads = new Set<string>();
   const seenMessages = new Set<string>();
   const actions: TriageClearAction[] = [];
   for (const row of requested) {
-    if (matterThreads.has(row.threadId)) {
+    if (typeof row?.id !== "string") continue;
+    const threadId = threadOf.get(row.id);
+    if (threadId === undefined || matterThreads.has(threadId)) {
+      if (threadId === undefined && !matterMessages.has(row.id)) continue;
       if (!seenMessages.has(row.id)) {
         seenMessages.add(row.id);
         actions.push({ id: row.id });
       }
       continue;
     }
-    if (!seenThreads.has(row.threadId)) {
-      seenThreads.add(row.threadId);
-      actions.push({ id: row.id, threadId: row.threadId });
+    if (!seenThreads.has(threadId)) {
+      seenThreads.add(threadId);
+      actions.push({ id: row.id, threadId });
     }
   }
   return actions;

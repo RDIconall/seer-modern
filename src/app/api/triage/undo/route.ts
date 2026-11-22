@@ -1,4 +1,5 @@
 import { loadBrief, saveBrief } from "@/lib/inbox/matters";
+import { createLimiter } from "@/lib/mail/bounds";
 import { gmailAction, gmailThreadAction } from "@/lib/mail/gmail";
 import { requireMailSession } from "@/lib/mail/session";
 import { reopenMatter } from "@/lib/store/closed-matters";
@@ -45,13 +46,18 @@ export async function POST(request: Request) {
 
   const threadIds = entry.threadIds ?? [];
   const emailIds = entry.emailIds ?? [];
+  const limit = createLimiter();
   if (threadIds.length) {
     await Promise.allSettled(
-      threadIds.map((t) => gmailThreadAction(session.accessToken, t, "restore")),
+      threadIds.map((t) =>
+        limit(() => gmailThreadAction(session.accessToken, t, "restore")),
+      ),
     );
   } else if (emailIds.length) {
     await Promise.allSettled(
-      emailIds.map((id) => gmailAction(session.accessToken, id, "restore")),
+      emailIds.map((id) =>
+        limit(() => gmailAction(session.accessToken, id, "restore")),
+      ),
     );
   }
 

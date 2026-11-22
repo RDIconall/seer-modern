@@ -1,3 +1,4 @@
+import { createLimiter, MAX_ACTION_ROWS } from "@/lib/mail/bounds";
 import { gmailAction, gmailThreadAction } from "@/lib/mail/gmail";
 import { graphAction, graphThreadAction } from "@/lib/mail/graph";
 import { requireMailSession } from "@/lib/mail/session";
@@ -6,9 +7,6 @@ import { appendLedger } from "@/lib/store/triage-ledger";
 import { NextResponse } from "next/server";
 
 export const maxDuration = 60;
-
-/** Parallelism per wave — Gmail per-user quota tolerates ~10-15 writes/s. */
-const CONCURRENCY = 15;
 
 export async function POST(request: Request) {
   try {
@@ -29,38 +27,48 @@ export async function POST(request: Request) {
       reason?: string;
       source?: "auto" | "confirmed";
     };
-    const items = body.items ?? [];
+    const items = Array.isArray(body.items) ? body.items : [];
     if (items.length === 0) {
       return NextResponse.json({ error: "No items" }, { status: 400 });
     }
+    // Never silently drop items (the old 15-item cap dropped the rest of a
+    // "Delete all 40" — Seer showed clean, Gmail didn't): refuse an
+    // oversized request so the client sends it in parts.
+    if (items.length > MAX_ACTION_ROWS) {
+      return NextResponse.json(
+        { error: `At most ${MAX_ACTION_ROWS} items per request` },
+        { status: 413 },
+      );
+    }
 
-    // Thread-wide when the caller knows the thread, message-only otherwise
-    const run = (
-      token: string,
-      item: { id: string; threadId?: string; action: "archive" | "trash" | "read" },
-    ) =>
-      item.threadId
-        ? session.provider === "google"
-          ? gmailThreadAction(token, item.threadId, item.action)
-          : graphThreadAction(token, item.threadId, item.action)
-        : session.provider === "google"
+    // One limiter for every provider call, including each message of an
+    // Outlook conversation; one bad id must not sink the rest.
+    const limit = createLimiter();
+    const token = session.accessToken;
+    const run = (item: {
+      id: string;
+      threadId?: string;
+      action: "archive" | "trash" | "read";
+    }) => {
+      const { threadId } = item;
+      // Thread-wide when the caller knows the thread, message-only otherwise
+      if (threadId) {
+        return session.provider === "google"
+          ? limit(() => gmailThreadAction(token, threadId, item.action))
+          : graphThreadAction(token, threadId, item.action, limit);
+      }
+      return limit(() =>
+        session.provider === "google"
           ? gmailAction(token, item.id, item.action)
-          : graphAction(token, item.id, item.action);
+          : graphAction(token, item.id, item.action),
+      );
+    };
 
-    // EVERY item gets processed (the old 15-item cap silently dropped
-    // the rest of a "Delete all 40" — Seer showed clean, Gmail didn't).
-    // Waves of parallel calls; one bad id must not sink the rest.
     let processed = 0;
     let failed = 0;
-    for (let i = 0; i < items.length; i += CONCURRENCY) {
-      const wave = items.slice(i, i + CONCURRENCY);
-      const results = await Promise.allSettled(
-        wave.map((item) => run(session.accessToken, item)),
-      );
-      for (const r of results) {
-        if (r.status === "fulfilled") processed += 1;
-        else failed += 1;
-      }
+    for (const r of await Promise.allSettled(items.map(run))) {
+      if (r.status === "fulfilled") processed += 1;
+      else failed += 1;
     }
 
     // NO implicit SENDER teaching from bulk sweeps: accepting Seer's own
