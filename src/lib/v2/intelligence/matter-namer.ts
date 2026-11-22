@@ -167,7 +167,7 @@ counterparty and the specific deliverable, decision, study, product, bid, or
 process when useful. Never use the user's name, the user's company, or generic
 phrases such as engagement, call, catch-up, follow-up, intro, or outreach alone.
 Titles must be distinct across the full board. Do not copy a long subject line
-verbatim. Return every supplied id exactly once.`;
+verbatim. Return every supplied id exactly once, in input order.`;
 
 export function createMatterNamingCaller(
   model = process.env.SEER_ROUTER_FAST_MODEL ?? "google/gemini-3.1-flash-lite",
@@ -213,12 +213,8 @@ export async function nameMatterBatch(
         !isValidShortTitle(input.shortTitle)),
   );
   const proposed = await caller(needsNaming.length > 0 ? inputs : []);
-  const proposals = new Map<string, string>();
-  for (const item of proposed) {
-    if (!proposals.has(item.id)) proposals.set(item.id, item.shortTitle);
-  }
 
-  return inputs.map((input) => {
+  return inputs.map((input, k) => {
     if (input.shortTitleSource === "user" && input.shortTitle) {
       return {
         id: input.id,
@@ -227,7 +223,10 @@ export async function nameMatterBatch(
         shortTitleVersion: input.shortTitleVersion ?? SHORT_TITLE_VERSION,
       };
     }
-    const candidate = proposals.get(input.id);
+    // Matter summaries come from mail, so a proposal only names the input
+    // at its own index, and only when it echoes that input's id.
+    const candidate =
+      proposed[k]?.id === input.id ? proposed[k].shortTitle : undefined;
     const shortTitle = uniqueTitle(
       candidate && isValidShortTitle(candidate)
         ? candidate.trim().replace(/\s+/g, " ")

@@ -166,7 +166,7 @@ const recordSchema = z.object({
 
 const batchSchema = z.object({ records: z.array(recordSchema) });
 
-const SYSTEM = `You read a CEO's email and record what it MEANS. One record per email. You are the only thing standing between this person and a mountain of mail, so be concrete: name the document, the company, the number, the date.
+const SYSTEM = `You read a CEO's email and record what it MEANS. One record per email, in input order. You are the only thing standing between this person and a mountain of mail, so be concrete: name the document, the company, the number, the date.
 
 Some emails carry a CONTEXT block — evidence the assistant already knows about the sender and the work this email belongs to. USE IT:
 - Facts marked [explicit] (the user said so) and [system] (a CRM record) OUTRANK your own reading. A [explicit] VIP or board member is never disposable; a [system] open opportunity means the money is real.
@@ -318,14 +318,17 @@ export async function readEmails(
           }
         }
 
-        const byId = new Map(batch.map((m) => [m.id, m]));
-        for (const r of output.records) {
-          const src = byId.get(r.id);
-          if (!src) continue;
-          const bodyText =
-            bodies[batch.indexOf(src)] ?? `${src.subject} ${src.snippet}`;
+        // Every id is in the prompt, so an email body can steer the model
+        // into naming another email. A record only ever describes the
+        // input at its own index, and only when it echoes that input's id.
+        const paired = Math.min(output.records.length, batch.length);
+        for (let k = 0; k < paired; k++) {
+          const r = output.records[k];
+          const src = batch[k];
+          if (r.id !== src.id) continue;
+          const bodyText = bodies[k] ?? `${src.subject} ${src.snippet}`;
           out.push({
-            id: r.id,
+            id: src.id,
             threadId: src.threadId,
             version: UNDERSTANDING_VERSION,
             readAt: new Date().toISOString(),
@@ -371,7 +374,7 @@ export async function readEmails(
             },
             importance: r.importance,
             ...(() => {
-              const refs = opts.contextById?.get(r.id)?.refs;
+              const refs = opts.contextById?.get(src.id)?.refs;
               return refs && refs.length ? { contextRefs: refs } : {};
             })(),
             disposition: r.disposition,
