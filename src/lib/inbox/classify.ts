@@ -505,26 +505,20 @@ function classifyCore(
     );
   }
 
-  // Urgency bait: only trusted senders get credit for "expires today"
+  // Urgency bait never earns Act today on its own. Sender trust here is
+  // only the From address (unauthenticated — anyone can type it), so a
+  // "known" sender's "expires today" gets that sender's normal grade.
   if (URGENCY_BAIT.test(blob) || URGENCY_BAIT.test(input.subject)) {
     const trusted =
       extras?.inContacts ||
       signals.relationship === "engaged" ||
       signals.relationship === "known";
-    if (trusted) {
-      return hit(
-        "act_today",
-        "MED",
-        "Deadline language from a sender you know",
-        "trusted-urgency",
-        ctx,
-      );
-    }
     // Untrusted urgency = marketing costume. Bulk/noreply shape → bin it.
     if (
-      signals.relationship === "bulk" ||
-      NOREPLY.test(local) ||
-      isMarketingShape(local, dom, blob)
+      !trusted &&
+      (signals.relationship === "bulk" ||
+        NOREPLY.test(local) ||
+        isMarketingShape(local, dom, blob))
     ) {
       return hit(
         "delete_now",
@@ -756,11 +750,16 @@ function classifyByRelationship(
   email: string,
   blob: string,
 ): ClassifyResult | null {
-  const { signals, actionable, intel } = ctx;
+  const { signals, actionable } = ctx;
   const { relationship, sentTo, staleEngagement } = signals;
 
   if (relationship === "engaged") {
-    if (staleEngagement && actionable) {
+    // "today" / "asap" / weekday words are an ask, not a deadline, and
+    // "engaged" is only the unauthenticated From address — never Act today
+    // from these. Real deadlines (bill due, appointment hold, money at
+    // risk) and calendar meetings are graded earlier on their own terms.
+    const asksForTime = /\b(today|tomorrow|asap|eod)\b/i.test(blob);
+    if (staleEngagement && (actionable || asksForTime)) {
       return hit(
         "needs_review",
         "MED",
@@ -769,16 +768,7 @@ function classifyByRelationship(
         ctx,
       );
     }
-    if (intel.schedule > 0 || /\b(today|tomorrow|asap|eod)\b/i.test(blob)) {
-      return hit(
-        "act_today",
-        "HIGH",
-        `Schedule/urgency from someone you email (sent×${sentTo})`,
-        "engaged-schedule-today",
-        ctx,
-      );
-    }
-    if (actionable) {
+    if (actionable || asksForTime) {
       return hit(
         "respond",
         "HIGH",
