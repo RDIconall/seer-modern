@@ -10,6 +10,7 @@
  * same counterparty AND real overlap in the request itself. Loose topic
  * similarity alone never merges.
  */
+import { hasControlCharacters, singleLine } from "../../security/prompt-text";
 
 /**
  * Project, study, and sourcing-event codes used across this corpus:
@@ -130,17 +131,30 @@ export function matterNameFrom(
   text: string,
   own?: Set<string>,
 ): string {
+  return singleLine(proposeMatterName(proposed, subject, counterparty, text, own)).slice(0, 120)
+    || "Untitled matter";
+}
+
+function proposeMatterName(
+  proposed: string | undefined,
+  subject: string,
+  counterparty: string,
+  text: string,
+  own?: Set<string>,
+): string {
   const clean = (s: string) =>
-    s
+    singleLine(s)
       .replace(/^(?:re|fw|fwd|inform|action|reminder|notification|automatic reply)\s*:\s*/gi, "")
-      .replace(/\s+/g, " ")
       .trim();
 
   // A proposal is only a name if it names WORK. "RDI engagement / Conall
   // call" survives every format check and identifies nothing — the user and a
   // conversation are present in every matter on the desk. Reject it and let
   // the code/subject path produce something that actually distinguishes.
-  const fromModel = proposed?.trim();
+  // The name is read from mail the model was shown, so a proposal carrying
+  // control characters is not a name at all.
+  const fromModel =
+    proposed && !hasControlCharacters(proposed) ? singleLine(proposed) : "";
   if (
     fromModel &&
     !/^(?:re|fw|fwd|inform|action)\s*:/i.test(fromModel) &&

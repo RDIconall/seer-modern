@@ -1,4 +1,5 @@
 import type { Conversation } from "../providers/types";
+import { promptValue } from "../../security/prompt-text";
 import {
   counterpartyOf,
   ownTokens,
@@ -81,20 +82,20 @@ export function compileContext(
   const lines: string[] = [];
   const refs: string[] = [];
 
-  const guidance = input.operatingGuidance?.trim();
+  // Every stored or mail-derived value below goes through promptValue: a line
+  // break inside one would open a forged [explicit]/[system] line, and the
+  // reader is told those outrank the email.
+  const guidance = promptValue(input.operatingGuidance ?? "", 500);
   if (guidance) {
-    lines.push(
-      `[explicit] how this desk is organised (user): ${guidance.slice(0, 500)}`,
-    );
+    lines.push(`[explicit] how this desk is organised (user): ${guidance}`);
   }
-  const mailboxStyle = input.mailboxStyleGuidance?.trim();
+  const mailboxStyle = promptValue(input.mailboxStyleGuidance ?? "", 400);
   if (mailboxStyle) {
-    lines.push(
-      `[explicit] how this person uses mail (user): ${mailboxStyle.slice(0, 400)}`,
-    );
+    lines.push(`[explicit] how this person uses mail (user): ${mailboxStyle}`);
   }
 
   const senderEmail = conversation.messages[0]?.from.email?.toLowerCase() ?? "";
+  const senderLabel = promptValue(senderEmail, 254);
   const senderDomain = senderEmail.split("@")[1] ?? "";
   const senderIsInternal =
     Boolean(input.ownDomain) && senderDomain === input.ownDomain.toLowerCase();
@@ -106,14 +107,16 @@ export function compileContext(
 
   if (person) {
     lines.push(
-      `[observed] sender ${senderEmail} is tier=${person.tier}${person.vip ? " (VIP)" : ""}`,
+      `[observed] sender ${senderLabel} is tier=${promptValue(person.tier, 40)}${person.vip ? " (VIP)" : ""}`,
     );
     refs.push(`person:${senderEmail}`);
   } else if (senderEmail) {
-    lines.push(`[observed] sender ${senderEmail} has no prior relationship on record`);
+    lines.push(`[observed] sender ${senderLabel} has no prior relationship on record`);
   }
   if (senderIsInternal) {
-    lines.push(`[system] sender is inside your organization (${input.ownDomain})`);
+    lines.push(
+      `[system] sender is inside your organization (${promptValue(input.ownDomain, 253)})`,
+    );
   }
 
   const placement = (input.placements ?? []).filter(
@@ -161,7 +164,7 @@ export function compileContext(
     const matter = input.matters.find((item) => item.id === matterMatch.matterId);
     if (matter) {
       lines.push(
-        `[inference] may continue the live matter "${matter.title}" (conservative relation match)`,
+        `[inference] may continue the live matter ${JSON.stringify(promptValue(matter.title, 120) || "Untitled matter")} (conservative relation match)`,
       );
       refs.push(`matter:${matter.id}`);
     }
@@ -172,7 +175,9 @@ export function compileContext(
     [...tokens(i)].some((t) => interestHaystack.has(t)),
   );
   for (const interest of relevantInterests) {
-    lines.push(`[explicit] you said you care about: ${interest}`);
+    const label = promptValue(interest, 120);
+    if (!label) continue;
+    lines.push(`[explicit] you said you care about: ${label}`);
     refs.push(`interest:${interest}`);
   }
 

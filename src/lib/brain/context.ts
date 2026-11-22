@@ -18,6 +18,7 @@ import {
 import type { ActionMemory } from "@/lib/store/action-memory";
 import type { PeopleDb } from "@/lib/store/people";
 import { latestSignalFor, type WorkSignal } from "@/lib/brain/signals";
+import { promptValue } from "@/lib/security/prompt-text";
 
 /**
  * THE CONTEXT COMPILER — the center of the Seer brain.
@@ -187,7 +188,9 @@ export function compileEmailContext(
   const senderBits: string[] = [];
   if (person?.vip) senderBits.push("VIP — you pinned them [explicit]");
   else if (person?.tier && person.tier !== "machine") {
-    senderBits.push(`${person.tier} [${person.by === "ai" ? "inference" : "observed"}]`);
+    senderBits.push(
+      `${promptValue(person.tier, 40)} [${person.by === "ai" ? "inference" : "observed"}]`,
+    );
   }
   if (sig.relationship === "engaged") {
     senderBits.push(`you email them (sent ${sig.sentTo}) [observed]`);
@@ -202,17 +205,20 @@ export function compileEmailContext(
   }
   if (ctx.inContacts) senderBits.push("in your saved contacts [explicit]");
   if ((sig.keptFrom ?? 0) > 0) senderBits.push(`you keep their mail (${sig.keptFrom}) [observed]`);
-  const who = input.fromName || counterparty || email;
+  // Names, titles and labels below come from mail and stored records; each
+  // goes through promptValue so none can open a forged labeled line.
+  const who = promptValue(input.fromName || counterparty || email, 120);
+  const address = promptValue(email, 254);
   if (senderBits.length) {
-    lines.push(`SENDER: ${who} <${email}> — ${senderBits.join("; ")}`);
+    lines.push(`SENDER: ${who} <${address}> — ${senderBits.join("; ")}`);
     refs.push(`person:${email}`);
   } else {
     // Absence is evidence: no relationship on record at all.
-    lines.push(`SENDER: ${who} <${email}> — no prior relationship on record [observed]`);
+    lines.push(`SENDER: ${who} <${address}> — no prior relationship on record [observed]`);
   }
 
   // MEETING — a shared calendar event with this sender
-  const meet = meetingLabel(ctx.meeting);
+  const meet = promptValue(meetingLabel(ctx.meeting) ?? "", 200);
   if (meet) {
     lines.push(`MEETING: ${meet} [calendar]`);
     refs.push(`calendar:${ctx.meeting?.subject ?? ""}`);
@@ -224,8 +230,8 @@ export function compileEmailContext(
     if (hit) {
       const conf = Math.min(0.95, 0.6 + hit.score * 0.1).toFixed(2);
       lines.push(
-        `LIKELY MATTER: ${hit.matter.title}${
-          hit.matter.narrative ? ` — ${hit.matter.narrative}` : ""
+        `LIKELY MATTER: ${promptValue(hit.matter.title, 120)}${
+          hit.matter.narrative ? ` — ${promptValue(hit.matter.narrative, 400)}` : ""
         } [inference ${conf}]`,
       );
       refs.push(`matter:${hit.matter.id}`);
@@ -236,7 +242,7 @@ export function compileEmailContext(
   if (sources.salesforce) {
     const crm = crmLine(hay, sources.salesforce);
     if (crm) {
-      lines.push(`CRM: ${crm.text} [system]`);
+      lines.push(`CRM: ${promptValue(crm.text, 300)} [system]`);
       refs.push(crm.ref);
     }
   }
@@ -250,7 +256,7 @@ export function compileEmailContext(
       const when = sig.at.slice(0, 10);
       const mins = sig.minutes ? ` (${sig.minutes}m)` : "";
       lines.push(
-        `WORK: you ${sig.kind} "${sig.label}"${mins} on ${when} — this concern is active [observed]`,
+        `WORK: you ${promptValue(sig.kind, 40)} ${JSON.stringify(promptValue(sig.label, 120))}${mins} on ${promptValue(when, 10)} — this concern is active [observed]`,
       );
       refs.push(`work:${sig.source}:${sig.ref ?? sig.label}`);
     }
