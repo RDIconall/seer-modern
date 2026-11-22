@@ -18,7 +18,8 @@ import {
   listRegistry,
   mattersNeedingFiling,
 } from "./functions";
-import { loadGuidance } from "./operating-model";
+import { MAX_GUIDANCE_CHARS, loadGuidance } from "./operating-model";
+import { sanitizeGuidance } from "./packet-text";
 
 /**
  * Filing work onto the whiteboard.
@@ -96,6 +97,7 @@ async function fileBatch(
   guidance?: string,
 ): Promise<{ filed: number; unfiled: number }> {
   const functions = [...sections.functions, ...sections.topics];
+  const userGuidance = sanitizeGuidance(guidance ?? "", MAX_GUIDANCE_CHARS);
   const started = Date.now();
   const result = await generateText({
     model,
@@ -109,8 +111,8 @@ async function fileBatch(
         thinkingConfig: { thinkingLevel: "minimal", includeThoughts: false },
       },
     },
-    system: guidance
-      ? `${FILING_SYSTEM}\n\nUSER GUIDANCE (law):\n${guidance}`
+    system: userGuidance
+      ? `${FILING_SYSTEM}\n\nUSER GUIDANCE (law):\n${userGuidance}`
       : FILING_SYSTEM,
     prompt: JSON.stringify({
       functions: sections.functions,
