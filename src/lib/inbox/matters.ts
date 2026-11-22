@@ -10,7 +10,11 @@ import type {
   UnderstandingMap,
 } from "@/lib/inbox/understanding";
 import { loadExemplars, retrieveExemplars } from "@/lib/store/exemplars";
-import { loadFunctions } from "@/lib/store/functions";
+import {
+  loadFunctions,
+  registryOrgUnit,
+  UNSORTED_ORG_UNIT,
+} from "@/lib/store/functions";
 import { accountKey, kvGet, kvSet } from "@/lib/store/kv";
 import { loadMatterFixes, type MatterFixes } from "@/lib/store/matter-fixes";
 import { loadMatterEdits } from "@/lib/store/manual-matters";
@@ -451,7 +455,7 @@ Rules:
 - nextAction: the ONE next move, imperative and specific, or "none — team handling".
 - owner: "you" only when the user personally must act; "team" when a named other owns it; "them" when waiting on the counterparty.
 - urgency 3 = costs money or a relationship today; 0 = dormant.
-- orgUnit: MUST be one of the entries in the payload's "functions" list — the user's own org chart, verbatim. For named projects/studies under "operations — studies", append the project: "operations — studies — <project name>". The same matter keeps the same orgUnit across days.
+- orgUnit: MUST be one of the entries in the payload's "functions" list — the user's own org chart, copied exactly as listed with nothing added or removed (the project or study is tracked separately — never append it). An orgUnit that is not an exact entry is discarded and the matter is filed as unsorted. The same matter keeps the same orgUnit across days.
 
 HOW TO CLASSIFY orgUnit (the categories are function × workflow stage, NOT topics — two emails about the identical assay belong in different categories depending on whether money has changed hands):
 1. DIRECTION OF COMMERCE FIRST: is money flowing TOWARD the user's company or AWAY from it? A countersigned NDA from a CUSTOMER is "sales — contracting"; the identical countersigned NDA from a SOFTWARE VENDOR is "systems (it)". Inbound revenue → the sales/operations path. Outbound spend → systems (it), office / facilities, marketing, recruiting, or hr, by what's being bought. Use the payload evidence: vendor=true means they bill the user (spend side).
@@ -482,32 +486,17 @@ const DIGEST_SYSTEM = `You sort the disposable end of a CEO's inbox into CATEGOR
 /**
  * Where a message lives in the org chart. The deep read decides — it has
  * seen the whole document. Rules only validate the answer against the
- * user's own registry and, failing that, pick the least-wrong home.
+ * user's own registry; an answer that is not on it, or no answer at all,
+ * is unsorted with zero confidence rather than an invented home.
  */
 function orgUnitFor(
   item: EmailItem,
   functions: string[],
   u?: Understanding,
 ): { unit: string; confidence: number } {
-  const claimed = u?.org.unit?.trim();
-  if (claimed) {
-    const exact = functions.find(
-      (f) => f.toLowerCase() === claimed.toLowerCase(),
-    );
-    if (exact) return { unit: exact, confidence: u?.org.confidence ?? 0.7 };
-    // The model named something close to a registry entry
-    const near = functions.find(
-      (f) =>
-        claimed.toLowerCase().startsWith(f.toLowerCase()) ||
-        f.toLowerCase().startsWith(claimed.toLowerCase()),
-    );
-    if (near) return { unit: near, confidence: (u?.org.confidence ?? 0.7) * 0.9 };
-  }
-  // Never read (or the read failed): park it where it can be found, and say
-  // so with a low confidence rather than inventing a category.
-  const fallback =
-    functions.find((f) => /operations/i.test(f)) ?? functions[0] ?? "unsorted";
-  return { unit: fallback, confidence: 0 };
+  const exact = registryOrgUnit(u?.org.unit, functions);
+  if (exact) return { unit: exact, confidence: u?.org.confidence ?? 0.7 };
+  return { unit: UNSORTED_ORG_UNIT, confidence: 0 };
 }
 
 /**
@@ -1467,11 +1456,12 @@ export async function buildBrief(
       const rows = m.threads
         .map((t) => rowOfThread.get(t))
         .filter((r): r is (typeof threadRows)[number] => Boolean(r));
+      const modelUnit = registryOrgUnit(m.orgUnit, functions);
       return {
         ...m,
         // User corrections are ground truth even if the model ignored them
-        orgUnit: fixes[m.id]?.orgUnit ?? m.orgUnit,
-        orgConfidence: fixes[m.id] ? 1 : m.orgConfidence,
+        orgUnit: fixes[m.id]?.orgUnit ?? modelUnit ?? UNSORTED_ORG_UNIT,
+        orgConfidence: fixes[m.id] ? 1 : modelUnit ? m.orgConfidence : 0,
         subUnit: rows[0] ? subUnitFor(rows[0], labels, ownDomain) : undefined,
         crm: crmFactsFor(rows, { opps, studyIndex, sitesByStudy }),
         emails: rows.map((i) => {
@@ -1517,8 +1507,16 @@ export async function buildBrief(
             const threadIds = (m.threadIds ?? []).filter((t) =>
               threadMsgs.has(t),
             );
+            const fixed = fixes[m.id]?.orgUnit;
+            const modelUnit = registryOrgUnit(m.orgUnit, functions);
             return {
               ...m,
+              ...(m.category === "mine"
+                ? {}
+                : {
+                    orgUnit: fixed ?? modelUnit ?? UNSORTED_ORG_UNIT,
+                    orgConfidence: fixed ? 1 : modelUnit ? m.orgConfidence : 0,
+                  }),
               threadIds,
               emailIds: threadIds.flatMap(messageIdsOf),
             };

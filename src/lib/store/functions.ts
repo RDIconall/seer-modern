@@ -22,6 +22,24 @@ export const DEFAULT_FUNCTIONS = [
   "personal",
 ];
 
+export const UNSORTED_ORG_UNIT = "unsorted";
+
+/**
+ * A model-supplied department name, accepted only when it IS an entry on
+ * the registry (ignoring case and surrounding space), returned in the
+ * registry's spelling. Mail text steers what the model writes, so a near
+ * miss is never "close enough": anything else is undefined, and callers
+ * file it as unsorted rather than under the first entry it resembles.
+ */
+export function registryOrgUnit(
+  claimed: string | undefined | null,
+  functions: string[],
+): string | undefined {
+  const wanted = claimed?.trim().toLowerCase();
+  if (!wanted) return undefined;
+  return functions.find((f) => f.trim().toLowerCase() === wanted);
+}
+
 function keyFor(accountEmail: string) {
   return `functions:${accountKey(accountEmail)}`;
 }
