@@ -238,7 +238,7 @@ export type UnsureItem = {
  * treats any older brief as stale and rebuilds it, so a redesign never
  * leaves a stale Atlas on screen waiting for a manual refresh.
  */
-export const BRIEF_ENGINE = 19;
+export const BRIEF_ENGINE = 20;
 
 /**
  * The forecast lens — "what matters WHEN". A temporal view over the same
@@ -445,6 +445,7 @@ ONE MATTER PER REAL-WORLD CONCERN, and that concern is usually THE COUNTERPARTY'
 - Every conversation with the same company about the same program is ONE matter. Six sample requests from one company's scientist — different assays, different follow-ups — are one matter ("Abbott sample requests"), with each conversation cited under it. Do NOT emit one matter per request, per assay, or per follow-up.
 - Split a counterparty into two matters only when the work is genuinely separate: a different study code, or a contract negotiation versus running operations.
 - Never emit two matters with near-identical titles or overlapping subject matter. If you are about to, they are the same matter: emit one and cite all its conversations.
+- A matter holds conversations from ONE sender organization (one person, for personal addresses). Work involving two organizations is two matters, even under one study code.
 
 Rules:
 - narrative: one present-tense sentence of state ("Roche returned the signed SOW; the executed copy back to them gates the PO").
@@ -571,7 +572,21 @@ function headline(who: string, oneLine: string): string {
 }
 
 const FREEMAIL =
-  /^(gmail|googlemail|outlook|hotmail|live|yahoo|ymail|aol|icloud|me|msn|proton|protonmail|comcast|sbcglobal|att|verizon)\./;
+  /^(gmail|googlemail|outlook|hotmail|live|yahoo|ymail|aol|icloud|me|msn|proton|protonmail|pm|comcast|sbcglobal|att|verizon|gmx|yandex|zoho|fastmail|tutanota|tuta|hey|qq|163|126|naver)\./;
+
+/**
+ * Whose conversation a thread is, for deciding which conversations one
+ * matter may hold: the sender's exact domain, or the whole address for
+ * personal mail where anyone can sign up. Display names, subjects and
+ * study codes are written by whoever sends the mail, so none of them can
+ * put a conversation beside another sender's.
+ */
+function senderBinding(fromEmail: string, threadId: string): string {
+  const email = fromEmail.toLowerCase().trim();
+  const domain = email.split("@")[1] ?? "";
+  if (!domain) return `thread:${threadId}`;
+  return FREEMAIL.test(`${domain}.`) ? `address:${email}` : `domain:${domain}`;
+}
 
 /** The company (or person, for personal mail) this email came from. */
 function counterparty(item: EmailItem, ownDomain: string): string {
@@ -844,17 +859,23 @@ type MergeableMatter = {
  * the same meaningful title words, or a shared conversation (a thread
  * cannot be two matters) — and then each thread is awarded to exactly
  * one matter, the one that understands it most fully.
+ *
+ * Only entries in the same `scope` merge. The brief scopes each entry to
+ * one sender, so a model reusing an id or copying a title cannot pull
+ * another sender's conversations into the same matter.
  */
 export function mergeMatters<M extends MergeableMatter>(
-  raw: { m: M; threads: string[] }[],
+  raw: { m: M; threads: string[]; scope?: string }[],
 ): (M & { threads: string[] })[] {
   const dsu = unionFind(raw.length);
   const seenId = new Map<string, number>();
   const seenThread = new Map<string, number>();
+  const scopeOf = (n: number) => raw[n].scope ?? "";
   raw.forEach((entry, n) => {
     const link = (map: Map<string, number>, key: string) => {
-      const first = map.get(key);
-      if (first === undefined) map.set(key, n);
+      const scoped = `${scopeOf(n)}\n${key}`;
+      const first = map.get(scoped);
+      if (first === undefined) map.set(scoped, n);
       else dsu.union(first, n);
     };
     link(seenId, entry.m.id);
@@ -863,7 +884,9 @@ export function mergeMatters<M extends MergeableMatter>(
   const tokens = raw.map((entry) => titleTokens(entry.m.title));
   for (let i = 0; i < raw.length; i += 1) {
     for (let j = i + 1; j < raw.length; j += 1) {
-      if (sameTitle(tokens[i], tokens[j])) dsu.union(i, j);
+      if (scopeOf(i) === scopeOf(j) && sameTitle(tokens[i], tokens[j])) {
+        dsu.union(i, j);
+      }
     }
   }
 
@@ -1056,6 +1079,26 @@ export async function buildBrief(
   const rowOfThread = new Map(threadRows.map((r) => [r.threadId, r]));
   const messageIdsOf = (threadId: string) =>
     (threadMsgs.get(threadId) ?? []).map((m) => m.id);
+  /**
+   * Whose conversation each thread is: the first outside sender in it. The
+   * newest message can be the user's own reply, and answering two people
+   * must not make their conversations one sender's.
+   */
+  const ownAddress = accountEmail.toLowerCase().trim();
+  const bindingOfThread = new Map(
+    threadRows.map((r) => {
+      const oldestFirst = [...(threadMsgs.get(r.threadId) ?? [r])].sort(
+        (a, b) => (a.receivedAt < b.receivedAt ? -1 : 1),
+      );
+      const origin =
+        oldestFirst.find(
+          (m) =>
+            m.fromName !== "You" &&
+            m.fromEmail.toLowerCase().trim() !== ownAddress,
+        ) ?? r;
+      return [r.threadId, senderBinding(origin.fromEmail, r.threadId)];
+    }),
+  );
   /**
    * The deep read for a conversation: its newest READ message. The
    * newest message can be an unread reply, and a thread's meaning does
@@ -1412,20 +1455,29 @@ export async function buildBrief(
       ),
     );
     // Chunks name categories independently; the same category from two
-    // calls is one category on screen.
+    // calls is one category on screen. A call only speaks for the mail it
+    // was shown, and each message lands in one category.
     const byName = new Map<string, DigestTheme>();
-    for (const theme of out.flatMap((o) => o.themes)) {
-      const name = theme.theme.trim();
-      if (!name) continue;
-      const existing = byName.get(name.toLowerCase());
-      if (existing) existing.emailIds.push(...theme.emailIds);
-      else
-        byName.set(name.toLowerCase(), {
-          theme: name,
-          line: theme.line,
-          emailIds: [...theme.emailIds],
-        });
-    }
+    const themed = new Set<string>();
+    out.forEach((o, n) => {
+      const shown = new Set(digestChunks[n].map((i) => i.id));
+      for (const theme of o.themes) {
+        const name = theme.theme.trim();
+        if (!name) continue;
+        const emailIds = [
+          ...new Set(theme.emailIds.filter((id) => shown.has(id))),
+        ].filter((id) => !themed.has(id));
+        for (const id of emailIds) themed.add(id);
+        const existing = byName.get(name.toLowerCase());
+        if (existing) existing.emailIds.push(...emailIds);
+        else
+          byName.set(name.toLowerCase(), {
+            theme: name,
+            line: theme.line,
+            emailIds,
+          });
+      }
+    });
     return {
       summary: out.map((o) => o.summary).find(Boolean) ?? "",
       themes: [...byName.values()].sort(
@@ -1439,23 +1491,79 @@ export async function buildBrief(
     runDigest(),
   ]);
 
-  // Every chunk's matters, with their cited ids resolved to conversations
+  // Every chunk's matters, with their cited ids resolved to conversations.
+  // The ids come from the model, and any mail in its batch can steer it, so
+  // a call only speaks for the conversations it was shown, and one matter
+  // holds one sender's conversations. Cited ids from other senders stay
+  // wherever their own sender's evidence puts them.
   const merged = mergeMatters(
-    chunkOutputs.flatMap((out) =>
-      out.matters
-        .map((m) => ({
-          m,
-          threads: [
-            ...new Set(
-              m.emailIds
-                .map((id) => threadOfMessage.get(id))
-                .filter((t): t is string => Boolean(t)),
-            ),
-          ],
-        }))
-        .filter((entry) => entry.threads.length > 0),
-    ),
+    chunkOutputs.flatMap((out, n) => {
+      const shown = new Map<string, string>();
+      for (const r of chunks[n]) {
+        for (const id of messageIdsOf(r.threadId)) shown.set(id, r.threadId);
+      }
+      return out.matters.flatMap((m) => {
+        const bySender = new Map<string, string[]>();
+        for (const id of m.emailIds) {
+          const thread = shown.get(id);
+          if (!thread) continue;
+          const sender = bindingOfThread.get(thread) ?? `thread:${thread}`;
+          const threads = bySender.get(sender) ?? [];
+          if (!threads.includes(thread)) threads.push(thread);
+          bySender.set(sender, threads);
+        }
+        let kept: { scope: string; threads: string[] } | undefined;
+        for (const [scope, threads] of bySender) {
+          if (!kept || threads.length > kept.threads.length) {
+            kept = { scope, threads };
+          }
+        }
+        return kept ? [{ m, ...kept }] : [];
+      });
+    }),
   );
+
+  // Ids name user state (corrections, renames, closures) and are what the
+  // matters endpoint acts on, so each must be unique, never a matter the
+  // brief builds itself, and a previous matter's id only carries over to a
+  // matter that shares a conversation or a sender with it.
+  const prevById = new Map((prev?.matters ?? []).map((m) => [m.id, m]));
+  const manualIds = new Set(edits.manual.map((mm) => mm.id));
+  const reservedId = (id: string) =>
+    id === "signature-queue" || id.startsWith("read:") || manualIds.has(id);
+  const scopeOfMatter = (m: (typeof merged)[number]) =>
+    bindingOfThread.get(m.threads[0]) ?? `thread:${m.threads[0]}`;
+  const continuesPrevious = (m: (typeof merged)[number]) => {
+    const before = prevById.get(m.id);
+    if (!before) return false;
+    const scope = scopeOfMatter(m);
+    return (
+      m.threads.some((t) => (before.threadIds ?? []).includes(t)) ||
+      (before.emails ?? []).some(
+        (e) => senderBinding(e.fromEmail ?? "", e.threadId) === scope,
+      )
+    );
+  };
+  const finalIdOf = new Map<(typeof merged)[number], string>();
+  const usedIds = new Set<string>();
+  for (const m of [...merged].sort(
+    (a, b) => Number(continuesPrevious(b)) - Number(continuesPrevious(a)),
+  )) {
+    let id = m.id;
+    if (
+      reservedId(id) ||
+      usedIds.has(id) ||
+      (prevById.has(id) && !continuesPrevious(m))
+    ) {
+      const base = `${scopeOfMatter(m)}:${m.id}`;
+      id = base;
+      for (let k = 2; usedIds.has(id) || reservedId(id); k += 1) {
+        id = `${base}~${k}`;
+      }
+    }
+    usedIds.add(id);
+    finalIdOf.set(m, id);
+  }
 
   const output = {
     summary: chunkOutputs.map((o) => o.summary).find(Boolean) ?? "",
@@ -1463,7 +1571,8 @@ export async function buildBrief(
   };
 
   const matters: Matter[] = merged
-    .map((m) => {
+    .map((entry) => {
+      const m = { ...entry, id: finalIdOf.get(entry) ?? entry.id };
       const rows = m.threads
         .map((t) => rowOfThread.get(t))
         .filter((r): r is (typeof threadRows)[number] => Boolean(r));
@@ -1514,13 +1623,27 @@ export async function buildBrief(
     totalFailure && (prev?.matters?.length ?? 0) > 0
       ? (prev?.matters ?? [])
           .map((m) => {
-            const threadIds = (m.threadIds ?? []).filter((t) =>
+            let threadIds = (m.threadIds ?? []).filter((t) =>
               threadMsgs.has(t),
             );
+            // A model-built matter from an older brief still holds one
+            // sender's conversations when it is carried forward.
+            if (m.category !== "mine" && !m.id.startsWith("read:")) {
+              const bySender = new Map<string, string[]>();
+              for (const t of threadIds) {
+                const sender = bindingOfThread.get(t) ?? `thread:${t}`;
+                bySender.set(sender, [...(bySender.get(sender) ?? []), t]);
+              }
+              threadIds = [...bySender.values()].reduce<string[]>(
+                (best, ts) => (ts.length > best.length ? ts : best),
+                [],
+              );
+            }
             return {
               ...m,
               threadIds,
               emailIds: threadIds.flatMap(messageIdsOf),
+              emails: m.emails?.filter((e) => threadIds.includes(e.threadId)),
             };
           })
           .filter((m) => m.emailIds.length > 0)
