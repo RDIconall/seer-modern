@@ -91,6 +91,46 @@ export function ReaderPane({
     if (data) onProviderConversationId?.(data.conversation.providerConversationId);
   }, [data, onProviderConversationId]);
 
+  const [loadingEarlier, setLoadingEarlier] = useState(false);
+  const loadEarlier = async () => {
+    if (!data || loadingEarlier) return;
+    setLoadingEarlier(true);
+    try {
+      const params = new URLSearchParams({
+        olderThan: String(data.conversation.messages.length),
+      });
+      if (accountId) params.set("account", accountId);
+      const response = await fetchDefault(
+        `/api/v3/conversations/${encodeURIComponent(conversationId)}?${params}`,
+      );
+      const json = await readJsonBody<ReaderResponse & { error?: string }>(response);
+      if (!response.ok || !json) {
+        throw new Error(json?.error ?? describeHttpFailure(response.status));
+      }
+      setData((current) => {
+        if (!current) return current;
+        const seen = new Set(
+          current.conversation.messages.map((message) => message.providerMessageId),
+        );
+        const older = json.conversation.messages.filter(
+          (message) => !seen.has(message.providerMessageId),
+        );
+        return {
+          ...current,
+          conversation: {
+            ...current.conversation,
+            messages: [...older, ...current.conversation.messages],
+            omittedMessageCount: older.length > 0 ? json.conversation.omittedMessageCount : 0,
+          },
+        };
+      });
+    } catch (cause) {
+      onNotice(cause instanceof Error ? cause.message : "Could not load earlier messages", true);
+    } finally {
+      setLoadingEarlier(false);
+    }
+  };
+
   const commands = useReaderCommands({
     corpusConversationId: conversationId,
     onCompose,
@@ -189,6 +229,8 @@ export function ReaderPane({
         onArchive={() => void runArchive()}
         onDelete={() => void runDelete()}
         onMove={(destinationId) => void runMove(destinationId)}
+        onLoadEarlier={() => void loadEarlier()}
+        loadingEarlier={loadingEarlier}
         replySlot={
           <InlineReply
             conversation={data.conversation}

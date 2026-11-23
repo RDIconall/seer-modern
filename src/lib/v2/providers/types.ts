@@ -61,6 +61,8 @@ export type Message = {
   isUnread: boolean;
   isOutgoing: boolean;
   attachments: Attachment[];
+  /** Set by bounded stored reads when the body was shortened to fit the response. */
+  bodyTruncated?: boolean;
 };
 
 export type Conversation = {
@@ -69,6 +71,8 @@ export type Conversation = {
   /** Oldest first — a chief of staff reads a thread in order. */
   messages: Message[];
   lastMessageAt: string; // ISO
+  /** Set by the bounded reader: older stored messages this response left out. */
+  omittedMessageCount?: number;
 };
 
 /** One page of an incremental or full sync. */
