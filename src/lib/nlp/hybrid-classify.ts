@@ -16,6 +16,10 @@ export type SentenceVerdict = {
   intel: IntelBreakdown;
 };
 
+/** Meeting topic words: they label a sentence, but never grade a message. */
+const MEETING_TOPIC =
+  /\b(meet|meeting|schedule|conference|discuss|appointment)\b/i;
+
 const GRAY_LOW = 0.32;
 const GRAY_HIGH = 0.68;
 
@@ -37,18 +41,20 @@ function sentenceRulesScore(
   emailHint: number,
 ): { score: number; label: NlpLabel } {
   const b = intelBreakdown(sentence);
-  const any = intelContainsAny(sentence);
+  const topic = MEETING_TOPIC.test(sentence);
+  const any = intelContainsAny(sentence) || topic;
+  const scheduled = b.schedule > 0 || topic;
   const q = sentence.includes("?");
   let score = emailHint * 0.35;
   if (any) score += 0.28 + Math.min(0.22, (b.request + b.followUp) * 0.07);
-  if (b.schedule > 0) score += 0.18;
+  if (scheduled) score += 0.18;
   if (b.notices > 0) score += 0.06;
   if (q && /^(can|could|would|will|did|do|are|is)\b/i.test(sentence))
     score += 0.12;
   score = clamp01(score);
 
   let label: NlpLabel = "non_actionable";
-  if (b.schedule > 0 && score >= 0.42) label = "meeting";
+  if (scheduled && score >= 0.42) label = "meeting";
   else if (
     /please (call|let me know)|if you have questions|thanks in advance/i.test(
       sentence,

@@ -18,7 +18,7 @@ import {
   type PersonalContext,
 } from "@/lib/inbox/personal-context";
 import type { SeerLabelStore } from "@/lib/mail/seer-labels";
-import { intelBreakdown, intelContainsAny } from "@/lib/nlp/intel";
+import { intelBreakdown } from "@/lib/nlp/intel";
 import {
   learnedPrior,
   type ActionMemory,
@@ -447,7 +447,7 @@ function debugFor(
     receivedFrom: signals.receivedFrom,
     daysSinceLastSent: signals.daysSinceLastSent,
     staleEngagement: signals.staleEngagement,
-    actionable: intelContainsAny(text) || intel.request > 0 || intel.schedule > 0,
+    actionable: intel.request > 0 || intel.followUp > 0,
     intel,
     keptFrom: signals.keptFrom,
   };

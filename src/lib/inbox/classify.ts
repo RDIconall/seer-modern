@@ -1,4 +1,4 @@
-import { intelBreakdown, intelContainsAny } from "@/lib/nlp/intel";
+import { intelBreakdown } from "@/lib/nlp/intel";
 import {
   historySignals,
   type HistorySignals,
@@ -320,10 +320,7 @@ export function classifyMessage(
   const fromBlob = `${input.fromName ?? ""} ${email}`.toLowerCase();
   const signals = historySignals(history, email);
   const intel = intelBreakdown(`${input.subject}\n${input.snippet}`);
-  const actionable =
-    intelContainsAny(`${input.subject}\n${input.snippet}`) ||
-    intel.request > 0 ||
-    intel.schedule > 0;
+  const actionable = intel.request > 0 || intel.followUp > 0;
   const ctx: Ctx = { signals, actionable, intel, extras };
 
   const result = classifyCore(input, senderOverride, ctx, {
@@ -365,7 +362,7 @@ function classifyCore(
   },
 ): ClassifyResult {
   const { email, dom, local, blob, fromBlob } = parts;
-  const { signals, actionable, extras } = ctx;
+  const { signals, actionable, intel, extras } = ctx;
 
   if (senderOverride) {
     return hit(
@@ -380,7 +377,7 @@ function classifyCore(
   // Calendar beats everything: you're about to meet this person
   if (extras?.meeting) {
     return hit(
-      actionable ? "act_today" : "respond",
+      actionable || intel.schedule > 0 ? "act_today" : "respond",
       "HIGH",
       `Upcoming meeting with them (${extras.meeting})`,
       "meeting-upcoming",
