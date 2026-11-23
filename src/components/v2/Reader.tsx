@@ -70,6 +70,8 @@ export function Reader({
   onArchive,
   onDelete,
   onMove,
+  onLoadEarlier,
+  loadingEarlier = false,
   replySlot,
   replying = false,
 }: {
@@ -83,6 +85,9 @@ export function Reader({
   onArchive: () => void;
   onDelete: () => void;
   onMove?: (destinationId: string) => void;
+  /** Fetch the next page of older messages when the server left some out. */
+  onLoadEarlier?: () => void;
+  loadingEarlier?: boolean;
   replySlot?: React.ReactNode;
   replying?: boolean;
 }) {
@@ -195,6 +200,26 @@ export function Reader({
       )}
 
       <div className="reader-lane">
+        {(conversation.omittedMessageCount ?? 0) > 0 && (
+          <p className="reader-stripped tabular">
+            {conversation.omittedMessageCount} earlier message
+            {conversation.omittedMessageCount === 1 ? "" : "s"} not shown.{" "}
+            {onLoadEarlier ? (
+              <button
+                type="button"
+                className="mail-focus-ring"
+                onClick={onLoadEarlier}
+                disabled={loadingEarlier}
+              >
+                {loadingEarlier ? "Loading…" : "Load earlier"}
+              </button>
+            ) : (
+              <a href={nativeUrl} target="_blank" rel="noreferrer">
+                Open the full thread
+              </a>
+            )}
+          </p>
+        )}
         {lanes.map((lane) => {
           if (lane.kind === "branch") {
             const key = `branch:${lane.turns[0].message.providerMessageId}`;
@@ -235,6 +260,11 @@ export function Reader({
                           }
                           text={turn.text}
                         />
+                        {turn.message.bodyTruncated && (
+                          <p className="reader-stripped tabular">
+                            This message is too long to show in full.
+                          </p>
+                        )}
                       </div>
                     ))}
                   </div>
@@ -286,6 +316,14 @@ export function Reader({
                       }
                       text={lane.body}
                     />
+                    {lane.message.bodyTruncated && (
+                      <p className="reader-stripped tabular">
+                        This message is too long to show in full.{" "}
+                        <a href={nativeUrl} target="_blank" rel="noreferrer">
+                          Open the full thread
+                        </a>
+                      </p>
+                    )}
                     {lane.quotedCount > 0 && (
                       <p className="reader-stripped tabular">
                         {lane.quotedCount} quoted message

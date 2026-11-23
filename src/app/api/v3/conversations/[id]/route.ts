@@ -5,11 +5,12 @@ import { getCorpusConversation } from "@/lib/v3/reader/repository";
 export const dynamic = "force-dynamic";
 
 /**
- * Corpus-backed conversation reader. Returns the full thread oldest-first plus
- * a provider deep link. No provider credentials are exposed.
+ * Corpus-backed conversation reader. Returns the newest page of the thread
+ * oldest-first plus a provider deep link; `?olderThan=N` skips the N newest
+ * messages to page further back. No provider credentials are exposed.
  */
 export async function GET(
-  _request: Request,
+  request: Request,
   context: { params: Promise<{ id: string }> },
 ) {
   const account = await getActiveV2Account();
@@ -17,8 +18,14 @@ export async function GET(
     return NextResponse.json({ error: "no active v2 account" }, { status: 404 });
   }
 
+  const rawOlderThan = new URL(request.url).searchParams.get("olderThan");
+  const olderThan = rawOlderThan === null ? 0 : Number(rawOlderThan);
+  if (!Number.isSafeInteger(olderThan) || olderThan < 0) {
+    return NextResponse.json({ error: "olderThan must be a non-negative integer" }, { status: 400 });
+  }
+
   const { id } = await context.params;
-  const view = await getCorpusConversation(account.id, id, account.provider);
+  const view = await getCorpusConversation(account.id, id, account.provider, { olderThan });
   if (!view) {
     return NextResponse.json({ error: "conversation not found" }, { status: 404 });
   }

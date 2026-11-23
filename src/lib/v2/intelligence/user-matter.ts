@@ -1,5 +1,6 @@
 import { isUuid, type AccountId, type ConversationId } from "../db/types";
 import { db } from "../db/pool";
+import { THREAD_READ_BODY_BYTE_CAP } from "../db/thread-read-bounds";
 import {
   counterpartyOf,
   matterNameFrom,
@@ -55,7 +56,7 @@ async function conversationContext(
         and d.conversation_id = c.id
         and d.is_current
        left join lateral (
-         select m.body_text, m.snippet, m.from_email
+         select substr(m.body_text, 1, $3) as body_text, m.snippet, m.from_email
            from seer.messages m
           where m.account_id = c.account_id
             and m.conversation_id = c.id
@@ -63,7 +64,7 @@ async function conversationContext(
           limit 1
        ) lm on true
       where c.account_id = $1 and c.id = $2 and c.is_deleted = false`,
-    [accountId, conversationId],
+    [accountId, conversationId, THREAD_READ_BODY_BYTE_CAP],
   );
   const row = result.rows[0];
   if (!row) throw new Error("conversation not found");

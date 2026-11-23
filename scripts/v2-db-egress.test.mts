@@ -22,26 +22,48 @@ import {
 import { getCorpusConversation } from "../src/lib/v3/reader/repository.ts";
 import { readableBody } from "../src/lib/v2/intelligence/html-text.ts";
 import type { AccountId } from "../src/lib/v2/db/types.ts";
-import type { Pool } from "pg";
+import type { Pool, PoolClient } from "pg";
 
 const HERE = path.dirname(fileURLToPath(import.meta.url));
 const HUGE_HTML = `<html><head><style>.x{color:red}</style></head><body><p>${"A".repeat(40_000)}</p></body></html>`;
 
 function captureSql(pool: Pool): { sqls: string[]; restore: () => void } {
   const sqls: string[] = [];
-  const original = pool.query.bind(pool);
-  const wrapped = ((query: unknown, values?: unknown) => {
+  const record = (query: unknown) => {
     if (typeof query === "string") sqls.push(query);
     else if (query && typeof query === "object" && "text" in query) {
       sqls.push(String((query as { text: string }).text));
     }
+  };
+  const original = pool.query.bind(pool);
+  const wrapped = ((query: unknown, values?: unknown) => {
+    record(query);
     return original(query as never, values as never);
   }) as typeof pool.query;
   pool.query = wrapped;
+  // Bounded reads run on a checked-out client; capture those statements too.
+  const originalConnect = pool.connect.bind(pool);
+  const wrappedClients: { client: PoolClient; query: PoolClient["query"] }[] = [];
+  pool.connect = (async (callback?: unknown) => {
+    // pool.query checks out through the callback form; it is already recorded above.
+    if (typeof callback === "function") return originalConnect(callback as never);
+    const client = await originalConnect();
+    const clientQuery = client.query;
+    if (!wrappedClients.some((entry) => entry.client === client)) {
+      wrappedClients.push({ client, query: clientQuery });
+      client.query = ((query: unknown, values?: unknown) => {
+        record(query);
+        return clientQuery.call(client, query as never, values as never);
+      }) as PoolClient["query"];
+    }
+    return client;
+  }) as typeof pool.connect;
   return {
     sqls,
     restore: () => {
       pool.query = original as typeof pool.query;
+      pool.connect = originalConnect as typeof pool.connect;
+      for (const entry of wrappedClients) entry.client.query = entry.query;
     },
   };
 }
