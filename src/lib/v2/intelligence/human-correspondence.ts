@@ -31,9 +31,13 @@ import { readableBody } from "./html-text";
  *
  * Still deliberately narrow: "hello@", "team@" and "info@" are left off, because
  * a small company's real person answers those.
+ *
+ * The keyword must be the whole local part. Anyone can register "news.jane@" or
+ * "news+jane@" at a free mailbox, so a keyword followed by more text proves
+ * nothing about who wrote the letter and must not cost it the greeting veto.
  */
 const MACHINE_LOCAL_PART =
-  /^(no[-_.]?reply|do[-_.]?not[-_.]?reply|donotreply|mailer[-_.]?daemon|postmaster|bounce[sd]?|notifications?|auto[-_.]?(reply|confirm|responder)|updates?|newsletters?|news|marketing|mailing|digest|campaigns?|noreply)\b/i;
+  /^(no[-_.]?reply|do[-_.]?not[-_.]?reply|donotreply|mailer[-_.]?daemon|postmaster|bounce[sd]?|notifications?|auto[-_.]?(reply|confirm|responder)|updates?|newsletters?|news|marketing|mailing|digest|campaigns?|noreply)$/i;
 
 export function isMachineAddress(email: string | null | undefined): boolean {
   const local = (email ?? "").split("@")[0] ?? "";
