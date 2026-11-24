@@ -83,6 +83,62 @@ export function isAllowedOrgEmail(email: string | null | undefined): boolean {
   return allowedEmails().includes(parsed.address);
 }
 
+/** Entra's tenant for personal Microsoft accounts (outlook.com, live.com, …). */
+export const MICROSOFT_CONSUMER_TENANT = "9188040d-6c67-4c5b-b112-36a304b66dad";
+
+type ProviderClaims = {
+  email?: unknown;
+  email_verified?: unknown;
+  hd?: unknown;
+  tid?: unknown;
+};
+
+/**
+ * Whether a provider login proves the right to the address it carries, not
+ * just that the address ends in an allowed domain. Anyone can register a
+ * personal Google or Microsoft account on an existing company address, and it
+ * outlives their employment, so a domain match only counts when the provider
+ * says the account is managed by the organization: Google's `hd` names the
+ * Workspace that owns it, and a personal Microsoft account signs in from the
+ * consumer tenant. Named addresses are trusted by address and need only a
+ * verified email. Returns why the login is refused, or null to admit it.
+ */
+export function describeProviderSignInRefusal(
+  provider: string | null | undefined,
+  claims: unknown,
+): string | null {
+  const profile = (claims ?? {}) as ProviderClaims;
+  const parsed = parse(
+    typeof profile.email === "string" ? profile.email : undefined,
+  );
+  if (!parsed) return "the account carries no usable email address";
+  if (!isAllowedOrgEmail(parsed.address)) {
+    return describeAccessRefusal(parsed.address);
+  }
+  const named = allowedEmails().includes(parsed.address);
+  if (provider === "google") {
+    if (profile.email_verified !== true && profile.email_verified !== "true") {
+      return `Google has not verified ${parsed.address}`;
+    }
+    if (named) return null;
+    const hd =
+      typeof profile.hd === "string" ? profile.hd.trim().toLowerCase() : "";
+    if (!hd || !allowedDomains().includes(hd)) {
+      return `${parsed.address} is not a Google Workspace account of ${allowedDomains().join(", ")} (hosted domain: ${hd || "none"})`;
+    }
+    return null;
+  }
+  if (provider === "microsoft-entra-id") {
+    if (named) return null;
+    const tid = typeof profile.tid === "string" ? profile.tid.toLowerCase() : "";
+    if (!tid || tid === MICROSOFT_CONSUMER_TENANT) {
+      return `${parsed.address} signed in with a personal Microsoft account, not the organization's directory`;
+    }
+    return null;
+  }
+  return `${provider ?? "an unknown provider"} cannot prove organization membership`;
+}
+
 /**
  * Why an address was refused, for the logs and for the error a linked account
  * raises. "Access Denied" alone cannot be acted on: the address that was
