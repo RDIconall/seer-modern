@@ -6,6 +6,7 @@ import {
 } from "./mutation-idempotent";
 import { nativeUrlFor } from "./native-url";
 import { gmailForwardHtml } from "./forward-html";
+import { angleAddress, MAX_ADDRESSES_PER_HEADER } from "./address-header";
 import type {
   Address,
   AttachmentContent,
@@ -79,9 +80,15 @@ function parseAddresses(raw: string): Address[] {
     .split(",")
     .map((chunk) => chunk.trim())
     .filter(Boolean)
+    .slice(0, MAX_ADDRESSES_PER_HEADER)
     .map((chunk) => {
-      const m = chunk.match(/^(.*)<([^>]+)>$/);
-      if (m) return { name: m[1].trim().replace(/(^"|"$)/g, ""), email: m[2].trim().toLowerCase() };
+      const m = angleAddress(chunk);
+      if (m) {
+        return {
+          name: m.display.trim().replace(/(^"|"$)/g, ""),
+          email: m.address.trim().toLowerCase(),
+        };
+      }
       return { email: chunk.toLowerCase() };
     });
 }

@@ -6,6 +6,7 @@ import {
   sendGraphMessage,
 } from "@/lib/mail/graph";
 import { requireMailSession } from "@/lib/mail/session";
+import { firstAngleBracketed } from "@/lib/v2/providers/address-header";
 import { recordRepliedThread } from "@/lib/store/replied-threads";
 import { NextResponse } from "next/server";
 
@@ -167,10 +168,7 @@ export async function POST(request: Request) {
       const extractEmails = (raw: string) =>
         raw
           .split(/[,;]/)
-          .map((part) => {
-            const m = part.match(/<([^>]+)>/);
-            return (m?.[1] ?? part).trim();
-          })
+          .map((part) => (firstAngleBracketed(part) ?? part).trim())
           .filter((e) => e.includes("@"));
 
       const to =

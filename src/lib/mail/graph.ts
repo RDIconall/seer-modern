@@ -5,6 +5,7 @@ import type {
   SendMailInput,
 } from "@/lib/mail/types";
 import { compileOutlookSearch, parseMailSearch } from "@/lib/v3/search/parser";
+import { firstAngleBracketed } from "@/lib/v2/providers/address-header";
 
 /**
  * Graph throttles bursts with 429 + Retry-After. One throttled call
@@ -295,8 +296,7 @@ function parseAddresses(raw: string): { emailAddress: { address: string } }[] {
     .map((s) => s.trim())
     .filter(Boolean)
     .map((address) => {
-      const m = address.match(/<([^>]+)>/);
-      return { emailAddress: { address: (m?.[1] ?? address).trim() } };
+      return { emailAddress: { address: (firstAngleBracketed(address) ?? address).trim() } };
     });
 }
 
