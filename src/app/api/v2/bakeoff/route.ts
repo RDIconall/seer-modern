@@ -12,6 +12,7 @@ import type {
   Conversation,
   Message,
 } from "@/lib/v2/providers/types";
+import { angleAddress } from "@/lib/v2/providers/address-header";
 
 export const maxDuration = 300;
 export const dynamic = "force-dynamic";
@@ -35,11 +36,11 @@ type Sample = {
 };
 
 function parseAddress(value: string): { email: string; name?: string } {
-  const match = value.match(/^(.*?)\s*<([^>]+)>$/);
+  const match = angleAddress(value, "first");
   return match
     ? {
-        name: match[1].trim() || undefined,
-        email: match[2].trim().toLowerCase(),
+        name: match.display.trim() || undefined,
+        email: match.address.trim().toLowerCase(),
       }
     : { email: value.trim().toLowerCase() };
 }

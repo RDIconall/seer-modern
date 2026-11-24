@@ -1,5 +1,6 @@
 import { sendGmailMessage } from "@/lib/mail/gmail";
 import { sendGraphMessage } from "@/lib/mail/graph";
+import { angleBracketed } from "@/lib/v2/providers/address-header";
 
 /**
  * Actually get the user OFF the list, not just trash the email.
@@ -22,8 +23,8 @@ function parseHeaders(
   listUnsubPost: string | undefined,
 ): Parsed {
   const out: Parsed = { oneClick: /one-click/i.test(listUnsubPost ?? "") };
-  for (const m of (listUnsub ?? "").matchAll(/<([^>]+)>/g)) {
-    const url = m[1].trim();
+  for (const bracketed of angleBracketed(listUnsub ?? "")) {
+    const url = bracketed.trim();
     if (/^https?:\/\//i.test(url) && !out.https) out.https = url;
     if (/^mailto:/i.test(url) && !out.mailto) out.mailto = url;
   }
