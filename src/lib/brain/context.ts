@@ -15,8 +15,11 @@ import {
   opportunityIndex,
   type SalesforceRegistry,
 } from "@/lib/crm/registry";
-import type { ActionMemory } from "@/lib/store/action-memory";
-import type { PeopleDb } from "@/lib/store/people";
+import {
+  senderActionStats,
+  type ActionMemory,
+} from "@/lib/store/action-memory";
+import { personFor, type PeopleDb } from "@/lib/store/people";
 import { latestSignalFor, type WorkSignal } from "@/lib/brain/signals";
 
 /**
@@ -181,7 +184,7 @@ export function compileEmailContext(
   const refs: string[] = [];
 
   // SENDER — who this is, from the personal database and mail graph
-  const person = sources.people?.[email];
+  const person = sources.people ? personFor(sources.people, email) : null;
   const sig = historySignals(sources.history, email);
   const ctx = contextSignals(sources.personal, email);
   const senderBits: string[] = [];
@@ -257,7 +260,7 @@ export function compileEmailContext(
   }
 
   // BEHAVIOR — what the user has done with this sender before
-  const stat = sources.actionMemory?.[email];
+  const stat = senderActionStats(sources.actionMemory, email);
   if (stat && stat.archive + stat.trash > 0) {
     const total = stat.archive + stat.trash;
     const verb = stat.trash >= stat.archive ? "delete" : "archive";

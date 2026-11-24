@@ -33,7 +33,28 @@ function keyFor(accountEmail: string) {
 export async function loadActionMemory(
   accountEmail: string,
 ): Promise<ActionMemory> {
-  return (await kvGet<ActionMemory>(keyFor(accountEmail))) ?? {};
+  const raw = await kvGet<ActionMemory>(keyFor(accountEmail));
+  // Sender text becomes a key; a null prototype means "__proto__" or
+  // "constructor" can only ever be an own entry, never a built-in.
+  return Object.assign(Object.create(null) as ActionMemory, raw ?? {});
+}
+
+/** The sender's own stats — never an inherited object property. */
+export function senderActionStats(
+  memory: ActionMemory | null | undefined,
+  fromEmail: string,
+): SenderActionStats | null {
+  const key = fromEmail.toLowerCase().trim();
+  if (!memory || !Object.hasOwn(memory, key)) return null;
+  const stat = memory[key];
+  if (
+    !stat ||
+    typeof stat.archive !== "number" ||
+    typeof stat.trash !== "number"
+  ) {
+    return null;
+  }
+  return stat;
 }
 
 export async function recordSenderAction(
@@ -44,7 +65,11 @@ export async function recordSenderAction(
   const key = fromEmail.toLowerCase().trim();
   if (!key.includes("@")) return;
   const all = await loadActionMemory(accountEmail);
-  const stat = all[key] ?? { archive: 0, trash: 0, lastAt: "" };
+  const stat = senderActionStats(all, key) ?? {
+    archive: 0,
+    trash: 0,
+    lastAt: "",
+  };
   stat[action] += 1;
   stat.lastAt = new Date().toISOString();
   all[key] = stat;
@@ -60,7 +85,7 @@ export function learnedPrior(
   memory: ActionMemory | null | undefined,
   fromEmail: string,
 ): LearnedPrior | null {
-  const stat = memory?.[fromEmail.toLowerCase().trim()];
+  const stat = senderActionStats(memory, fromEmail);
   if (!stat) return null;
   const total = stat.archive + stat.trash;
   if (total < MIN_ACTIONS) return null;

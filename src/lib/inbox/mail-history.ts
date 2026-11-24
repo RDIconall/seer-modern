@@ -178,7 +178,10 @@ export function historySignals(
   fromEmail: string,
 ): HistorySignals {
   const email = norm(fromEmail);
-  const c = history?.contacts[email];
+  const c =
+    history && Object.hasOwn(history.contacts, email)
+      ? history.contacts[email]
+      : undefined;
   const sentTo = c?.sentTo ?? 0;
   const receivedFrom = c?.receivedFrom ?? 0;
   const daysSinceLastSent = daysBetween(c?.lastSentAt);
