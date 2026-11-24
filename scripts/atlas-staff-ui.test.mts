@@ -35,12 +35,12 @@ const staff: StaffView = {
       botSlug: "chief-of-staff",
       botName: "Chief of staff",
       externalKey: "B01",
-      title: "Log in to Divvy and pull Czarina's expenses",
+      title: "Pull last month's expense report",
       status: "waiting_on_user",
       priority: 1,
       dueAt: null,
       notes: null,
-      hisWords: "login to divvy",
+      hisWords: "pull the expense report",
       currentState: "Stuck at sign-in",
       nextAction: "Pull the list after sign-in",
       source: "bot",
@@ -89,7 +89,7 @@ const html = renderToString(
 assert.match(html, /Whiteboard/);
 assert.match(html, /Delegated/);
 assert.match(html, /Chief of staff/);
-assert.match(html, /Log in to Divvy/);
+assert.match(html, /Pull last month(&#x27;|')s expense report/);
 assert.match(html, /Waiting on Conall/);
 assert.match(html, /Triage proposals/);
 assert.match(html, /Approve/);

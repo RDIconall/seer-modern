@@ -26,9 +26,9 @@ export function slugifyBotName(name: string): string {
 }
 
 /**
- * Map the bot's current-state sentence onto Atlas statuses. The CSV is twenty
- * seven *open* tasks — "dropped" in a note is still work unless Conall closed
- * it in Atlas — so we never infer `done` or `dropped` from this text.
+ * Map the bot's current-state sentence onto Atlas statuses. The CSV holds
+ * *open* tasks — "dropped" in a note is still work unless Conall closed it in
+ * Atlas — so we never infer `done` or `dropped` from this text.
  */
 export function inferOpenTaskStatus(currentState: string): BotTaskStatus {
   const text = currentState.toLowerCase();
@@ -122,7 +122,7 @@ export function tasksFromCsv(text: string): SeedTaskRow[] {
   const header = rows[0].map((cell) => cell.trim().toLowerCase());
   const idx = (name: string) => {
     const at = header.indexOf(name);
-    if (at < 0) throw new Error(`bot_tasks.csv missing column ${name}`);
+    if (at < 0) throw new Error(`bot tasks CSV missing column ${name}`);
     return at;
   };
   const col = {

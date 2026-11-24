@@ -149,7 +149,7 @@ try {
   assert.ok(!folders.rows[0].folders.includes("inbox"));
 
   const csv = await fs.readFile(
-    path.join(process.cwd(), "fixtures", "bot_tasks.csv"),
+    path.join(process.cwd(), "fixtures", "bot_tasks.sample.csv"),
     "utf8",
   );
   const rows = tasksFromCsv(csv);
@@ -188,7 +188,7 @@ try {
   assert.equal(again.externalKey, "B01");
   assert.equal(
     seeded.tasks.filter((task) => task.externalKey).length,
-    27,
+    rows.length,
   );
 
   console.log("v2-staff-commands: OK");

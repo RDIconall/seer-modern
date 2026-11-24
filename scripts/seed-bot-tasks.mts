@@ -1,21 +1,21 @@
 /**
- * Idempotent seed of Conall's delegated bot tasks from fixtures/bot_tasks.csv.
+ * Idempotent seed of delegated bot tasks from a CSV export.
  *
- *   npx tsx scripts/seed-bot-tasks.mts --email conall@rditrials.com
+ *   npx tsx scripts/seed-bot-tasks.mts --csv /private/path/bot_tasks.csv --email <mailbox>
+ *
+ * The real export holds internal finance, HR and vendor details, so it must
+ * live outside this (public) repository. Pass it with --csv or
+ * SEER_BOT_TASKS_CSV. fixtures/bot_tasks.sample.csv is synthetic test data.
  *
  * Uses SEER_V2_DATABASE_URL / POSTGRES_URL. Never pointed at production by this
  * PR — run against preview or a local database.
  */
 import { promises as fs } from "node:fs";
 import path from "node:path";
-import { fileURLToPath } from "node:url";
 import { db } from "../src/lib/v2/db/pool.ts";
 import { asAccountId } from "../src/lib/v2/db/types.ts";
 import { tasksFromCsv } from "../src/lib/v2/staff/seed.ts";
 import { upsertSeedTask } from "../src/lib/v2/staff/repository.ts";
-
-const HERE = path.dirname(fileURLToPath(import.meta.url));
-const DEFAULT_CSV = path.join(HERE, "..", "fixtures", "bot_tasks.csv");
 
 function arg(name: string): string | null {
   const prefix = `--${name}=`;
@@ -48,7 +48,12 @@ async function resolveAccountId(email: string | null): Promise<string> {
   return r.rows[0].id;
 }
 
-const csvPath = arg("csv") ?? DEFAULT_CSV;
+const csvPath = arg("csv") ?? process.env.SEER_BOT_TASKS_CSV?.trim() ?? "";
+if (!csvPath) {
+  throw new Error(
+    "pass --csv <path> or set SEER_BOT_TASKS_CSV (keep the real export outside the repo)",
+  );
+}
 const email = arg("email");
 const csv = await fs.readFile(csvPath, "utf8");
 const rows = tasksFromCsv(csv);

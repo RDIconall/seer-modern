@@ -34,14 +34,19 @@ const parsed = parseCsv('id,task\nB01,"Save ""Files"", please"\n');
 assert.deepEqual(parsed[1], ["B01", 'Save "Files", please']);
 
 const csv = await fs.readFile(
-  path.join(process.cwd(), "fixtures", "bot_tasks.csv"),
+  path.join(process.cwd(), "fixtures", "bot_tasks.sample.csv"),
   "utf8",
 );
 const tasks = tasksFromCsv(csv);
-assert.equal(tasks.length, 27, "CSV seed is the 27 open tasks");
+assert.equal(tasks.length, 9, "sample CSV has 9 open tasks");
 assert.equal(tasks[0].externalKey, "B01");
 assert.equal(tasks[0].botSlug, "chief-of-staff");
-assert.match(tasks[0].hisWords, /divvy/i);
+assert.equal(tasks[0].status, "waiting_on_user");
+assert.match(tasks[0].hisWords, /expense report/i);
+assert.equal(tasks[1].title, 'Save "Files to Save" emails into the right shared folders');
+assert.equal(tasks[3].status, "open");
+assert.equal(tasks[5].status, "blocked");
+assert.equal(tasks[8].status, "in_progress");
 assert.ok(tasks.every((task) => task.status !== "done"));
 assert.ok(tasks.every((task) => task.status !== "dropped"));
 assert.ok(tasks.some((task) => task.botSlug === "snak-bot"));

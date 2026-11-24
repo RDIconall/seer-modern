@@ -1,0 +1,10 @@
+id,task,date_asked,bot,his_words,current_state,next_action
+B01,Pull last month's expense report for Pat Example (for the finance lead),2026-10-15,Chief of staff,pull the expense report for pat example,"Not started. Stuck at sign-in: the expense tool needs a separate login",Pull the date/vendor/amount list after sign-in; send it as a draft
+B02,"Save ""Files to Save"" emails into the right shared folders",2026-10-14,Chief of staff,go through the files to save folder and save those in the right folder,"5 of 8 already filed. 3 files downloaded but not uploaded, because the upload needs a sign-in",Upload the 3 after sign-in
+B03,Draft a follow-up to Sam Sample asking for feedback on the proposal,2026-10-14,Chief of staff,draft a follow up to sam about the proposal,Drafted as a new email; original thread not found,Search again and move the draft onto that thread
+B04,Send the meeting recording to Alex Placeholder,2026-10-14,Chief of staff,send the recording to alex,No action taken (dropped),Find the recording; draft a share for approval
+B05,Order snacks for the team offsite,2026-10-14,SnaK-Bot,order snacks for the offsite,"Approved; not placed, waiting on the approver to confirm",Place the order; post confirmation in chat
+B06,Fix the preview deploy for the demo site,2026-10-11,IT Admin,you fix it,Blocked: deploy connector lacks team access,"After reconnect: fix the root directory, redeploy"
+B07,Review unused software seats and propose savings,2026-10-11,IT Admin,see if we are paying for anything we don't use,Partial: a few inactive test accounts flagged,Deliver a list for approval
+B08,Update open opportunities in the CRM,2026-10-12,Proposals & Bids,go through all open opportunities and update them,Proposed changes in a CSV; none applied,Apply the safe changes once OK'd
+B09,Plan a daily inbox digest,2026-10-14,Personal Chief of Staff,develop a plan to manage my email,Running as a daily dry run; nothing moved yet,Keep the dry run going; propose go-live

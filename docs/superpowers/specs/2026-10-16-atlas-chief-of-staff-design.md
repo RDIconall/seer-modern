@@ -75,8 +75,10 @@ after a user command that touches staff data. HMAC-SHA256 over
 
 ## Seed
 
-`fixtures/bot_tasks.csv` (27 open tasks, Conall's wording). Idempotent script
-`scripts/seed-bot-tasks.mts` upserts by `(account_id, external_key)`.
+The real task export stays outside this public repository; pass it to
+`scripts/seed-bot-tasks.mts` with `--csv` or `SEER_BOT_TASKS_CSV`. The script
+upserts idempotently by `(account_id, external_key)`. Tests use the synthetic
+`fixtures/bot_tasks.sample.csv`.
 
 ## UI
 
