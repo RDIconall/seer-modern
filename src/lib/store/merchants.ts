@@ -37,17 +37,54 @@ export function extractAmount(text: string): number | null {
   return max;
 }
 
+// Dotted hostname labels only. Sender text is attacker-controlled and
+// the result is used as an object key, so names like "__proto__" or
+// "constructor" must never come out of here.
+const DOMAIN_RE = /^[\p{L}\p{N}-]+(?:\.[\p{L}\p{N}-]+)+$/u;
+
 export function merchantKey(fromEmail: string): string {
-  const domain = fromEmail.split("@")[1]?.toLowerCase() ?? "";
+  // The domain follows the LAST at-sign: a quoted local part may itself
+  // contain "@" ("a@b"@example.com).
+  const at = fromEmail.lastIndexOf("@");
+  if (at < 0) return "";
+  const domain = fromEmail
+    .slice(at + 1)
+    .trim()
+    .toLowerCase()
+    .replace(/\.$/, "");
+  if (!DOMAIN_RE.test(domain)) return "";
   // Collapse mail subdomains: email.chase.com → chase.com
   const parts = domain.split(".");
   return parts.length > 2 ? parts.slice(-2).join(".") : domain;
 }
 
+function isMerchantRecord(value: unknown): value is MerchantRecord {
+  if (!value || typeof value !== "object") return false;
+  const rec = value as Partial<MerchantRecord>;
+  return (
+    Array.isArray(rec.amounts) &&
+    rec.amounts.every((n) => typeof n === "number" && Number.isFinite(n)) &&
+    typeof rec.count === "number"
+  );
+}
+
+/** Own, well-formed record for a key — never an inherited property. */
+function merchantFor(db: MerchantDb, key: string): MerchantRecord | null {
+  if (!key || !Object.hasOwn(db, key)) return null;
+  const rec = db[key];
+  return isMerchantRecord(rec) ? rec : null;
+}
+
 export async function loadMerchants(
   accountEmail: string,
 ): Promise<MerchantDb> {
-  return (await kvGet<MerchantDb>(keyFor(accountEmail))) ?? {};
+  const raw = await kvGet<unknown>(keyFor(accountEmail));
+  const db: MerchantDb = Object.create(null);
+  if (!raw || typeof raw !== "object") return db;
+  for (const [key, rec] of Object.entries(raw)) {
+    if (DOMAIN_RE.test(key) && isMerchantRecord(rec)) db[key] = rec;
+  }
+  return db;
 }
 
 export async function saveMerchants(
@@ -72,7 +109,7 @@ export function recordCharge(
 ): void {
   const key = merchantKey(fromEmail);
   if (!key) return;
-  const rec = db[key] ?? {
+  const rec = merchantFor(db, key) ?? {
     key,
     name: fromName || key,
     amounts: [],
@@ -96,7 +133,7 @@ export function usualLabel(
   db: MerchantDb,
   fromEmail: string,
 ): string | null {
-  const rec = db[merchantKey(fromEmail)];
+  const rec = merchantFor(db, merchantKey(fromEmail));
   if (!rec || rec.amounts.length < 2) return null;
   return `usually ~$${median(rec.amounts).toFixed(0)} (${rec.count} charges)`;
 }
@@ -107,7 +144,7 @@ export function isAnomalousCharge(
   fromEmail: string,
   amount: number,
 ): boolean {
-  const rec = db[merchantKey(fromEmail)];
+  const rec = merchantFor(db, merchantKey(fromEmail));
   if (!rec || rec.amounts.length < 3) return false;
   const med = median(rec.amounts);
   return med > 0 && amount >= 100 && amount >= med * 2.5;

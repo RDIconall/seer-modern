@@ -21,6 +21,7 @@ import type { SeerLabelStore } from "@/lib/mail/seer-labels";
 import { intelBreakdown, intelContainsAny } from "@/lib/nlp/intel";
 import {
   learnedPrior,
+  senderActionStats,
   type ActionMemory,
 } from "@/lib/store/action-memory";
 import {
@@ -36,11 +37,13 @@ import {
   recordCharge,
   saveMerchants,
   usualLabel,
+  type MerchantDb,
 } from "@/lib/store/merchants";
 import {
   MACHINE_LOCALPART,
   loadPeople,
   savePeople,
+  personFor,
   tierFromEvidence,
   type PeopleDb,
   type PersonTier,
@@ -632,7 +635,6 @@ function compactPayload(
   merchants?: Awaited<ReturnType<typeof loadMerchants>>,
 ): CompactItem[] {
   return batch.map((m) => {
-    const sig = historySignals(history, m.fromEmail);
     const item: CompactItem = {
       id: m.id,
       from: (m.fromName || m.fromEmail).slice(0, 60),
@@ -648,44 +650,66 @@ function compactPayload(
         .replace(/\s+/g, " ")
         .slice(0, DEEP_BODY_CHARS),
     };
-    const tier = tiers?.get(m.fromEmail.toLowerCase());
-    if (tier) item.tier = tier;
-    const age = ageInDays(m.receivedAt);
-    if (age >= 2) item.age = age;
-    // Money in motion + this biller's baseline
-    const amount = extractAmount(`${m.subject}\n${m.snippet}`);
-    if (amount != null && amount >= 1) item.amount = amount;
-    if (merchants) {
-      const usual = usualLabel(merchants, m.fromEmail);
-      if (usual) item.usual = usual;
-    }
-    // Revealed priority: how fast the user answers this sender
-    if (sig.medianReplyMins != null && sig.medianReplyMins < 7 * 24 * 60) {
-      item.replyMins = sig.medianReplyMins;
-    }
-    if (sig.relationship !== "cold") item.rel = sig.relationship;
-    if (sig.sentTo > 0) item.sent = sig.sentTo;
-    if (sig.receivedFrom > 0) item.recv = sig.receivedFrom;
-    if (sig.staleEngagement) item.stale = true;
-    // "I signed up for it and there is history for that" — read-and-kept
-    // archive mail from this sender is opted-in evidence
-    if ((sig.keptFrom ?? 0) > 0) item.kept = sig.keptFrom;
-
-    const ctx = contextSignals(extras?.personal, m.fromEmail);
-    if (ctx.inContacts) item.contact = true;
-    const meet = meetingLabel(ctx.meeting);
-    if (meet) item.meeting = meet;
-
-    const stat = extras?.actionMemory?.[m.fromEmail.toLowerCase().trim()];
-    if (stat && stat.archive + stat.trash > 0) {
-      const total = stat.archive + stat.trash;
-      item.past =
-        stat.trash >= stat.archive
-          ? `trashed ${stat.trash}/${total}`
-          : `archived ${stat.archive}/${total}`;
+    // Enrichment reads stores keyed by sender-controlled text. A failure
+    // here must cost this one item its signals, not the whole batch —
+    // the caller treats any throw as a model failure and stops grading.
+    try {
+      enrichCompactItem(item, m, history, extras, tiers, merchants);
+    } catch (e) {
+      console.error(
+        "[seer] triage signals skipped for one message:",
+        e instanceof Error ? e.message : e,
+      );
     }
     return item;
   });
+}
+
+function enrichCompactItem(
+  item: CompactItem,
+  m: GeminiTriageItem,
+  history: MailHistory | null | undefined,
+  extras?: TriageExtras,
+  tiers?: Map<string, string>,
+  merchants?: Awaited<ReturnType<typeof loadMerchants>>,
+): void {
+  const sig = historySignals(history, m.fromEmail);
+  const tier = tiers?.get(m.fromEmail.toLowerCase());
+  if (tier) item.tier = tier;
+  const age = ageInDays(m.receivedAt);
+  if (age >= 2) item.age = age;
+  // Money in motion + this biller's baseline
+  const amount = extractAmount(`${m.subject}\n${m.snippet}`);
+  if (amount != null && amount >= 1) item.amount = amount;
+  if (merchants) {
+    const usual = usualLabel(merchants, m.fromEmail);
+    if (usual) item.usual = usual;
+  }
+  // Revealed priority: how fast the user answers this sender
+  if (sig.medianReplyMins != null && sig.medianReplyMins < 7 * 24 * 60) {
+    item.replyMins = sig.medianReplyMins;
+  }
+  if (sig.relationship !== "cold") item.rel = sig.relationship;
+  if (sig.sentTo > 0) item.sent = sig.sentTo;
+  if (sig.receivedFrom > 0) item.recv = sig.receivedFrom;
+  if (sig.staleEngagement) item.stale = true;
+  // "I signed up for it and there is history for that" — read-and-kept
+  // archive mail from this sender is opted-in evidence
+  if ((sig.keptFrom ?? 0) > 0) item.kept = sig.keptFrom;
+
+  const ctx = contextSignals(extras?.personal, m.fromEmail);
+  if (ctx.inContacts) item.contact = true;
+  const meet = meetingLabel(ctx.meeting);
+  if (meet) item.meeting = meet;
+
+  const stat = senderActionStats(extras?.actionMemory, m.fromEmail);
+  if (stat && stat.archive + stat.trash > 0) {
+    const total = stat.archive + stat.trash;
+    item.past =
+      stat.trash >= stat.archive
+        ? `trashed ${stat.trash}/${total}`
+        : `archived ${stat.archive}/${total}`;
+  }
 }
 
 async function geminiBatch(
@@ -812,15 +836,19 @@ export async function classifyInboxWithAssistant(
   // THE PERSONAL DATABASE — resolve every sender's tier first.
   // Local evidence (sent history, contacts, meetings, shape) decides
   // most for free; genuinely unknown senders go to the AI's full read.
-  const people: PeopleDb = await loadPeople(accountEmail).catch(() => ({}));
-  const merchants = await loadMerchants(accountEmail).catch(() => ({}));
+  const people: PeopleDb = await loadPeople(accountEmail).catch(
+    () => Object.create(null) as PeopleDb,
+  );
+  const merchants: MerchantDb = await loadMerchants(accountEmail).catch(
+    () => Object.create(null) as MerchantDb,
+  );
   let merchantsDirty = false;
   const tiers = new Map<string, string>();
   let peopleDirty = false;
   for (const item of items) {
     const key = item.fromEmail.toLowerCase();
     if (tiers.has(key)) continue;
-    const stored = people[key];
+    const stored = personFor(people, key);
     if (stored) {
       tiers.set(key, stored.vip ? "vip" : stored.tier);
       continue;
@@ -910,7 +938,7 @@ export async function classifyInboxWithAssistant(
     // Graph, then whatever the inbox rows knew, then the address stem.
     const who =
       turn.fromName ||
-      people[turn.fromEmail]?.name ||
+      personFor(people, turn.fromEmail)?.name ||
       (item.fromEmail.toLowerCase().trim() === me
         ? counterpartOfThread.get(item.threadId ?? "")
         : item.fromName) ||
@@ -1267,24 +1295,33 @@ export async function classifyInboxWithAssistant(
       if (!moneyish) continue;
       const amount = extractAmount(`${item.subject}\n${item.snippet}`);
       if (amount == null || amount < 1) continue;
-      if (
-        isAnomalousCharge(merchants, item.fromEmail, amount) &&
-        r.action !== "act_today"
-      ) {
-        const usual = usualLabel(merchants, item.fromEmail);
-        const upgraded: AssistantClassifyResult = {
-          ...r,
-          action: "review_subscription",
-          confidence: "HIGH",
-          reason: `Unusual amount: $${amount}${usual ? ` — ${usual}` : ""}`,
-          task: `Check the $${amount} ${item.fromName || "charge"}`.slice(0, 80),
-          debug: { ...r.debug, ruleId: "merchant-anomaly" },
-        };
-        resMap.set(item.id, upgraded);
-        saveMap.set(item.id, toCached(upgraded));
+      // Per item: the callers save decisions after this pass, so one bad
+      // sender record must not cost the rest of the batch its grades.
+      try {
+        if (
+          isAnomalousCharge(merchants, item.fromEmail, amount) &&
+          r.action !== "act_today"
+        ) {
+          const usual = usualLabel(merchants, item.fromEmail);
+          const upgraded: AssistantClassifyResult = {
+            ...r,
+            action: "review_subscription",
+            confidence: "HIGH",
+            reason: `Unusual amount: $${amount}${usual ? ` — ${usual}` : ""}`,
+            task: `Check the $${amount} ${item.fromName || "charge"}`.slice(0, 80),
+            debug: { ...r.debug, ruleId: "merchant-anomaly" },
+          };
+          resMap.set(item.id, upgraded);
+          saveMap.set(item.id, toCached(upgraded));
+        }
+        recordCharge(merchants, item.fromEmail, item.fromName, amount);
+        merchantsDirty = true;
+      } catch (e) {
+        console.error(
+          "[seer] merchant memory skipped for one message:",
+          e instanceof Error ? e.message : e,
+        );
       }
-      recordCharge(merchants, item.fromEmail, item.fromName, amount);
-      merchantsDirty = true;
     }
   };
 
