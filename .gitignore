@@ -29,6 +29,11 @@
 fixtures/classifier/*.json
 !fixtures/classifier/.gitkeep
 
+# Real delegated-task exports (finance, HR, vendor details). Seed from a path
+# outside the repo; tests use fixtures/bot_tasks.sample.csv.
+fixtures/bot_tasks*.csv
+!fixtures/bot_tasks.sample.csv
+
 # debug
 npm-debug.log*
 yarn-debug.log*

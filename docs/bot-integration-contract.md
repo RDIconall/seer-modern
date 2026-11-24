@@ -18,14 +18,15 @@ permanent purge.
 1. Apply the repo migration `supabase/migrations/20261016220000_bot_staff.sql`
    to the **preview** database (or a local test database). Do not apply to
    production from this PR.
-2. Seed Conall's 27 open tasks:
+2. Seed Conall's open tasks from the private export (never commit it):
 
    ```bash
-   npx tsx scripts/seed-bot-tasks.mts --email <mailbox@rditrials.com>
+   npx tsx scripts/seed-bot-tasks.mts --csv /private/path/bot_tasks.csv --email <mailbox@rditrials.com>
    ```
 
-   Uses `SEER_V2_DATABASE_URL` or `POSTGRES_URL`. Idempotent on
-   `(account_id, external_key)` (`B01`…`B31`).
+   `SEER_BOT_TASKS_CSV` works in place of `--csv`. Uses
+   `SEER_V2_DATABASE_URL` or `POSTGRES_URL`. Idempotent on
+   `(account_id, external_key)`.
 3. Optional, so the bot is poked instead of polling:
 
    | Env var | Purpose |
