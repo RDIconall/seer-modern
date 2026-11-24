@@ -7,7 +7,10 @@ import { historySignals } from "@/lib/inbox/mail-history";
 import { listGmailFolder, listGmailInbox } from "@/lib/mail/gmail";
 import { listGraphFolder, listGraphInbox } from "@/lib/mail/graph";
 import { requireMailSession } from "@/lib/mail/session";
-import { loadActionMemory } from "@/lib/store/action-memory";
+import {
+  loadActionMemory,
+  senderActionStats,
+} from "@/lib/store/action-memory";
 import { getSenderOverride } from "@/lib/store/senders";
 import { generateText, Output } from "ai";
 import { NextResponse } from "next/server";
@@ -111,7 +114,7 @@ export async function GET() {
       if (sig.sentTo > 0) continue;
       const taught = await getSenderOverride(agg.email);
       if (taught) continue;
-      const stat = actionMemory[agg.email.toLowerCase()];
+      const stat = senderActionStats(actionMemory, agg.email);
       const total = (stat?.archive ?? 0) + (stat?.trash ?? 0);
       candidates.push({
         ...agg,

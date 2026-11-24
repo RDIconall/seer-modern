@@ -41,7 +41,19 @@ function keyFor(accountEmail: string) {
 }
 
 export async function loadPeople(accountEmail: string): Promise<PeopleDb> {
-  return (await kvGet<PeopleDb>(keyFor(accountEmail))) ?? {};
+  const raw = await kvGet<PeopleDb>(keyFor(accountEmail));
+  // Sender text becomes a key; a null prototype means "__proto__" or
+  // "constructor" can only ever be an own entry, never a built-in.
+  return Object.assign(Object.create(null) as PeopleDb, raw ?? {});
+}
+
+/** The sender's own record — never an inherited object property. */
+export function personFor(db: PeopleDb, key: string): PersonRecord | null {
+  if (!Object.hasOwn(db, key)) return null;
+  const rec = db[key];
+  return rec && typeof rec === "object" && typeof rec.tier === "string"
+    ? rec
+    : null;
 }
 
 export async function savePeople(

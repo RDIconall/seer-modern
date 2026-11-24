@@ -167,7 +167,9 @@ export async function syncTexting(
     if (rows.length < 250) break;
   }
 
-  const people: TextingStats["people"] = {};
+  // Keys are addresses from chat handles and contact cards; a null
+  // prototype keeps "__proto__" an ordinary entry.
+  const people: TextingStats["people"] = Object.create(null);
   for (const chat of chats) {
     const last = chat.lastMessage?.dateCreated
       ? new Date(chat.lastMessage.dateCreated).toISOString()
