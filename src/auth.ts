@@ -20,7 +20,11 @@ import {
   type AccountLinkProvider,
 } from "@/lib/auth/account-link";
 import { setActiveAccountId } from "@/lib/store/accounts";
-import { describeAccessRefusal, isAllowedOrgEmail } from "@/lib/auth/org";
+import {
+  describeAccessRefusal,
+  describeProviderSignInRefusal,
+  isAllowedOrgEmail,
+} from "@/lib/auth/org";
 
 const googleConfigured =
   Boolean(process.env.AUTH_GOOGLE_ID) &&
@@ -87,11 +91,15 @@ export const { handlers, auth, signIn, signOut } = NextAuth({
       : []),
   ],
   callbacks: {
-    async signIn({ user }) {
-      if (isAllowedOrgEmail(user.email)) return true;
+    async signIn({ user, account, profile }) {
+      const refusal =
+        (profile?.email ?? "").toLowerCase() === (user.email ?? "").toLowerCase()
+          ? describeProviderSignInRefusal(account?.provider, profile)
+          : "the provider profile and user email disagree";
+      if (!refusal) return true;
       // The Auth.js AccessDenied page cannot name the address it turned away,
       // so nothing but this line says which mailbox was refused and why.
-      console.warn("[auth] sign-in refused:", describeAccessRefusal(user.email));
+      console.warn("[auth] sign-in refused:", refusal);
       return false;
     },
     async jwt({ token, account, profile }) {
@@ -118,8 +126,12 @@ export const { handlers, auth, signIn, signOut } = NextAuth({
           if (!providerEmail) {
             throw new Error("Provider email is missing");
           }
-          if (!isAllowedOrgEmail(providerEmail)) {
-            throw new Error(describeAccessRefusal(providerEmail));
+          const providerRefusal = describeProviderSignInRefusal(
+            account.provider,
+            profile,
+          );
+          if (providerRefusal || !profileEmail) {
+            throw new Error(providerRefusal ?? "Provider email is missing");
           }
           const existingOwner = token.email as string | undefined;
           if (
