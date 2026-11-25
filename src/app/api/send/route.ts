@@ -1,3 +1,4 @@
+import { parseAddressList } from "@/lib/mail/address-list";
 import { getGmailMessage, gmailAction, sendGmailMessage } from "@/lib/mail/gmail";
 import {
   getGraphMessage,
@@ -165,13 +166,7 @@ export async function POST(request: Request) {
       }
 
       const extractEmails = (raw: string) =>
-        raw
-          .split(/[,;]/)
-          .map((part) => {
-            const m = part.match(/<([^>]+)>/);
-            return (m?.[1] ?? part).trim();
-          })
-          .filter((e) => e.includes("@"));
+        parseAddressList(raw).map((mailbox) => mailbox.email);
 
       const to =
         mode === "replyAll"

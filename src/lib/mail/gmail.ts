@@ -5,6 +5,7 @@ import type {
   SendMailInput,
 } from "@/lib/mail/types";
 import { compileGmailSearch, parseMailSearch } from "@/lib/v3/search/parser";
+import { parseAddressList, parseSenderMailbox } from "@/lib/mail/address-list";
 
 export type {
   MailFolder,
@@ -14,9 +15,9 @@ export type {
 } from "@/lib/mail/types";
 
 function parseAddress(raw: string): { name: string; email: string } {
-  const m = raw.match(/^(?:"?([^"]*)"?\s)?<?([^>]+@[^>]+)>?$/);
-  if (m) return { name: (m[1] ?? m[2]).trim(), email: m[2].trim() };
-  return { name: raw, email: raw };
+  const mailbox = parseSenderMailbox(raw);
+  if (!mailbox) return { name: "", email: "" };
+  return { name: mailbox.name ?? mailbox.email, email: mailbox.email };
 }
 
 function decodeBase64Url(data: string): string {
@@ -173,18 +174,14 @@ async function hydrateOne(
   const toRaw = headers.find((h) => h.name === "To")?.value ?? "";
   const ccRaw = headers.find((h) => h.name === "Cc")?.value ?? "";
   const { name, email } = parseAddress(fromRaw);
-  const firstTo = toRaw.split(",")[0]?.trim() ?? "";
-  const peer = firstTo ? parseAddress(firstTo).email : undefined;
+  const toList = parseAddressList(toRaw);
+  const peer = toList[0]?.email;
   // The recipient group: everyone on the message. When this set changes
   // mid-thread (someone drops the group and writes just to you), that
   // message stops collapsing into the thread row.
   const participants = [
     email,
-    ...`${toRaw},${ccRaw}`
-      .split(",")
-      .map((s) => s.trim())
-      .filter(Boolean)
-      .map((s) => parseAddress(s).email),
+    ...[...toList, ...parseAddressList(ccRaw)].map((mailbox) => mailbox.email),
   ]
     .map((e) => e.toLowerCase())
     .filter((e, i, arr) => e.includes("@") && arr.indexOf(e) === i);

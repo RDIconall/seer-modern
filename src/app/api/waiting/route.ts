@@ -1,4 +1,5 @@
 import { MACHINE_LOCALPART } from "@/lib/store/people";
+import { parseSenderMailbox } from "@/lib/mail/address-list";
 import { listGmailFolder } from "@/lib/mail/gmail";
 import { requireMailSession } from "@/lib/mail/session";
 import { accountKey, kvGet, kvSet } from "@/lib/store/kv";
@@ -96,11 +97,11 @@ export async function GET(request: Request) {
         const msgs = thread.messages ?? [];
         const last = msgs[msgs.length - 1];
         const lastFrom =
-          last?.payload?.headers
-            ?.find((h) => h.name === "From")
-            ?.value?.toLowerCase() ?? "";
+          parseSenderMailbox(
+            last?.payload?.headers?.find((h) => h.name === "From")?.value ?? "",
+          )?.email.toLowerCase() ?? "";
         // Still waiting only if the LAST message in the thread is his
-        if (!lastFrom.includes(me)) continue;
+        if (lastFrom !== me) continue;
         items.push({
           threadId: m.threadId,
           messageId: last.id,
