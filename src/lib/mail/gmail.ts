@@ -1,3 +1,4 @@
+import { parseMailbox as parseAddress } from "@/lib/mail/address";
 import type {
   MailFolder,
   MailMessageDetail,
@@ -12,12 +13,6 @@ export type {
   MailMessageListItem,
   SendMailInput,
 } from "@/lib/mail/types";
-
-function parseAddress(raw: string): { name: string; email: string } {
-  const m = raw.match(/^(?:"?([^"]*)"?\s)?<?([^>]+@[^>]+)>?$/);
-  if (m) return { name: (m[1] ?? m[2]).trim(), email: m[2].trim() };
-  return { name: raw, email: raw };
-}
 
 function decodeBase64Url(data: string): string {
   const padded = data.replace(/-/g, "+").replace(/_/g, "/");
