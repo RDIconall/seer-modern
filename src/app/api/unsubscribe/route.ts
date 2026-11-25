@@ -56,6 +56,7 @@ export async function POST(request: Request) {
     let mailto = 0;
     let trashedOnly = 0;
     const links: { id: string; url: string }[] = [];
+    const mailtoSent: { id: string; to: string }[] = [];
 
     let attempts = 0;
     for (const item of items) {
@@ -69,7 +70,10 @@ export async function POST(request: Request) {
         /* still trash + teach below */
       }
       if (result.method === "one-click") oneClick += 1;
-      else if (result.method === "mailto") mailto += 1;
+      else if (result.method === "mailto") {
+        mailto += 1;
+        mailtoSent.push({ id: item.id, to: result.to });
+      }
       else if (result.method === "link") links.push({ id: item.id, url: result.url });
       else trashedOnly += 1;
 
@@ -92,6 +96,7 @@ export async function POST(request: Request) {
       unsubscribed: oneClick + mailto,
       oneClick,
       mailto,
+      mailtoSent,
       trashedOnly,
       links,
     });
