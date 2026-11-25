@@ -5,6 +5,13 @@ import {
   replyGraphMessage,
   sendGraphMessage,
 } from "@/lib/mail/graph";
+import {
+  MAX_OUTBOUND_HEADER_CHARS,
+  OutboundLimitError,
+  outboundAttachmentsError,
+  outboundRecipientsError,
+  outboundTextError,
+} from "@/lib/mail/outbound-limits";
 import { requireMailSession } from "@/lib/mail/session";
 import { recordRepliedThread } from "@/lib/store/replied-threads";
 import { NextResponse } from "next/server";
@@ -78,27 +85,31 @@ export async function POST(request: Request) {
       }[];
     };
 
+    if (outboundAttachmentsError(body.attachments)) {
+      return NextResponse.json(
+        { error: "Invalid attachment" },
+        { status: 400 },
+      );
+    }
+    const fieldError =
+      outboundRecipientsError("to", body.to) ??
+      outboundRecipientsError("cc", body.cc) ??
+      outboundTextError("subject", body.subject, {
+        max: MAX_OUTBOUND_HEADER_CHARS,
+        optional: true,
+      }) ??
+      outboundTextError("body", body.body, { optional: true }) ??
+      outboundTextError("html", body.html, { optional: true });
+    if (fieldError) {
+      return NextResponse.json({ error: fieldError }, { status: 400 });
+    }
+
     const mode: Mode = body.mode ?? "compose";
     const text = (body.body ?? "").trim();
     const html = body.html?.trim() || undefined;
     const toList = addressList(body.to);
     const ccList = addressList(body.cc) || undefined;
     const attachments = body.attachments ?? [];
-    if (
-      attachments.length > 5 ||
-      attachments.some(
-        (attachment) =>
-          !attachment.filename ||
-          attachment.sizeBytes < 0 ||
-          attachment.sizeBytes > 3_000_000 ||
-          !/^[A-Za-z0-9+/]*={0,2}$/.test(attachment.contentBase64),
-      )
-    ) {
-      return NextResponse.json(
-        { error: "Invalid attachment" },
-        { status: 400 },
-      );
-    }
     // A forward's body IS the original message — a note on top is
     // optional. Compose/reply with nothing to say is still an error.
     if (!text && mode !== "forward") {
@@ -290,6 +301,9 @@ export async function POST(request: Request) {
     });
     return NextResponse.json({ ok: true });
   } catch (e) {
+    if (e instanceof OutboundLimitError) {
+      return NextResponse.json({ error: e.message }, { status: 400 });
+    }
     const msg = e instanceof Error ? e.message : "Send failed";
     return NextResponse.json({ error: msg }, { status: 502 });
   }

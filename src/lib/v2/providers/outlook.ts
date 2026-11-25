@@ -6,6 +6,11 @@ import {
   outlookMutationAlreadyApplied,
 } from "./mutation-idempotent";
 import { nativeUrlFor } from "./native-url";
+import {
+  assertForwardCommand,
+  assertReplyCommand,
+  assertSendCommand,
+} from "./outbound-limits";
 import type {
   Address,
   AttachmentContent,
@@ -267,6 +272,7 @@ export class OutlookProvider implements MailProvider {
 
   async send(command: SendCommand, _key: string): Promise<SendReceipt> {
     void _key;
+    assertSendCommand(command);
     await this.post("/sendMail", {
       message: {
         subject: command.subject,
@@ -289,6 +295,7 @@ export class OutlookProvider implements MailProvider {
 
   async reply(command: ReplyCommand, _key: string): Promise<SendReceipt> {
     void _key;
+    assertReplyCommand(command);
     const msgs = await this.conversationMessages(command.conversationId);
     const last = msgs[msgs.length - 1];
     const endpoint = command.all ? "replyAll" : "reply";
@@ -303,6 +310,7 @@ export class OutlookProvider implements MailProvider {
 
   async forward(command: ForwardCommand, _key: string): Promise<SendReceipt> {
     void _key;
+    assertForwardCommand(command);
     const msgs = await this.conversationMessages(command.conversationId);
     const last = msgs[msgs.length - 1];
     await this.post(`/messages/${last.id}/forward`, {
