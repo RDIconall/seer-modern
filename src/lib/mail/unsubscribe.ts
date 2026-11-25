@@ -1,3 +1,4 @@
+import { angleGroups } from "@/lib/mail/address";
 import { sendGmailMessage } from "@/lib/mail/gmail";
 import { sendGraphMessage } from "@/lib/mail/graph";
 
@@ -22,8 +23,8 @@ function parseHeaders(
   listUnsubPost: string | undefined,
 ): Parsed {
   const out: Parsed = { oneClick: /one-click/i.test(listUnsubPost ?? "") };
-  for (const m of (listUnsub ?? "").matchAll(/<([^>]+)>/g)) {
-    const url = m[1].trim();
+  for (const group of angleGroups(listUnsub ?? "")) {
+    const url = group.trim();
     if (/^https?:\/\//i.test(url) && !out.https) out.https = url;
     if (/^mailto:/i.test(url) && !out.mailto) out.mailto = url;
   }
