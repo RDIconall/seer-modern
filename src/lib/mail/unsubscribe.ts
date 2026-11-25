@@ -11,28 +11,90 @@ import { sendGraphMessage } from "@/lib/mail/graph";
 
 export type UnsubscribeResult =
   | { method: "one-click" }
-  | { method: "mailto" }
+  | { method: "mailto"; to: string }
   | { method: "link"; url: string }
   | { method: "none" };
 
-type Parsed = { https?: string; mailto?: string; oneClick: boolean };
+type Parsed = {
+  https?: string;
+  mailto?: string;
+  oneClick: boolean;
+  senderDomains: string[];
+};
 
-function parseHeaders(
-  listUnsub: string | undefined,
-  listUnsubPost: string | undefined,
-): Parsed {
-  const out: Parsed = { oneClick: /one-click/i.test(listUnsubPost ?? "") };
-  for (const m of (listUnsub ?? "").matchAll(/<([^>]+)>/g)) {
+/**
+ * The List-Unsubscribe header is written by whoever sent the message, so
+ * the mailto target is untrusted: it is sent from the user's own account
+ * only to one plain address on the sender's domain, always with this text.
+ */
+const MAILTO_SUBJECT = "unsubscribe";
+const MAILTO_BODY = "unsubscribe";
+
+const ADDRESS =
+  /^[A-Za-z0-9!#$%&'*+/=?^_`{|}~.-]+@([A-Za-z0-9](?:[A-Za-z0-9-]*[A-Za-z0-9])?(?:\.[A-Za-z0-9](?:[A-Za-z0-9-]*[A-Za-z0-9])?)+)$/;
+
+function domainOf(address: string): string | null {
+  const m = address.match(ADDRESS);
+  return m ? m[1].toLowerCase() : null;
+}
+
+function headerAddress(value: string | undefined): string | null {
+  if (!value) return null;
+  const bracketed = [...value.matchAll(/<([^<>]*)>/g)];
+  const address = (
+    bracketed.length ? bracketed[bracketed.length - 1][1] : value
+  ).trim();
+  return domainOf(address) ? address : null;
+}
+
+/**
+ * The single recipient a mailto: URI names, or null when it names anything
+ * other than exactly one well-formed address. Query fields (subject, body,
+ * cc, bcc, to) are never read.
+ */
+function mailtoAddress(uri: string): string | null {
+  const m = uri.match(/^mailto:([^?#]*)/i);
+  if (!m) return null;
+  let address: string;
+  try {
+    address = decodeURIComponent(m[1]).trim();
+  } catch {
+    return null;
+  }
+  return domainOf(address) ? address : null;
+}
+
+function allowedRecipient(address: string, senderDomains: string[]): boolean {
+  const domain = domainOf(address);
+  if (!domain) return false;
+  return senderDomains.some(
+    (sender) => domain === sender || domain.endsWith(`.${sender}`),
+  );
+}
+
+function parseHeaders(header: (name: string) => string | undefined): Parsed {
+  const out: Parsed = {
+    oneClick: /one-click/i.test(header("List-Unsubscribe-Post") ?? ""),
+    senderDomains: [],
+  };
+  for (const m of (header("List-Unsubscribe") ?? "").matchAll(/<([^>]+)>/g)) {
     const url = m[1].trim();
     if (/^https?:\/\//i.test(url) && !out.https) out.https = url;
     if (/^mailto:/i.test(url) && !out.mailto) out.mailto = url;
+  }
+  for (const name of ["From", "Return-Path"]) {
+    const address = headerAddress(header(name));
+    const domain = address ? domainOf(address) : null;
+    if (domain && !out.senderDomains.includes(domain)) {
+      out.senderDomains.push(domain);
+    }
   }
   return out;
 }
 
 async function perform(
   parsed: Parsed,
-  sendMail: (to: string, subject: string) => Promise<void>,
+  sendMail: (to: string) => Promise<void>,
 ): Promise<UnsubscribeResult> {
   // 1. RFC 8058 one-click — silent, instant, nothing for the user to do
   if (parsed.https && parsed.oneClick) {
@@ -52,16 +114,14 @@ async function perform(
 
   // 2. mailto: — send the unsubscribe email as the user
   if (parsed.mailto) {
-    try {
-      const u = new URL(parsed.mailto);
-      const to = u.pathname;
-      const subject = u.searchParams.get("subject") ?? "unsubscribe";
-      if (to.includes("@")) {
-        await sendMail(to, subject);
-        return { method: "mailto" };
+    const to = mailtoAddress(parsed.mailto);
+    if (to && allowedRecipient(to, parsed.senderDomains)) {
+      try {
+        await sendMail(to);
+        return { method: "mailto", to };
+      } catch {
+        /* fall through */
       }
-    } catch {
-      /* fall through */
     }
   }
 
@@ -75,7 +135,7 @@ export async function unsubscribeGmail(
   messageId: string,
 ): Promise<UnsubscribeResult> {
   const res = await fetch(
-    `https://gmail.googleapis.com/gmail/v1/users/me/messages/${messageId}?format=metadata&metadataHeaders=List-Unsubscribe&metadataHeaders=List-Unsubscribe-Post`,
+    `https://gmail.googleapis.com/gmail/v1/users/me/messages/${messageId}?format=metadata&metadataHeaders=List-Unsubscribe&metadataHeaders=List-Unsubscribe-Post&metadataHeaders=From&metadataHeaders=Return-Path`,
     {
       headers: { Authorization: `Bearer ${accessToken}` },
       cache: "no-store",
@@ -90,12 +150,12 @@ export async function unsubscribeGmail(
       (h) => h.name.toLowerCase() === name.toLowerCase(),
     )?.value;
 
-  const parsed = parseHeaders(
-    header("List-Unsubscribe"),
-    header("List-Unsubscribe-Post"),
-  );
-  return perform(parsed, async (to, subject) => {
-    await sendGmailMessage(accessToken, { to, subject, body: "unsubscribe" });
+  return perform(parseHeaders(header), async (to) => {
+    await sendGmailMessage(accessToken, {
+      to,
+      subject: MAILTO_SUBJECT,
+      body: MAILTO_BODY,
+    });
   });
 }
 
@@ -119,11 +179,11 @@ export async function unsubscribeGraph(
       (h) => h.name.toLowerCase() === name.toLowerCase(),
     )?.value;
 
-  const parsed = parseHeaders(
-    header("List-Unsubscribe"),
-    header("List-Unsubscribe-Post"),
-  );
-  return perform(parsed, async (to, subject) => {
-    await sendGraphMessage(accessToken, { to, subject, body: "unsubscribe" });
+  return perform(parseHeaders(header), async (to) => {
+    await sendGraphMessage(accessToken, {
+      to,
+      subject: MAILTO_SUBJECT,
+      body: MAILTO_BODY,
+    });
   });
 }
