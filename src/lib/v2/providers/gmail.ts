@@ -6,6 +6,11 @@ import {
 } from "./mutation-idempotent";
 import { nativeUrlFor } from "./native-url";
 import { gmailForwardHtml } from "./forward-html";
+import {
+  assertForwardCommand,
+  assertReplyCommand,
+  assertSendCommand,
+} from "./outbound-limits";
 import type {
   Address,
   AttachmentContent,
@@ -290,6 +295,7 @@ export class GmailProvider implements MailProvider {
 
   async send(command: SendCommand, _key: string): Promise<SendReceipt> {
     void _key;
+    assertSendCommand(command);
     const raw = this.encodeRaw(
       [
         `To: ${command.to.map((a) => a.email).join(", ")}`,
@@ -307,6 +313,7 @@ export class GmailProvider implements MailProvider {
 
   async reply(command: ReplyCommand, _key: string): Promise<SendReceipt> {
     void _key;
+    assertReplyCommand(command);
     const convo = await this.thread(command.conversationId);
     const last = convo.messages[convo.messages.length - 1];
     const recipients = new Set<string>();
@@ -332,6 +339,7 @@ export class GmailProvider implements MailProvider {
 
   async forward(command: ForwardCommand, _key: string): Promise<SendReceipt> {
     void _key;
+    assertForwardCommand(command);
     const convo = await this.thread(command.conversationId);
     const bodyHtml = gmailForwardHtml(convo, command.bodyHtml);
     const raw = this.encodeRaw(

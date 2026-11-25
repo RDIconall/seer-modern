@@ -1,6 +1,11 @@
 import { inTransaction } from "../db/transaction";
 import type { AccountId } from "../db/types";
 import type { MailProvider } from "../providers/types";
+import {
+  forwardCommandError,
+  replyCommandError,
+  sendCommandError,
+} from "../providers/outbound-limits";
 import { saveDecision } from "../intelligence/repository";
 import { asConversationId } from "../db/types";
 import { verifyDecisionToken } from "../view/token";
@@ -62,11 +67,33 @@ function isOutbound(command: Command): boolean {
   return command.type === "send" || command.type === "reply" || command.type === "forward";
 }
 
+/**
+ * Commands arrive as caller JSON. An outbound payload is measured before a
+ * receipt is reserved or any provider builds MIME from it.
+ */
+function outboundPayloadError(command: Command): string | null {
+  switch (command.type) {
+    case "send":
+      if (!Array.isArray(command.to)) return "Invalid to";
+      return sendCommandError(command);
+    case "reply":
+      return replyCommandError(command);
+    case "forward":
+      if (!Array.isArray(command.to)) return "Invalid to";
+      return forwardCommandError(command);
+    default:
+      return null;
+  }
+}
+
 export async function executeCommand(
   ctx: CommandContext,
   command: Command,
   idempotencyKey: string,
 ): Promise<CommandResult> {
+  const invalid = outboundPayloadError(command);
+  if (invalid) return fail(invalid);
+
   const replay = await existingReceipt(ctx.accountId, idempotencyKey);
   if (replay) return replay;
 

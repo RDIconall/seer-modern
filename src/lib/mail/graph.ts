@@ -4,6 +4,11 @@ import type {
   MailMessageListItem,
   SendMailInput,
 } from "@/lib/mail/types";
+import {
+  assertOutbound,
+  assertSendMailInput,
+  outboundTextError,
+} from "@/lib/mail/outbound-limits";
 import { compileOutlookSearch, parseMailSearch } from "@/lib/v3/search/parser";
 
 /**
@@ -304,6 +309,7 @@ export async function sendGraphMessage(
   accessToken: string,
   input: SendMailInput,
 ): Promise<{ id: string }> {
+  assertSendMailInput(input);
   await graphFetch(accessToken, `/me/sendMail`, {
     method: "POST",
     body: JSON.stringify({
@@ -335,6 +341,7 @@ export async function replyGraphMessage(
   body: string,
   replyAll = false,
 ): Promise<void> {
+  assertOutbound(outboundTextError("body", body));
   const path = replyAll
     ? `/me/messages/${id}/replyAll`
     : `/me/messages/${id}/reply`;

@@ -4,6 +4,7 @@ import type {
   MailMessageListItem,
   SendMailInput,
 } from "@/lib/mail/types";
+import { assertSendMailInput } from "@/lib/mail/outbound-limits";
 import { compileGmailSearch, parseMailSearch } from "@/lib/v3/search/parser";
 
 export type {
@@ -517,6 +518,7 @@ export async function sendGmailMessage(
   accessToken: string,
   input: SendMailInput,
 ): Promise<{ id: string; threadId: string }> {
+  assertSendMailInput(input);
   const raw = encodeBase64Url(buildMime(input));
   const body: { raw: string; threadId?: string } = { raw };
   if (input.threadId) body.threadId = input.threadId;
