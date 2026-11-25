@@ -27,6 +27,11 @@ import type {
   SyncPage,
 } from "./types";
 import { compileGmailSearch, parseMailSearch } from "@/lib/v3/search/parser";
+import {
+  parseAddressList,
+  parseSenderMailbox,
+  type ParsedMailbox,
+} from "@/lib/mail/address-list";
 import { assertSyncBudget } from "./types";
 
 /**
@@ -73,17 +78,18 @@ function header(headers: GmailHeader[] | undefined, name: string): string {
   return headers?.find((h) => h.name.toLowerCase() === name.toLowerCase())?.value ?? "";
 }
 
+function toAddress(mailbox: ParsedMailbox): Address {
+  const email = mailbox.email.toLowerCase();
+  return mailbox.name ? { name: mailbox.name, email } : { email };
+}
+
 function parseAddresses(raw: string): Address[] {
-  if (!raw) return [];
-  return raw
-    .split(",")
-    .map((chunk) => chunk.trim())
-    .filter(Boolean)
-    .map((chunk) => {
-      const m = chunk.match(/^(.*)<([^>]+)>$/);
-      if (m) return { name: m[1].trim().replace(/(^"|"$)/g, ""), email: m[2].trim().toLowerCase() };
-      return { email: chunk.toLowerCase() };
-    });
+  return parseAddressList(raw).map(toAddress);
+}
+
+function parseSender(raw: string): Address {
+  const mailbox = parseSenderMailbox(raw);
+  return mailbox ? toAddress(mailbox) : { email: "" };
 }
 
 function walkBodies(part: GmailPart | undefined, out: { html?: string; text?: string; attachments: Message["attachments"] }): void {
@@ -110,7 +116,7 @@ function toMessage(m: GmailMessage, selfEmail: string): Message {
     attachments: [],
   };
   walkBodies(m.payload, bodies);
-  const from = parseAddresses(header(headers, "from"))[0] ?? { email: "" };
+  const from = parseSender(header(headers, "from"));
   return {
     providerMessageId: m.id,
     from,

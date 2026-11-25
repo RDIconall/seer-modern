@@ -2,6 +2,7 @@ import {
   isGeminiConfigured,
   resolveAssistantModel,
 } from "@/lib/inbox/gemini-triage";
+import { parseAddressList } from "@/lib/mail/address-list";
 import { getGmailMessage } from "@/lib/mail/gmail";
 import { getGraphMessage } from "@/lib/mail/graph";
 import { requireMailSession } from "@/lib/mail/session";
@@ -125,7 +126,7 @@ Rules:
     // Nudges reply to the RECIPIENT of the user's own sent message
     const replyTo =
       intent === "nudge"
-        ? (message.toEmail.split(",")[0]?.trim() || message.fromEmail)
+        ? (parseAddressList(message.toEmail)[0]?.email || message.fromEmail)
         : message.fromEmail;
 
     return NextResponse.json({
