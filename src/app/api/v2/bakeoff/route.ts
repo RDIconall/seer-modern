@@ -35,11 +35,14 @@ type Sample = {
 };
 
 function parseAddress(value: string): { email: string; name?: string } {
-  const match = value.match(/^(.*?)\s*<([^>]+)>$/);
-  return match
+  const close = value.length - 1;
+  const open = value.endsWith(">")
+    ? value.indexOf("<", value.lastIndexOf(">", close - 1) + 1)
+    : -1;
+  return open !== -1 && open < close - 1
     ? {
-        name: match[1].trim() || undefined,
-        email: match[2].trim().toLowerCase(),
+        name: value.slice(0, open).trim() || undefined,
+        email: value.slice(open + 1, close).trim().toLowerCase(),
       }
     : { email: value.trim().toLowerCase() };
 }

@@ -80,8 +80,16 @@ function parseAddresses(raw: string): Address[] {
     .map((chunk) => chunk.trim())
     .filter(Boolean)
     .map((chunk) => {
-      const m = chunk.match(/^(.*)<([^>]+)>$/);
-      if (m) return { name: m[1].trim().replace(/(^"|"$)/g, ""), email: m[2].trim().toLowerCase() };
+      // Index scans, not a regex: sender-controlled headers must parse in
+      // linear time. The address is the last `<...>` that closes the chunk.
+      const close = chunk.length - 1;
+      const open = close > 1 ? chunk.lastIndexOf("<", close - 2) : -1;
+      if (open !== -1 && chunk.indexOf(">", open + 1) === close) {
+        return {
+          name: chunk.slice(0, open).trim().replace(/(^"|"$)/g, ""),
+          email: chunk.slice(open + 1, close).trim().toLowerCase(),
+        };
+      }
       return { email: chunk.toLowerCase() };
     });
 }
