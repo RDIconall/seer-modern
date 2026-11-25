@@ -26,6 +26,9 @@ export async function requireMailSession() {
   const sessionEmail = session.user.email?.toLowerCase();
 
   if (!sessionEmail || !isAllowedOrgEmail(sessionEmail)) return null;
+  if (session.error) {
+    throw new Error("Session expired — open Settings and reconnect");
+  }
 
   const userId = await upsertUser(sessionEmail);
   const provider = toV2Provider(session.provider);
@@ -38,6 +41,9 @@ export async function requireMailSession() {
   }
 
   if (account) {
+    if (account.status !== "active") {
+      throw new Error("Session expired — open Settings and reconnect");
+    }
     const credentials = await getCredentials(account.id);
     if (!credentials) {
       throw new Error("No mail credentials — open Settings and reconnect");
