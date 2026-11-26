@@ -28,7 +28,7 @@ function keyFor(accountEmail: string) {
 
 export async function loadFunctions(accountEmail: string): Promise<string[]> {
   const stored = await kvGet<string[]>(keyFor(accountEmail));
-  return stored?.length ? stored : DEFAULT_FUNCTIONS;
+  return stored?.length ? stored : [...DEFAULT_FUNCTIONS];
 }
 
 export async function saveFunctions(
