@@ -41,7 +41,16 @@ export type SaveDecisionInput = {
   evidence: Evidence[];
   modelVersion?: string;
   contextVersion?: string;
+  /**
+   * Replace the current decision only while it is still this one, with this
+   * home. Checked under the conversation lock, so a newer read is never
+   * overwritten by a correction that was cleared against an older one.
+   */
+  supersedes?: { decisionId: string; home: Home };
 };
+
+/** The decision `supersedes` named is no longer the current one. */
+export class StaleDecisionError extends Error {}
 
 export async function saveDecision(
   input: SaveDecisionInput,
@@ -59,6 +68,23 @@ export async function saveDecision(
     );
     if ((conversation.rowCount ?? 0) === 0) {
       throw new Error("conversation does not belong to account");
+    }
+
+    if (input.supersedes) {
+      const current = await client.query<{ id: string; home: string }>(
+        `select id, home
+           from seer.conversation_decisions
+          where account_id = $1 and conversation_id = $2 and is_current`,
+        [input.accountId, input.conversationId],
+      );
+      const row = current.rows[0];
+      if (
+        !row ||
+        row.id !== input.supersedes.decisionId ||
+        row.home !== input.supersedes.home
+      ) {
+        throw new StaleDecisionError("stale decision — reload and try again");
+      }
     }
 
     const matterIds = [

@@ -1,10 +1,14 @@
 import { inTransaction } from "../db/transaction";
 import type { AccountId } from "../db/types";
 import type { MailProvider } from "../providers/types";
-import { saveDecision } from "../intelligence/repository";
+import { saveDecision, StaleDecisionError } from "../intelligence/repository";
 import { asConversationId } from "../db/types";
 import { verifyDecisionToken } from "../view/token";
-import { enqueueOptimistic } from "@/lib/v3/outbox/repository";
+import {
+  enqueueOptimistic,
+  EnqueueRefused,
+  type EnqueueGuard,
+} from "@/lib/v3/outbox/repository";
 import type { OutboxMutationKind } from "@/lib/v3/outbox/types";
 import {
   completeOutboundReceipt,
@@ -108,17 +112,20 @@ async function executeOutbound(
   }
 }
 
+/** Throws `EnqueueRefused` when `guard` refuses; nothing is queued then. */
 async function enqueueMutation(
   ctx: CommandContext,
   type: OutboxMutationKind,
   conversationId: string,
   idempotencyKey: string,
+  guard?: EnqueueGuard,
 ): Promise<CommandResult> {
   try {
     const item = await enqueueOptimistic(
       ctx.accountId,
       { type, conversationId },
       idempotencyKey,
+      guard,
     );
     return { ok: true, replayed: false, outboxId: item.id, optimistic: true };
   } catch (e) {
@@ -126,6 +133,71 @@ async function enqueueMutation(
     if (msg === "conversation not found") return fail("conversation not found");
     throw e;
   }
+}
+
+type DeleteClearance =
+  | { decisionId: string; refused?: undefined }
+  | { decisionId?: undefined; refused: string };
+
+/**
+ * The decision a delete token was minted for. Only the signature and the
+ * conversation are checked here; whether that decision is still the current
+ * delete decision is checked by the write that acts on it, under its lock.
+ */
+function deleteClearance(
+  token: string | null | undefined,
+  conversationId: string,
+): DeleteClearance {
+  if (!token) return { refused: "delete needs clearance or a user" };
+  const verified = verifyDecisionToken(token);
+  if (!verified || verified.conversationId !== conversationId) {
+    return { refused: "invalid delete token" };
+  }
+  return { decisionId: verified.decisionId };
+}
+
+function stillCurrentDelete(
+  accountId: AccountId,
+  conversationId: string,
+  decisionId: string,
+): EnqueueGuard {
+  return async (client) => {
+    const current = await currentDeleteDecision(accountId, conversationId, client);
+    if (!current) return "no current decision";
+    if (current.decisionId !== decisionId) {
+      return "stale decision — reload and try again";
+    }
+    if (current.home !== "delete") return "decision no longer authorizes delete";
+    return null;
+  };
+}
+
+/** Queue trash only while `decisionId` is still the current delete decision. */
+async function enqueueClearedTrash(
+  ctx: CommandContext,
+  conversationId: string,
+  decisionId: string,
+  idempotencyKey: string,
+): Promise<CommandResult | { refused: string }> {
+  try {
+    return await enqueueMutation(
+      ctx,
+      "trash",
+      conversationId,
+      idempotencyKey,
+      stillCurrentDelete(ctx.accountId, conversationId, decisionId),
+    );
+  } catch (cause) {
+    if (cause instanceof EnqueueRefused) return { refused: cause.message };
+    throw cause;
+  }
+}
+
+function downgraded(result: CommandResult, reason: string): CommandResult {
+  return {
+    ...result,
+    detail: { ...(result.detail ?? {}), downgraded: "archive", reason },
+  };
 }
 
 /**
@@ -196,20 +268,10 @@ async function recordTriageCorrection(
   conversationId: string,
   home: "record" | "delete",
   idempotencyKey: string,
+  supersedes?: { decisionId: string; home: "delete" },
 ): Promise<void> {
-  await inTransaction(async (client) => {
-    await recordEvent(
-      ctx.accountId,
-      "user_correction",
-      {
-        conversationId,
-        home,
-        source: "triage",
-      },
-      idempotencyKey,
-      client,
-    );
-  });
+  // The decision goes first: when `supersedes` refuses, no correction event
+  // may be left behind claiming the user made it.
   await saveDecision({
     accountId: ctx.accountId,
     conversationId: asConversationId(conversationId),
@@ -226,6 +288,20 @@ async function recordTriageCorrection(
     evidence: [],
     modelVersion: "user-correction",
     contextVersion: "user",
+    supersedes,
+  });
+  await inTransaction(async (client) => {
+    await recordEvent(
+      ctx.accountId,
+      "user_correction",
+      {
+        conversationId,
+        home,
+        source: "triage",
+      },
+      idempotencyKey,
+      client,
+    );
   });
 }
 
@@ -269,17 +345,40 @@ async function run(
         );
       }
 
+      // A triage delete is Seer's delete pile being cleared, often a whole pile
+      // at once from a list loaded long ago. It reaches only as far as the
+      // safety layer cleared: the row's token must still name the current
+      // delete decision. Anything else is cleared the way archive would be and
+      // teaches nothing, so Seer's newer decision stands.
+      const deleting = command.destination === "delete";
+      const clearance = deleting
+        ? deleteClearance(command.deleteToken, command.conversationId)
+        : null;
+      const supersedes = clearance?.decisionId
+        ? { decisionId: clearance.decisionId, home: "delete" as const }
+        : undefined;
+
       const style = effectiveStyle(await loadMailboxStyle(ctx.accountId));
       if (style.clearHabit === "leave") {
         await setFocusHidden(ctx.accountId, command.conversationId, true);
+        const hidden: CommandResult = {
+          ok: true,
+          replayed: false,
+          detail: { focusHidden: true },
+        };
+        if (clearance?.refused) return downgraded(hidden, clearance.refused);
         try {
           await recordTriageCorrection(
             ctx,
             command.conversationId,
-            command.destination === "delete" ? "delete" : "record",
+            deleting ? "delete" : "record",
             idempotencyKey,
+            supersedes,
           );
         } catch (cause) {
+          if (cause instanceof StaleDecisionError) {
+            return downgraded(hidden, cause.message);
+          }
           return fail(
             cause instanceof Error
               ? cause.message
@@ -291,12 +390,33 @@ async function run(
           clearToward: "leave",
           matterToward: "demote",
         });
-        return { ok: true, replayed: false, detail: { focusHidden: true } };
+        return hidden;
       }
 
-      const queued = await enqueueMutation(
+      let refused = clearance?.refused;
+      let queued: CommandResult | null = null;
+      if (supersedes) {
+        const trashed = await enqueueClearedTrash(
+          ctx,
+          command.conversationId,
+          supersedes.decisionId,
+          idempotencyKey,
+        );
+        if ("refused" in trashed) refused = trashed.refused;
+        else queued = trashed;
+      }
+      if (refused) {
+        const archived = await enqueueMutation(
+          ctx,
+          "archive",
+          command.conversationId,
+          idempotencyKey,
+        );
+        return archived.ok ? downgraded(archived, refused) : archived;
+      }
+      queued ??= await enqueueMutation(
         ctx,
-        command.destination === "delete" ? "trash" : "archive",
+        "archive",
         command.conversationId,
         idempotencyKey,
       );
@@ -308,8 +428,9 @@ async function run(
         await recordTriageCorrection(
           ctx,
           command.conversationId,
-          command.destination === "delete" ? "delete" : "record",
+          deleting ? "delete" : "record",
           idempotencyKey,
+          supersedes,
         );
       } catch (cause) {
         return {
@@ -345,20 +466,15 @@ async function run(
       // Otherwise this is Seer acting over a pile, and it may only reach as far
       // as the safety layer cleared: the token must be authentic AND still map
       // to the current delete decision.
-      if (!command.deleteToken) return fail("delete needs clearance or a user");
-      const verified = verifyDecisionToken(command.deleteToken);
-      if (!verified || verified.conversationId !== command.conversationId) {
-        return fail("invalid delete token");
-      }
-      const current = await currentDeleteDecision(ctx.accountId, command.conversationId);
-      if (!current) return fail("no current decision");
-      if (current.decisionId !== verified.decisionId) {
-        return fail("stale decision — reload and try again");
-      }
-      if (current.home !== "delete") {
-        return fail("decision no longer authorizes delete");
-      }
-      return enqueueMutation(ctx, "trash", command.conversationId, idempotencyKey);
+      const clearance = deleteClearance(command.deleteToken, command.conversationId);
+      if (clearance.decisionId === undefined) return fail(clearance.refused);
+      const trashed = await enqueueClearedTrash(
+        ctx,
+        command.conversationId,
+        clearance.decisionId,
+        idempotencyKey,
+      );
+      return "refused" in trashed ? fail(trashed.refused) : trashed;
     }
 
     case "archive":

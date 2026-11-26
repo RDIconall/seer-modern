@@ -43,10 +43,11 @@ export const isFinished = (state: DeckState): boolean =>
 /**
  * What a verdict actually does.
  *
- * "delete" is a request, not an instruction: a card the server never authorized
- * for deletion carries no token, and `commandFor` turns the request into an
- * archive. A gesture must not be able to reach further than a button would —
- * swiping is faster, and speed is exactly why it must not escalate.
+ * "delete" is a request, not an instruction: it carries the card's token, and
+ * the server archives instead unless that token still names the conversation's
+ * current delete decision. A gesture must not be able to reach further than a
+ * button would — swiping is faster, and speed is exactly why it must not
+ * escalate.
  *
  * "matter" is the third destination, and it has to send something: a verdict
  * that wrote nothing left the conversation in the inbox to be triaged again
@@ -60,6 +61,9 @@ export function commandForVerdict(
     type: "triageConversation",
     conversationId: row.conversationId,
     destination: verdict,
+    ...(verdict === "delete" && row.deleteToken
+      ? { deleteToken: row.deleteToken }
+      : {}),
   };
 }
 

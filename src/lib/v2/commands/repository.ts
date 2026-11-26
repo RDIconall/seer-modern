@@ -154,8 +154,9 @@ export async function conversationBelongsToAccount(
 export async function currentDeleteDecision(
   accountId: AccountId,
   conversationId: string,
+  client?: PoolClient,
 ): Promise<{ decisionId: string; home: string } | null> {
-  const r = await db().query<{ id: string; home: string }>(
+  const r = await (client ?? db()).query<{ id: string; home: string }>(
     "select id, home from seer.conversation_decisions where account_id = $1 and conversation_id = $2 and is_current",
     [accountId, conversationId],
   );

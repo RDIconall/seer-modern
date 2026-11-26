@@ -234,20 +234,55 @@ try {
     accountId,
     "pc-triage-delete",
   );
+  const clearedForDelete = await saveDecision({
+    accountId, conversationId: triageDeleteId, home: "delete", proposedHome: "delete",
+    summary: "N", rationale: "disposable", owner: "nobody", vetoReasons: [], yields: [], evidence: [],
+  });
   const triageDeleted = await executeCommand(
     ctx,
     {
       type: "triageConversation",
       conversationId: triageDeleteId,
       destination: "delete",
+      deleteToken: signDecisionToken(clearedForDelete.id, triageDeleteId),
     },
     "key-triage-delete",
   );
   assert.equal(triageDeleted.ok, true);
   assert.ok(triageDeleted.outboxId);
+  assert.equal(triageDeleted.detail?.downgraded, undefined);
   const deletedDecision = await currentDecision(accountId, triageDeleteId);
   assert.equal(deletedDecision?.home, "delete");
   assert.equal(deletedDecision?.modelVersion, "user-correction");
+
+  // Without a token naming the current delete decision, a triage delete only
+  // archives, and Seer's decision is not overwritten by a correction.
+  const triageUnclearedId = await addConversation(
+    db.pool,
+    accountId,
+    "pc-triage-uncleared",
+  );
+  const unclearedDecision = await saveDecision({
+    accountId, conversationId: triageUnclearedId, home: "matter", proposedHome: "matter",
+    summary: "live", rationale: "reply", owner: "nobody", vetoReasons: [], yields: [], evidence: [],
+  });
+  const triageUncleared = await executeCommand(
+    ctx,
+    {
+      type: "triageConversation",
+      conversationId: triageUnclearedId,
+      destination: "delete",
+    },
+    "key-triage-uncleared",
+  );
+  assert.equal(triageUncleared.ok, true);
+  assert.equal(triageUncleared.detail?.downgraded, "archive");
+  const outboxForUncleared = await db.pool.query<{ command: { type: string } }>(
+    "select command from seer.outbox where account_id = $1 and command->>'conversationId' = $2",
+    [accountId, triageUnclearedId],
+  );
+  assert.deepEqual(outboxForUncleared.rows.map((row) => row.command.type), ["archive"]);
+  assert.equal((await currentDecision(accountId, triageUnclearedId))?.id, unclearedDecision.id);
 
   // Teaching a VIP persists a user-sourced person.
   const taught = await executeCommand(

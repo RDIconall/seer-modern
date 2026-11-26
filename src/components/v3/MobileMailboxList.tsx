@@ -7,6 +7,7 @@ import type { Command, CommandResult } from "@/lib/v2/commands/types";
 import type { MailboxRow, MailboxView } from "@/lib/v3/mailbox/types";
 import { triagePiles } from "@/lib/v3/mailbox/triage-verb";
 import { groupState } from "@/components/v2/triage-select";
+import { commandFor } from "@/components/v2/triage-command";
 import { MobileMailRow } from "./MobileMailRow";
 import {
   EMPTY_SELECTION,
@@ -57,11 +58,19 @@ const triageArchiveCommand = (row: MailboxRow): Command => ({
   destination: "archive",
 });
 
+/**
+ * The server deletes only while this token still names the conversation's
+ * current delete decision; otherwise it archives and keeps Seer's decision.
+ */
 const triageDeleteCommand = (row: MailboxRow): Command => ({
   type: "triageConversation",
   conversationId: row.conversationId,
   destination: "delete",
+  deleteToken: row.deleteToken,
 });
+
+/** Delete all is a one-press sweep: exactly the desktop's token-gated sweep. */
+const sweepDeleteCommand = (row: MailboxRow): Command => commandFor(row, "trash");
 
 const archiveCommand = (row: MailboxRow): Command => ({
   type: "archive",
@@ -400,7 +409,7 @@ export function MobileMailboxList({
                         void sweep(
                           group.rows,
                           group.key === "delete"
-                            ? triageDeleteCommand
+                            ? sweepDeleteCommand
                             : triageArchiveCommand,
                         )
                       }
