@@ -2,7 +2,7 @@ import { loadBrief, saveBrief } from "@/lib/inbox/matters";
 import { gmailAction, gmailThreadAction } from "@/lib/mail/gmail";
 import { requireMailSession } from "@/lib/mail/session";
 import { reopenMatter } from "@/lib/store/closed-matters";
-import { recordReversal } from "@/lib/store/autonomy";
+import { normalizeReason, recordReversal } from "@/lib/store/autonomy";
 import { getLedgerEntry, markUndone } from "@/lib/store/triage-ledger";
 import { NextResponse } from "next/server";
 
@@ -61,8 +61,9 @@ export async function POST(request: Request) {
   }
 
   // Undo is a reversal — it demotes this reason's autonomy immediately.
-  if (entry.reason) {
-    await recordReversal(session.email, entry.reason).catch(() => {});
+  const reason = normalizeReason(entry.reason);
+  if (reason) {
+    await recordReversal(session.email, reason).catch(() => {});
   }
 
   await markUndone(session.email, entryId);

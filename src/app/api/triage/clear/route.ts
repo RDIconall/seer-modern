@@ -8,7 +8,7 @@ import {
   type TriageClearRequest,
 } from "@/lib/inbox/triage-clear";
 import { appendLedger } from "@/lib/store/triage-ledger";
-import { recordAccepted } from "@/lib/store/autonomy";
+import { normalizeReason, recordAccepted } from "@/lib/store/autonomy";
 import { NextResponse } from "next/server";
 
 export const maxDuration = 60;
@@ -70,7 +70,10 @@ export async function POST(request: Request) {
   );
   await saveBrief(session.email, updated);
 
-  const reason = body.reason?.slice(0, 100) || "Triage";
+  const reason =
+    normalizeReason(
+      typeof body.reason === "string" ? body.reason.slice(0, 100) : undefined,
+    ) ?? "Triage";
   await Promise.allSettled([
     appendLedger(session.email, {
       kind: "sweep",
