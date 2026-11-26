@@ -25,11 +25,28 @@ const ENTITIES: Record<string, string> = {
   rdquo: "”",
 };
 
+/**
+ * NUL, lone surrogates, and values past U+10FFFF are replaced the way the HTML
+ * spec does: NUL cannot be stored in Postgres text and the others throw in
+ * String.fromCodePoint, either of which would fail the whole message write.
+ */
+function fromNumericReference(code: number): string {
+  if (
+    !Number.isSafeInteger(code) ||
+    code === 0 ||
+    code > 0x10ffff ||
+    (code >= 0xd800 && code <= 0xdfff)
+  ) {
+    return "\uFFFD";
+  }
+  return String.fromCodePoint(code);
+}
+
 function decodeEntities(s: string): string {
   return s
-    .replace(/&#(\d+);/g, (_, code: string) => String.fromCodePoint(Number(code)))
+    .replace(/&#(\d+);/g, (_, code: string) => fromNumericReference(Number(code)))
     .replace(/&#x([0-9a-f]+);/gi, (_, hex: string) =>
-      String.fromCodePoint(parseInt(hex, 16)),
+      fromNumericReference(parseInt(hex, 16)),
     )
     .replace(/&([a-z]+);/gi, (match, name: string) => ENTITIES[name.toLowerCase()] ?? match);
 }
