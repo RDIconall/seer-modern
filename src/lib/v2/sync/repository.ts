@@ -23,6 +23,22 @@ function sameTextArray(stored: string[] | null, incoming: string[]): boolean {
  * is saved by the engine only after the page transaction commits.
  */
 
+/**
+ * Postgres text cannot hold U+0000, and one rejected column rolls back the
+ * whole conversation on every sync. Senders control every provider string
+ * (headers, bodies, filenames), so all of them are stripped before any write.
+ */
+function withoutNul<T>(value: T): T {
+  if (typeof value === "string") return value.replaceAll("\u0000", "") as T;
+  if (Array.isArray(value)) return value.map(withoutNul) as T;
+  if (value !== null && typeof value === "object") {
+    return Object.fromEntries(
+      Object.entries(value).map(([key, item]) => [key, withoutNul(item)]),
+    ) as T;
+  }
+  return value;
+}
+
 export type PageWriteResult = { stored: number; failed: number };
 
 export type FolderSyncState = {
@@ -44,7 +60,8 @@ export async function writeConversationPage(
   return inTransaction(async (client) => {
     let stored = 0;
     let failed = 0;
-    for (const [index, convo] of conversations.entries()) {
+    for (const [index, providerConvo] of conversations.entries()) {
+      const convo = withoutNul(providerConvo);
       const savepoint = `v3_conversation_row_${index}`;
       if (snapshotGeneration) {
         // Record provider visibility outside the row savepoint. If hydration
@@ -71,7 +88,7 @@ export async function writeConversationPage(
         failed++;
       }
     }
-    for (const providerId of deletedProviderIds) {
+    for (const providerId of withoutNul(deletedProviderIds)) {
       const existing = await client.query<{
         id: string;
       }>(
