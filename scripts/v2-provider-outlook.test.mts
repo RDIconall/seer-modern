@@ -69,6 +69,10 @@ const mockFetch = (async (url: string, init?: RequestInit) => {
   if (method === "GET" && u.includes("/mailFolders/deleteditems?$select=totalItemCount")) {
     return json({ totalItemCount: 1 });
   }
+  const folderId = u.match(/\/mailFolders\/(deleteditems|junkemail)\?\$select=id$/);
+  if (method === "GET" && folderId) {
+    return json({ id: `${folderId[1]}-folder-id` });
+  }
 
   // Inbox sync — only c0-m2 on page 1; c0-m1 appears on page 2 (split thread).
   if (method === "GET" && u.includes("/mailFolders/inbox/messages")) {

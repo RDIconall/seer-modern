@@ -51,6 +51,7 @@ type GraphMessage = {
   body?: { contentType?: string; content?: string };
   isRead?: boolean;
   hasAttachments?: boolean;
+  isDraft?: boolean;
   parentFolderId?: string;
   attachments?: { id?: string; name?: string; contentType?: string; size?: number }[];
 };
@@ -151,7 +152,7 @@ export class OutlookProvider implements MailProvider {
     let url: string | null =
       `${API}/messages?$filter=${encodeURIComponent(
         `conversationId eq '${conversationId.replace(/'/g, "''")}'`,
-      )}&$top=50&$select=id,conversationId,subject,from,toRecipients,ccRecipients,receivedDateTime,bodyPreview,body,isRead,hasAttachments,parentFolderId` +
+      )}&$top=50&$select=id,conversationId,subject,from,toRecipients,ccRecipients,receivedDateTime,bodyPreview,body,isRead,hasAttachments,isDraft,parentFolderId` +
       // Metadata only — never the file bytes.
       `&$expand=attachments($select=id,name,contentType,size)`;
     while (url) {
@@ -287,10 +288,41 @@ export class OutlookProvider implements MailProvider {
     return { providerMessageId: "sent", providerConversationId: "sent" };
   }
 
+  private async wellKnownFolderId(name: string): Promise<string> {
+    const folder = await this.get<{ id?: string }>(
+      `${API}/mailFolders/${name}?$select=id`,
+    );
+    if (!folder.id) throw new Error(`mail folder ${name} has no id`);
+    return folder.id;
+  }
+
+  /**
+   * The newest message that may be answered or forwarded. The conversation
+   * query spans every folder, so it also returns the user's unsent drafts and
+   * messages in Deleted Items or Junk; Graph's reply and forward would quote
+   * whichever of those is picked, so they are never eligible.
+   */
+  private async lastOutboundMessage(conversationId: string): Promise<GraphMessage> {
+    const [msgs, deletedId, junkId] = await Promise.all([
+      this.conversationMessages(conversationId),
+      this.wellKnownFolderId("deleteditems"),
+      this.wellKnownFolderId("junkemail"),
+    ]);
+    const excludedFolders = new Set([deletedId, junkId]);
+    const delivered = msgs
+      .filter((m) => m.isDraft !== true)
+      .filter((m) => !m.parentFolderId || !excludedFolders.has(m.parentFolderId))
+      .sort((a, b) => (a.receivedDateTime ?? "").localeCompare(b.receivedDateTime ?? ""));
+    const last = delivered[delivered.length - 1];
+    if (!last) {
+      throw new Error(`conversation ${conversationId} has no sent or received messages`);
+    }
+    return last;
+  }
+
   async reply(command: ReplyCommand, _key: string): Promise<SendReceipt> {
     void _key;
-    const msgs = await this.conversationMessages(command.conversationId);
-    const last = msgs[msgs.length - 1];
+    const last = await this.lastOutboundMessage(command.conversationId);
     const endpoint = command.all ? "replyAll" : "reply";
     await this.post(`/messages/${last.id}/${endpoint}`, {
       comment: command.bodyHtml,
@@ -303,8 +335,7 @@ export class OutlookProvider implements MailProvider {
 
   async forward(command: ForwardCommand, _key: string): Promise<SendReceipt> {
     void _key;
-    const msgs = await this.conversationMessages(command.conversationId);
-    const last = msgs[msgs.length - 1];
+    const last = await this.lastOutboundMessage(command.conversationId);
     await this.post(`/messages/${last.id}/forward`, {
       comment: command.bodyHtml,
       toRecipients: command.to.map((a) => ({ emailAddress: { address: a.email } })),

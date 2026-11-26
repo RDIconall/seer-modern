@@ -56,6 +56,8 @@ type GmailMessage = {
 };
 type GmailThread = { id: string; messages?: GmailMessage[] };
 
+const NOT_OUTBOUND_LABELS = new Set(["DRAFT", "TRASH", "SPAM"]);
+
 export type GmailDeps = {
   accessToken: string;
   accountEmail: string;
@@ -163,18 +165,39 @@ export class GmailProvider implements MailProvider {
     )) as T;
   }
 
-  private async thread(id: string, context?: SyncContext): Promise<Conversation> {
-    assertSyncBudget(context);
-    const t = await this.get<GmailThread>(`/threads/${id}?format=full`, context);
-    const messages = (t.messages ?? [])
+  private toConversation(id: string, raw: GmailMessage[]): Conversation {
+    const messages = raw
       .map((m) => toMessage(m, this.deps.accountEmail))
       .sort((a, b) => a.sentAt.localeCompare(b.sentAt));
     return {
       providerConversationId: id,
-      subject: header(t.messages?.[0]?.payload?.headers, "subject"),
+      subject: header(raw[0]?.payload?.headers, "subject"),
       messages,
       lastMessageAt: messages[messages.length - 1]?.sentAt ?? "",
     };
+  }
+
+  private async thread(id: string, context?: SyncContext): Promise<Conversation> {
+    assertSyncBudget(context);
+    const t = await this.get<GmailThread>(`/threads/${id}?format=full`, context);
+    return this.toConversation(id, t.messages ?? []);
+  }
+
+  /**
+   * The thread as it may be quoted or answered in outgoing mail. threads.get
+   * also returns the user's unsent drafts and messages in Trash or Spam; none
+   * of those were sent or received as part of the conversation, so they must
+   * never be forwarded or chosen as the reply target.
+   */
+  private async outboundThread(id: string): Promise<Conversation> {
+    const t = await this.get<GmailThread>(`/threads/${id}?format=full`);
+    const delivered = (t.messages ?? []).filter(
+      (m) => !(m.labelIds ?? []).some((label) => NOT_OUTBOUND_LABELS.has(label)),
+    );
+    if (delivered.length === 0) {
+      throw new Error(`conversation ${id} has no sent or received messages`);
+    }
+    return this.toConversation(id, delivered);
   }
 
   private folderQuery(folder: SyncFolder): string {
@@ -307,7 +330,7 @@ export class GmailProvider implements MailProvider {
 
   async reply(command: ReplyCommand, _key: string): Promise<SendReceipt> {
     void _key;
-    const convo = await this.thread(command.conversationId);
+    const convo = await this.outboundThread(command.conversationId);
     const last = convo.messages[convo.messages.length - 1];
     const recipients = new Set<string>();
     if (last?.from.email) recipients.add(last.from.email);
@@ -332,7 +355,7 @@ export class GmailProvider implements MailProvider {
 
   async forward(command: ForwardCommand, _key: string): Promise<SendReceipt> {
     void _key;
-    const convo = await this.thread(command.conversationId);
+    const convo = await this.outboundThread(command.conversationId);
     const bodyHtml = gmailForwardHtml(convo, command.bodyHtml);
     const raw = this.encodeRaw(
       [`To: ${command.to.map((a) => a.email).join(", ")}`, `Subject: Fwd: ${convo.subject}`],
