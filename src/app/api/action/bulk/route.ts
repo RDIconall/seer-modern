@@ -1,7 +1,7 @@
 import { gmailAction, gmailThreadAction } from "@/lib/mail/gmail";
 import { graphAction, graphThreadAction } from "@/lib/mail/graph";
 import { requireMailSession } from "@/lib/mail/session";
-import { recordAccepted } from "@/lib/store/autonomy";
+import { normalizeReason, recordAccepted } from "@/lib/store/autonomy";
 import { appendLedger } from "@/lib/store/triage-ledger";
 import { NextResponse } from "next/server";
 
@@ -74,12 +74,13 @@ export async function POST(request: Request) {
     // earns its way up the autonomy ladder without ever training on a
     // per-sender opinion.
     let ledgerId: string | undefined;
-    if (body.reason && processed > 0) {
+    const reason = normalizeReason(body.reason);
+    if (reason && processed > 0) {
       const source = body.source === "auto" ? "auto" : "confirmed";
       const entry = await appendLedger(session.email, {
         kind: "sweep",
-        summary: `Swept ${processed} — ${body.reason}`,
-        reason: body.reason,
+        summary: `Swept ${processed} — ${reason}`,
+        reason,
         source,
         emailIds: items.map((i) => i.id),
         threadIds: items
@@ -88,7 +89,7 @@ export async function POST(request: Request) {
       }).catch(() => null);
       ledgerId = entry?.id;
       if (source === "confirmed") {
-        await recordAccepted(session.email, body.reason).catch(() => {});
+        await recordAccepted(session.email, reason).catch(() => {});
       }
     }
 
