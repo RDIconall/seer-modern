@@ -8,8 +8,6 @@ import type { SalesforceRegistry } from "@/lib/crm/registry";
 
 export * from "@/lib/crm/registry";
 
-const EMPTY: SalesforceRegistry = { studies: [], opportunities: [], sites: [] };
-
 function keyFor(accountEmail: string) {
   return `salesforce:${accountKey(accountEmail)}`;
 }
@@ -17,7 +15,13 @@ function keyFor(accountEmail: string) {
 export async function loadSalesforce(
   accountEmail: string,
 ): Promise<SalesforceRegistry> {
-  return (await kvGet<SalesforceRegistry>(keyFor(accountEmail))) ?? EMPTY;
+  return (
+    (await kvGet<SalesforceRegistry>(keyFor(accountEmail))) ?? {
+      studies: [],
+      opportunities: [],
+      sites: [],
+    }
+  );
 }
 
 export async function saveSalesforce(

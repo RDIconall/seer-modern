@@ -50,8 +50,6 @@ const TTL_EVENTS_MS = 5 * 60 * 1000;
 const LOOKAHEAD_DAYS = 365;
 const MAX_EVENTS = 500;
 
-const EMPTY: PersonalContext = { builtAt: "", contacts: [], events: [] };
-
 function keyFor(accountEmail: string) {
   return `personal:${accountKey(accountEmail)}`;
 }
@@ -318,7 +316,7 @@ export async function getPersonalContext(session: {
     await kvSet(keyFor(session.accountEmail), ctx);
     return ctx;
   } catch {
-    return cached ?? { ...EMPTY, builtAt: new Date().toISOString() };
+    return cached ?? { builtAt: new Date().toISOString(), contacts: [], events: [] };
   }
 }
 
