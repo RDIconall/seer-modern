@@ -67,14 +67,17 @@ const row = (id: string, deleteToken: string | null = null): MailboxRow => ({
   const authorized = row("a", "t-a");
   const refused = row("b");
 
+  // The card's clearance travels with the verdict; the server deletes only
+  // while it still names the current delete decision.
   assert.deepEqual(commandForVerdict(authorized, "delete"), {
     type: "triageConversation",
     conversationId: "a",
     destination: "delete",
+    deleteToken: "t-a",
   });
 
-  // A person deliberately choosing Delete in Triage is the authority, and the
-  // correction is recorded so the next similar email can be read differently.
+  // A card Seer never cleared carries no token, and the server archives it
+  // instead of reaching past the safety layer.
   assert.deepEqual(commandForVerdict(refused, "delete"), {
     type: "triageConversation",
     conversationId: "b",

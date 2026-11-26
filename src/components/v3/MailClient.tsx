@@ -255,7 +255,10 @@ export function noticeForCommands(
   commands: Command[],
   results: CommandResult[],
 ): ActionNotice {
-  const label = pastTense(commands[0]);
+  const label =
+    results[0]?.detail?.downgraded === "archive"
+      ? "Archived"
+      : pastTense(commands[0]);
   const action = actionName(commands[0]);
   const successful = results.filter((result) => result.ok);
   const failed = results.filter((result) => !result.ok);

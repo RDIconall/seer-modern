@@ -73,6 +73,17 @@ export async function findOutboxById(
   return result.rows[0] ? mapRow(result.rows[0]) : null;
 }
 
+/** Thrown when an enqueue guard refuses; nothing was written. */
+export class EnqueueRefused extends Error {}
+
+/**
+ * Checked while the conversation row is locked, in the transaction that writes
+ * the outbox row. Decisions are only ever replaced under that same lock, so
+ * what the guard sees is what the queued command acts on. Return a refusal
+ * reason, or null to proceed.
+ */
+export type EnqueueGuard = (client: PoolClient) => Promise<string | null>;
+
 /**
  * Apply an optimistic corpus patch and enqueue the provider command in one
  * transaction. Concurrent callers with the same idempotency key get the
@@ -82,10 +93,18 @@ export async function enqueueOptimistic(
   accountId: AccountId,
   input: EnqueueInput,
   idempotencyKey: string,
+  guard?: EnqueueGuard,
 ): Promise<OutboxItem> {
   return inTransaction(async (client) => {
     const locked = await lockConversation(client, accountId, input.conversationId);
     if (!locked) throw new Error("conversation not found");
+
+    if (guard) {
+      const replay = await findByIdempotencyKey(accountId, idempotencyKey, client);
+      if (replay) return replay;
+      const refused = await guard(client);
+      if (refused) throw new EnqueueRefused(refused);
+    }
 
     const previous = { folders: [...locked.folders], isUnread: locked.isUnread };
     const expected = computeExpected(input.type, previous);

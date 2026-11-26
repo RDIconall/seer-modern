@@ -64,6 +64,12 @@ export type Command =
       type: "triageConversation";
       conversationId: string;
       destination: "matter" | "archive" | "delete";
+      /**
+       * Required for `delete`: the row's signed clearance. Without one that
+       * still names the current delete decision, the conversation is archived
+       * and Seer's newer decision is left in place.
+       */
+      deleteToken?: string | null;
       matterId?: string | null;
       matterTitle?: string | null;
       createMatter?: boolean;
