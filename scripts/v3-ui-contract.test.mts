@@ -54,14 +54,18 @@ assert.match(client, /getServerMobileSnapshot/);
 assert.match(client, /getServerHashSnapshot/);
 assert.doesNotMatch(client, /from\s+["']@\/components\/v2\/Triage["']/);
 /**
- * Triage is a place of its own: the inbox is your mail in the order it came,
- * triage is the pile Seer sorted for clearing. What must stay gone is the old
- * standalone screen that computed its own placement — asserted above.
+ * The Inbox is the whole app: matters, their next steps and the bulk "is this
+ * the next step you want to do?" all live in one list. Triage, Cards and the
+ * Atlas board must not come back as places of their own.
  */
-assert.match(client, /triaging/, "the client knows when it is triaging");
-
-for (const label of ["Inbox", "Triage", "Sent", "Trash", "Atlas", "Settings"]) {
+assert.match(client, /<InboxList/, "the inbox renders the matter-first list");
+assert.match(client, /mailboxSort: MailboxSort = section === "inbox" \? "matter" : "date"/);
+for (const label of ["Inbox", "Sent", "Trash", "Settings"]) {
   assert.match(navigation, new RegExp(label), `navigation is missing ${label}`);
+}
+for (const gone of ["Triage", "Atlas", "Cards", "Delegated"]) {
+  assert.doesNotMatch(navigation, new RegExp(`label: "${gone}"`), `${gone} is not a place any more`);
+  assert.doesNotMatch(client, new RegExp(`<${gone}\\b`), `${gone} must not render in the shell`);
 }
 assert.match(navigation, /bottom|mobile/i);
 assert.match(navigation, /aria-label/);
@@ -120,9 +124,6 @@ assert.doesNotMatch(
 const clientFetchFiles = (await fs.readdir(componentDir))
   .filter((f) => f.endsWith(".ts") || f.endsWith(".tsx"))
   .map((f) => path.join(componentDir, f));
-clientFetchFiles.push(
-  path.join(root, "src", "components", "v2", "useInboxView.ts"),
-);
 for (const file of clientFetchFiles) {
   const source = await fs.readFile(file, "utf8");
   assert.doesNotMatch(
@@ -155,8 +156,9 @@ assert.match(
   /anchor: state\.anchor/,
   "a shift range must leave the anchor in place so ranges can be re-drawn",
 );
+const listCheck = await read("ListCheck.tsx");
 assert.match(
-  folderList,
+  listCheck,
   /shift\.current/,
   "the shift modifier must be read from the click, not the change event",
 );
@@ -167,12 +169,21 @@ assert.match(
   /selecting\s*\)?\s*\{?\s*\n?\s*onToggle|if \(selecting\)/,
   "tapping a row while selecting must toggle it rather than navigate",
 );
-// The list no longer carries a sort control: which reading you are looking at
-// is which tab you are on.
-assert.doesNotMatch(folderList, /Most likely to delete/);
-assert.match(folderList, /["']triage["']/);
 assert.match(folderList, /commandsForSelection/);
-assert.match(folderList, /sweepCommands/);
+const inboxList = await read("InboxList.tsx");
+assert.match(inboxList, /reduceSelection/, "the Inbox selects through the shared reducer");
+assert.match(inboxList, /Escape/, "Escape must clear the Inbox selection");
+assert.match(inboxList, /planBulk/, "ticked groups are planned before anything runs");
+assert.match(
+  inboxList,
+  /setConfirming\(true\)[\s\S]*BulkConfirmDialog[\s\S]*onConfirm=\{\(\) => void apply\(\)\}/,
+  "applying goes through the confirmation",
+);
+assert.doesNotMatch(
+  inboxList,
+  /onClick=\{\(\) => void apply\(\)\}/,
+  "no button may apply a plan without the confirmation",
+);
 assert.doesNotMatch(
   folderList,
   /deleteRank\s*\(|dispositionFromHome|TRIAGE_ORDER/,
@@ -227,8 +238,8 @@ const normalSsr = renderToString(
 );
 assert.match(normalSsr, /mail-bottom-nav/, "normal SSR keeps mobile navigation");
 assert.match(normalSsr, /mail-mobile-compose/, "normal SSR keeps compose FAB");
-// Triage has a tab of its own in the navigation.
-assert.match(normalSsr, />Triage</, "navigation offers triage as its own place");
+assert.match(normalSsr, />Inbox</, "navigation offers the inbox");
+assert.doesNotMatch(normalSsr, />Triage<|>Atlas<|>Cards</, "the collapsed places are gone");
 
 const emptySentPreview = {
   ...v3Preview,

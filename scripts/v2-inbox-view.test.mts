@@ -315,6 +315,16 @@ try {
   assert.equal(detailMatter.owner, "team");
   assert.equal(detailMatter.dueDate, "2026-08-14");
 
+  // The person's own wording for the next step beats Seer's reading of it.
+  await db.pool.query("update seer.matters set next_step_user = $2 where id = $1", [
+    matterId,
+    "Call Roche before confirming",
+  ]);
+  const editedView = await buildInboxView(accountId, "google");
+  const editedMatter = editedView.atlas.find((matter) => matter.matterId === matterId) as
+    | (typeof editedView.atlas)[number] & { nextAction?: string };
+  assert.equal(editedMatter.nextAction, "Call Roche before confirming");
+
   console.log("v2-inbox-view: OK");
 } finally {
   await db.stop();

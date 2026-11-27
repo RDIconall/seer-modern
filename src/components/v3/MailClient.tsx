@@ -188,7 +188,13 @@ function pastTense(command: Command): string {
     case "setMatterNextStep":
       return "Next step saved";
     case "correctConversation":
-      return "Updated";
+      return command.home === "matter" ? "Added to a matter" : "Updated";
+    case "triageConversation":
+      return command.destination === "matter"
+        ? "Added to a matter"
+        : command.destination === "archive"
+          ? "Archived"
+          : "Deleted";
     default:
       return "Updated";
   }
@@ -207,7 +213,13 @@ function actionName(command: Command): string {
     case "setMatterNextStep":
       return "Save next step";
     case "correctConversation":
-      return "Update";
+      return command.home === "matter" ? "Add to matter" : "Update";
+    case "triageConversation":
+      return command.destination === "matter"
+        ? "Add to matter"
+        : command.destination === "archive"
+          ? "Archive"
+          : "Delete";
     default:
       return "Action";
   }

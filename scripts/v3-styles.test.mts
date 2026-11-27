@@ -1,5 +1,5 @@
 /**
- * Task 7 gate: every `mail-*` class emitted by the V3 shell has a stylesheet
+ * Task 7 gate: every `mail-*`, `inbox-*` and dialog class emitted by the V3 shell has a stylesheet
  * rule. Missing rules make a valid React tree look like an unformatted list.
  */
 import assert from "node:assert/strict";
@@ -15,7 +15,7 @@ for (const file of readdirSync(componentsDir)) {
   const source = readFileSync(join(componentsDir, file), "utf8");
   for (const match of source.matchAll(/className="([^"]+)"/g)) {
     for (const cls of match[1].split(/\s+/)) {
-      if (cls.startsWith("mail-")) used.add(cls);
+      if (/^(mail-|inbox-|bulk-confirm|matter-picker)/.test(cls)) used.add(cls);
     }
   }
 }
@@ -42,58 +42,24 @@ assert.match(css, /\.mail-reader-full[\s\S]*z-index:\s*50/, "reader modal must s
 assert.match(css, /\.mail-compose[\s\S]*z-index:\s*60/, "compose modal must stack above navigation");
 
 /**
- * Triage on desktop is a one-line table through MobileMailboxList. The grid
- * broke when only date/meta named columns — auto-placement skipped backward,
- * subject landed in column five, and preview wrapped. Row actions also sat
- * under every row instead of at the end of the line.
+ * The Inbox is one table at every width. Its columns line up only because the
+ * header, the groups and the emails under them share the same three widths, and
+ * it stacks each row when its own pane is narrow rather than when the window is,
+ * so the reader opening beside it gets the same treatment as a phone.
  */
-const compactBlockRule = css.indexOf(
-  ".compact-mail-list .mobile-mail-row {\n  display: block;",
-);
-const desktopFlexRule = css.indexOf(
-  "@media (min-width: 701px) {\n  .compact-mail-list .mobile-mail-row {\n    display: flex;",
-);
-assert.ok(
-  compactBlockRule > -1 && desktopFlexRule > compactBlockRule,
-  "desktop flex row layout must follow the unscoped display:block rule",
-);
-
-for (const [selector, column] of [
-  [".compact-mail-list .mobile-mail-row-top strong", 1],
-  [".compact-mail-list .mobile-mail-row-subject", 2],
-  [".compact-mail-list .mobile-mail-row-preview", 3],
-  [".compact-mail-list .mobile-mail-row-top time", 4],
-  [".compact-mail-list .mobile-mail-row-meta", 5],
-] as const) {
-  const escaped = selector.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
-  assert.match(
-    css,
-    new RegExp(`${escaped}[\\s\\S]*?grid-column:\\s*${column}`),
-    `${selector} must occupy column ${column}`,
-  );
+for (const cls of ["inbox-from", "inbox-step", "inbox-date"]) {
+  assert.match(css, new RegExp(`\\.${cls}\\s*\\{[^}]*\\bwidth:`), `${cls} must have a fixed width`);
 }
-
+assert.match(css, /\.inbox-body\s*\{\s*container-type: inline-size;/);
 assert.match(
   css,
-  /\.compact-mail-list \.mobile-mail-row-top strong,\s*\n\.compact-mail-list \.mobile-mail-row-subject,\s*\n\.compact-mail-list \.mobile-mail-row-preview,\s*\n\.compact-mail-list \.mobile-mail-row-top time,\s*\n\.compact-mail-list \.mobile-mail-row-meta \{\s*\n\s*grid-row: 1;/,
-  "every table cell must share row 1 on desktop",
+  /@container \(max-width: \d+px\)\s*\{[\s\S]*?\.inbox-cols\s*\{[^}]*grid-template-areas/,
+  "a narrow Inbox stacks the next step under the subject",
 );
-
 assert.match(
   css,
-  /@media \(min-width: 701px\) and \(hover: hover\) and \(pointer: fine\) \{[\s\S]*\.compact-mail-list \.mobile-mail-row-actions \{\s*\n\s*opacity: 0;/,
-  "mouse users see row actions on hover, not on every row",
-);
-
-const mobileMailStyles = css.slice(
-  css.indexOf(
-    "@media (max-width: 700px) {\n  .mail-client {\n    display: block;",
-  ),
-);
-assert.match(
-  mobileMailStyles,
-  /\.compact-mail-list \.mobile-mail-row-top time,[\s\S]*?grid-column: auto;[\s\S]*?grid-row: auto;/,
-  "phone layout must reset named grid placement",
+  /\.bulk-confirm-backdrop\s*\{[^}]*position: fixed;[^}]*z-index: 90;/,
+  "the confirmation must sit above the list and its apply bar",
 );
 
 /*
