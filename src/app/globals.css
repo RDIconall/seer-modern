@@ -4048,3 +4048,521 @@ body {
   background: #eef3f5;
 }
 
+
+/*
+ * The Inbox: one line per matter, or per conversation that is not on one.
+ *
+ * Columns line up between the header, the groups and the emails under them, so
+ * the three widths below are shared by all of them. Checkbox and caret each
+ * have their own gutter, so opening a matter never moves the text beside it.
+ */
+.inbox-body {
+  container-type: inline-size;
+}
+
+.inbox-head {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 0 7px 6px 1px;
+  color: var(--muted);
+  font-size: 10.5px;
+  font-weight: 500;
+  letter-spacing: 0.07em;
+  text-transform: uppercase;
+}
+
+.inbox-head-gap {
+  flex: none;
+  width: 68px;
+}
+
+.inbox-head .inbox-actions {
+  width: 36px;
+}
+
+.inbox-card {
+  overflow: hidden;
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  background: var(--card);
+}
+
+.inbox-card .mail-list-row {
+  min-height: 52px;
+  padding-left: 10px;
+  background: transparent;
+}
+
+.inbox-card .mail-list-row:last-child {
+  border-bottom: 0;
+}
+
+.inbox-card .mail-list-row:hover {
+  background: var(--row-hover);
+}
+
+.inbox-card .inbox-row[data-kind="matter"] {
+  background: color-mix(in srgb, var(--bg) 60%, var(--card));
+}
+
+.inbox-card .inbox-row[data-kind="matter"]:hover {
+  background: var(--row-hover);
+}
+
+.inbox-card .inbox-row[data-selected="true"],
+.inbox-card .inbox-row[data-kind="matter"][data-selected="true"] {
+  background: var(--selection);
+}
+
+.inbox-card .inbox-row[data-current="true"] {
+  box-shadow: inset 3px 0 0 var(--brand);
+}
+
+.inbox-check-gap {
+  flex: none;
+  width: 24px;
+}
+
+.inbox-gutter {
+  display: flex;
+  flex: none;
+  align-items: center;
+  justify-content: center;
+  width: 22px;
+}
+
+.inbox-chevron {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 22px;
+  height: 28px;
+  padding: 0;
+  border: 0;
+  border-radius: 6px;
+  color: var(--muted);
+  background: transparent;
+  cursor: pointer;
+}
+
+.inbox-chevron:hover {
+  color: var(--fg-strong);
+  background: var(--row-hover);
+}
+
+.inbox-chevron svg {
+  width: 16px;
+  height: 16px;
+}
+
+.inbox-cols {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  min-width: 0;
+  flex: 1;
+}
+
+.inbox-open,
+.inbox-open-head {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  min-width: 0;
+  flex: 1;
+}
+
+.inbox-open {
+  padding: 0;
+  border: 0;
+  color: inherit;
+  background: transparent;
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+
+.inbox-from {
+  flex: none;
+  box-sizing: border-box;
+  width: clamp(150px, 22cqw, 250px);
+  min-width: 0;
+  overflow: hidden;
+  color: var(--fg-strong);
+  font-size: 15px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.inbox-subject {
+  min-width: 0;
+  flex: 1;
+  overflow: hidden;
+  color: var(--fg);
+  font-size: 15px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.inbox-step {
+  flex: none;
+  box-sizing: border-box;
+  width: clamp(220px, 30cqw, 320px);
+  min-width: 0;
+  color: var(--muted);
+  font-size: 13px;
+}
+
+.inbox-date {
+  flex: none;
+  width: 92px;
+  color: var(--nav-muted);
+  font-family: var(--font-mono, ui-monospace, monospace);
+  font-size: 12px;
+  text-align: right;
+}
+
+.inbox-actions {
+  display: flex;
+  flex: none;
+  align-items: center;
+  justify-content: center;
+  width: 36px;
+}
+
+.inbox-actions .mail-list-action {
+  opacity: 0.45;
+}
+
+.inbox-row:hover .inbox-actions .mail-list-action,
+.inbox-actions .mail-list-action:focus-visible {
+  opacity: 1;
+}
+
+.inbox-row[data-kind="matter"] .inbox-from {
+  font-weight: 700;
+}
+
+.inbox-count {
+  margin-left: 4px;
+  color: var(--muted);
+  font-size: 13px;
+}
+
+.inbox-section {
+  margin-left: 8px;
+  color: var(--nav-muted);
+  font-size: 10.5px;
+  letter-spacing: 0.05em;
+  text-transform: uppercase;
+}
+
+.inbox-child {
+  min-height: 46px;
+}
+
+.inbox-child .inbox-from {
+  padding-left: 16px;
+  border-left: 2px solid var(--border);
+  color: var(--fg);
+  font-size: 14px;
+}
+
+.inbox-child .inbox-subject {
+  font-size: 14px;
+}
+
+.inbox-step-button {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  max-width: 100%;
+  padding: 0;
+  border: 0;
+  color: var(--fg);
+  background: none;
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+
+.inbox-step-button:hover {
+  color: var(--fg-strong);
+}
+
+.inbox-step-button span {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.inbox-step-button svg {
+  flex: none;
+  width: 13px;
+  height: 13px;
+  opacity: 0;
+}
+
+.inbox-step-button:hover svg,
+.inbox-step-button:focus-visible svg {
+  opacity: 0.7;
+}
+
+/* A step the person wrote is theirs; Seer's reading stays plain. */
+.inbox-step-button[data-source="user"] {
+  color: var(--fg-strong);
+  font-weight: 600;
+}
+
+.inbox-step-verb {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.inbox-step-verb .inbox-reason {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.inbox-step-input {
+  box-sizing: border-box;
+  width: 100%;
+  padding: 4px 8px;
+  border: 1px solid var(--brand);
+  border-radius: 6px;
+  color: var(--fg-strong);
+  background: var(--bg);
+  font: inherit;
+  font-size: 13px;
+}
+
+.inbox-verb {
+  flex: none;
+  appearance: none;
+  padding: 0 2px 0 0;
+  border: 0;
+  color: var(--brand-strong);
+  background: none;
+  font: inherit;
+  font-size: 13px;
+  font-weight: 600;
+  cursor: pointer;
+}
+
+.inbox-reason {
+  color: var(--muted);
+}
+
+.inbox-apply {
+  padding: 6px 14px;
+  border: 1px solid var(--brand-cta);
+  border-radius: 8px;
+  color: var(--on-brand);
+  background: var(--brand-cta);
+  font: inherit;
+  font-size: 13px;
+  font-weight: 600;
+  cursor: pointer;
+}
+
+.inbox-apply:disabled {
+  opacity: 0.5;
+  cursor: default;
+}
+
+/* Beside the reader, or on a phone, each group becomes a stacked card row. */
+@container (max-width: 820px) {
+  .inbox-head {
+    display: none;
+  }
+
+  .inbox-card .mail-list-row {
+    align-items: flex-start;
+    padding-block: 10px;
+  }
+
+  .inbox-card .mail-list-checkbox {
+    margin-top: 5px;
+  }
+
+  .inbox-cols {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) auto;
+    grid-template-areas:
+      "open date"
+      "step step";
+    row-gap: 4px;
+    column-gap: 12px;
+  }
+
+  .inbox-open {
+    grid-area: open;
+    flex-direction: column;
+    align-items: flex-start;
+    gap: 1px;
+  }
+
+  .inbox-from,
+  .inbox-subject {
+    width: 100%;
+    flex: none;
+  }
+
+  .inbox-from {
+    font-size: 14px;
+  }
+
+  .inbox-subject {
+    font-size: 13px;
+  }
+
+  .inbox-date {
+    grid-area: date;
+    width: auto;
+    padding-top: 2px;
+  }
+
+  .inbox-step {
+    grid-area: step;
+    width: auto;
+  }
+
+  .inbox-step:empty {
+    display: none;
+  }
+
+  .inbox-child .inbox-from {
+    padding-left: 10px;
+  }
+}
+
+.bulk-confirm-backdrop {
+  position: fixed;
+  inset: 0;
+  z-index: 90;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 16px;
+  background: rgb(0 0 0 / 0.35);
+}
+
+.bulk-confirm {
+  display: flex;
+  flex-direction: column;
+  width: min(100%, 560px);
+  max-height: min(86dvh, 720px);
+  padding: 22px;
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  background: var(--bg);
+  box-shadow: 0 18px 48px rgb(0 0 0 / 0.22);
+}
+
+.bulk-confirm h2 {
+  margin: 0 0 10px;
+  color: var(--fg-strong);
+  font-size: 18px;
+}
+
+.bulk-confirm-summary {
+  margin: 0 0 12px;
+  padding: 0;
+  list-style: none;
+  color: var(--fg-strong);
+  font-size: 15px;
+  font-weight: 600;
+}
+
+.bulk-confirm-summary li + li {
+  margin-top: 3px;
+}
+
+.bulk-confirm-warning {
+  margin: 0 0 12px;
+  padding: 8px 10px;
+  border-radius: 8px;
+  color: var(--accent);
+  background: color-mix(in srgb, var(--accent) 10%, transparent);
+  font-size: 13px;
+}
+
+.bulk-confirm-items {
+  margin: 0;
+  padding: 0;
+  overflow-y: auto;
+  border-top: 1px solid var(--border);
+  list-style: none;
+}
+
+.bulk-confirm-items li {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr) auto;
+  gap: 2px 10px;
+  padding: 8px 0;
+  border-bottom: 1px solid var(--border);
+  font-size: 13px;
+}
+
+.bulk-confirm-effect {
+  color: var(--brand-strong);
+  font-weight: 700;
+}
+
+.bulk-confirm-items li[data-effect="delete"] .bulk-confirm-effect {
+  color: var(--accent);
+}
+
+.bulk-confirm-title {
+  overflow: hidden;
+  color: var(--fg-strong);
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.bulk-confirm-count {
+  color: var(--muted);
+}
+
+.bulk-confirm-text {
+  grid-column: 2 / -1;
+  color: var(--muted);
+}
+
+.bulk-confirm footer {
+  display: flex;
+  justify-content: flex-end;
+  gap: 8px;
+  margin-top: 16px;
+}
+
+.bulk-confirm footer button {
+  padding: 7px 14px;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  color: var(--fg-strong);
+  background: var(--bg);
+  font: inherit;
+  font-size: 13px;
+  font-weight: 600;
+  cursor: pointer;
+}
+
+.bulk-confirm footer .bulk-confirm-go {
+  border-color: var(--brand-cta);
+  color: var(--on-brand);
+  background: var(--brand-cta);
+}
+
+.bulk-confirm footer .bulk-confirm-go[data-danger="true"] {
+  border-color: var(--accent);
+  background: var(--accent);
+}
+
+.bulk-confirm footer button:disabled {
+  opacity: 0.6;
+  cursor: default;
+}

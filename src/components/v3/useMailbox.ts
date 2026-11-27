@@ -23,16 +23,15 @@ import {
   type MailboxCacheEnvelope,
 } from "@/lib/v3/mailbox/cache";
 
-const CACHE_VERSION = 7;
+const CACHE_VERSION = 8;
 const mailboxCache = new Map<string, MailboxCacheEnvelope>();
 const bodyCache = new Map<string, unknown>();
 
 /**
- * A folder is a scroll, so one page of it is a page. Triage is a work queue,
- * and one page of a work queue is a lie about how much work there is: the pile
- * headings count the rows that arrived, so clearing them only pulls the next
- * page in and the same pile comes back at the same size. Triage is therefore
- * read to the END, a page at a time, through the keyset cursor the mailbox
+ * A folder is a scroll, so one page of it is a page. The Inbox is a work queue,
+ * and one page of a work queue is a lie about how much work there is: a matter's
+ * group could be cut in half and the counts would only cover the rows that
+ * arrived. The Inbox is therefore read to the END, a page at a time, through the keyset cursor the mailbox
  * already returns.
  */
 const FOLDER_PAGE = 50;
@@ -41,7 +40,7 @@ const TRIAGE_PAGE = 200;
 const MAX_TRIAGE_PAGES = 8;
 
 function isWorkQueue(sort: MailboxSort): boolean {
-  return sort === "triage" || sort === "focus";
+  return sort === "triage" || sort === "focus" || sort === "matter";
 }
 
 function cacheKey(

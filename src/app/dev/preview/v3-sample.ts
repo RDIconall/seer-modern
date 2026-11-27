@@ -1,160 +1,53 @@
 import type { Conversation, ProviderKind } from "@/lib/v2/providers/types";
 import type { MailboxFolder, MailboxRow, MailboxView } from "@/lib/v3/mailbox/types";
 import type { MailClientPreview } from "@/components/v3/MailClient";
-import type { StaffView } from "@/lib/v2/staff/types";
-import { asAccountId } from "@/lib/v2/db/types";
-import { sampleView } from "./sample";
+import { nextStepFor } from "@/lib/v3/mailbox/next-step";
 
-const previewStaff: StaffView = {
-  asOf: "2026-10-16T00:00:00.000Z",
-  bots: [
-    { id: "preview-bot", slug: "chief-of-staff", displayName: "Chief of staff" },
-    { id: "preview-snak", slug: "snak-bot", displayName: "SnaK-Bot" },
-  ],
-  tasks: [
-    {
-      id: "11111111-1111-4111-8111-111111111111",
-      accountId: asAccountId("preview"),
-      botId: "preview-bot",
-      botSlug: "chief-of-staff",
-      botName: "Chief of staff",
-      externalKey: "B01",
-      title: "Log in to Divvy and pull Czarina's expenses",
-      status: "waiting_on_user",
-      priority: 1,
-      dueAt: null,
-      notes: "Needs the pre-merger Divvy login.",
-      hisWords: "login to divvy and pull all expenses that czarina Grace had on her card",
-      currentState: "Stuck at sign-in.",
-      nextAction: "Pull date/vendor/amount after sign-in",
-      source: "bot",
-      createdAt: "2026-10-15T12:00:00.000Z",
-      updatedAt: "2026-10-16T12:00:00.000Z",
-      events: [
-        {
-          id: "e1",
-          taskId: "11111111-1111-4111-8111-111111111111",
-          actor: "bot",
-          actorName: "Chief of staff",
-          kind: "created",
-          body: "Logged from Conall's ask",
-          payload: {},
-          createdAt: "2026-10-15T12:00:00.000Z",
-        },
-      ],
-    },
-  ],
-  proposals: [
-    {
-      id: "22222222-2222-4222-8222-222222222222",
-      botId: "preview-bot",
-      botSlug: "chief-of-staff",
-      botName: "Chief of staff",
-      conversationId: "preview-c-delete",
-      providerConversationId: "preview-p-delete",
-      senderEmail: "scribe@example.com",
-      subject: "Your Monthly Scribe Activity",
-      action: "delete",
-      destinationId: null,
-      destinationName: null,
-      rationale: "Vendor digest. Trash, recoverable.",
-      status: "pending",
-      lastError: null,
-      outboxId: null,
-      createdAt: "2026-10-16T08:00:00.000Z",
-      decidedAt: null,
-    },
-  ],
-  generalMessages: [
-    {
-      id: "m1",
-      botId: "preview-bot",
-      botSlug: "chief-of-staff",
-      botName: "Chief of staff",
-      taskId: null,
-      author: "user",
-      body: "What's still blocked on me?",
-      createdAt: "2026-10-16T09:00:00.000Z",
-    },
-    {
-      id: "m2",
-      botId: "preview-bot",
-      botSlug: "chief-of-staff",
-      botName: "Chief of staff",
-      taskId: null,
-      author: "bot",
-      body: "Divvy sign-in, and the three SharePoint uploads.",
-      createdAt: "2026-10-16T09:01:00.000Z",
-    },
-  ],
-  taskMessages: [],
+type Seed = Omit<
+  MailboxRow,
+  "matterId" | "nextStep" | "groupKey" | "groupAt" | "matterTitle"
+> & {
+  matterId?: string | null;
+  matterTitle?: string | null;
+  ask?: string | null;
+  userStep?: string | null;
+  /** When the oldest conversation in this row's group arrived. */
+  groupAt?: string;
 };
 
+const row = ({ matterId = null, matterTitle = null, ask = null, userStep = null, groupAt, ...rest }: Seed): MailboxRow => ({
+  ...rest,
+  matterId,
+  matterTitle,
+  nextStep: nextStepFor({
+    disposition: rest.disposition,
+    matterId,
+    ask,
+    summary: rest.decisionSummary,
+    userStep,
+  }),
+  groupKey: matterId ? `m:${matterId}` : `c:${rest.conversationId}`,
+  groupAt: groupAt ?? rest.timestamp,
+});
+
+const base = {
+  isUnread: false,
+  attachments: [] as string[],
+  priority: null,
+  dueDate: null,
+  owner: "nobody" as const,
+  deleteToken: null,
+  vetoReasons: [] as string[],
+};
+
+const ROCHE = "preview-matter-roche";
+const DASHBOARD = "preview-matter-dashboard";
+
 const previewRows: Record<MailboxFolder, MailboxRow[]> = {
+  // Oldest matter first, the way the Inbox is read.
   inbox: [
-    {
-      conversationId: "preview-c-delete",
-      providerConversationId: "preview-p-delete",
-      senderDisplayName: "Scribe Team",
-      subject: "Your Monthly Scribe Activity",
-      timestamp: "2026-08-08T08:00:00.000Z",
-      isUnread: false,
-      snippet: "Automated product usage digest.",
-      attachments: [],
-      decisionSummary: "Routine vendor digest",
-      priority: null,
-      dueDate: null,
-      matterTitle: null,
-      disposition: "delete",
-      owner: "nobody",
-      deleteRank: 0,
-      deleteToken: "preview-delete-token",
-      category: "IT & software notices",
-      vetoReasons: [],
-    },
-    {
-      conversationId: "preview-c-record",
-      providerConversationId: "preview-p-record",
-      senderDisplayName: "Billing Desk",
-      subject: "Invoice received — keep for records",
-      timestamp: "2026-08-09T12:00:00.000Z",
-      isUnread: false,
-      snippet: "Paid invoice confirmation for the archive.",
-      attachments: ["invoice.pdf"],
-      decisionSummary: "Keep for the record",
-      priority: null,
-      dueDate: null,
-      matterTitle: null,
-      disposition: "record",
-      owner: "nobody",
-      deleteRank: 1,
-      deleteToken: null,
-      category: "finance (ar/ap)",
-      vetoReasons: [],
-    },
-    {
-      // The referral the reader proposed to bin and safety refused. It sits in
-      // "Needs you" and puts the held-back note under the clear pile.
-      conversationId: "preview-c-held",
-      providerConversationId: "preview-p-held",
-      senderDisplayName: "Sadanand Palekar",
-      subject: "Resume of a friend's niece",
-      timestamp: "2026-08-07T10:57:00.000Z",
-      isUnread: true,
-      snippet: "Hi Conall, this is Rachel's Dad.",
-      attachments: ["Zaina Sen Resume.pdf"],
-      decisionSummary: "Referring a biostatistician. Asks if you can help.",
-      priority: 2,
-      dueDate: null,
-      matterTitle: null,
-      disposition: "undecided",
-      owner: "you",
-      deleteRank: 2,
-      deleteToken: null,
-      category: "recruiting",
-      vetoReasons: ["personal_greeting"],
-    },
-    {
+    row({
+      ...base,
       conversationId: "preview-c-1",
       providerConversationId: "preview-p-1",
       senderDisplayName: "Sandra Yasavul",
@@ -166,98 +59,148 @@ const previewRows: Record<MailboxFolder, MailboxRow[]> = {
       decisionSummary: "Countersignature needed",
       priority: 2,
       dueDate: "2026-08-14",
+      matterId: ROCHE,
       matterTitle: "Roche RD007704 stability extension",
+      ask: "Countersign RMS Amendment #01 and return it to Roche",
       disposition: "matter",
       owner: "you",
       deleteRank: 3,
-      deleteToken: null,
       category: "sales — contracting",
-      vetoReasons: [],
-    },
-    {
+      groupAt: "2026-08-04T09:00:00.000Z",
+    }),
+    row({
+      ...base,
+      conversationId: "preview-c-1b",
+      providerConversationId: "preview-p-1b",
+      senderDisplayName: "Sandra Yasavul",
+      subject: "SOW #003 draft for review",
+      timestamp: "2026-08-04T09:00:00.000Z",
+      snippet: "Draft SOW attached.",
+      attachments: ["sow-003.docx"],
+      decisionSummary: "Draft SOW sent",
+      matterId: ROCHE,
+      matterTitle: "Roche RD007704 stability extension",
+      ask: "Countersign RMS Amendment #01 and return it to Roche",
+      disposition: "matter",
+      deleteRank: 3,
+      category: "sales — contracting",
+      groupAt: "2026-08-04T09:00:00.000Z",
+    }),
+    row({
+      ...base,
       conversationId: "preview-c-2",
       providerConversationId: "preview-p-2",
       senderDisplayName: "Amy Staedtler",
       subject: "Dashboard redesign scope",
       timestamp: "2026-08-11T11:10:00.000Z",
-      isUnread: false,
       snippet: "Scope agreed; estimate to follow this week.",
-      attachments: [],
       decisionSummary: "Estimate to follow",
       priority: 1,
-      dueDate: null,
+      matterId: DASHBOARD,
       matterTitle: "Dashboard redesign",
+      userStep: "Send Amy the estimate by Friday",
       disposition: "matter",
       owner: "you",
       deleteRank: 3,
-      deleteToken: null,
       category: "systems (it)",
-      vetoReasons: [],
-    },
-    {
-      conversationId: "preview-c-3",
-      providerConversationId: "preview-p-3",
-      senderDisplayName: "Advarra IRB",
-      subject: "CIRBI: Continuing Review 10 Day Notice",
-      timestamp: "2026-08-10T09:40:00.000Z",
+      groupAt: "2026-08-06T14:30:00.000Z",
+    }),
+    row({
+      ...base,
+      conversationId: "preview-c-2b",
+      providerConversationId: "preview-p-2b",
+      senderDisplayName: "Amy Staedtler",
+      subject: "Dashboard redesign kickoff",
+      timestamp: "2026-08-06T14:30:00.000Z",
+      snippet: "Kicking off the redesign.",
+      decisionSummary: "Kickoff",
+      matterId: DASHBOARD,
+      matterTitle: "Dashboard redesign",
+      userStep: "Send Amy the estimate by Friday",
+      disposition: "matter",
+      deleteRank: 3,
+      category: "systems (it)",
+      groupAt: "2026-08-06T14:30:00.000Z",
+    }),
+    row({
+      // The referral the reader proposed to bin and safety refused. It is
+      // proposed for Archive, and the confirmation warns if it is switched to
+      // Delete.
+      ...base,
+      conversationId: "preview-c-held",
+      providerConversationId: "preview-p-held",
+      senderDisplayName: "Sadanand Palekar",
+      subject: "Resume of a friend's niece",
+      timestamp: "2026-08-07T10:57:00.000Z",
       isUnread: true,
-      snippet: "Continuing review due in CIRBI before 19 August.",
-      attachments: [],
-      decisionSummary: "Review due 19 August",
-      priority: 3,
-      dueDate: "2026-08-19",
-      matterTitle: "Advarra ICF review",
-      disposition: "pending",
-      owner: "nobody",
-      deleteRank: 4,
-      deleteToken: null,
-      category: "quality",
-      vetoReasons: [],
-    },
+      snippet: "Hi Conall, this is Rachel's Dad.",
+      attachments: ["Zaina Sen Resume.pdf"],
+      decisionSummary: "Referring a biostatistician. Asks if you can help.",
+      priority: 2,
+      disposition: "undecided",
+      owner: "you",
+      deleteRank: 2,
+      category: "recruiting",
+      vetoReasons: ["personal_greeting"],
+    }),
+    row({
+      ...base,
+      conversationId: "preview-c-delete",
+      providerConversationId: "preview-p-delete",
+      senderDisplayName: "Scribe Team",
+      subject: "Your Monthly Scribe Activity",
+      timestamp: "2026-08-08T08:00:00.000Z",
+      snippet: "Automated product usage digest.",
+      decisionSummary: "Routine vendor digest",
+      disposition: "delete",
+      deleteRank: 0,
+      deleteToken: "preview-delete-token",
+      category: "IT & software notices",
+    }),
+    row({
+      ...base,
+      conversationId: "preview-c-record",
+      providerConversationId: "preview-p-record",
+      senderDisplayName: "Billing Desk",
+      subject: "Invoice received — keep for records",
+      timestamp: "2026-08-09T12:00:00.000Z",
+      snippet: "Paid invoice confirmation for the archive.",
+      attachments: ["invoice.pdf"],
+      decisionSummary: "Paid invoice, keep for the record",
+      disposition: "record",
+      deleteRank: 1,
+      category: "finance (ar/ap)",
+    }),
   ],
   sent: [
-    {
+    row({
+      ...base,
       conversationId: "preview-c-4",
       providerConversationId: "preview-p-4",
       senderDisplayName: "You",
       subject: "Re: Stability pull schedule Q3",
       timestamp: "2026-08-09T16:00:00.000Z",
-      isUnread: false,
       snippet: "Thanks — August and September pull points are confirmed.",
-      attachments: [],
       decisionSummary: null,
-      priority: null,
-      dueDate: null,
-      matterTitle: null,
       disposition: "pending",
-      owner: "nobody",
       deleteRank: 4,
-      deleteToken: null,
       category: null,
-      vetoReasons: [],
-    },
+    }),
   ],
   trash: [
-    {
+    row({
+      ...base,
       conversationId: "preview-c-5",
       providerConversationId: "preview-p-5",
       senderDisplayName: "Scribe Team",
       subject: "Your Monthly Scribe Activity",
       timestamp: "2026-08-08T08:00:00.000Z",
-      isUnread: false,
       snippet: "Automated product usage digest.",
-      attachments: [],
       decisionSummary: null,
-      priority: null,
-      dueDate: null,
-      matterTitle: null,
       disposition: "delete",
-      owner: "nobody",
       deleteRank: 0,
-      deleteToken: null,
       category: null,
-      vetoReasons: [],
-    },
+    }),
   ],
 };
 
@@ -265,22 +208,7 @@ const view = (
   folder: MailboxFolder,
   sort: MailboxView["sort"] = "date",
 ): MailboxView => {
-  // Production removes model-confirmed matters from Triage because they are
-  // already on Atlas. Keep the preview honest to that contract.
-  const rows =
-    sort === "triage"
-      ? previewRows[folder]
-          .filter((row) => row.disposition !== "matter")
-          .map((row) =>
-            row.disposition === "undecided" || row.disposition === "pending"
-              ? {
-                  ...row,
-                  disposition: "record" as const,
-                  deleteRank: 1,
-                }
-              : row,
-          )
-      : previewRows[folder];
+  const rows = previewRows[folder];
   return {
     accountId: "preview",
     folder,
@@ -290,6 +218,9 @@ const view = (
     needsYou: 0,
     processing: 0,
     nextCursor: null,
+    ...(sort === "matter"
+      ? { groups: new Set(rows.map((entry) => entry.groupKey)).size }
+      : {}),
   };
 };
 
@@ -338,17 +269,11 @@ const reader: Conversation = {
 
 const provider: ProviderKind = "microsoft";
 
-/** Inbox ordered as the triage sort returns it — most likely to delete first. */
-export const v3TriageInboxView: MailboxView = view("inbox", "triage");
-
 export const v3Preview: MailClientPreview = {
   mailbox: {
-    inbox: view("inbox"),
+    inbox: view("inbox", "matter"),
     sent: view("sent"),
     trash: view("trash"),
   },
-  triageInbox: v3TriageInboxView,
-  inboxView: sampleView,
-  staffView: previewStaff,
   reader: { conversation: reader, provider },
 };
