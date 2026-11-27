@@ -10,7 +10,25 @@ import { OutlookProvider } from "../src/lib/v2/providers/outlook.ts";
 import { isProviderReconcileError } from "../src/lib/v2/providers/mutation-idempotent.ts";
 import { ProviderHttpError } from "../src/lib/v2/providers/http.ts";
 
-function graphMsg(id: string, convId: string, when: string, from: string, subject: string) {
+/** Opaque Graph folder ids, as returned for the well-known folder names. */
+const FOLDER_IDS: Record<string, string> = {
+  inbox: "AQMkADAwATM0-01",
+  sentitems: "AQMkADAwATM0-02",
+  deleteditems: "AQMkADAwATM0-03",
+  archive: "AQMkADAwATM0-04",
+  junkemail: "AQMkADAwATM0-05",
+  drafts: "AQMkADAwATM0-06",
+  outbox: "AQMkADAwATM0-07",
+};
+
+function graphMsg(
+  id: string,
+  convId: string,
+  when: string,
+  from: string,
+  subject: string,
+  folder = "inbox",
+) {
   return {
     id,
     conversationId: convId,
@@ -23,6 +41,7 @@ function graphMsg(id: string, convId: string, when: string, from: string, subjec
     body: { contentType: "html", content: "<p>body</p>" },
     isRead: false,
     hasAttachments: false,
+    parentFolderId: FOLDER_IDS[folder],
   };
 }
 
@@ -36,20 +55,15 @@ const CONVOS: Record<string, ReturnType<typeof graphMsg>[]> = {
     graphMsg("c1-m2", "c1", "2026-08-01T11:00:00Z", "sender@example.com", "Thread one"),
   ],
   c2: [graphMsg("c2-m1", "c2", "2026-08-01T10:00:00Z", "vendor@roche.com", "Roche pricing")],
-  c3: [
-    {
-      ...graphMsg("c3-m1", "c3", "2026-08-01T10:00:00Z", "sender@example.com", "Archived"),
-      parentFolderId: "archive",
-    },
-  ],
+  c3: [graphMsg("c3-m1", "c3", "2026-08-01T10:00:00Z", "sender@example.com", "Archived", "archive")],
   s0: [
-    graphMsg("s0-m2", "s0", "2026-08-03T10:00:00Z", "me@example.com", "Sent thread"),
-    graphMsg("s0-m1", "s0", "2026-08-02T10:00:00Z", "me@example.com", "Sent thread"),
+    graphMsg("s0-m2", "s0", "2026-08-03T10:00:00Z", "me@example.com", "Sent thread", "sentitems"),
+    graphMsg("s0-m1", "s0", "2026-08-02T10:00:00Z", "me@example.com", "Sent thread", "sentitems"),
   ],
-  s1: [graphMsg("s1-m1", "s1", "2026-08-02T10:00:00Z", "me@example.com", "Sent one")],
+  s1: [graphMsg("s1-m1", "s1", "2026-08-02T10:00:00Z", "me@example.com", "Sent one", "sentitems")],
   t0: [
-    graphMsg("t0-m2", "t0", "2026-08-05T10:00:00Z", "sender@example.com", "Trash thread"),
-    graphMsg("t0-m1", "t0", "2026-08-04T10:00:00Z", "sender@example.com", "Trash thread"),
+    graphMsg("t0-m2", "t0", "2026-08-05T10:00:00Z", "sender@example.com", "Trash thread", "deleteditems"),
+    graphMsg("t0-m1", "t0", "2026-08-04T10:00:00Z", "sender@example.com", "Trash thread", "deleteditems"),
   ],
 };
 
@@ -58,6 +72,13 @@ let lastReplyAll = false;
 const mockFetch = (async (url: string, init?: RequestInit) => {
   const u = String(url);
   const method = init?.method ?? "GET";
+
+  // Well-known folder id lookups. This mailbox has no Conversation History.
+  const folderLookup = u.match(/\/mailFolders\/([a-z]+)\?\$select=id$/);
+  if (method === "GET" && folderLookup) {
+    const id = FOLDER_IDS[folderLookup[1]];
+    return id ? json({ id }) : new Response("not found", { status: 404 });
+  }
 
   // Folder totals for coverage reconciliation.
   if (method === "GET" && u.includes("/mailFolders/inbox?$select=totalItemCount")) {

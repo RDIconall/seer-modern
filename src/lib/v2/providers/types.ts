@@ -69,6 +69,12 @@ export type Conversation = {
   /** Oldest first — a chief of staff reads a thread in order. */
   messages: Message[];
   lastMessageAt: string; // ISO
+  /**
+   * Provider message ids in this conversation that sit in a folder never shown
+   * as mail (e.g. Outlook Junk Email). Sync removes them from the corpus so a
+   * copy stored before it was filtered does not stay in the thread.
+   */
+  withheldMessageIds?: string[];
 };
 
 /** One page of an incremental or full sync. */

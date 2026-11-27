@@ -95,19 +95,27 @@ export function gmailMutationAlreadyApplied(
   }
 }
 
-/** Graph well-known folder destination ids used by our move calls. */
+/**
+ * Graph `parentFolderId` is an opaque folder id, so it is compared to the ids
+ * resolved for the well-known destination folders, never to folder names.
+ */
 export function outlookMutationAlreadyApplied(
   action: MutationAction,
   parentFolderId: string | undefined,
+  folders: {
+    inbox: string | null;
+    archive: string | null;
+    deleteditems: string | null;
+  },
 ): boolean {
-  const folder = (parentFolderId ?? "").toLowerCase();
+  if (!parentFolderId) return false;
   switch (action) {
     case "archive":
-      return folder.includes("archive");
+      return parentFolderId === folders.archive;
     case "trash":
-      return folder.includes("deleted") || folder.includes("trash");
+      return parentFolderId === folders.deleteditems;
     case "restore":
-      return folder.includes("inbox");
+      return parentFolderId === folders.inbox;
     case "markUnread":
       return false;
     default:

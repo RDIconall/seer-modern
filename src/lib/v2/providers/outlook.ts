@@ -1,4 +1,4 @@
-import { providerFetch, type ProviderHttpOptions } from "./http";
+import { ProviderHttpError, providerFetch, type ProviderHttpOptions } from "./http";
 import {
   conversationFetchEmpty,
   conversationFetchNotFound,
@@ -6,6 +6,15 @@ import {
   outlookMutationAlreadyApplied,
 } from "./mutation-idempotent";
 import { nativeUrlFor } from "./native-url";
+import {
+  OUTLOOK_OPTIONAL_FOLDERS,
+  OUTLOOK_WELL_KNOWN_FOLDERS,
+  hiddenOutlookMessageIds,
+  visibleOutlookMessages,
+  type DeletedItemsScope,
+  type OutlookFolderIds,
+  type OutlookWellKnownFolder,
+} from "./outlook-folders";
 import type {
   Address,
   AttachmentContent,
@@ -31,9 +40,11 @@ import { SyncDeadlineError, assertSyncBudget } from "./types";
 
 /**
  * Outlook / Microsoft Graph adapter. Translates Graph message payloads into the
- * neutral model. Conversation reads and mutations gather every message in the
- * conversation across folders (via conversationId), so a thread is acted on
- * completely and per-message failures are reported.
+ * neutral model. Conversation reads and mutations gather the conversation
+ * across folders (via conversationId), then keep only messages whose folder is
+ * part of the mailbox Seer shows — never Junk Email, Drafts, Outbox or
+ * Conversation History — so a thread is acted on completely and per-message
+ * failures are reported.
  */
 
 const API = "https://graph.microsoft.com/v1.0/me";
@@ -95,10 +106,16 @@ function toMessage(m: GraphMessage, selfEmail: string): Message {
   };
 }
 
+function newestFirst(a: GraphMessage, b: GraphMessage): number {
+  return (b.receivedDateTime ?? "").localeCompare(a.receivedDateTime ?? "");
+}
+
 export class OutlookProvider implements MailProvider {
   readonly kind: ProviderKind = "microsoft";
   private http: ProviderHttpOptions;
   private pageSize: number;
+  /** Well-known folder ids, resolved once per provider and reused for every filter. */
+  private folderIdCache = new Map<OutlookWellKnownFolder, Promise<string | null>>();
 
   constructor(private deps: OutlookDeps) {
     this.http = { provider: "outlook", fetchImpl: deps.fetchImpl };
@@ -142,7 +159,10 @@ export class OutlookProvider implements MailProvider {
     );
   }
 
-  /** Every message in a conversation, across all folders, paginated. */
+  /**
+   * Every message in a conversation, across all folders, paginated. Unfiltered:
+   * callers must pass the result through `visible` before showing or acting on it.
+   */
   private async conversationMessages(
     conversationId: string,
     context?: SyncContext,
@@ -162,6 +182,71 @@ export class OutlookProvider implements MailProvider {
       url = page["@odata.nextLink"] ?? null;
     }
     return messages;
+  }
+
+  private folderId(
+    name: OutlookWellKnownFolder,
+    context?: SyncContext,
+  ): Promise<string | null> {
+    const cached = this.folderIdCache.get(name);
+    if (cached) return cached;
+    const lookup = this.get<{ id?: string }>(
+      `${API}/mailFolders/${name}?$select=id`,
+      context,
+    ).then(
+      (folder) => {
+        if (!folder?.id) throw new Error(`outlook folder ${name} has no id`);
+        return folder.id;
+      },
+      (err: unknown) => {
+        // A mailbox without this well-known folder has no messages in it.
+        if (
+          OUTLOOK_OPTIONAL_FOLDERS.has(name) &&
+          err instanceof ProviderHttpError &&
+          err.status === 404
+        ) {
+          return null;
+        }
+        throw err;
+      },
+    );
+    this.folderIdCache.set(name, lookup);
+    lookup.catch(() => {
+      if (this.folderIdCache.get(name) === lookup) this.folderIdCache.delete(name);
+    });
+    return lookup;
+  }
+
+  private async folderIds(context?: SyncContext): Promise<OutlookFolderIds> {
+    const ids = await Promise.all(
+      OUTLOOK_WELL_KNOWN_FOLDERS.map((name) => this.folderId(name, context)),
+    );
+    return Object.fromEntries(
+      OUTLOOK_WELL_KNOWN_FOLDERS.map((name, i) => [name, ids[i]]),
+    ) as OutlookFolderIds;
+  }
+
+  /** Messages of an already-fetched conversation that belong to the thread Seer shows. */
+  private async visible(
+    messages: GraphMessage[],
+    deletedItems: DeletedItemsScope,
+    context?: SyncContext,
+  ): Promise<{ messages: GraphMessage[]; folders: OutlookFolderIds }> {
+    const folders = await this.folderIds(context);
+    return {
+      messages: visibleOutlookMessages(messages, folders, deletedItems),
+      folders,
+    };
+  }
+
+  private async replyTarget(conversationId: string): Promise<GraphMessage> {
+    const { messages } = await this.visible(
+      await this.conversationMessages(conversationId),
+      "whenOnlyDeleted",
+    );
+    const last = [...messages].sort(newestFirst)[0];
+    if (!last) throw new Error(`outlook conversation ${conversationId} has no messages`);
+    return last;
   }
 
   private toConversation(id: string, msgs: GraphMessage[]): Conversation {
@@ -223,12 +308,17 @@ export class OutlookProvider implements MailProvider {
     const conversationIds = [
       ...new Set((page.value ?? []).map((m) => m.conversationId)),
     ];
+    const deletedItems: DeletedItemsScope = folder === "trash" ? "include" : "exclude";
     const conversations: Conversation[] = [];
     for (const id of conversationIds) {
       assertSyncBudget(context);
-      conversations.push(
-        this.toConversation(id, await this.conversationMessages(id, context)),
-      );
+      const all = await this.conversationMessages(id, context);
+      const { messages, folders } = await this.visible(all, deletedItems, context);
+      if (messages.length === 0) continue;
+      conversations.push({
+        ...this.toConversation(id, messages),
+        withheldMessageIds: hiddenOutlookMessageIds(all, folders),
+      });
     }
     return {
       conversations,
@@ -241,14 +331,18 @@ export class OutlookProvider implements MailProvider {
   }
 
   async getConversation(id: string): Promise<Conversation> {
-    return this.toConversation(id, await this.conversationMessages(id));
+    const { messages } = await this.visible(
+      await this.conversationMessages(id),
+      "whenOnlyDeleted",
+    );
+    return this.toConversation(id, messages);
   }
 
   async search(query: string, cursor?: string | null): Promise<SearchResult> {
     const providerQuery = compileOutlookSearch(parseMailSearch(query));
     const url =
       cursor ??
-      `${API}/messages?$search=${encodeURIComponent(`"${providerQuery}"`)}&$top=${this.pageSize}&$select=id,conversationId,subject,from,toRecipients,ccRecipients,receivedDateTime,bodyPreview,body,isRead`;
+      `${API}/messages?$search=${encodeURIComponent(`"${providerQuery}"`)}&$top=${this.pageSize}&$select=id,conversationId,subject,from,toRecipients,ccRecipients,receivedDateTime,bodyPreview,body,isRead,parentFolderId`;
     const page: { value?: GraphMessage[]; "@odata.nextLink"?: string } =
       await this.get(url);
     const byConversation = new Map<string, GraphMessage[]>();
@@ -257,10 +351,14 @@ export class OutlookProvider implements MailProvider {
       arr.push(m);
       byConversation.set(m.conversationId, arr);
     }
+    const folders = await this.folderIds();
+    const conversations: Conversation[] = [];
+    for (const [id, msgs] of byConversation) {
+      const shown = visibleOutlookMessages(msgs, folders, "whenOnlyDeleted");
+      if (shown.length > 0) conversations.push(this.toConversation(id, shown));
+    }
     return {
-      conversations: [...byConversation.entries()].map(([id, msgs]) =>
-        this.toConversation(id, msgs),
-      ),
+      conversations,
       nextCursor: page["@odata.nextLink"] ?? null,
     };
   }
@@ -289,8 +387,7 @@ export class OutlookProvider implements MailProvider {
 
   async reply(command: ReplyCommand, _key: string): Promise<SendReceipt> {
     void _key;
-    const msgs = await this.conversationMessages(command.conversationId);
-    const last = msgs[msgs.length - 1];
+    const last = await this.replyTarget(command.conversationId);
     const endpoint = command.all ? "replyAll" : "reply";
     await this.post(`/messages/${last.id}/${endpoint}`, {
       comment: command.bodyHtml,
@@ -303,8 +400,7 @@ export class OutlookProvider implements MailProvider {
 
   async forward(command: ForwardCommand, _key: string): Promise<SendReceipt> {
     void _key;
-    const msgs = await this.conversationMessages(command.conversationId);
-    const last = msgs[msgs.length - 1];
+    const last = await this.replyTarget(command.conversationId);
     await this.post(`/messages/${last.id}/forward`, {
       comment: command.bodyHtml,
       toRecipients: command.to.map((a) => ({ emailAddress: { address: a.email } })),
@@ -364,7 +460,10 @@ export class OutlookProvider implements MailProvider {
     _key: string,
   ): Promise<MoveReceipt> {
     void _key;
-    const messages = await this.conversationMessages(id);
+    const { messages } = await this.visible(
+      await this.conversationMessages(id),
+      "whenOnlyDeleted",
+    );
     const processed: string[] = [];
     const failed: string[] = [];
     for (const message of messages) {
@@ -391,10 +490,12 @@ export class OutlookProvider implements MailProvider {
       conversationFetchNotFound(err, "outlook", id);
     }
     conversationFetchEmpty(msgs, "outlook", id);
+    const { messages, folders } = await this.visible(msgs, "whenOnlyDeleted");
+    conversationFetchEmpty(messages, "outlook", id);
     const processed: string[] = [];
     const failed: string[] = [];
-    for (const m of msgs) {
-      if (outlookMutationAlreadyApplied(action, m.parentFolderId)) {
+    for (const m of messages) {
+      if (outlookMutationAlreadyApplied(action, m.parentFolderId, folders)) {
         processed.push(m.id);
         continue;
       }
