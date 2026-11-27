@@ -12,6 +12,7 @@ import {
   encryptCredential,
   type EncryptedValue,
 } from "../crypto/credentials";
+import { purgeMailboxStorage } from "../../store/kv";
 
 /**
  * Account and credential repositories. Every query is scoped by both the
@@ -40,6 +41,17 @@ export type ProviderCredential = {
 };
 
 type Runner = Pool | PoolClient;
+
+/**
+ * Serialize ownership changes for one address across providers. Address-keyed
+ * stores are shared by every account row with that address, so claiming and
+ * releasing an address must not interleave.
+ */
+async function lockMailboxAddress(client: PoolClient, email: string): Promise<void> {
+  await client.query("select pg_advisory_xact_lock(hashtext($1))", [
+    `seer.mail_accounts:${email.toLowerCase()}`,
+  ]);
+}
 
 /** OAuth providers use seconds while the application uses epoch milliseconds. */
 export function normalizeEpochMs(value: number | undefined | null): number | undefined {
@@ -130,8 +142,13 @@ export async function upsertAccount(input: {
 
 /**
  * Persist an OAuth callback atomically. The account row and its encrypted
- * credential row are committed together, and a provider/email conflict can
- * never be reassigned to a different user.
+ * credential row are committed together, and an address held by one user
+ * (under either provider) can never be claimed by a different user.
+ *
+ * Creating the first row for an address purges whatever address-keyed
+ * documents were left behind, so the claimer never inherits an earlier
+ * owner's data. Only the legacy migration, which moves an address's own
+ * records into its own account, passes `keepAddressStorage`.
  */
 export async function upsertAccountWithCredentials(input: {
   userId: UserId;
@@ -141,8 +158,21 @@ export async function upsertAccountWithCredentials(input: {
   accessToken?: string;
   refreshToken?: string;
   expiresAt?: number;
+  keepAddressStorage?: boolean;
 }): Promise<MailAccount> {
   return inTransaction(async (client) => {
+    const email = input.email.toLowerCase();
+    await lockMailboxAddress(client, email);
+    const holders = await client.query<{ user_id: string }>(
+      "select user_id from seer.mail_accounts where email = $1",
+      [email],
+    );
+    if (holders.rows.some((row) => row.user_id !== input.userId)) {
+      throw new Error("mail account belongs to another user");
+    }
+    if (holders.rowCount === 0 && !input.keepAddressStorage) {
+      await purgeMailboxStorage(email);
+    }
     const accountResult = await client.query(
       `insert into seer.mail_accounts (user_id, provider, email, display_name)
          values ($1, $2, $3, $4)
@@ -254,16 +284,56 @@ export async function getOwnedAccountByEmail(
     : null;
 }
 
-/** Delete only an account owned by the caller; credentials cascade with it. */
+/**
+ * Delete only an account owned by the caller; credentials cascade with it.
+ * When no other row keeps the address, its address-keyed documents are purged
+ * before the row is released, so a later owner of the address starts empty.
+ * A failed purge rolls the delete back and the address stays claimed.
+ */
 export async function deleteOwnedAccount(
   userId: UserId,
   accountId: AccountId,
 ): Promise<boolean> {
-  const r = await db().query(
-    "delete from seer.mail_accounts where id = $1 and user_id = $2 returning id",
+  const owned = await db().query<{ email: string }>(
+    "select email from seer.mail_accounts where id = $1 and user_id = $2",
     [accountId, userId],
   );
-  return r.rowCount === 1;
+  const email = owned.rows[0]?.email;
+  if (!email) return false;
+
+  const released = await inTransaction(async (client) => {
+    await lockMailboxAddress(client, email);
+    const locked = await client.query(
+      `select id from seer.mail_accounts
+        where id = $1 and user_id = $2 and email = $3
+        for update`,
+      [accountId, userId, email],
+    );
+    if (locked.rowCount !== 1) return null;
+    const others = await client.query(
+      "select 1 from seer.mail_accounts where email = $1 and id <> $2 limit 1",
+      [email, accountId],
+    );
+    const releasesAddress = !others.rowCount;
+    if (releasesAddress) await purgeMailboxStorage(email);
+    await client.query(
+      "delete from seer.mail_accounts where id = $1 and user_id = $2",
+      [accountId, userId],
+    );
+    return { releasesAddress };
+  });
+  if (!released) return false;
+
+  if (released.releasesAddress) {
+    // Catch writes from requests that were already in flight for this mailbox.
+    await purgeMailboxStorage(email).catch((e) =>
+      console.error(
+        "[seer] mailbox storage purge after removal failed",
+        e instanceof Error ? e.message : e,
+      ),
+    );
+  }
+  return true;
 }
 
 export async function saveCredentials(

@@ -161,7 +161,19 @@ export async function POST(request: Request) {
       updatedAt: new Date().toISOString(),
     });
   }
-  const removed = await deleteOwnedAccount(current.userId, owned.id);
+  let removed: boolean;
+  try {
+    removed = await deleteOwnedAccount(current.userId, owned.id);
+  } catch (e) {
+    console.error(
+      "[seer] account removal failed",
+      e instanceof Error ? e.message : e,
+    );
+    return NextResponse.json(
+      { error: "Could not remove this account's saved data. Try again." },
+      { status: 503 },
+    );
+  }
   if (!removed) {
     return NextResponse.json({ error: "Account not found" }, { status: 404 });
   }
