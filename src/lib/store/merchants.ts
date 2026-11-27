@@ -1,4 +1,4 @@
-import { accountKey, kvGet, kvSet } from "@/lib/store/kv";
+import { kvGet, kvSet, mailboxKey } from "@/lib/store/kv";
 
 /**
  * THE MERCHANT GRAPH — who charges the user, how much, how often.
@@ -22,7 +22,7 @@ const MAX_AMOUNTS = 12;
 const MAX_MERCHANTS = 500;
 
 function keyFor(accountEmail: string) {
-  return `merchants:${accountKey(accountEmail)}`;
+  return mailboxKey("merchants", accountEmail);
 }
 
 /** Largest dollar figure in the text — the money in motion. */

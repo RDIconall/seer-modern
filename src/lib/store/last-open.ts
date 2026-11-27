@@ -1,4 +1,4 @@
-import { accountKey, kvGet, kvSet } from "@/lib/store/kv";
+import { kvGet, kvSet, mailboxKey } from "@/lib/store/kv";
 
 /**
  * "While you were away" — the moment the user last opened the app,
@@ -6,7 +6,7 @@ import { accountKey, kvGet, kvSet } from "@/lib/store/kv";
  */
 
 function keyFor(accountEmail: string) {
-  return `last-open:${accountKey(accountEmail)}`;
+  return mailboxKey("last-open", accountEmail);
 }
 
 export async function readLastOpen(

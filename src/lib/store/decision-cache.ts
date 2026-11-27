@@ -1,5 +1,5 @@
 import type { Confidence, TriageAction } from "@/lib/inbox/classify";
-import { accountKey, kvDelete, kvGet, kvSet } from "@/lib/store/kv";
+import { kvDelete, kvGet, kvSet, mailboxKey } from "@/lib/store/kv";
 
 /**
  * Persistent per-message triage decisions so repeat inbox loads
@@ -31,7 +31,7 @@ const MAX_ENTRIES = 2000;
 type CacheFile = Record<string, CachedDecision>;
 
 function keyFor(accountEmail: string) {
-  return `decisions:${accountKey(accountEmail)}`;
+  return mailboxKey("decisions", accountEmail);
 }
 
 async function readAll(accountEmail: string): Promise<CacheFile> {

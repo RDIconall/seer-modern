@@ -1,5 +1,5 @@
 import type { TriageAction } from "@/lib/inbox/classify";
-import { accountKey, kvGet, kvSet } from "@/lib/store/kv";
+import { kvGet, kvSet, mailboxKey } from "@/lib/store/kv";
 
 /**
  * Native Gmail labels as the durable decision store: Gemini reviews a
@@ -37,7 +37,7 @@ type LabelMap = Partial<Record<TriageAction, string>>;
 type MapCacheFile = { builtAt: string; map: LabelMap };
 
 function mapKey(accountEmail: string) {
-  return `gmail-labels:${accountKey(accountEmail)}`;
+  return mailboxKey("gmail-labels", accountEmail);
 }
 
 async function gmail(

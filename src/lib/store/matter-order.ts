@@ -1,4 +1,4 @@
-import { accountKey, kvGet, kvSet } from "@/lib/store/kv";
+import { kvGet, kvSet, mailboxKey } from "@/lib/store/kv";
 
 /**
  * MATTER ORDER — the user's own priority order within each column of the
@@ -10,7 +10,7 @@ import { accountKey, kvGet, kvSet } from "@/lib/store/kv";
 export type MatterOrder = Record<string, string[]>;
 
 function keyFor(accountEmail: string) {
-  return `matter-order:${accountKey(accountEmail)}`;
+  return mailboxKey("matter-order", accountEmail);
 }
 
 export async function loadMatterOrder(

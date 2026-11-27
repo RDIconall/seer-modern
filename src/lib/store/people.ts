@@ -1,4 +1,4 @@
-import { accountKey, kvGet, kvSet } from "@/lib/store/kv";
+import { kvGet, kvSet, mailboxKey } from "@/lib/store/kv";
 
 /**
  * THE PERSONAL DATABASE — the people axis of triage.
@@ -37,7 +37,7 @@ export type PeopleDb = Record<string, PersonRecord>;
 const MAX_ENTRIES = 3000;
 
 function keyFor(accountEmail: string) {
-  return `people:${accountKey(accountEmail)}`;
+  return mailboxKey("people", accountEmail);
 }
 
 export async function loadPeople(accountEmail: string): Promise<PeopleDb> {

@@ -11,7 +11,7 @@ import type {
 } from "@/lib/inbox/understanding";
 import { loadExemplars, retrieveExemplars } from "@/lib/store/exemplars";
 import { loadFunctions } from "@/lib/store/functions";
-import { accountKey, kvGet, kvSet } from "@/lib/store/kv";
+import { kvGet, kvSet, mailboxKey } from "@/lib/store/kv";
 import { loadMatterFixes, type MatterFixes } from "@/lib/store/matter-fixes";
 import { loadMatterEdits } from "@/lib/store/manual-matters";
 import {
@@ -423,7 +423,7 @@ const digestSchema = z.object({
 });
 
 function keyFor(accountEmail: string) {
-  return `brief:${accountKey(accountEmail)}`;
+  return mailboxKey("brief", accountEmail);
 }
 
 export async function loadBrief(accountEmail: string): Promise<Brief | null> {

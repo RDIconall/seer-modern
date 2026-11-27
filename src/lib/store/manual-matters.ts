@@ -1,4 +1,4 @@
-import { accountKey, kvGet, kvSet } from "@/lib/store/kv";
+import { kvGet, kvSet, mailboxKey } from "@/lib/store/kv";
 
 /**
  * MATTERS THE USER AUTHORED — titles they chose, matters they created.
@@ -23,17 +23,15 @@ export type MatterEdits = {
   manual: ManualMatter[];
 };
 
-const EMPTY: MatterEdits = { renames: {}, manual: [] };
-
 function keyFor(accountEmail: string) {
-  return `matter-edits:${accountKey(accountEmail)}`;
+  return mailboxKey("matter-edits", accountEmail);
 }
 
 export async function loadMatterEdits(
   accountEmail: string,
 ): Promise<MatterEdits> {
   const stored = await kvGet<MatterEdits>(keyFor(accountEmail));
-  return stored ? { renames: stored.renames ?? {}, manual: stored.manual ?? [] } : EMPTY;
+  return { renames: stored?.renames ?? {}, manual: stored?.manual ?? [] };
 }
 
 async function save(accountEmail: string, edits: MatterEdits) {

@@ -1,4 +1,4 @@
-import { accountKey, kvGet, kvSet } from "@/lib/store/kv";
+import { kvGet, kvSet, mailboxKey } from "@/lib/store/kv";
 import type { Brief, Matter } from "@/lib/inbox/matters";
 
 /**
@@ -30,7 +30,7 @@ export type MatterClosure = {
 export type ClosedMatters = Record<string, MatterClosure>;
 
 function keyFor(accountEmail: string) {
-  return `closed-matters:${accountKey(accountEmail)}`;
+  return mailboxKey("closed-matters", accountEmail);
 }
 
 export async function loadClosedMatters(

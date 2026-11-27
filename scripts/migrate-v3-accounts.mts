@@ -62,6 +62,7 @@ async function main() {
       accessToken: legacy.accessToken,
       refreshToken: legacy.refreshToken,
       expiresAt: normalizeEpochMs(legacy.expiresAt),
+      keepAddressStorage: true,
     });
     console.log(`migrated ${provider}:${legacy.email}`);
   }

@@ -1,5 +1,5 @@
 import { graphRawFetch } from "@/lib/mail/graph";
-import { accountKey, kvGet, kvSet } from "@/lib/store/kv";
+import { kvGet, kvSet, mailboxKey } from "@/lib/store/kv";
 
 /**
  * Who you know (contacts) and what you're about to do (calendar) are
@@ -50,10 +50,8 @@ const TTL_EVENTS_MS = 5 * 60 * 1000;
 const LOOKAHEAD_DAYS = 365;
 const MAX_EVENTS = 500;
 
-const EMPTY: PersonalContext = { builtAt: "", contacts: [], events: [] };
-
 function keyFor(accountEmail: string) {
-  return `personal:${accountKey(accountEmail)}`;
+  return mailboxKey("personal", accountEmail);
 }
 
 function ageOf(iso: string | undefined): number {
@@ -318,7 +316,7 @@ export async function getPersonalContext(session: {
     await kvSet(keyFor(session.accountEmail), ctx);
     return ctx;
   } catch {
-    return cached ?? { ...EMPTY, builtAt: new Date().toISOString() };
+    return cached ?? { builtAt: new Date().toISOString(), contacts: [], events: [] };
   }
 }
 

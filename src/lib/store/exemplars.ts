@@ -1,4 +1,4 @@
-import { accountKey, kvGet, kvSet } from "@/lib/store/kv";
+import { kvGet, kvSet, mailboxKey } from "@/lib/store/kv";
 
 /**
  * THE USER'S OWN LABELS — Salesforce tasks they hand-categorized are
@@ -13,7 +13,7 @@ export type Exemplar = {
 };
 
 function keyFor(accountEmail: string) {
-  return `sf-exemplars:${accountKey(accountEmail)}`;
+  return mailboxKey("sf-exemplars", accountEmail);
 }
 
 export async function loadExemplars(

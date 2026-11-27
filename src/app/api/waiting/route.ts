@@ -1,7 +1,7 @@
 import { MACHINE_LOCALPART } from "@/lib/store/people";
 import { listGmailFolder } from "@/lib/mail/gmail";
 import { requireMailSession } from "@/lib/mail/session";
-import { accountKey, kvGet, kvSet } from "@/lib/store/kv";
+import { kvGet, kvSet, mailboxKey } from "@/lib/store/kv";
 import { NextResponse } from "next/server";
 
 export const maxDuration = 30;
@@ -29,7 +29,7 @@ export type WaitingItem = {
 type CacheFile = { builtAt: string; items: WaitingItem[] };
 
 function cacheKey(email: string) {
-  return `waiting:${accountKey(email)}`;
+  return mailboxKey("waiting", email);
 }
 
 export async function GET(request: Request) {

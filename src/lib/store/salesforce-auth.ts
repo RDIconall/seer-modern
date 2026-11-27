@@ -1,5 +1,5 @@
 import type { SalesforceCreds } from "@/lib/crm/salesforce-api";
-import { accountKey, kvDelete, kvGet, kvSet } from "@/lib/store/kv";
+import { kvDelete, kvGet, kvSet, mailboxKey } from "@/lib/store/kv";
 import { open, seal, type StoredSecret } from "@/lib/store/secret-at-rest";
 
 /**
@@ -38,11 +38,11 @@ export type SalesforceConnection = {
   connectedAt: string;
 };
 
-const appKey = (email: string) => `salesforce-app:${accountKey(email)}`;
-const connKey = (email: string) => `salesforce-conn:${accountKey(email)}`;
+const appKey = (email: string) => mailboxKey("salesforce-app", email);
+const connKey = (email: string) => mailboxKey("salesforce-conn", email);
 
 /** What binds the ciphertext to its owner, so it cannot be replayed. */
-const scope = (email: string) => `salesforce:${accountKey(email)}`;
+const scope = (email: string) => `salesforce:${email.toLowerCase().trim()}`;
 
 /** The consumer key is public under PKCE; the secret and refresh token are not. */
 type PersistedApp = Omit<SalesforceApp, "source" | "clientSecret"> & {

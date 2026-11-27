@@ -3,7 +3,7 @@ import {
   type MailHistory,
 } from "@/lib/inbox/mail-history";
 import type { MailMessageListItem } from "@/lib/mail/types";
-import { accountKey, kvGet, kvSet } from "@/lib/store/kv";
+import { kvGet, kvSet, mailboxKey } from "@/lib/store/kv";
 
 const TTL_MS = 15 * 60 * 1000;
 /** The archive changes slowly — re-scanning it every 15min burned
@@ -20,7 +20,7 @@ type KeptScanFile = {
 };
 
 function keptKey(accountEmail: string) {
-  return `kept-scan:${accountKey(accountEmail)}`;
+  return mailboxKey("kept-scan", accountEmail);
 }
 
 type CacheFile = {
@@ -29,7 +29,7 @@ type CacheFile = {
 };
 
 function keyFor(accountEmail: string) {
-  return `mail-history:${accountKey(accountEmail)}`;
+  return mailboxKey("mail-history", accountEmail);
 }
 
 export async function loadCachedHistory(

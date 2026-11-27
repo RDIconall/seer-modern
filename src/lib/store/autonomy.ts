@@ -1,4 +1,4 @@
-import { accountKey, kvGet, kvSet } from "@/lib/store/kv";
+import { kvGet, kvSet, mailboxKey } from "@/lib/store/kv";
 
 /**
  * THE AUTONOMY LADDER — per-REASON trust, earned by evidence, not a
@@ -38,7 +38,7 @@ const DEMOTE_REVERSALS = 2;
 const REVERSAL_WINDOW = 20;
 
 function keyFor(accountEmail: string) {
-  return `autonomy:${accountKey(accountEmail)}`;
+  return mailboxKey("autonomy", accountEmail);
 }
 
 export async function loadAutonomy(
