@@ -29,6 +29,8 @@ import { fetchSearch, SearchBox, type SearchResult } from "./SearchBox";
 import { SearchRequestGuard } from "./search-request";
 import type { ReaderComposeIntent } from "@/components/v2/Reader";
 import { ACCOUNT_CHANGED_EVENT, useMailbox } from "./useMailbox";
+import { sortInboxRows } from "./inbox-groups";
+import { useInboxSort } from "./useInboxSort";
 import {
   clearSearchState,
   modalBackgroundState,
@@ -528,7 +530,17 @@ export function MailClient({
     return () => window.removeEventListener(ACCOUNT_CHANGED_EVENT, onAccountChanged);
   }, []);
 
-  const activeMailbox = mailbox.view;
+  const [inboxSort, setInboxSort] = useInboxSort();
+  const activeMailbox = useMemo(
+    () =>
+      mailbox.view && section === "inbox"
+        ? {
+            ...mailbox.view,
+            rows: sortInboxRows(mailbox.view.rows, inboxSort),
+          }
+        : mailbox.view,
+    [mailbox.view, section, inboxSort],
+  );
   const previewProviderConversationId = useMemo(() => {
     if (!preview || !conversationId) return null;
     const mailboxRows = Object.values(preview.mailbox).flatMap(
@@ -794,6 +806,8 @@ export function MailClient({
       view={activeMailbox}
       refreshing={mailbox.refreshing}
       currentConversationId={conversationId}
+      sort={inboxSort}
+      onSortChange={setInboxSort}
       onOpen={openRow}
       onPrefetch={mailbox.prefetchBody}
       onCommands={runCommands}
