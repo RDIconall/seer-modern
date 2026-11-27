@@ -1,18 +1,16 @@
 /**
- * Gate: triage can be worked several conversations at a time.
+ * Gate: the Inbox can be worked several matters at a time.
  *
- * Triage renders through MobileMailboxList at every width, and that component
- * had no selection at all — the reducer with the shift-range rule was wired
- * only into FolderList, which triage never reaches. The only bulk move was
- * "Delete all" on a whole pile, so placing six of forty rows meant six separate
- * gestures. These assertions are about the wiring, because the bug was not a
- * broken rule but a rule that was never connected.
+ * Every group carries a tick box and a shift range runs in the order the groups
+ * are READ, with the apply bar drawn only once something is ticked. Ticking is
+ * a plan, not an action: the confirmation owns the moment where things run.
  */
 import assert from "node:assert/strict";
 import { promises as fs } from "node:fs";
 import { createElement } from "react";
 import { renderToString } from "react-dom/server";
-import { MobileMailboxList } from "../src/components/v3/MobileMailboxList.tsx";
+import { InboxList } from "../src/components/v3/InboxList.tsx";
+import { nextStepFor } from "../src/lib/v3/mailbox/next-step.ts";
 import {
   EMPTY_SELECTION,
   reduceSelection,
@@ -38,6 +36,16 @@ const row = (over: Partial<MailboxRow>): MailboxRow => ({
   deleteToken: null,
   category: null,
   vetoReasons: [],
+  matterId: null,
+  nextStep: nextStepFor({
+    disposition: over.disposition ?? "matter",
+    matterId: null,
+    ask: null,
+    summary: null,
+    userStep: null,
+  }),
+  groupKey: `c:${over.conversationId ?? "c"}`,
+  groupAt: "2026-08-17T09:00:00.000Z",
   ...over,
 });
 
@@ -51,7 +59,7 @@ const rows = [
 const view: MailboxView = {
   accountId: "a",
   folder: "inbox",
-  sort: "triage",
+  sort: "matter",
   rows,
   total: rows.length,
   needsYou: 1,
@@ -59,29 +67,35 @@ const view: MailboxView = {
 };
 
 const html = renderToString(
-  createElement(MobileMailboxList, {
+  createElement(InboxList, {
     view,
-    triage: true,
     onOpen() {},
+    onPrefetch() {},
     onCommands: async () => [],
   } as never),
 ).replace(/<!--[\s\S]*?-->/g, "");
 
-// Every row carries a tick box, and every pile carries a select-all.
-const rowBoxes = [...html.matchAll(/aria-label="Select (?!all in)[^"]*"/g)];
-assert.equal(rowBoxes.length, rows.length, "every triage row can be ticked");
-for (const pile of ["Delete", "Archive", "Atlas"]) {
-  assert.match(
-    html,
-    new RegExp(`aria-label="Select all in ${pile}"`),
-    `the ${pile} pile can be taken whole`,
-  );
-}
+// Every group carries a tick box.
+const rowBoxes = [...html.matchAll(/aria-label="Select (?!all)[^"]*"/g)];
+assert.equal(rowBoxes.length, rows.length, "every group can be ticked");
 
-// The toolbar is not drawn until something is ticked: a list that always shows
-// bulk actions is a spreadsheet.
-assert.doesNotMatch(html, /compact-mail-bulk/);
-assert.doesNotMatch(html, /selected<\/span>/);
+// The apply bar is not drawn until something is ticked.
+assert.doesNotMatch(html, /Do these next steps/);
+assert.doesNotMatch(html, /Is this the next step/);
+assert.match(html, /Check the steps you agree with/);
+
+const ticked = renderToString(
+  createElement(InboxList, {
+    view,
+    onOpen() {},
+    onPrefetch() {},
+    onCommands: async () => [],
+    initialSelectedKeys: ["c:d1", "c:d2"],
+  } as never),
+).replace(/<!--[\s\S]*?-->/g, "");
+assert.match(ticked, /2 selected/);
+assert.match(ticked, /Do these next steps/);
+assert.doesNotMatch(ticked, /Is this the next step/, "ticking asks nothing until you apply");
 
 // --- the selection rule itself ------------------------------------------------
 
@@ -119,32 +133,15 @@ assert.deepEqual([...pruned.ids], ["d2"]);
 
 // --- the wiring ---------------------------------------------------------------
 
-const source = await fs.readFile("src/components/v3/MobileMailboxList.tsx", "utf8");
-assert.match(source, /reduceSelection/, "triage uses the tested reducer");
+const source = await fs.readFile("src/components/v3/InboxList.tsx", "utf8");
+assert.match(source, /reduceSelection/, "the Inbox uses the tested reducer");
 assert.match(source, /kind: "row"/);
-assert.match(source, /kind: "group"/);
 assert.match(source, /kind: "prune"/);
+assert.match(source, /kind: "all"/);
 assert.match(source, /Escape/, "Escape drops the selection");
-// The bulk toolbar offers the same three destinations a single row offers.
-for (const destination of ["matterCommand", "triageArchiveCommand", "triageDeleteCommand"]) {
-  assert.match(source, new RegExp(destination));
-}
-
-const rowSource = await fs.readFile("src/components/v3/MobileMailRow.tsx", "utf8");
-assert.match(rowSource, /onToggleSelect/);
-assert.match(
-  rowSource,
-  /if \(selecting\) return;/,
-  "a swipe acts on one row, so gestures stand down during a selection",
-);
-assert.match(
-  rowSource,
-  /shiftHeld/,
-  "the shift key is read from the click, not the change event",
-);
 
 const css = await fs.readFile("src/app/globals.css", "utf8");
-assert.match(css, /\.mobile-mail-select\b/, "the tick box is styled");
-assert.match(css, /\.compact-mail-bulk\b/, "the bulk toolbar is styled");
+assert.match(css, /\.inbox-apply\b/, "the apply button is styled");
+assert.match(css, /\.bulk-confirm\b/, "the confirmation is styled");
 
-console.log("v3-triage-multiselect: OK");
+console.log("v3-inbox-multiselect: OK");

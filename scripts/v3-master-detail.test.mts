@@ -19,37 +19,29 @@ const preview = {
   },
 };
 
-const triage = renderToString(
+const inbox = renderToString(
   createElement(MailClient, {
     preview: {
       ...preview,
-      initialSection: "triage",
+      initialSection: "inbox",
       initialConversationId: "preview-c-1",
     },
   }),
 );
-assert.match(triage, /mail-workspace/);
-assert.match(triage, /mail-folder-pane/);
-assert.match(triage, /mail-reader-pane/);
-assert.match(triage, /compact-mail-list/);
-for (const destination of ["Atlas", "Archive", "Delete"]) {
-  assert.match(triage, new RegExp(`>${destination}<`));
-}
-assert.match(triage, /Reading RMS Amendment/);
+assert.match(inbox, /mail-workspace/);
+assert.match(inbox, /mail-folder-pane/);
+assert.match(inbox, /mail-reader-pane/);
+assert.match(inbox, /inbox-list/);
+assert.match(inbox, /Reading RMS Amendment/);
+assert.doesNotMatch(inbox, /Atlas — the whiteboard/, "there is no separate Atlas board");
 
-const atlas = renderToString(
+// The reader pane only exists once a conversation is chosen.
+const closed = renderToString(
   createElement(MailClient, {
-    preview: {
-      ...preview,
-      initialSection: "atlas",
-      initialConversationId: "preview-c-1",
-    },
+    preview: { ...preview, initialSection: "inbox" },
   }),
 );
-assert.match(atlas, /mail-workspace mail-atlas-workspace/);
-assert.match(atlas, /aria-label="Atlas — the whiteboard"/);
-assert.match(atlas, /mail-reader-pane/);
-assert.match(atlas, /Reading RMS Amendment/);
+assert.doesNotMatch(closed, /mail-reader-pane/, "no conversation is open until one is chosen");
 
 const clientSource = readFileSync(
   new URL("../src/components/v3/MailClient.tsx", import.meta.url),

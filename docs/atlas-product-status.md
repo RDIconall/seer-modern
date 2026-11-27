@@ -33,6 +33,22 @@ these is not done, regardless of the logic behind it.
 
 ---
 
+## The Inbox is the whole app (supersedes the Triage, Cards and Atlas tabs)
+
+Triage, Cards, the Atlas board and the delegated-staff pane tried to answer one
+question four ways: what should happen next to this mail. The v3 app now answers
+it once, in the Inbox. The sections below describe the earlier Atlas and Triage
+surfaces and are kept as history; where they disagree with this one, this one wins.
+
+| Ask (their words) | Status |
+|---|---|
+| "Collapse all the features into the inbox… the next step on each email, in the order it was received" | ✅ One Inbox table, one row per matter or per conversation that is not on one, each with its **next step**, ordered by **matter age**: the oldest email in the group decides where the group sits, oldest first. Navigation is Inbox, Sent, Trash, Settings. `InboxList.tsx`, `sort=matter` in `/api/v3/mailbox`. |
+| "I could check to agree… it should ask me, 'Is this the next step you want to do?'" | ✅ Ticking rows raises a bar with **Do these next steps**. A confirmation lists what will happen (delete, archive, keep for the record) before anything runs; **Go back** or Escape changes nothing. `bulk-plan.ts`, `BulkConfirmDialog.tsx`. Deleting something Seer's safety check held back is called out in the dialog. |
+| "I can edit or adjust that next step… tied to the way Atlas talks about it" | ✅ A matter's next step is Seer's wording (the `ask` on its latest decision) until the person edits it in place; the edit is stored on the matter (`matters.next_step_user`, command `setMatterNextStep`) and clearing it hands the wording back to Seer. A conversation not on a matter carries a verb the person can change: Delete, Archive or Keep for record. |
+| "Group the emails into Atlas threads… deal with those at one time" | ✅ Conversations on one matter sit under one expandable row. Ticking the matter and confirming files all of its mail away; the **Add to a matter** action on a conversation moves it between matters or creates one. |
+| "No separate Atlas tab, no Cards tab, no Triage tab" | ✅ Removed from the shell. Old links to `#section=triage`, `cards` or `atlas` open the Inbox. |
+| "The stuff the chat bots have delegated… brutally out of date. I would remove these" | ✅ The Delegated pane, its hook and the seed script and fixture are removed. The `seer.bot_*` tables, `/api/v2/staff` and `docs/bot-integration-contract.md` stay, so a bot that posts today still has somewhere to post. |
+
 ## Atlas — turn the whole inbox into a living corpus (§18, §20, §21)
 
 | Ask (their words) | Status |
@@ -187,6 +203,12 @@ tap to delete. The export shows the flag in a "Known sender" column so the
 enforcement is auditable.
 
 ## Changelog
+
+- 2026-11-26 — Collapsed Seer into one matter-first Inbox. Matters and
+  standalone conversations are listed oldest-matter-first with their next step;
+  ticked rows are applied together after a confirmation; a matter's next step
+  can be edited. Triage, Cards, Atlas and the delegated-staff UI are removed from
+  the v3 shell.
 
 - 2026-08-09 — Relationship floor: known senders (VIP / written-to / saved
   contact / inner-known tier) are excluded from bulk delete in code, not just

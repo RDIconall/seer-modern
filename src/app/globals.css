@@ -892,205 +892,6 @@ body {
   display: none;
 }
 
-.mobile-mail-list,
-.mobile-mail-row {
-  display: none;
-}
-
-/* Inbox and Triage use the whiteboard's compact grammar: quiet section
-   headings and one line per conversation. The reader can therefore sit beside
-   the list without either side turning into a wall of cards. */
-.compact-mail-list {
-  display: block;
-  min-width: 0;
-  padding: 14px 18px 40px;
-}
-
-.compact-mail-header {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  padding: 0 2px 12px;
-}
-
-.compact-mail-header h1 {
-  margin: 0;
-  color: var(--fg-strong);
-  font-size: 20px;
-}
-
-.compact-mail-header span {
-  color: var(--muted);
-}
-
-.compact-mail-header button {
-  border: 1px solid var(--border);
-  border-radius: 7px;
-  padding: 5px 9px;
-  background: var(--card);
-  color: var(--fg);
-  font: inherit;
-  font-size: 12px;
-  font-weight: 650;
-}
-
-.compact-mail-group {
-  overflow: hidden;
-  border: 1px solid var(--border);
-  border-radius: 9px;
-  background: var(--card);
-}
-
-.compact-mail-group + .compact-mail-group {
-  margin-top: 12px;
-}
-
-.compact-mail-group > h2 {
-  display: flex;
-  align-items: center;
-  gap: 7px;
-  margin: 0;
-  padding: 6px 12px 5px;
-  background: var(--row-active);
-  color: var(--muted);
-  font-size: 11px;
-  font-weight: 500;
-  letter-spacing: 0.05em;
-  text-transform: uppercase;
-}
-
-.compact-mail-group > h2 em {
-  color: var(--nav-muted);
-  font-style: normal;
-}
-
-/* Why the pile exists, said once above the rows instead of on each of them. */
-.compact-mail-group > h2 small {
-  overflow: hidden;
-  flex: 1;
-  color: var(--nav-muted);
-  font-size: 10px;
-  letter-spacing: 0;
-  text-overflow: ellipsis;
-  text-transform: none;
-  white-space: nowrap;
-}
-
-.compact-mail-group > h2 button {
-  flex: none;
-  border: 1px solid var(--border);
-  border-radius: 6px;
-  padding: 3px 8px;
-  background: var(--card);
-  color: var(--fg);
-  font: inherit;
-  font-size: 10px;
-  font-weight: 650;
-  letter-spacing: 0;
-  text-transform: none;
-}
-
-/*
- * Selecting several conversations at once.
- *
- * Triage renders through this list at every width, and it had no selection at
- * all: the only bulk move was "Delete all" on a whole pile, so placing six of
- * the forty meant six separate gestures. The tick box lives outside the swipe
- * track so it stays still while the face slides under a thumb.
- */
-.mobile-mail-select {
-  flex: none;
-  width: 15px;
-  height: 15px;
-  margin: 0 0 0 12px;
-  accent-color: var(--brand);
-  cursor: pointer;
-}
-
-.compact-mail-group > h2 .mobile-mail-select {
-  margin-left: 0;
-}
-
-.compact-mail-bulk {
-  position: sticky;
-  top: 0;
-  z-index: 4;
-  display: flex;
-  flex-wrap: wrap;
-  align-items: center;
-  gap: 6px;
-  margin-bottom: 10px;
-  padding: 7px 10px;
-  border: 1px solid var(--border);
-  border-radius: 9px;
-  background: var(--card);
-  color: var(--muted);
-  font-size: 12px;
-}
-
-.compact-mail-bulk button {
-  display: inline-flex;
-  align-items: center;
-  gap: 5px;
-  border: 1px solid var(--border);
-  border-radius: 6px;
-  padding: 4px 10px;
-  background: var(--bg);
-  color: var(--fg-strong);
-  font: inherit;
-  font-size: 11px;
-  font-weight: 650;
-  cursor: pointer;
-}
-
-.compact-mail-bulk button:hover {
-  background: var(--row-hover);
-}
-
-.compact-mail-bulk button svg {
-  width: 13px;
-  height: 13px;
-}
-
-.compact-mail-bulk-clear {
-  margin-left: auto;
-  color: var(--muted) !important;
-}
-
-.compact-mail-list .mobile-mail-row[data-selected="true"] .mobile-mail-row-button {
-  background: var(--brand-soft);
-}
-
-/* The three destinations, in words. A swipe is not discoverable, and a row
-   that cannot be placed is a row that comes back tomorrow. */
-.mobile-mail-row-actions {
-  display: flex;
-  gap: 6px;
-  padding: 0 12px 9px;
-  background: var(--card);
-}
-
-.mobile-mail-row-actions button {
-  border: 1px solid var(--border);
-  border-radius: 6px;
-  padding: 4px 10px;
-  background: var(--bg);
-  color: var(--fg);
-  font: inherit;
-  font-size: 11px;
-  font-weight: 650;
-  cursor: pointer;
-}
-
-.mobile-mail-row-actions button:first-child {
-  border-color: var(--brand-line, var(--brand));
-  color: var(--brand-strong);
-}
-
-.mobile-mail-row-actions button:hover {
-  background: var(--row-hover);
-}
-
 .matter-picker-backdrop {
   position: fixed;
   inset: 0;
@@ -1263,166 +1064,6 @@ body {
   color: var(--on-brand);
   font: inherit;
   font-weight: 700;
-}
-
-.compact-mail-list .mobile-mail-row {
-  display: block;
-  border-bottom: 1px solid var(--border);
-}
-
-.compact-mail-list .mobile-mail-reveal {
-  display: none;
-}
-
-.compact-mail-list .mobile-mail-row:last-child {
-  border-bottom: 0;
-}
-
-.compact-mail-list .mobile-mail-row-button {
-  display: grid;
-  width: 100%;
-  grid-template-columns: minmax(110px, 0.72fr) minmax(150px, 1fr) minmax(160px, 1.35fr) 68px auto;
-  align-items: center;
-  gap: 12px;
-  border: 0;
-  padding: 8px 12px;
-  background: var(--card);
-  color: var(--fg);
-  font: inherit;
-  text-align: left;
-}
-
-.compact-mail-list .mobile-mail-row-button:hover,
-.compact-mail-list .mobile-mail-row[data-current="true"] .mobile-mail-row-button {
-  background: var(--row-active);
-}
-
-.compact-mail-list .mobile-mail-row[data-current="true"] .mobile-mail-row-button {
-  box-shadow: inset 3px 0 0 var(--brand);
-}
-
-.compact-mail-list .mobile-mail-row-top {
-  display: contents;
-}
-
-/* Every cell names its own place on the one line.
- *
- * Only the date and the meta cell used to say where they went, and grid
- * auto-placement never walks backwards: the date claimed column four, which
- * pushed the cursor past it, so the subject — auto-placed, and next in the
- * markup — was put in column FIVE, to the right of its own date, and the
- * preview had nowhere left on that line and wrapped onto a second row. Naming
- * the column is not enough either; without the row, a cell whose column sits
- * behind the cursor is pushed down instead of back. That is why the table
- * stopped reading as a table. */
-.compact-mail-list .mobile-mail-row-top strong {
-  grid-column: 1;
-}
-
-.compact-mail-list .mobile-mail-row-top strong,
-.compact-mail-list .mobile-mail-row-subject,
-.compact-mail-list .mobile-mail-row-preview,
-.compact-mail-list .mobile-mail-row-top time,
-.compact-mail-list .mobile-mail-row-meta {
-  grid-row: 1;
-}
-
-.compact-mail-list .mobile-mail-row-top strong,
-.compact-mail-list .mobile-mail-row-subject,
-.compact-mail-list .mobile-mail-row-preview {
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-
-.compact-mail-list .mobile-mail-row-top strong {
-  color: var(--fg-strong);
-  font-size: 13px;
-  font-weight: 500;
-}
-
-.compact-mail-list .mobile-mail-row[data-unread="true"] .mobile-mail-row-top strong,
-.compact-mail-list .mobile-mail-row[data-unread="true"] .mobile-mail-row-subject {
-  font-weight: 750;
-}
-
-.compact-mail-list .mobile-mail-row-subject {
-  grid-column: 2;
-  color: var(--fg-strong);
-  font-size: 13px;
-}
-
-.compact-mail-list .mobile-mail-row-preview {
-  grid-column: 3;
-  color: var(--muted);
-  font-size: 12px;
-}
-
-.compact-mail-list .mobile-mail-row-top time {
-  grid-column: 4;
-  color: var(--nav-muted);
-  font-size: 10px;
-  text-align: right;
-}
-
-.compact-mail-list .mobile-mail-row-meta {
-  grid-column: 5;
-  display: flex;
-  gap: 5px;
-  color: var(--nav-muted);
-  font-size: 10px;
-}
-
-.compact-mail-list .mobile-mail-row-attachment svg {
-  width: 14px;
-  height: 14px;
-}
-
-/* Above phone width the three destinations belong at the END of the row, not
-   under it. Standing open beneath each conversation they added a line to every
-   row, and a list where each entry is two lines and a button strip is a stack
-   of cards — which is what triage had become on a desktop. They take their own
-   space at the end of the line rather than floating over it, so the date keeps
-   its column. */
-@media (min-width: 701px) {
-  .compact-mail-list .mobile-mail-row {
-    display: flex;
-    align-items: center;
-  }
-
-  .compact-mail-list .mobile-mail-row-track {
-    min-width: 0;
-    flex: 1;
-  }
-
-  .compact-mail-list .mobile-mail-row-actions {
-    flex: none;
-    padding: 0 10px;
-    background: none;
-  }
-
-  .compact-mail-list .mobile-mail-row:hover .mobile-mail-row-button {
-    background: var(--row-active);
-  }
-}
-
-/* With a mouse they wait for the row, the way every mail client has done it
-   since Gmail. The space stays reserved either way, so nothing shifts under
-   the pointer; they keep their place in the tab order and come back on
-   keyboard focus, so no action is reachable by hover alone. A wide TOUCH
-   screen keeps them standing open — there is no hover to find them with, and
-   no swipe at that width either. */
-@media (min-width: 701px) and (hover: hover) and (pointer: fine) {
-  .compact-mail-list .mobile-mail-row-actions {
-    opacity: 0;
-    pointer-events: none;
-  }
-
-  .compact-mail-list .mobile-mail-row:hover .mobile-mail-row-actions,
-  .compact-mail-list .mobile-mail-row:focus-within .mobile-mail-row-actions {
-    opacity: 1;
-    pointer-events: auto;
-  }
 }
 
 .mail-toolbar-status {
@@ -1773,128 +1414,8 @@ body {
   inset: -14px;
 }
 
-/*
- * A pile heading: what the pile is, and the one action that empties it. It
- * reads as a heading rather than a form, so the checkbox only joins it once the
- * user has actually started selecting.
- */
-.mail-list-group {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  margin-top: 18px;
-  padding: 6px 0 5px;
-}
-
-.mail-list-group-label {
-  flex: 1;
-  min-width: 0;
-  color: var(--muted);
-  font-size: 10.5px;
-  font-weight: 500;
-  letter-spacing: 0.07em;
-  text-transform: uppercase;
-}
-
-.mail-list-group-count {
-  flex: none;
-  color: var(--nav-muted);
-}
-
-/* The pile-level sweep. Stated as what it will do and to how many. */
-.mail-list-sweep {
-  flex: none;
-  appearance: none;
-  background: none;
-  border: 0;
-  padding: 4px 0;
-  font: inherit;
-  font-size: 13px;
-  color: var(--brand-strong);
-  cursor: pointer;
-  min-height: 32px;
-}
-.mail-list-sweep:disabled {
-  opacity: 0.5;
-  cursor: default;
-}
-
-/*
- * A triage row is two lines. Who it is from and what it is on the first, with
- * the date; what it means and where it was filed on the second. Both right-hand
- * columns are tabular so they line up down the list.
- */
-.mail-list-triage {
-  display: flex;
-  min-width: 0;
-  flex: 1;
-  flex-direction: column;
-  gap: 3px;
-}
-.mail-list-line {
-  display: flex;
-  align-items: baseline;
-  gap: 8px;
-  min-width: 0;
-}
-.mail-list-when {
-  flex: none;
-  margin-left: auto;
-  color: var(--nav-muted);
-}
-
-/* The sender carries the line; the subject follows it in the same breath. */
-.mail-list-triage .mail-list-sender {
-  flex: none;
-  max-width: 45%;
-  color: var(--fg-strong);
-  font-size: 15px;
-  font-weight: 600;
-}
-.mail-list-triage .mail-list-subject {
-  flex: 1;
-  min-width: 0;
-  color: var(--fg);
-  font-size: 15px;
-}
-
-.mail-list-decision {
-  flex: 1;
-  min-width: 0;
-  overflow: hidden;
-  color: var(--muted);
-  font-size: 13px;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-
-.mail-list-category {
-  flex: none;
-  overflow: hidden;
-  color: var(--nav-muted);
-  text-transform: uppercase;
-  letter-spacing: 0.05em;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-
 .mail-list-ledger {
   color: var(--muted);
-}
-
-/*
- * What the sweep will not take. This sits at the foot of the clear pile, in the
- * one warm tone in the interface, because the user is about to press a button
- * that deletes several dozen things at once and the question in their head is
- * whether it can take something it should not.
- */
-.mail-list-held {
-  padding: 11px 20px 13px;
-  border-top: 1px solid var(--danger-soft, #f0e2d9);
-  background: var(--danger-soft, #fbf6f2);
-  color: var(--fg);
-  font-size: 13px;
-  line-height: 1.45;
 }
 
 .mail-list-row[data-selected="true"] {
@@ -3054,37 +2575,6 @@ body {
     overflow: auto;
   }
 
-  .mail-client[data-reader-open="true"] .compact-mail-list {
-    padding: 0 0 30px;
-  }
-
-  .mail-client[data-reader-open="true"] .compact-mail-header {
-    padding: 13px 12px 9px;
-  }
-
-  .mail-client[data-reader-open="true"] .compact-mail-group {
-    border-inline: 0;
-    border-radius: 0;
-  }
-
-  .mail-client[data-reader-open="true"] .compact-mail-group + .compact-mail-group {
-    margin-top: 0;
-  }
-
-  .mail-client[data-reader-open="true"] .compact-mail-list .mobile-mail-row-button {
-    grid-template-columns: minmax(80px, 0.75fr) minmax(110px, 1fr) 50px;
-    gap: 7px;
-    padding-inline: 12px;
-  }
-
-  .mail-client[data-reader-open="true"] .compact-mail-list .mobile-mail-row-preview,
-  .mail-client[data-reader-open="true"] .compact-mail-list .mobile-mail-row-meta {
-    display: none;
-  }
-
-  .mail-client[data-reader-open="true"] .compact-mail-list .mobile-mail-row-top time {
-    grid-column: 3;
-  }
 }
 
 @media (max-width: 700px) {
@@ -3184,228 +2674,6 @@ body {
 
   .mail-content {
     overflow: visible;
-  }
-
-  .mobile-mail-list {
-    display: block;
-    padding: 0 0 calc(74px + var(--safe-bottom));
-    background: var(--card);
-  }
-
-  .compact-mail-header {
-    display: none;
-  }
-
-  .compact-mail-group,
-  .mail-client[data-reader-open="true"] .compact-mail-group {
-    overflow: visible;
-    border: 0;
-    border-radius: 0;
-  }
-
-  .compact-mail-group + .compact-mail-group,
-  .mail-client[data-reader-open="true"] .compact-mail-group + .compact-mail-group {
-    margin-top: 0;
-  }
-
-  .compact-mail-group > h2 {
-    position: sticky;
-    top: 64px;
-    z-index: 3;
-    border-bottom: 1px solid var(--border);
-    padding: 6px 16px 5px;
-  }
-
-  /* On a phone the pile heading keeps its name, count and sweep; the sentence
-     explaining the pile is the first thing to go when the line is 390px. */
-  .compact-mail-group > h2 small {
-    display: none;
-  }
-
-  .compact-mail-group > h2 button {
-    display: none;
-  }
-
-  .mobile-mail-row-actions {
-    display: none;
-  }
-
-  .mobile-mail-row {
-    position: relative;
-    display: block;
-    border-bottom: 1px solid color-mix(in srgb, var(--border) 72%, transparent);
-    background: var(--card);
-  }
-
-  /* The tick box sits beside the face rather than above it, so a row is still
-     one line when a selection is under way. */
-  .compact-mail-list .mobile-mail-row {
-    display: flex;
-    align-items: center;
-  }
-
-  /* The swipe track is the scrollport, not the row: the reveals must be sized
-     to the face that slides, not to the row's buttons as well. */
-  .mobile-mail-row-track {
-    position: relative;
-    min-width: 0;
-    flex: 1;
-    overflow: hidden;
-  }
-
-  .mobile-mail-reveal {
-    position: absolute;
-    inset-block: 0;
-    display: flex;
-    width: 132px;
-    align-items: center;
-    justify-content: center;
-    gap: 6px;
-    color: white;
-    font-size: 12px;
-    font-weight: 700;
-  }
-
-  .compact-mail-list .mobile-mail-reveal {
-    display: flex;
-  }
-
-  .mobile-mail-reveal svg {
-    width: 18px;
-    height: 18px;
-  }
-
-  .mobile-mail-reveal-archive {
-    right: 0;
-    background: #2f8f6b;
-  }
-
-  .mobile-mail-reveal-delete {
-    left: 0;
-    background: #c53f3f;
-  }
-
-  .mobile-mail-row[data-long-atlas="true"] .mobile-mail-reveal-delete {
-    background: var(--brand-cta);
-  }
-
-  .mobile-mail-row-button {
-    position: relative;
-    z-index: 1;
-    display: grid;
-    width: 100%;
-    min-width: 0;
-    gap: 1px;
-    border: 0;
-    padding: 7px 16px 8px 20px;
-    background: var(--card);
-    color: var(--fg);
-    font: inherit;
-    text-align: left;
-    touch-action: pan-y;
-    transition: transform 160ms ease;
-  }
-
-  .compact-mail-list .mobile-mail-row-button,
-  .mail-client[data-reader-open="true"] .compact-mail-list .mobile-mail-row-button {
-    grid-template-columns: minmax(0, 1fr);
-    gap: 1px;
-    padding: 7px 16px 8px 20px;
-  }
-
-  .compact-mail-list .mobile-mail-row-top {
-    display: flex;
-  }
-
-  /* One column on a phone, so nothing may name a place of its own. */
-  .compact-mail-list .mobile-mail-row-top time,
-  .compact-mail-list .mobile-mail-row-meta,
-  .compact-mail-list .mobile-mail-row-subject,
-  .compact-mail-list .mobile-mail-row-preview,
-  .compact-mail-list .mobile-mail-row-top strong {
-    grid-column: auto;
-    grid-row: auto;
-  }
-
-  .mobile-mail-row[data-dragging="true"] .mobile-mail-row-button {
-    transition: none;
-  }
-
-  .mobile-mail-row[data-current="true"] .mobile-mail-row-button {
-    background: var(--row-active);
-    box-shadow: inset 3px 0 0 var(--brand);
-  }
-
-  .mobile-mail-row-top {
-    display: flex;
-    min-width: 0;
-    align-items: baseline;
-    gap: 8px;
-  }
-
-  .mobile-mail-row-top strong {
-    overflow: hidden;
-    flex: 1;
-    color: var(--fg-strong);
-    font-size: 15px;
-    font-weight: 500;
-    text-overflow: ellipsis;
-    white-space: nowrap;
-  }
-
-  .mobile-mail-row[data-unread="true"] .mobile-mail-row-top strong,
-  .mobile-mail-row[data-unread="true"] .mobile-mail-row-subject {
-    font-weight: 750;
-  }
-
-  .mobile-mail-row-top time {
-    flex: none;
-    color: var(--muted);
-    font-size: 12px;
-  }
-
-  .mobile-mail-row-subject,
-  .mobile-mail-row-preview {
-    overflow: hidden;
-    padding-right: 42px;
-    text-overflow: ellipsis;
-    white-space: nowrap;
-  }
-
-  .mobile-mail-row-subject {
-    color: var(--muted);
-    font-size: 13px;
-  }
-
-  .mobile-mail-row-preview {
-    color: var(--nav-muted);
-    font-size: 12px;
-  }
-
-  .mobile-mail-row-meta {
-    position: absolute;
-    right: 14px;
-    bottom: 8px;
-    z-index: 2;
-    display: flex;
-    align-items: center;
-    gap: 5px;
-    color: var(--muted);
-    font-size: 10px;
-    pointer-events: none;
-  }
-
-  .mobile-mail-row-attachment svg {
-    width: 15px;
-    height: 15px;
-  }
-
-  .mobile-mail-row-count {
-    min-width: 18px;
-    border: 1px solid var(--border);
-    border-radius: 3px;
-    padding: 0 3px;
-    text-align: center;
   }
 
   .mail-workspace {
@@ -3677,308 +2945,6 @@ body {
   min-height: 100%;
 }
 
-.deck-head {
-  display: flex;
-  align-items: baseline;
-  gap: 12px;
-}
-.deck-count {
-  color: rgba(255, 255, 255, 0.85);
-}
-.deck-exit {
-  margin-left: auto;
-  appearance: none;
-  background: rgba(255, 255, 255, 0.16);
-  border: 0;
-  border-radius: 999px;
-  padding: 6px 14px;
-  font: inherit;
-  font-size: 13px;
-  color: #fff;
-  cursor: pointer;
-  min-height: 34px;
-}
-
-.deck-stage {
-  position: relative;
-  min-height: 380px;
-}
-
-.deck-card {
-  position: absolute;
-  inset-inline: 0;
-  top: 0;
-}
-.deck-card-behind {
-  pointer-events: none;
-  opacity: 0.75;
-}
-.deck-card-top {
-  z-index: 20;
-  touch-action: pan-y;
-  cursor: grab;
-}
-.deck-card-top:active {
-  cursor: grabbing;
-}
-
-.deck-open {
-  display: block;
-  width: 100%;
-  appearance: none;
-  background: none;
-  border: 0;
-  padding: 0;
-  font: inherit;
-  text-align: left;
-  cursor: pointer;
-}
-
-/* .seer-card-face carries the paper, the hairline and the lift. */
-.deck-face {
-  display: flex;
-  flex-direction: column;
-  min-height: 380px;
-  padding: 22px;
-  border-radius: 22px;
-}
-.deck-face-top {
-  display: flex;
-  align-items: center;
-  gap: 12px;
-}
-.deck-avatar {
-  display: flex;
-  flex: none;
-  width: 44px;
-  height: 44px;
-  align-items: center;
-  justify-content: center;
-  border-radius: 999px;
-  background: var(--brand);
-  color: #fff;
-  font-size: 16px;
-  font-weight: 600;
-}
-.deck-who {
-  display: flex;
-  min-width: 0;
-  flex: 1;
-  flex-direction: column;
-}
-.deck-sender {
-  overflow: hidden;
-  color: var(--fg-strong);
-  font-size: 17px;
-  font-weight: 700;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-.deck-cat {
-  overflow: hidden;
-  color: var(--muted);
-  font-size: 13px;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-.deck-when {
-  flex: none;
-  color: var(--nav-muted);
-}
-
-/* The middle of the card is the answer to "what is this". */
-.deck-face-middle {
-  display: flex;
-  flex: 1;
-  flex-direction: column;
-  justify-content: center;
-  padding: 22px 0;
-}
-.deck-subject {
-  margin: 0;
-  color: var(--fg-strong);
-  font-size: 19px;
-  font-weight: 700;
-  line-height: 1.28;
-  letter-spacing: -0.015em;
-  display: -webkit-box;
-  -webkit-line-clamp: 3;
-  -webkit-box-orient: vertical;
-  overflow: hidden;
-}
-.deck-why {
-  margin-top: 12px;
-  color: var(--brand-strong);
-  font-size: 15px;
-  font-weight: 500;
-  line-height: 1.4;
-}
-.deck-snippet {
-  margin-top: 10px;
-  color: var(--muted);
-  font-size: 14px;
-  line-height: 1.5;
-  display: -webkit-box;
-  -webkit-line-clamp: 4;
-  -webkit-box-orient: vertical;
-  overflow: hidden;
-}
-.deck-face-foot {
-  display: flex;
-  gap: 10px;
-  align-items: baseline;
-  margin-top: auto;
-  color: var(--nav-muted);
-  font-size: 12px;
-}
-.deck-held {
-  margin-left: auto;
-  color: var(--danger);
-  text-align: right;
-}
-
-/* The verdict is named on the card while the gesture is still reversible. */
-.deck-verdict {
-  position: absolute;
-  top: 20px;
-  z-index: 30;
-  padding: 6px 12px;
-  border-radius: 6px;
-  font-size: 12px;
-  font-weight: 600;
-  letter-spacing: 0.05em;
-  text-transform: uppercase;
-  color: #fff;
-  opacity: 0;
-  transition: opacity 0.12s ease;
-  pointer-events: none;
-}
-.deck-verdict[data-on="true"] {
-  opacity: 1;
-}
-.deck-verdict-clear {
-  right: 20px;
-  background: var(--danger);
-}
-.deck-verdict-keep {
-  left: 20px;
-  background: var(--brand-strong);
-}
-
-/* Round buttons on the field, labelled underneath. */
-.deck-actions {
-  display: flex;
-  justify-content: space-around;
-  gap: 8px;
-  padding-top: 4px;
-}
-.deck-action {
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-  gap: 6px;
-  appearance: none;
-  background: none;
-  border: 0;
-  padding: 0;
-  font: inherit;
-  cursor: pointer;
-}
-.deck-action:disabled {
-  opacity: 0.4;
-  cursor: default;
-}
-.deck-action-ring {
-  display: flex;
-  width: 52px;
-  height: 52px;
-  align-items: center;
-  justify-content: center;
-  border-radius: 999px;
-  background: #fff;
-  color: var(--brand-strong);
-  box-shadow: 0 2px 8px rgba(10, 45, 40, 0.25);
-}
-.deck-action[data-primary="true"] .deck-action-ring {
-  background: var(--brand-strong);
-  color: #fff;
-}
-.deck-action-ring svg {
-  width: 22px;
-  height: 22px;
-}
-.deck-action-label {
-  color: rgba(255, 255, 255, 0.9);
-  font-size: 12px;
-}
-
-.deck-done {
-  display: flex;
-  justify-content: center;
-  flex-direction: column;
-  gap: 16px;
-  align-items: flex-start;
-  padding: 40px 20px;
-  min-height: 100%;
-}
-.deck-done-line {
-  font-size: 17px;
-  color: #fff;
-}
-
-/* Triage offers its own dealt-one-at-a-time reading of the same pile. */
-.mail-cards-link {
-  appearance: none;
-  background: none;
-  border: 0;
-  padding: 4px 0;
-  font: inherit;
-  font-size: 13px;
-  color: var(--brand-strong);
-  cursor: pointer;
-  min-height: 32px;
-}
-
-.deck-prompt {
-  margin: 0;
-  color: rgba(255, 255, 255, 0.9);
-  font-size: 15px;
-}
-.deck-why-sheet {
-  display: flex;
-  flex-direction: column;
-  gap: 8px;
-}
-.deck-why-title {
-  margin: 0;
-  color: #fff;
-  font-size: 15px;
-}
-.deck-why-option {
-  appearance: none;
-  text-align: left;
-  border: 0;
-  border-radius: 14px;
-  padding: 12px 14px;
-  background: #fff;
-  font: inherit;
-  cursor: pointer;
-}
-.deck-why-hint {
-  display: block;
-  color: #5b6570;
-  font-size: 13px;
-}
-.deck-why-cancel {
-  appearance: none;
-  background: transparent;
-  border: 0;
-  color: rgba(255, 255, 255, 0.85);
-  font: inherit;
-  cursor: pointer;
-  min-height: 40px;
-}
-
 .style-setup {
   position: fixed;
   inset: 0;
@@ -4048,3 +3014,524 @@ body {
   background: #eef3f5;
 }
 
+/*
+ * The Inbox: one line per matter, or per conversation that is not on one.
+ *
+ * Columns line up between the header, the groups and the emails under them, so
+ * the three widths below are shared by all of them. Checkbox and caret each
+ * have their own gutter, so opening a matter never moves the text beside it.
+ */
+.inbox-list {
+  min-width: 0;
+}
+
+.inbox-body {
+  container-type: inline-size;
+}
+
+.inbox-head {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 0 7px 6px 1px;
+  color: var(--muted);
+  font-size: 10.5px;
+  font-weight: 500;
+  letter-spacing: 0.07em;
+  text-transform: uppercase;
+}
+
+.inbox-head-gap {
+  flex: none;
+  width: 68px;
+}
+
+.inbox-head .inbox-actions {
+  width: 36px;
+}
+
+.inbox-card {
+  overflow: hidden;
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  background: var(--card);
+}
+
+.inbox-card .mail-list-row {
+  min-height: 52px;
+  padding-left: 10px;
+  background: transparent;
+}
+
+.inbox-card .mail-list-row:last-child {
+  border-bottom: 0;
+}
+
+.inbox-card .mail-list-row:hover {
+  background: var(--row-hover);
+}
+
+.inbox-card .inbox-row[data-kind="matter"] {
+  background: color-mix(in srgb, var(--bg) 60%, var(--card));
+}
+
+.inbox-card .inbox-row[data-kind="matter"]:hover {
+  background: var(--row-hover);
+}
+
+.inbox-card .inbox-row[data-selected="true"],
+.inbox-card .inbox-row[data-kind="matter"][data-selected="true"] {
+  background: var(--selection);
+}
+
+.inbox-card .inbox-row[data-current="true"] {
+  box-shadow: inset 3px 0 0 var(--brand);
+}
+
+.inbox-check-gap {
+  flex: none;
+  width: 24px;
+}
+
+.inbox-gutter {
+  display: flex;
+  flex: none;
+  align-items: center;
+  justify-content: center;
+  width: 22px;
+}
+
+.inbox-chevron {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 22px;
+  height: 28px;
+  padding: 0;
+  border: 0;
+  border-radius: 6px;
+  color: var(--muted);
+  background: transparent;
+  cursor: pointer;
+}
+
+.inbox-chevron:hover {
+  color: var(--fg-strong);
+  background: var(--row-hover);
+}
+
+.inbox-chevron svg {
+  width: 16px;
+  height: 16px;
+}
+
+.inbox-cols {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  min-width: 0;
+  flex: 1;
+}
+
+.inbox-open,
+.inbox-open-head {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  min-width: 0;
+  flex: 1;
+}
+
+.inbox-open {
+  padding: 0;
+  border: 0;
+  color: inherit;
+  background: transparent;
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+
+.inbox-from {
+  flex: none;
+  box-sizing: border-box;
+  width: clamp(150px, 22cqw, 250px);
+  min-width: 0;
+  overflow: hidden;
+  color: var(--fg-strong);
+  font-size: 15px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.inbox-subject {
+  min-width: 0;
+  flex: 1;
+  overflow: hidden;
+  color: var(--fg);
+  font-size: 15px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.inbox-step {
+  flex: none;
+  box-sizing: border-box;
+  width: clamp(220px, 30cqw, 320px);
+  min-width: 0;
+  color: var(--muted);
+  font-size: 13px;
+}
+
+.inbox-date {
+  flex: none;
+  width: 92px;
+  color: var(--nav-muted);
+  font-family: var(--font-mono, ui-monospace, monospace);
+  font-size: 12px;
+  text-align: right;
+}
+
+.inbox-actions {
+  display: flex;
+  flex: none;
+  align-items: center;
+  justify-content: center;
+  width: 36px;
+}
+
+.inbox-actions .mail-list-action {
+  opacity: 0.45;
+}
+
+.inbox-row:hover .inbox-actions .mail-list-action,
+.inbox-actions .mail-list-action:focus-visible {
+  opacity: 1;
+}
+
+.inbox-row[data-kind="matter"] .inbox-from {
+  font-weight: 700;
+}
+
+.inbox-count {
+  margin-left: 4px;
+  color: var(--muted);
+  font-size: 13px;
+}
+
+.inbox-section {
+  margin-left: 8px;
+  color: var(--nav-muted);
+  font-size: 10.5px;
+  letter-spacing: 0.05em;
+  text-transform: uppercase;
+}
+
+.inbox-child {
+  min-height: 46px;
+}
+
+.inbox-child .inbox-from {
+  padding-left: 16px;
+  border-left: 2px solid var(--border);
+  color: var(--fg);
+  font-size: 14px;
+}
+
+.inbox-child .inbox-subject {
+  font-size: 14px;
+}
+
+.inbox-step-button {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  max-width: 100%;
+  padding: 0;
+  border: 0;
+  color: var(--fg);
+  background: none;
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+
+.inbox-step-button:hover {
+  color: var(--fg-strong);
+}
+
+.inbox-step-button span {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.inbox-step-button svg {
+  flex: none;
+  width: 13px;
+  height: 13px;
+  opacity: 0;
+}
+
+.inbox-step-button:hover svg,
+.inbox-step-button:focus-visible svg {
+  opacity: 0.7;
+}
+
+/* A step the person wrote is theirs; Seer's reading stays plain. */
+.inbox-step-button[data-source="user"] {
+  color: var(--fg-strong);
+  font-weight: 600;
+}
+
+.inbox-step-verb {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.inbox-step-verb .inbox-reason {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.inbox-step-input {
+  box-sizing: border-box;
+  width: 100%;
+  padding: 4px 8px;
+  border: 1px solid var(--brand);
+  border-radius: 6px;
+  color: var(--fg-strong);
+  background: var(--bg);
+  font: inherit;
+  font-size: 13px;
+}
+
+.inbox-verb {
+  flex: none;
+  appearance: none;
+  padding: 0 2px 0 0;
+  border: 0;
+  color: var(--brand-strong);
+  background: none;
+  font: inherit;
+  font-size: 13px;
+  font-weight: 600;
+  cursor: pointer;
+}
+
+.inbox-reason {
+  color: var(--muted);
+}
+
+.inbox-apply {
+  padding: 6px 14px;
+  border: 1px solid var(--brand-cta);
+  border-radius: 8px;
+  color: var(--on-brand);
+  background: var(--brand-cta);
+  font: inherit;
+  font-size: 13px;
+  font-weight: 600;
+  cursor: pointer;
+}
+
+.inbox-apply:disabled {
+  opacity: 0.5;
+  cursor: default;
+}
+
+/* Beside the reader, or on a phone, each group becomes a stacked card row. */
+@container (max-width: 820px) {
+  .inbox-head {
+    display: none;
+  }
+
+  .inbox-card .mail-list-row {
+    align-items: flex-start;
+    padding-block: 10px;
+  }
+
+  .inbox-card .mail-list-checkbox {
+    margin-top: 5px;
+  }
+
+  .inbox-cols {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) auto;
+    grid-template-areas:
+      "open date"
+      "step step";
+    row-gap: 4px;
+    column-gap: 12px;
+  }
+
+  .inbox-open {
+    grid-area: open;
+    flex-direction: column;
+    align-items: flex-start;
+    gap: 1px;
+  }
+
+  .inbox-from,
+  .inbox-subject {
+    width: 100%;
+    flex: none;
+  }
+
+  .inbox-from {
+    font-size: 14px;
+  }
+
+  .inbox-subject {
+    font-size: 13px;
+  }
+
+  .inbox-date {
+    grid-area: date;
+    width: auto;
+    padding-top: 2px;
+  }
+
+  .inbox-step {
+    grid-area: step;
+    width: auto;
+  }
+
+  .inbox-step:empty {
+    display: none;
+  }
+
+  .inbox-child .inbox-from {
+    padding-left: 10px;
+  }
+}
+
+.bulk-confirm-backdrop {
+  position: fixed;
+  inset: 0;
+  z-index: 90;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 16px;
+  background: rgb(0 0 0 / 0.35);
+}
+
+.bulk-confirm {
+  display: flex;
+  flex-direction: column;
+  width: min(100%, 560px);
+  max-height: min(86dvh, 720px);
+  padding: 22px;
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  background: var(--bg);
+  box-shadow: 0 18px 48px rgb(0 0 0 / 0.22);
+}
+
+.bulk-confirm h2 {
+  margin: 0 0 10px;
+  color: var(--fg-strong);
+  font-size: 18px;
+}
+
+.bulk-confirm-summary {
+  margin: 0 0 12px;
+  padding: 0;
+  list-style: none;
+  color: var(--fg-strong);
+  font-size: 15px;
+  font-weight: 600;
+}
+
+.bulk-confirm-summary li + li {
+  margin-top: 3px;
+}
+
+.bulk-confirm-warning {
+  margin: 0 0 12px;
+  padding: 8px 10px;
+  border-radius: 8px;
+  color: var(--accent);
+  background: color-mix(in srgb, var(--accent) 10%, transparent);
+  font-size: 13px;
+}
+
+.bulk-confirm-items {
+  margin: 0;
+  padding: 0;
+  overflow-y: auto;
+  border-top: 1px solid var(--border);
+  list-style: none;
+}
+
+.bulk-confirm-items li {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr) auto;
+  gap: 2px 10px;
+  padding: 8px 0;
+  border-bottom: 1px solid var(--border);
+  font-size: 13px;
+}
+
+.bulk-confirm-effect {
+  color: var(--brand-strong);
+  font-weight: 700;
+}
+
+.bulk-confirm-items li[data-effect="delete"] .bulk-confirm-effect {
+  color: var(--accent);
+}
+
+.bulk-confirm-title {
+  overflow: hidden;
+  color: var(--fg-strong);
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.bulk-confirm-count {
+  color: var(--muted);
+}
+
+.bulk-confirm-text {
+  grid-column: 2 / -1;
+  color: var(--muted);
+}
+
+.bulk-confirm footer {
+  display: flex;
+  justify-content: flex-end;
+  gap: 8px;
+  margin-top: 16px;
+}
+
+.bulk-confirm footer button {
+  padding: 7px 14px;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  color: var(--fg-strong);
+  background: var(--bg);
+  font: inherit;
+  font-size: 13px;
+  font-weight: 600;
+  cursor: pointer;
+}
+
+.bulk-confirm footer .bulk-confirm-go {
+  border-color: var(--brand-cta);
+  color: var(--on-brand);
+  background: var(--brand-cta);
+}
+
+.bulk-confirm footer .bulk-confirm-go[data-danger="true"] {
+  border-color: var(--accent);
+  background: var(--accent);
+}
+
+.bulk-confirm footer button:disabled {
+  opacity: 0.6;
+  cursor: default;
+}

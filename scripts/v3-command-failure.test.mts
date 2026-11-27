@@ -89,7 +89,7 @@ const notice = noticeForCommands(
   ],
 );
 assert.equal(notice.error, true);
-assert.match(notice.message, /Add to Atlas was not queued/);
+assert.match(notice.message, /Add to matter was not queued/);
 assert.match(notice.message, /no longer open/);
 
 const db = await startTestDb();

@@ -10,12 +10,6 @@ import {
   useState,
   useSyncExternalStore,
 } from "react";
-import { Atlas, type MatterMove } from "@/components/v2/Atlas";
-import { WorthReading } from "@/components/v2/WorthReading";
-import { StaffPane } from "@/components/v2/StaffPane";
-import { useStaffView } from "@/components/v2/useStaffView";
-import type { StaffView } from "@/lib/v2/staff/types";
-import type { ConversationRow, InboxView, MatterCard } from "@/lib/v2/view/types";
 import type { Command, CommandResult } from "@/lib/v2/commands/types";
 import type { Conversation, ProviderKind } from "@/lib/v2/providers/types";
 import type {
@@ -30,20 +24,17 @@ import { Navigation, type MailSection } from "./Navigation";
 import { ReaderPane } from "./ReaderPane";
 import { SeerMark } from "./SeerMark";
 import { Settings } from "./Settings";
-import { TriageCards } from "./TriageCards";
-import { MobileMailboxList } from "./MobileMailboxList";
+import { InboxList } from "./InboxList";
 import { fetchSearch, SearchBox, type SearchResult } from "./SearchBox";
 import { SearchRequestGuard } from "./search-request";
 import type { ReaderComposeIntent } from "@/components/v2/Reader";
 import { ACCOUNT_CHANGED_EVENT, useMailbox } from "./useMailbox";
-import { useInboxView } from "@/components/v2/useInboxView";
 import {
   clearSearchState,
   modalBackgroundState,
   parseMailHash,
 } from "./mail-client-state";
 import { CommandPalette, type PaletteAction } from "./CommandPalette";
-import { reorderMatterSections } from "@/lib/v2/view/matter-order";
 import { fetchFresh } from "@/lib/v3/net/fetch";
 import { describeHttpFailure, readJsonBody } from "@/lib/v3/net/json";
 
@@ -58,11 +49,7 @@ type ComposeState =
 
 export type MailClientPreview = {
   mailbox: Record<MailboxFolder, MailboxView>;
-  /** The same inbox in triage order, so the sort control works without a server. */
-  triageInbox?: MailboxView;
-  inboxView: InboxView;
   reader: PreviewReader;
-  staffView?: StaffView | null;
   initialSection?: MailSection;
   initialConversationId?: string;
   initialCompose?: boolean;
@@ -94,8 +81,6 @@ function buildHash(
   query: string,
 ): string {
   const params = new URLSearchParams();
-  // The section says whether this is the inbox or triage, so there is no
-  // separate sort to remember.
   params.set("section", section);
   if (conversation) params.set("conversation", conversation);
   if (query) params.set("q", query);
@@ -200,11 +185,13 @@ function pastTense(command: Command): string {
       return "Deleted";
     case "markUnread":
       return "Marked unread";
+    case "setMatterNextStep":
+      return "Next step saved";
     case "correctConversation":
-      return command.home === "matter" ? "Added to Atlas" : "Updated";
+      return command.home === "matter" ? "Added to a matter" : "Updated";
     case "triageConversation":
       return command.destination === "matter"
-        ? "Added to Atlas"
+        ? "Added to a matter"
         : command.destination === "archive"
           ? "Archived"
           : "Deleted";
@@ -223,11 +210,13 @@ function actionName(command: Command): string {
       return "Delete";
     case "markUnread":
       return "Mark unread";
+    case "setMatterNextStep":
+      return "Save next step";
     case "correctConversation":
-      return command.home === "matter" ? "Add to Atlas" : "Update";
+      return command.home === "matter" ? "Add to matter" : "Update";
     case "triageConversation":
       return command.destination === "matter"
-        ? "Add to Atlas"
+        ? "Add to matter"
         : command.destination === "archive"
           ? "Archive"
           : "Delete";
@@ -325,8 +314,6 @@ export function MailClient({
   const [notice, setNotice] = useState<ActionNotice | null>(null);
   const [paletteOpen, setPaletteOpen] = useState(false);
   const [mobileSearchOpen, setMobileSearchOpen] = useState(false);
-  const [staffTaskId, setStaffTaskId] = useState<string | null>(null);
-  const [staffChatOpen, setStaffChatOpen] = useState(false);
   const [hashReady, setHashReady] = useState(false);
   const restoredSearchRef = useRef<string | null>(null);
   /** The last hash this client wrote, so it does not read its own writing. */
@@ -354,48 +341,24 @@ export function MailClient({
     compose && compose.mode !== "send" && !compose.expanded
       ? { mode: compose.mode }
       : null;
-  const staffOpen = Boolean(staffTaskId || staffChatOpen);
   const { modalOpen } = modalBackgroundState({
     isMobile,
-    conversationId:
-      conversationId ?? pendingHashConversation ?? (staffOpen ? "staff" : null),
+    conversationId: conversationId ?? pendingHashConversation,
     composing: isFullCompose,
   });
   const mobileModalOpen = isMobile && modalOpen;
 
-  // Triage is a second reading of the inbox, not a fourth folder: same mail,
-  // ordered by what to do with it rather than by when it landed.
-  const triaging = section === "triage" || section === "cards";
-  const dealing = section === "cards";
   const folder: MailboxFolder = isFolder(section) ? section : "inbox";
-  const mailboxSort: MailboxSort =
-    section === "cards" ? "focus" : triaging ? "triage" : "date";
-  const previewView =
-    section === "cards" && preview?.triageInbox
-      ? { ...preview.triageInbox, sort: "focus" as const }
-      : triaging
-        ? preview?.triageInbox
-        : preview?.mailbox[folder];
+  // The Inbox is read in matter order: the mail on one matter sits together and
+  // the work that has waited longest leads. Sent and Trash are plain date lists.
+  const mailboxSort: MailboxSort = section === "inbox" ? "matter" : "date";
+  const previewView = preview?.mailbox[folder];
   const mailbox = useMailbox(folder, {
     initialView: previewView,
     disabled: Boolean(preview),
     sort: mailboxSort,
   });
   const reloadMailbox = mailbox.reload;
-  // Only Atlas reads this projection, and it is the heaviest response the app
-  // has — every inbox conversation, every matter, every yield. Fetching it
-  // while the user is in a mail folder cost a few hundred kB on load and again
-  // on every window focus, which on a phone is constant.
-  const inbox = useInboxView(
-    preview?.inboxView,
-    Boolean(preview) || section !== "atlas",
-  );
-  const staff = useStaffView({
-    enabled: !preview && section === "atlas",
-    taskId: staffTaskId,
-    initial: preview?.staffView ?? null,
-  });
-
   /**
    * Optimistic actions are not provider confirmation. Track every queued row
    * until the provider says done, failed, or keeps retrying, so a disappearing
@@ -519,7 +482,7 @@ export function MailClient({
    * The URL and this component both hold the same state, and each effect below
    * acts a render behind the other: the reader applies the hash, the writer
    * then writes the state it still had, and the reader applies that back. The
-   * two chased each other between "inbox" and "triage" until React gave up with
+   * two chased each other between two sections until React gave up with
    * "Maximum update depth exceeded" and the error boundary blanked the client.
    *
    * A hash this client wrote is therefore not news. Only a hash from outside —
@@ -571,11 +534,7 @@ export function MailClient({
     const mailboxRows = Object.values(preview.mailbox).flatMap(
       (view) => view.rows,
     );
-    const triageRows = preview.triageInbox?.rows ?? [];
-    const atlasRows = preview.inboxView.atlas.flatMap(
-      (matter) => matter.conversations,
-    );
-    return [...mailboxRows, ...triageRows, ...atlasRows].find(
+    return mailboxRows.find(
       (row) => row.conversationId === conversationId,
     )?.providerConversationId;
   }, [conversationId, preview]);
@@ -596,8 +555,6 @@ export function MailClient({
     setConversationId(null);
     setFocusedMessageId(null);
     setProviderConversationId(null);
-    setStaffTaskId(null);
-    setStaffChatOpen(false);
     setCompose(null);
     setSearchRows(null);
     setQuery("");
@@ -611,132 +568,6 @@ export function MailClient({
     setProviderConversationId(row.providerConversationId);
     setCompose(null);
   };
-
-  const openAtlasConversation = useCallback((row: ConversationRow) => {
-    setStaffTaskId(null);
-    setStaffChatOpen(false);
-    setConversationId(row.conversationId);
-    setFocusedMessageId(null);
-    setProviderConversationId(row.providerConversationId);
-    setCompose(null);
-  }, []);
-
-  /**
-   * A matter is a bundle of conversations, so acting on one from the board acts
-   * on the thread that moved most recently: that is the one a reply belongs to
-   * and the one a nudge answers.
-   */
-  const latestConversation = useCallback((matter: MatterCard) => {
-    let latest: ConversationRow | null = null;
-    let latestAt = -1;
-    for (const conversation of matter.conversations) {
-      const at = conversation.at ? Date.parse(conversation.at) : NaN;
-      const rank = Number.isNaN(at) ? 0 : at;
-      if (rank >= latestAt) {
-        latestAt = rank;
-        latest = conversation;
-      }
-    }
-    return latest;
-  }, []);
-
-  const startMatterCompose = useCallback(
-    (matter: MatterCard, mode: ReaderComposeIntent["mode"]) => {
-      const conversation = latestConversation(matter);
-      if (!conversation) return;
-      setConversationId(conversation.conversationId);
-      setFocusedMessageId(null);
-      setProviderConversationId(conversation.providerConversationId);
-      setCompose({ mode });
-    },
-    [latestConversation],
-  );
-
-  // Archiving a matter archives the mail it is made of. The board has already
-  // struck the row through and is holding an undo, so nothing is awaited here.
-  const archiveMatter = useCallback(
-    async (matter: MatterCard) => {
-      for (const conversation of matter.conversations) {
-        await inbox.dispatch({
-          type: "archive",
-          conversationId: conversation.conversationId,
-        });
-      }
-    },
-    [inbox],
-  );
-
-  const archiveAtlasConversation = useCallback(
-    (conversation: ConversationRow) => {
-      void inbox.dispatch({
-        type: "archive",
-        conversationId: conversation.conversationId,
-      });
-    },
-    [inbox],
-  );
-
-  const deleteAtlasConversation = useCallback(
-    (conversation: ConversationRow) => {
-      void inbox.dispatch({
-        type: "delete",
-        conversationId: conversation.conversationId,
-        byUser: true,
-      });
-    },
-    [inbox],
-  );
-
-  const reorderMatters = useCallback(
-    async (section: string, matterIds: string[]) => {
-      await inbox.dispatch(
-        { type: "reorderMatters", section, matterIds },
-        (view) => ({
-          ...view,
-          sections: view.sections.map((item) =>
-            item.name === section
-              ? {
-                  ...item,
-                  matters: matterIds
-                    .map((id) =>
-                      item.matters.find((matter) => matter.matterId === id),
-                    )
-                    .filter((matter): matter is MatterCard => Boolean(matter)),
-                }
-              : item,
-          ),
-        }),
-      );
-    },
-    [inbox],
-  );
-
-  const moveMatter = useCallback(
-    async (move: MatterMove) => {
-      await inbox.dispatch(
-        {
-          type: "moveMatter",
-          matterId: move.matterId,
-          fromSection: move.fromSection,
-          toSection: move.toSection,
-          sourceMatterIds: move.sourceMatterIds,
-          targetMatterIds: move.targetMatterIds,
-        },
-        (view) => ({
-          ...view,
-          sections: reorderMatterSections(view.sections, {
-            matterId: move.matterId,
-            targetSection: move.toSection,
-            beforeMatterId:
-              move.targetMatterIds[
-                move.targetMatterIds.indexOf(move.matterId) + 1
-              ] ?? null,
-          }).sections,
-        }),
-      );
-    },
-    [inbox],
-  );
 
   const rememberProviderConversationId = useCallback(
     (id: string) => setProviderConversationId(id),
@@ -762,7 +593,6 @@ export function MailClient({
 
   const paletteActions: PaletteAction[] = [
     { id: "inbox", label: "Go to inbox", hint: "G I", run: () => navigate("inbox") },
-    { id: "triage", label: "Go to triage", hint: "G T", run: () => navigate("triage") },
     { id: "sent", label: "Go to sent", hint: "G S", run: () => navigate("sent") },
     { id: "trash", label: "Go to trash", hint: "G D", run: () => navigate("trash") },
     { id: "compose", label: "Compose", hint: "C", run: () => setCompose({ mode: "send" }) },
@@ -809,10 +639,8 @@ export function MailClient({
         goPrefix.current = false;
         const destination: Partial<Record<string, MailSection>> = {
           i: "inbox",
-          t: "triage",
           s: "sent",
           d: "trash",
-          a: "atlas",
         };
         const next = destination[key];
         if (next) {
@@ -957,45 +785,17 @@ export function MailClient({
       onProviderConversationId={rememberProviderConversationId}
       preview={readerPreview}
     />
-  ) : staffOpen ? (
-    <StaffPane
-      mode={staffChatOpen && !staffTaskId ? "chat" : "task"}
-      view={staff.view}
-      taskId={staffTaskId}
-      error={staff.error}
-      onBack={() => {
-        setStaffTaskId(null);
-        setStaffChatOpen(false);
-      }}
-      onCommand={(command) => staff.dispatch(command)}
-    />
   ) : null;
 
   const folderContent = searchRows ? (
     <SearchResults rows={searchRows} onOpen={openSearchResult} />
-  ) : activeMailbox && section === "triage" ? (
-    <MobileMailboxList
-      view={activeMailbox}
-      triage
-      currentConversationId={conversationId}
-      onOpen={openRow}
-      onCommands={runCommands}
-      onCards={() => setSection("cards")}
-    />
-  ) : activeMailbox && dealing ? (
-    <TriageCards
-      rows={activeMailbox.rows}
-      onCommands={async (items) => {
-        await runCommands(items.map((item) => item.command));
-      }}
-      onOpen={openRow}
-      onExit={() => setSection("triage")}
-    />
   ) : activeMailbox && section === "inbox" ? (
-    <MobileMailboxList
+    <InboxList
       view={activeMailbox}
+      refreshing={mailbox.refreshing}
       currentConversationId={conversationId}
       onOpen={openRow}
+      onPrefetch={mailbox.prefetchBody}
       onCommands={runCommands}
     />
   ) : activeMailbox ? (
@@ -1005,7 +805,6 @@ export function MailClient({
       onOpen={openRow}
       onPrefetch={mailbox.prefetchBody}
       onCommands={runCommands}
-      onCards={triaging ? () => setSection("cards") : undefined}
     />
   ) : (
     <section className="mail-folder-layout mail-reader-loading" aria-label="Loading mailbox">
@@ -1026,67 +825,15 @@ export function MailClient({
     </section>
   );
 
-  const atlasContent =
-    inbox.view ? (
-      <>
-        <Atlas
-          view={inbox.view}
-          onArchiveMatter={archiveMatter}
-          onReplyMatter={(matter) => startMatterCompose(matter, "reply")}
-          onForwardMatter={(matter) => startMatterCompose(matter, "forward")}
-          onOpenConversation={openAtlasConversation}
-          onReorderMatters={reorderMatters}
-          onMoveMatter={moveMatter}
-          currentConversationId={conversationId}
-          onArchiveConversation={archiveAtlasConversation}
-          onDeleteConversation={deleteAtlasConversation}
-          staff={staff.view}
-          selectedTaskId={staffTaskId}
-          staffChatOpen={staffChatOpen}
-          onOpenStaffTask={(taskId) => {
-            setConversationId(null);
-            setFocusedMessageId(null);
-            setProviderConversationId(null);
-            setStaffChatOpen(false);
-            setStaffTaskId(taskId);
-          }}
-          onOpenStaffChat={() => {
-            setConversationId(null);
-            setFocusedMessageId(null);
-            setProviderConversationId(null);
-            setStaffTaskId(null);
-            setStaffChatOpen(true);
-          }}
-          onCreateStaffTask={(title, botSlug) => {
-            void staff.dispatch({ type: "createBotTask", title, botSlug });
-          }}
-          onDecideProposal={(proposalId, decision) => {
-            void staff.dispatch({
-              type: "decideTriageProposal",
-              proposalId,
-              decision,
-            });
-          }}
-        />
-        {!conversationId && !staffOpen ? <WorthReading view={inbox.view} /> : null}
-      </>
-    ) : (
-      <p className="mail-empty">{inbox.error ?? "Reading Atlas…"}</p>
-    );
-
-  const masterDetail = isFolder(section) || triaging || section === "atlas";
+  const masterDetail = isFolder(section);
   const content = masterDetail ? (
-    <div
-      className={`mail-workspace${
-        section === "atlas" ? " mail-atlas-workspace" : ""
-      }`}
-    >
+    <div className="mail-workspace">
       <div
         className="mail-folder-pane"
-        aria-label={section === "atlas" ? "Atlas matters" : `${section} mail`}
+        aria-label={`${section} mail`}
         inert={mobileModalOpen ? true : undefined}
       >
-        {section === "atlas" ? atlasContent : folderContent}
+        {folderContent}
       </div>
       {readerContent && (
         <div
@@ -1105,7 +852,7 @@ export function MailClient({
   );
 
   return (
-    <div className="mail-client" data-reader-open={conversationId || staffOpen ? "true" : "false"}>
+    <div className="mail-client" data-reader-open={conversationId ? "true" : "false"}>
       <Navigation
         active={section}
         onNavigate={navigate}
@@ -1126,11 +873,7 @@ export function MailClient({
               so the toolbar is the only place the app can say whose it is. */}
           <SeerMark size={24} className="mail-toolbar-mark" />
           <div className="mail-mobile-title">
-            <strong>
-              {section === "atlas"
-                ? "Atlas"
-                : section[0].toUpperCase() + section.slice(1)}
-            </strong>
+            <strong>{section[0].toUpperCase() + section.slice(1)}</strong>
           </div>
           <div
             className="mail-toolbar-search"

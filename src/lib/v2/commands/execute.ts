@@ -398,6 +398,21 @@ async function run(
       return { ok: true, replayed: false, processed: matterIds };
     }
 
+    case "setMatterNextStep": {
+      const text = command.text?.trim() ?? "";
+      if (text.length > 280) return fail("next step is too long");
+      const updated = await db().query(
+        `update seer.matters
+            set next_step_user = $3,
+                next_step_user_at = case when $3::text is null then null else now() end,
+                updated_at = now()
+          where id = $1 and account_id = $2`,
+        [command.matterId, ctx.accountId, text === "" ? null : text],
+      );
+      if ((updated.rowCount ?? 0) === 0) return fail("matter not found");
+      return { ok: true, replayed: false, processed: [command.matterId] };
+    }
+
     case "moveMatter": {
       if (command.fromSection === command.toSection) {
         const matterIds = await validMatterOrder(

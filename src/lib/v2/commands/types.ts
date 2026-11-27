@@ -37,6 +37,15 @@ export type Command =
     }
   | { type: "reorderMatters"; section: string; matterIds: string[] }
   | {
+      /**
+       * The person's own wording for what happens next on a matter. It wins over
+       * Seer's reading until cleared with `null` or an empty string.
+       */
+      type: "setMatterNextStep";
+      matterId: string;
+      text: string | null;
+    }
+  | {
       type: "moveMatter";
       matterId: string;
       fromSection: string;

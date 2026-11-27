@@ -24,13 +24,22 @@ assert.deepEqual(parseMailHash("#section=inbox&sort=triage"), {
   conversation: undefined,
   sort: "triage",
 });
-// Triage is its own section now, not a lens on the inbox.
-assert.deepEqual(parseMailHash("#section=triage"), {
-  section: "triage",
+assert.deepEqual(parseMailHash("#section=inbox&sort=matter"), {
+  section: "inbox",
   query: undefined,
   conversation: undefined,
-  sort: undefined,
+  sort: "matter",
 });
+// Triage, Cards and Atlas were collapsed into the Inbox, so an old bookmark
+// lands there rather than on a blank page.
+for (const retired of ["triage", "cards", "atlas"]) {
+  assert.deepEqual(parseMailHash(`#section=${retired}&conversation=c9`), {
+    section: "inbox",
+    query: undefined,
+    conversation: "c9",
+    sort: undefined,
+  });
+}
 // Anything that is not a section is still refused.
 assert.deepEqual(parseMailHash("#section=nowhere"), {
   section: undefined,

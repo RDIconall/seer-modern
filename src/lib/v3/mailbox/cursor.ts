@@ -13,7 +13,8 @@ import type { MailboxSort } from "./types";
 export type MailboxCursor =
   | { sort: "date"; at: string; id: string }
   | { sort: "focus"; at: string; id: string }
-  | { sort: "triage"; rank: number; priority: number; at: string; id: string };
+  | { sort: "triage"; rank: number; priority: number; at: string; id: string }
+  | { sort: "matter"; groupAt: string; groupKey: string; at: string; id: string };
 
 export function encodeMailboxCursor(cursor: MailboxCursor): string {
   return Buffer.from(JSON.stringify(cursor)).toString("base64url");
@@ -33,6 +34,8 @@ export function decodeMailboxCursor(
       id?: unknown;
       rank?: unknown;
       priority?: unknown;
+      groupAt?: unknown;
+      groupKey?: unknown;
     };
     if (typeof parsed.at !== "string" || typeof parsed.id !== "string") return null;
     // Cursors minted before triage sort existed carry no discriminator; they
@@ -47,6 +50,18 @@ export function decodeMailboxCursor(
         sort: "triage",
         rank: parsed.rank,
         priority: parsed.priority,
+        at: parsed.at,
+        id: parsed.id,
+      };
+    }
+    if (cursorSort === "matter") {
+      if (typeof parsed.groupAt !== "string" || typeof parsed.groupKey !== "string") {
+        return null;
+      }
+      return {
+        sort: "matter",
+        groupAt: parsed.groupAt,
+        groupKey: parsed.groupKey,
         at: parsed.at,
         id: parsed.id,
       };

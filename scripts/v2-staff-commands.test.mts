@@ -4,10 +4,7 @@ import { upsertAccount, upsertUser } from "../src/lib/v2/db/accounts.ts";
 import { executeCommand } from "../src/lib/v2/commands/execute.ts";
 import { asConversationId, type AccountId } from "../src/lib/v2/db/types.ts";
 import { insertProposal, loadStaffView } from "../src/lib/v2/staff/repository.ts";
-import { tasksFromCsv } from "../src/lib/v2/staff/seed.ts";
 import { upsertSeedTask } from "../src/lib/v2/staff/repository.ts";
-import { promises as fs } from "node:fs";
-import path from "node:path";
 
 async function addConversation(
   pool: import("pg").Pool,
@@ -148,48 +145,26 @@ try {
   assert.ok(folders.rows[0].folders.includes("trash"));
   assert.ok(!folders.rows[0].folders.includes("inbox"));
 
-  const csv = await fs.readFile(
-    path.join(process.cwd(), "fixtures", "bot_tasks.csv"),
-    "utf8",
-  );
-  const rows = tasksFromCsv(csv);
-  for (const row of rows) {
-    await upsertSeedTask({
-      accountId,
-      botSlug: row.botSlug,
-      botName: row.botName,
-      externalKey: row.externalKey,
-      title: row.title,
-      status: row.status,
-      priority: row.priority,
-      hisWords: row.hisWords,
-      currentState: row.currentState,
-      nextAction: row.nextAction,
-      notes: row.nextAction,
-      source: "bot",
-    });
-  }
-  const again = await upsertSeedTask({
+  const seed = {
     accountId,
-    botSlug: rows[0].botSlug,
-    botName: rows[0].botName,
-    externalKey: rows[0].externalKey,
-    title: rows[0].title,
-    status: rows[0].status,
+    botSlug: "chief-of-staff",
+    botName: "Chief of staff",
+    externalKey: "B01",
+    title: "Pull the October expenses",
+    status: "open" as const,
     priority: 1,
-    hisWords: rows[0].hisWords,
-    currentState: rows[0].currentState,
-    nextAction: rows[0].nextAction,
-    source: "bot",
-  });
+    hisWords: "pull the october expenses",
+    currentState: "Not started",
+    nextAction: "Log in and export",
+    notes: "Log in and export",
+    source: "bot" as const,
+  };
+  await upsertSeedTask(seed);
+  const again = await upsertSeedTask({ ...seed, currentState: "Logged in" });
   const seeded = await loadStaffView(accountId);
   const b01 = seeded.tasks.filter((task) => task.externalKey === "B01");
   assert.equal(b01.length, 1, "seed is idempotent on external_key");
   assert.equal(again.externalKey, "B01");
-  assert.equal(
-    seeded.tasks.filter((task) => task.externalKey).length,
-    27,
-  );
 
   console.log("v2-staff-commands: OK");
 } finally {

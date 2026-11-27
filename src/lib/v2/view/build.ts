@@ -164,8 +164,9 @@ export async function buildInboxView(
     status: string;
     org_unit: string | null;
     function_name: string | null;
+    next_step_user: string | null;
   }>(
-    "select id, title, short_title, status, org_unit, function_name from seer.matters where account_id = $1",
+    "select id, title, short_title, status, org_unit, function_name, next_step_user from seer.matters where account_id = $1",
     [accountId],
   );
 
@@ -266,7 +267,7 @@ export async function buildInboxView(
       orgUnit: m.org_unit,
       section: m.function_name ?? UNFILED,
       summary: best?.summary ?? convs[0]?.summary ?? "",
-      nextAction: best?.ask ?? "",
+      nextAction: m.next_step_user?.trim() || (best?.ask ?? ""),
       owner: (best?.owner ?? convs[0]?.owner ?? "nobody") as MatterCard["owner"],
       dueDate: best?.due_date
         ? new Date(best.due_date).toISOString().slice(0, 10)

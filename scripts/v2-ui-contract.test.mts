@@ -29,14 +29,20 @@ for (const file of files) {
 
 // The core surfaces exist. Triage is no longer a standalone screen — the inbox
 // list owns bulk delete — so MailApp/Triage must not linger as dead hosts.
-for (const required of [
+for (const required of ["triage-select.ts", "triage-command.ts"]) {
+  assert.ok(files.includes(required), `missing v2 component ${required}`);
+}
+// The Inbox is the whole app: the Atlas board, the Worth reading list and the
+// delegated-staff pane were collapsed into it and must not linger as dead UI.
+for (const gone of [
   "Atlas.tsx",
   "WorthReading.tsx",
+  "StaffBoard.tsx",
+  "StaffPane.tsx",
+  "useStaffView.ts",
   "useInboxView.ts",
-  "triage-select.ts",
-  "triage-command.ts",
 ]) {
-  assert.ok(files.includes(required), `missing v2 component ${required}`);
+  assert.ok(!files.includes(gone), `${gone} was collapsed into the Inbox and must stay removed`);
 }
 assert.ok(!files.includes("Triage.tsx"), "standalone Triage screen must be removed");
 assert.ok(!files.includes("MailApp.tsx"), "dead MailApp host must be removed");
@@ -44,28 +50,25 @@ assert.ok(!files.includes("MailApp.tsx"), "dead MailApp host must be removed");
 /**
  * Two ways to delete, and they must not be confused.
  *
- * A sweep is Seer emptying a pile nobody read row by row, so it goes through
- * sweepCommands and may only take what the server signed a token for. A
- * selection is the user pointing at mail they picked out themselves, so it goes
- * through commandsForSelection and takes what they pointed at. Seer's judgement
- * constrains Seer; it does not lock the user out of their own mailbox.
+ * A sweep is Seer emptying a pile nobody read row by row, so it may only take
+ * what the server signed a token for. A selection is the user pointing at mail
+ * they picked out themselves, so it takes what they pointed at. Seer's
+ * judgement constrains Seer; it does not lock the user out of their own mailbox.
+ * The Inbox's "Do these next steps" is the second kind: the person ticked each
+ * group and confirmed the list, so its deletes are theirs.
  */
-const folderList = await fs.readFile(
-  path.join(process.cwd(), "src", "components", "v3", "FolderList.tsx"),
-  "utf8",
-);
-assert.ok(
-  folderList.includes("sweepCommands"),
-  "a pile sweep must go through the token-gated helper",
-);
+const read = (file: string) =>
+  fs.readFile(path.join(process.cwd(), "src", "components", ...file.split("/")), "utf8");
+const folderList = await read("v3/FolderList.tsx");
 assert.ok(
   folderList.includes("commandsForSelection"),
   "a user selection must go through the shared selection helper",
 );
-const triageCommand = await fs.readFile(
-  path.join(process.cwd(), "src", "components", "v2", "triage-command.ts"),
-  "utf8",
+assert.ok(
+  !folderList.includes("sweepCommands"),
+  "folders have no pile sweeps; the Inbox asks before it acts",
 );
+const triageCommand = await read("v2/triage-command.ts");
 assert.ok(
   /commandFor[\s\S]*?row\.deleteToken/.test(triageCommand),
   "the sweep path must still require the server-minted token",
@@ -74,15 +77,23 @@ assert.ok(
   /userCommandFor[\s\S]*?byUser: true/.test(triageCommand),
   "an explicit user delete must be marked as theirs",
 );
+const bulkPlan = await read("v3/bulk-plan.ts");
+assert.ok(
+  /type: "delete"[\s\S]*?byUser: true/.test(bulkPlan),
+  "a confirmed bulk delete is the person's own delete",
+);
 // Categories come from the server row, not a client-side org/domain guess.
+const inboxGroups = await read("v3/inbox-groups.ts");
 assert.ok(
-  folderList.includes("row.category"),
-  "FolderList must show the server-provided category",
+  inboxGroups.includes("newest.category"),
+  "the Inbox must show the server-provided category",
 );
-assert.ok(
-  !/counterpartyOf|split\(["']@["']\)/.test(folderList),
-  "FolderList must not re-derive the category from the sender",
-);
+for (const src of [folderList, inboxGroups]) {
+  assert.ok(
+    !/counterpartyOf|split\(["']@["']\)/.test(src),
+    "the lists must not re-derive the category from the sender",
+  );
+}
 
 // The flag wires the single app into both entry points.
 for (const page of ["src/app/page.tsx", "src/app/m/page.tsx"]) {

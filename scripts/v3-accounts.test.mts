@@ -354,17 +354,6 @@ try {
   assert.match(mailboxSource, /accountKey/);
   assert.match(mailboxSource, /bodyCache/);
   assert.match(mailboxSource, /clearMailboxCaches/);
-  const inboxViewSource = await fs.readFile(
-    path.join(process.cwd(), "src/components/v2/useInboxView.ts"),
-    "utf8",
-  );
-  assert.match(inboxViewSource, /ACCOUNT_CHANGED_EVENT/);
-  assert.match(
-    inboxViewSource,
-    /setView\(null\)[\s\S]*void load\(\)/,
-    "Atlas/Triage must clear stale account data before reloading",
-  );
-
   assert.equal(await accounts.deleteOwnedAccount(userA, accountA.id), true);
   assert.equal(
     await accounts.getOwnedAccount(userA, asAccountId(accountA.id)),

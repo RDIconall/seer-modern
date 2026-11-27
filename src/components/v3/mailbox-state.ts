@@ -26,7 +26,12 @@ export function applyMailboxCommands(
 ): MailboxView {
   const removed = new Set<string>();
   const unread = new Set<string>();
+  const steps = new Map<string, string | null>();
   for (const command of commands) {
+    if (command.type === "setMatterNextStep") {
+      steps.set(command.matterId, command.text?.trim() || null);
+      continue;
+    }
     if (
       command.type === "archive" ||
       command.type === "restore" ||
@@ -41,17 +46,27 @@ export function applyMailboxCommands(
       unread.add(command.conversationId);
     }
   }
-  if (removed.size === 0 && unread.size === 0) return view;
+  if (removed.size === 0 && unread.size === 0 && steps.size === 0) return view;
 
   const rows = view.rows
     .filter((row) => !removed.has(row.conversationId))
-    .map((row) =>
-      unread.has(row.conversationId) ? { ...row, isUnread: true } : row,
-    );
+    .map((row) => {
+      const flagged = unread.has(row.conversationId) ? { ...row, isUnread: true } : row;
+      if (!flagged.matterId || !steps.has(flagged.matterId)) return flagged;
+      const text = steps.get(flagged.matterId);
+      // Clearing the wording returns to Seer's reading, which only the server
+      // has; the reload that follows every command puts it back.
+      return text
+        ? { ...flagged, nextStep: { verb: null, text, source: "user" as const } }
+        : flagged;
+    });
   return {
     ...view,
     rows,
     total: Math.max(0, view.total - removed.size),
+    ...(view.groups === undefined
+      ? {}
+      : { groups: new Set(rows.map((row) => row.groupKey)).size }),
   };
 }
 

@@ -3,6 +3,7 @@ import type { AccountId } from "@/lib/v2/db/types";
 import { signDecisionToken } from "@/lib/v2/view/token";
 import { decodeMailboxCursor, encodeMailboxCursor } from "./cursor";
 import { effectiveUnread, mailboxListLabel } from "./list-label";
+import { nextStepFor } from "./next-step";
 import { TRIAGE_ORDER, deleteRank, dispositionFromHome } from "./triage-rank";
 import type { MailboxFolder, MailboxRow, MailboxSort, MailboxView } from "./types";
 
@@ -45,6 +46,12 @@ type MailboxRowDb = {
   veto_reasons: string[] | null;
   delete_rank: number;
   function_name: string | null;
+  matter_id: string | null;
+  ask: string | null;
+  next_step_user: string | null;
+  row_at: string | Date;
+  group_key: string;
+  group_at?: string | Date;
 };
 
 function listLabel(row: MailboxRowDb): string {
@@ -81,6 +88,7 @@ function mapRow(row: MailboxRowDb): MailboxRow {
   const disposition = dispositionFromHome(row.home);
   // Token only on delete — the command bus refuses deletes without one, so a
   // bulk action in the inbox can never touch vetoed or undecided mail.
+  const matterId = row.home === "matter" ? row.matter_id : null;
   const deleteToken =
     row.home === "delete" && row.decision_id
       ? signDecisionToken(row.decision_id, row.conversation_id)
@@ -105,6 +113,16 @@ function mapRow(row: MailboxRowDb): MailboxRow {
     category: row.function_name,
     owner: (row.owner ?? "nobody") as MailboxRow["owner"],
     vetoReasons: row.veto_reasons ?? [],
+    matterId,
+    nextStep: nextStepFor({
+      disposition,
+      matterId,
+      ask: row.ask,
+      summary: row.decision_summary,
+      userStep: row.next_step_user,
+    }),
+    groupKey: row.group_key,
+    groupAt: isoTimestamp(row.group_at ?? row.row_at),
   };
 }
 
@@ -127,6 +145,13 @@ const MAILBOX_SELECT = `select c.id as conversation_id,
             d.home,
             d.summary as decision_summary,
             d.owner,
+            d.ask,
+            d.matter_id,
+            mt.next_step_user,
+            date_trunc('milliseconds', coalesce(lm.sent_at, c.last_message_at, 'epoch'::timestamptz)) as row_at,
+            case when d.home = 'matter' and d.matter_id is not null
+                 then 'm:' || d.matter_id::text
+                 else 'c:' || c.id::text end as group_key,
             d.veto_reasons,
             d.priority,
             d.due_date,
@@ -236,8 +261,58 @@ export async function getMailboxView(
         )
       : { rows: [{ n: 0 }] };
 
+  const groupsRow =
+    sort === "matter"
+      ? await db().query<{ n: number }>(
+          `select count(distinct case when d.home = 'matter' and d.matter_id is not null
+                                      then d.matter_id::text
+                                      else c.id::text end)::int as n
+             from seer.conversations c
+             left join seer.conversation_decisions d
+               on d.conversation_id = c.id
+              and d.account_id = c.account_id
+              and d.is_current
+            where c.account_id = $1
+              and c.is_deleted = false
+              and c.folders @> array[$2]::text[]`,
+          [accountId, folder],
+        )
+      : null;
+
+  const matterCursor = cursor && cursor.sort === "matter" ? cursor : null;
   const rows =
-    sort === "triage"
+    sort === "matter"
+      ? await db().query<MailboxRowDb>(
+          // Window over the whole folder, then keyset-page over the groups:
+          // a group's age is its oldest conversation, so it must be computed
+          // before the page is cut or a group would change place between pages.
+          `select * from (
+             select s.*, min(s.row_at) over (partition by s.group_key) as group_at
+               from (${MAILBOX_SELECT}) s
+           ) t
+          where (
+            $3::timestamptz is null
+            or t.group_at > $3::timestamptz
+            or (t.group_at = $3::timestamptz and t.group_key > $4::text)
+            or (
+              t.group_at = $3::timestamptz
+              and t.group_key = $4::text
+              and (t.row_at, t.conversation_id) < ($5::timestamptz, $6::uuid)
+            )
+          )
+          order by t.group_at asc, t.group_key asc, t.row_at desc, t.conversation_id desc
+          limit $7`,
+          [
+            accountId,
+            folder,
+            matterCursor?.groupAt ?? null,
+            matterCursor?.groupKey ?? null,
+            matterCursor?.at ?? null,
+            matterCursor?.id ?? null,
+            bounded + 1,
+          ],
+        )
+    : sort === "triage"
       ? await db().query<MailboxRowDb>(
           `${MAILBOX_SELECT}
         and coalesce(c.focus_hidden, false) = false
@@ -315,7 +390,15 @@ export async function getMailboxView(
 
   let nextCursor: string | null = null;
   if (hasMore && last) {
-    if (sort === "triage") {
+    if (sort === "matter") {
+      nextCursor = encodeMailboxCursor({
+        sort: "matter",
+        groupAt: isoTimestamp(last.group_at ?? last.row_at),
+        groupKey: last.group_key,
+        at: isoTimestamp(last.row_at),
+        id: last.conversation_id,
+      });
+    } else if (sort === "triage") {
       nextCursor = encodeMailboxCursor({
         sort: "triage",
         rank: last.delete_rank,
@@ -344,5 +427,6 @@ export async function getMailboxView(
     needsYou: 0,
     processing: processingRow.rows[0]?.n ?? 0,
     nextCursor,
+    ...(groupsRow ? { groups: groupsRow.rows[0]?.n ?? 0 } : {}),
   };
 }

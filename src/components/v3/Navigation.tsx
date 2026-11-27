@@ -1,12 +1,12 @@
 "use client";
 
 import * as React from "react";
-import { Inbox, Layers, LayoutGrid, ListFilter, Send, Settings, Trash2 } from "lucide-react";
+import { Inbox, Send, Settings, Trash2 } from "lucide-react";
 import type { LucideIcon } from "lucide-react";
 import type { MailboxFolder } from "@/lib/v3/mailbox/types";
 import { SeerMark } from "./SeerMark";
 
-export type MailSection = MailboxFolder | "triage" | "cards" | "atlas" | "settings";
+export type MailSection = MailboxFolder | "settings";
 
 type NavigationItem = {
   id: MailSection;
@@ -14,17 +14,12 @@ type NavigationItem = {
   icon: LucideIcon;
 };
 
+// One place for work: the Inbox carries each matter, its next step and the mail
+// under it. Sent and Trash are folders; there is nothing else to switch to.
 const items: NavigationItem[] = [
   { id: "inbox", label: "Inbox", icon: Inbox },
-  // Triage is its own place, not a lens on the inbox: the inbox is your mail in
-  // the order it arrived, triage is the pile Seer sorted for clearing.
-  { id: "triage", label: "Triage", icon: ListFilter },
-  // The same pile dealt one at a time. A deck is a different way of working,
-  // not a view option buried inside a list.
-  { id: "cards", label: "Cards", icon: Layers },
   { id: "sent", label: "Sent", icon: Send },
   { id: "trash", label: "Trash", icon: Trash2 },
-  { id: "atlas", label: "Atlas", icon: LayoutGrid },
   { id: "settings", label: "Settings", icon: Settings },
 ];
 
