@@ -5,6 +5,14 @@ import type {
   SendMailInput,
 } from "@/lib/mail/types";
 import { compileOutlookSearch, parseMailSearch } from "@/lib/v3/search/parser";
+import {
+  OUTLOOK_HIDDEN_FOLDERS,
+  OUTLOOK_OPTIONAL_FOLDERS,
+  visibleOutlookMessages,
+  type OutlookFolderIds,
+  type OutlookHiddenFolder,
+  type OutlookWellKnownFolder,
+} from "@/lib/v2/providers/outlook-folders";
 
 /**
  * Graph throttles bursts with 429 + Retry-After. One throttled call
@@ -79,6 +87,7 @@ type GraphMessage = {
   toRecipients?: { emailAddress?: { name?: string; address?: string } }[];
   ccRecipients?: { emailAddress?: { name?: string; address?: string } }[];
   internetMessageId?: string;
+  parentFolderId?: string;
 };
 
 function mapListItem(m: GraphMessage): MailMessageListItem {
@@ -188,18 +197,24 @@ export async function searchGraph(
   url.searchParams.set("$search", `"${term}"`);
   url.searchParams.set(
     "$select",
-    "id,conversationId,subject,bodyPreview,receivedDateTime,sentDateTime,isRead,from,toRecipients",
+    "id,conversationId,subject,bodyPreview,receivedDateTime,sentDateTime,isRead,from,toRecipients,parentFolderId",
   );
-  const res = await graphRawFetch(url.toString(), {
-    headers: {
-      Authorization: `Bearer ${accessToken}`,
-      ConsistencyLevel: "eventual",
-    },
-    cache: "no-store",
-  });
+  const [res, folders] = await Promise.all([
+    graphRawFetch(url.toString(), {
+      headers: {
+        Authorization: `Bearer ${accessToken}`,
+        ConsistencyLevel: "eventual",
+      },
+      cache: "no-store",
+    }),
+    folder ? null : graphScopingFolderIds(accessToken),
+  ]);
   if (!res.ok) throw new Error(`Graph search: ${res.status}`);
   const data = (await res.json()) as { value?: GraphMessage[] };
-  return (data.value ?? []).map(mapListItem);
+  const found = data.value ?? [];
+  // A mailbox-wide search spans Junk Email, Drafts and Outbox too.
+  const shown = folders ? visibleOutlookMessages(found, folders, "include") : found;
+  return shown.map(mapListItem);
 }
 
 function recipientsToString(
@@ -258,19 +273,48 @@ export async function getGraphMessage(
   };
 }
 
+/** Well-known folder id, or null when the mailbox has no such optional folder. */
+async function graphFolderId(
+  accessToken: string,
+  name: OutlookWellKnownFolder,
+): Promise<string | null> {
+  const res = await graphRawFetch(
+    `https://graph.microsoft.com/v1.0/me/mailFolders/${name}?$select=id`,
+    { headers: { Authorization: `Bearer ${accessToken}` }, cache: "no-store" },
+  );
+  if (res.status === 404 && OUTLOOK_OPTIONAL_FOLDERS.has(name)) return null;
+  if (!res.ok) throw new Error(`Graph folder ${name}: ${res.status}`);
+  const folder = (await res.json()) as { id?: string };
+  if (!folder.id) throw new Error(`Graph folder ${name} has no id`);
+  return folder.id;
+}
+
+async function graphScopingFolderIds(
+  accessToken: string,
+): Promise<Pick<OutlookFolderIds, "deleteditems" | OutlookHiddenFolder>> {
+  const names = ["deleteditems", ...OUTLOOK_HIDDEN_FOLDERS] as const;
+  const ids = await Promise.all(names.map((name) => graphFolderId(accessToken, name)));
+  return Object.fromEntries(names.map((name, i) => [name, ids[i]])) as Pick<
+    OutlookFolderIds,
+    "deleteditems" | OutlookHiddenFolder
+  >;
+}
+
 export async function getGraphConversationMessages(
   accessToken: string,
   conversationId: string,
 ): Promise<MailMessageDetail[]> {
   const safeId = conversationId.replaceAll("'", "''");
-  const page = (await graphFetch(
-    accessToken,
-    `/me/messages?$filter=conversationId eq '${safeId}'&$select=id&$top=100`,
-  )) as { value?: { id: string }[] };
+  const [page, folders] = await Promise.all([
+    graphFetch(
+      accessToken,
+      `/me/messages?$filter=conversationId eq '${safeId}'&$select=id,parentFolderId&$top=100`,
+    ) as Promise<{ value?: { id: string; parentFolderId?: string }[] }>,
+    graphScopingFolderIds(accessToken),
+  ]);
+  const shown = visibleOutlookMessages(page.value ?? [], folders, "whenOnlyDeleted");
   const messages = await Promise.all(
-    (page.value ?? []).map((message) =>
-      getGraphMessage(accessToken, message.id),
-    ),
+    shown.map((message) => getGraphMessage(accessToken, message.id)),
   );
   return messages.sort((a, b) => a.receivedAt.localeCompare(b.receivedAt));
 }

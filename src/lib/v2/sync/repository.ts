@@ -382,6 +382,16 @@ async function writeConversation(
       messagesTouched = true;
     }
   }
+  if (convo.withheldMessageIds?.length) {
+    const removed = await client.query(
+      `delete from seer.messages
+        where account_id = $1
+          and conversation_id = $2
+          and provider_message_id = any($3::text[])`,
+      [accountId, conversationId, convo.withheldMessageIds],
+    );
+    if ((removed.rowCount ?? 0) > 0) messagesTouched = true;
+  }
 
   if (!mask.protectUnread && messagesTouched) {
     await refreshConversationUnread(client, conversationId);
