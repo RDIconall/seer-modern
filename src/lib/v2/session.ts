@@ -67,20 +67,49 @@ export function effectiveActiveAccountId(
   return selectV2Account(accounts, activeId, sessionEmail)?.id ?? null;
 }
 
+/**
+ * A session may only reach the corpus while its provider grant is live: the
+ * last refresh succeeded (no session error) and the mailbox it signed in with
+ * still holds active credentials. Linked mailboxes whose grant has lapsed are
+ * never eligible, even when the switch cookie names them.
+ */
+export function selectAuthorizedV2Account(
+  accounts: MailAccount[],
+  session: { error?: string | null; activeAccountId?: string | null },
+  cookieId: string | null | undefined,
+  sessionEmail: string,
+): MailAccount | null {
+  if (session.error) return null;
+  if (session.activeAccountId) {
+    const signedIn = accounts.find(
+      (account) => account.id === session.activeAccountId,
+    );
+    if (!signedIn || signedIn.status !== "active") return null;
+  }
+  const live = accounts.filter((account) => account.status === "active");
+  return resolveMailboxAccount(
+    live,
+    cookieId,
+    session.activeAccountId,
+    sessionEmail,
+  );
+}
+
 export async function getActiveV2Account(): Promise<MailAccount | null> {
   const session = await auth();
   const email = session?.user?.email?.toLowerCase();
-  if (!email || !isV2Enabled(email)) return null;
+  if (!session || !email || !isV2Enabled(email)) return null;
+  if (session.error) return null;
 
   const userId = await upsertUser(email);
   const accounts = await listOwnedAccounts(userId);
   // The cookie is absent or invalid/foreign: only the signed-in identity's
   // mailbox is eligible as the fallback. The list is owner-scoped before the
   // cookie is applied, so a foreign id can never switch users.
-  return resolveMailboxAccount(
+  return selectAuthorizedV2Account(
     accounts,
+    session,
     await getActiveAccountId(),
-    session?.activeAccountId,
     email,
   );
 }

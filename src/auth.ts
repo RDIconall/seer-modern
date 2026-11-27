@@ -30,8 +30,20 @@ const microsoftConfigured =
   Boolean(process.env.AUTH_MICROSOFT_ENTRA_ID_ID) &&
   Boolean(process.env.AUTH_MICROSOFT_ENTRA_ID_SECRET);
 
+/**
+ * Mail is served from the synced corpus without contacting the provider, so
+ * the session must keep proving the grant is live. Each request past the
+ * provider access-token expiry (about an hour) refreshes against the
+ * provider, and an idle session lapses after this window.
+ */
+const SESSION_MAX_AGE_SECONDS = 4 * 60 * 60;
+
 export const { handlers, auth, signIn, signOut } = NextAuth({
   trustHost: true,
+  session: {
+    strategy: "jwt",
+    maxAge: SESSION_MAX_AGE_SECONDS,
+  },
   debug: process.env.AUTH_DEBUG === "1",
   logger: {
     error(error) {
@@ -191,7 +203,8 @@ export const { handlers, auth, signIn, signOut } = NextAuth({
         return token;
       }
 
-      if (accessTokenNeedsRefresh(token)) {
+      // A token without an expiry would never be re-checked with the provider.
+      if (!token.expiresAt || accessTokenNeedsRefresh(token)) {
         const provider = toV2Provider(token.provider);
         if (!provider || !token.activeAccountId) {
           return { ...token, error: "CanonicalAccountMissing" };
