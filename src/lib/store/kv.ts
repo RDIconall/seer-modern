@@ -1,7 +1,7 @@
 import { promises as fs } from "fs";
 import path from "path";
 import { Redis } from "@upstash/redis";
-import { pgDelete, pgEnabled, pgGet, pgSet } from "@/lib/store/pg";
+import { pgDelete, pgDeleteMany, pgEnabled, pgGet, pgSet } from "@/lib/store/pg";
 
 /**
  * One storage facade for every Seer memory (accounts, action memory,
@@ -153,7 +153,74 @@ export async function kvDelete(key: string): Promise<void> {
   if (!pgEnabled() && !r) await fs.unlink(fileFor(key)).catch(() => {});
 }
 
-/** Normalized account key fragment shared by all per-account stores. */
-export function accountKey(accountEmail: string): string {
+/**
+ * Delete keys from every backend, including the fallbacks a failed durable
+ * write may have landed in. Unlike kvDelete, a backend failure throws so
+ * callers that must not leave the documents behind can abort.
+ */
+export async function kvPurge(keys: string[]): Promise<void> {
+  if (keys.length === 0) return;
+  if (pgEnabled()) await pgDeleteMany(keys);
+  const r = getRedis();
+  if (r) await r.del(...keys.map((key) => `seer:${key}`));
+  await Promise.all(
+    keys.map((key) =>
+      fs.unlink(fileFor(key)).catch((e: NodeJS.ErrnoException) => {
+        if (e?.code !== "ENOENT" && e?.code !== "ENOTDIR") throw e;
+      }),
+    ),
+  );
+}
+
+/**
+ * Every document stored per mailbox address. Mail accounts can be removed and
+ * the address later connected by a different user, so removal purges every
+ * prefix listed here; per-mailbox stores must build keys with `mailboxKey`.
+ */
+export const MAILBOX_KEY_PREFIXES = [
+  "action-memory",
+  "autonomy",
+  "bluebubbles",
+  "brief",
+  "closed-matters",
+  "decisions",
+  "ea",
+  "functions",
+  "gmail-labels",
+  "imessage",
+  "inbox-snap",
+  "kept-scan",
+  "labels-era",
+  "last-open",
+  "mail-history",
+  "matter-edits",
+  "matter-fixes",
+  "matter-order",
+  "merchants",
+  "people",
+  "personal",
+  "profile",
+  "replied",
+  "salesforce",
+  "salesforce-app",
+  "salesforce-conn",
+  "sf-exemplars",
+  "triage-ledger",
+  "understanding",
+  "waiting",
+] as const;
+
+export type MailboxKeyPrefix = (typeof MAILBOX_KEY_PREFIXES)[number];
+
+function accountKey(accountEmail: string): string {
   return accountEmail.toLowerCase().trim();
+}
+
+export function mailboxKey(prefix: MailboxKeyPrefix, accountEmail: string): string {
+  return `${prefix}:${accountKey(accountEmail)}`;
+}
+
+/** Remove every per-mailbox document for an address; throws if any delete fails. */
+export async function purgeMailboxStorage(accountEmail: string): Promise<void> {
+  await kvPurge(MAILBOX_KEY_PREFIXES.map((prefix) => mailboxKey(prefix, accountEmail)));
 }

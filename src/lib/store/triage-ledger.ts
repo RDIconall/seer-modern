@@ -1,4 +1,4 @@
-import { accountKey, kvGet, kvSet } from "@/lib/store/kv";
+import { kvGet, kvSet, mailboxKey } from "@/lib/store/kv";
 
 /**
  * THE CLEANED LEDGER — an append-only record of everything Triage did on
@@ -39,7 +39,7 @@ export type Ledger = { entries: LedgerEntry[] };
 const MAX_ENTRIES = 500;
 
 function keyFor(accountEmail: string) {
-  return `triage-ledger:${accountKey(accountEmail)}`;
+  return mailboxKey("triage-ledger", accountEmail);
 }
 
 export async function loadLedger(accountEmail: string): Promise<Ledger> {

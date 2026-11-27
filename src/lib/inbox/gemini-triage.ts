@@ -28,7 +28,7 @@ import {
   saveDecisions,
   type CachedDecision,
 } from "@/lib/store/decision-cache";
-import { kvGet, kvSet } from "@/lib/store/kv";
+import { kvGet, kvSet, mailboxKey } from "@/lib/store/kv";
 import {
   extractAmount,
   isAnomalousCharge,
@@ -1138,7 +1138,7 @@ export async function classifyInboxWithAssistant(
   // a previous era's opinion. Until one full load re-grades cleanly
   // under the current version, label lookups are ignored (the LA28
   // presale sat on a stale read_and_delete label this way).
-  const eraKey = `labels-era:${accountEmail.toLowerCase()}`;
+  const eraKey = mailboxKey("labels-era", accountEmail);
   const labelsTrusted = extras?.labels
     ? (await kvGet<number>(eraKey).catch(() => null)) === PROMPT_VERSION
     : false;

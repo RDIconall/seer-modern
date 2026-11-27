@@ -1,4 +1,4 @@
-import { accountKey, kvDelete, kvGet, kvSet } from "@/lib/store/kv";
+import { kvDelete, kvGet, kvSet, mailboxKey } from "@/lib/store/kv";
 
 /**
  * The user's "about me" memory — a plain-text profile (role, family,
@@ -28,7 +28,7 @@ export const PROFILE_MAX_CHARS = 8000;
 const PROMPT_BLOCK_CHARS = 1600;
 
 function keyFor(accountEmail: string) {
-  return `profile:${accountKey(accountEmail)}`;
+  return mailboxKey("profile", accountEmail);
 }
 
 export async function loadUserProfile(

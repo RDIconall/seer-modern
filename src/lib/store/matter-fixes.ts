@@ -1,4 +1,4 @@
-import { accountKey, kvGet, kvSet } from "@/lib/store/kv";
+import { kvGet, kvSet, mailboxKey } from "@/lib/store/kv";
 
 /**
  * MATTER FIXES — the user's own corrections to where a matter sits in
@@ -9,7 +9,7 @@ import { accountKey, kvGet, kvSet } from "@/lib/store/kv";
 export type MatterFixes = Record<string, { orgUnit: string; at: string }>;
 
 function keyFor(accountEmail: string) {
-  return `matter-fixes:${accountKey(accountEmail)}`;
+  return mailboxKey("matter-fixes", accountEmail);
 }
 
 export async function loadMatterFixes(

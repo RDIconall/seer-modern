@@ -1,4 +1,4 @@
-import { accountKey, kvGet, kvSet } from "@/lib/store/kv";
+import { kvGet, kvSet, mailboxKey } from "@/lib/store/kv";
 import type { SalesforceRegistry } from "@/lib/crm/registry";
 
 /**
@@ -8,16 +8,20 @@ import type { SalesforceRegistry } from "@/lib/crm/registry";
 
 export * from "@/lib/crm/registry";
 
-const EMPTY: SalesforceRegistry = { studies: [], opportunities: [], sites: [] };
-
 function keyFor(accountEmail: string) {
-  return `salesforce:${accountKey(accountEmail)}`;
+  return mailboxKey("salesforce", accountEmail);
 }
 
 export async function loadSalesforce(
   accountEmail: string,
 ): Promise<SalesforceRegistry> {
-  return (await kvGet<SalesforceRegistry>(keyFor(accountEmail))) ?? EMPTY;
+  return (
+    (await kvGet<SalesforceRegistry>(keyFor(accountEmail))) ?? {
+      studies: [],
+      opportunities: [],
+      sites: [],
+    }
+  );
 }
 
 export async function saveSalesforce(

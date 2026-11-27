@@ -1,5 +1,5 @@
 import type { TriageAction } from "@/lib/inbox/classify";
-import { accountKey, kvGet, kvSet } from "@/lib/store/kv";
+import { kvGet, kvSet, mailboxKey } from "@/lib/store/kv";
 
 /**
  * Implicit teaching: every archive/trash the user performs is recorded
@@ -27,7 +27,7 @@ const MIN_ACTIONS = 3;
 const MIN_CONSISTENCY = 0.75;
 
 function keyFor(accountEmail: string) {
-  return `action-memory:${accountKey(accountEmail)}`;
+  return mailboxKey("action-memory", accountEmail);
 }
 
 export async function loadActionMemory(

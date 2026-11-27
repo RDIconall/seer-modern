@@ -3,7 +3,7 @@ import {
   type Understanding,
   type UnderstandingMap,
 } from "@/lib/inbox/understanding";
-import { accountKey, kvGet, kvSet } from "@/lib/store/kv";
+import { kvGet, kvSet, mailboxKey } from "@/lib/store/kv";
 
 /**
  * Deep reads are the expensive thing Seer does, so they are kept forever —
@@ -12,7 +12,7 @@ import { accountKey, kvGet, kvSet } from "@/lib/store/kv";
  */
 
 function keyFor(accountEmail: string) {
-  return `understanding:${accountKey(accountEmail)}`;
+  return mailboxKey("understanding", accountEmail);
 }
 
 export async function loadUnderstanding(

@@ -1,4 +1,4 @@
-import { accountKey, kvGet, kvSet } from "@/lib/store/kv";
+import { kvGet, kvSet, mailboxKey } from "@/lib/store/kv";
 
 /**
  * Threads the user has replied to, recorded the moment they hit Send in
@@ -12,7 +12,7 @@ export type RepliedThreads = Record<string, string>;
 const MAX_ENTRIES = 400;
 
 function keyFor(accountEmail: string) {
-  return `replied:${accountKey(accountEmail)}`;
+  return mailboxKey("replied", accountEmail);
 }
 
 export async function loadRepliedThreads(

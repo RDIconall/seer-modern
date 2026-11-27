@@ -1,5 +1,5 @@
 import type { MailMessageListItem } from "@/lib/mail/types";
-import { accountKey, kvGet, kvSet } from "@/lib/store/kv";
+import { kvGet, kvSet, mailboxKey } from "@/lib/store/kv";
 
 /**
  * One hydrated inbox per minute, shared by every route. Hydrating ~90
@@ -17,7 +17,7 @@ type Snapshot = {
 };
 
 function keyFor(accountEmail: string) {
-  return `inbox-snap:${accountKey(accountEmail)}`;
+  return mailboxKey("inbox-snap", accountEmail);
 }
 
 export async function getInboxSnapshot(

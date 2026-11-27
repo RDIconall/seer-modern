@@ -1,4 +1,4 @@
-import { accountKey, kvGet, kvSet, kvDelete } from "@/lib/store/kv";
+import { kvGet, kvSet, kvDelete, mailboxKey } from "@/lib/store/kv";
 
 /**
  * BlueBubbles = the user's real texting life (iMessage), self-hosted on
@@ -27,10 +27,10 @@ export type TextingStats = {
 };
 
 function cfgKey(accountEmail: string) {
-  return `bluebubbles:${accountKey(accountEmail)}`;
+  return mailboxKey("bluebubbles", accountEmail);
 }
 function statsKey(accountEmail: string) {
-  return `imessage:${accountKey(accountEmail)}`;
+  return mailboxKey("imessage", accountEmail);
 }
 
 export async function loadBlueBubbles(

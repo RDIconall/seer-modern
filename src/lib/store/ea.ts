@@ -1,4 +1,4 @@
-import { accountKey, kvDelete, kvGet, kvSet } from "@/lib/store/kv";
+import { kvDelete, kvGet, kvSet, mailboxKey } from "@/lib/store/kv";
 
 /**
  * The user's EA (executive assistant) — where "Delegate" forwards mail.
@@ -12,7 +12,7 @@ export type EaContact = {
 };
 
 function keyFor(accountEmail: string) {
-  return `ea:${accountKey(accountEmail)}`;
+  return mailboxKey("ea", accountEmail);
 }
 
 export async function loadEa(accountEmail: string): Promise<EaContact | null> {

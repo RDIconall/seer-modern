@@ -1,4 +1,4 @@
-import { accountKey, kvGet, kvSet } from "@/lib/store/kv";
+import { kvGet, kvSet, mailboxKey } from "@/lib/store/kv";
 
 /**
  * THE FUNCTION REGISTRY — the user's own org chart, not the AI's
@@ -23,7 +23,7 @@ export const DEFAULT_FUNCTIONS = [
 ];
 
 function keyFor(accountEmail: string) {
-  return `functions:${accountKey(accountEmail)}`;
+  return mailboxKey("functions", accountEmail);
 }
 
 export async function loadFunctions(accountEmail: string): Promise<string[]> {

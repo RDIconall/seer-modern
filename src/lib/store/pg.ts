@@ -207,6 +207,16 @@ export async function pgDelete(key: string): Promise<void> {
   );
 }
 
+export async function pgDeleteMany(keys: string[]): Promise<void> {
+  const p = getPool();
+  if (!p || keys.length === 0) return;
+  if (!(await ensureSchema())) return;
+  await withTimeout(
+    p.query("delete from seer_kv where key = any($1::text[])", [keys]),
+    "delete",
+  );
+}
+
 /** Connectivity + row count, for /api/health. */
 export async function pgHealth(): Promise<{
   ok: boolean;
