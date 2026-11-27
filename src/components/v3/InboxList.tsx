@@ -12,7 +12,20 @@ import {
 import type { MailboxRow, MailboxView } from "@/lib/v3/mailbox/types";
 import { BulkConfirmDialog } from "./BulkConfirmDialog";
 import { planBulk, planSummary } from "./bulk-plan";
-import { ageLabel, groupInbox, shortDate, type InboxGroup } from "./inbox-groups";
+import {
+  INBOX_SORT_OPTIONS,
+  ageLabel,
+  groupInbox,
+  nextSort,
+  shortDate,
+  sortFromValue,
+  sortLabel,
+  sortValue,
+  DEFAULT_INBOX_SORT,
+  type InboxGroup,
+  type InboxSort,
+  type InboxSortKey,
+} from "./inbox-groups";
 import {
   EMPTY_SELECTION,
   reduceSelection,
@@ -76,6 +89,8 @@ export function InboxList({
   view,
   refreshing = false,
   currentConversationId,
+  sort = DEFAULT_INBOX_SORT,
+  onSortChange,
   onOpen,
   onPrefetch,
   onCommands,
@@ -85,6 +100,9 @@ export function InboxList({
   view: MailboxView;
   refreshing?: boolean;
   currentConversationId?: string | null;
+  /** The rows arrive already in this order; the list only shows and changes it. */
+  sort?: InboxSort;
+  onSortChange?: (sort: InboxSort) => void;
   onOpen: (row: MailboxRow) => void;
   onPrefetch: (conversationId: string) => void;
   onCommands: (commands: Command[]) => Promise<CommandResult[]>;
@@ -277,11 +295,30 @@ export function InboxList({
           <h1>Inbox</h1>
           <p className="mail-list-ledger tabular">
             {groupCount} {groupCount === 1 ? "item" : "items"} · {emailCount}{" "}
-            {emailCount === 1 ? "email" : "emails"} · oldest first
+            {emailCount === 1 ? "email" : "emails"} · {sortLabel(sort).replace(/^([A-Z])(?=[a-z])/, (letter) => letter.toLowerCase())}
             {view.processing ? ` · Seer reading ${view.processing}` : ""}
             {refreshing ? " · Updating…" : ""}
           </p>
         </div>
+        {onSortChange ? (
+          <label className="inbox-sort">
+            <span>Sort</span>
+            <select
+              className="inbox-sort-select mail-focus-ring"
+              value={sortValue(sort)}
+              onChange={(event) => {
+                const next = sortFromValue(event.target.value);
+                if (next) onSortChange(next);
+              }}
+            >
+              {INBOX_SORT_OPTIONS.map((option) => (
+                <option key={option.value} value={option.value}>
+                  {option.label}
+                </option>
+              ))}
+            </select>
+          </label>
+        ) : null}
       </header>
 
       <div
@@ -313,9 +350,13 @@ export function InboxList({
               type="button"
               className="inbox-apply mail-focus-ring"
               disabled={busy}
+              aria-label="Do these next steps"
               onClick={() => setConfirming(true)}
             >
-              Do these next steps
+              <span className="inbox-apply-long">Do these next steps</span>
+              <span className="inbox-apply-short" aria-hidden="true">
+                Apply
+              </span>
             </button>
           </>
         ) : (
@@ -327,15 +368,23 @@ export function InboxList({
         <p className="mail-empty">Nothing here yet.</p>
       ) : (
         <div className="inbox-body">
-          <div className="inbox-head" aria-hidden="true">
+          <div className="inbox-head">
             <span className="inbox-head-gap" />
             <div className="inbox-cols">
               <span className="inbox-open-head">
-                <span className="inbox-from">From / matter</span>
-                <span className="inbox-subject">Subject</span>
+                <SortHead className="inbox-from" column="from" sort={sort} onSort={onSortChange}>
+                  From / matter
+                </SortHead>
+                <SortHead className="inbox-subject" column="subject" sort={sort} onSort={onSortChange}>
+                  Subject
+                </SortHead>
               </span>
-              <span className="inbox-step">Next step</span>
-              <span className="inbox-date">Oldest</span>
+              <SortHead className="inbox-step" column="step" sort={sort} onSort={onSortChange}>
+                Next step
+              </SortHead>
+              <SortHead className="inbox-date" column="age" sort={sort} onSort={onSortChange}>
+                Oldest
+              </SortHead>
             </div>
             <span className="inbox-actions" />
           </div>
@@ -493,5 +542,40 @@ export function InboxList({
         <MatterPicker row={placing} onPlace={(command) => void place(command)} onClose={() => setPlacing(null)} />
       ) : null}
     </section>
+  );
+}
+
+function SortHead({
+  className,
+  column,
+  sort,
+  onSort,
+  children,
+}: {
+  className: string;
+  column: InboxSortKey;
+  sort: InboxSort;
+  onSort?: (sort: InboxSort) => void;
+  children: React.ReactNode;
+}) {
+  const active = sort.key === column;
+  if (!onSort) return <span className={className}>{children}</span>;
+  return (
+    <span
+      className={className}
+      aria-sort={active ? (sort.dir === "asc" ? "ascending" : "descending") : undefined}
+    >
+      <button
+        type="button"
+        className="inbox-sort-head mail-focus-ring"
+        data-active={active ? "true" : "false"}
+        onClick={() => onSort(nextSort(sort, column))}
+      >
+        {children}
+        <span className="inbox-sort-arrow" aria-hidden="true">
+          {active ? (sort.dir === "asc" ? "↑" : "↓") : ""}
+        </span>
+      </button>
+    </span>
   );
 }

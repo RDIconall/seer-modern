@@ -208,11 +208,25 @@ await assert.rejects(
     (err instanceof ProviderHttpError && err.status === 404),
 );
 
-// Graph 200 + empty value[] on initial fetch is ambiguous — reconcile, not no-op.
-await assert.rejects(
-  () => provider.mutateConversation("empty-thread", "archive", "idem-empty"),
-  isProviderReconcileError,
-);
+// Graph 200 + empty value[] means nothing is left to move out of the inbox
+// (deleted or purged in Outlook since the last sync): archive and trash are
+// already satisfied, not a failure the person has to read about.
+for (const action of ["archive", "trash"] as const) {
+  const receipt = await provider.mutateConversation("empty-thread", action, `idem-empty-${action}`);
+  assert.deepEqual(
+    { processed: receipt.processed, failed: receipt.failed },
+    { processed: [], failed: [] },
+    `${action} of a conversation Outlook no longer has is a no-op`,
+  );
+}
+
+// Restoring or marking unread something that cannot be found stays ambiguous.
+for (const action of ["restore", "markUnread"] as const) {
+  await assert.rejects(
+    () => provider.mutateConversation("empty-thread", action, `idem-empty-${action}`),
+    isProviderReconcileError,
+  );
+}
 
 // A large conversation hydration must stop before requesting another Graph
 // page when the sync slice deadline expires.
