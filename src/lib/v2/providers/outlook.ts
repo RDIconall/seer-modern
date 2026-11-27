@@ -390,6 +390,22 @@ export class OutlookProvider implements MailProvider {
     } catch (err) {
       conversationFetchNotFound(err, "outlook", id);
     }
+    if (msgs.length === 0 && (action === "archive" || action === "trash")) {
+      // Nothing of this conversation is left to leave the inbox: it was deleted
+      // or purged in Outlook after we last synced. Look once more with a bare
+      // query (no body, no attachment expansion) in case the first page was a
+      // stale read; only then treat the move as already done. Restoring or
+      // marking unread something that cannot be found stays a reconcile.
+      const recheck = await this.get<{ value?: { id: string }[] }>(
+        `${API}/messages?$filter=${encodeURIComponent(
+          `conversationId eq '${id.replace(/'/g, "''")}'`,
+        )}&$top=1&$select=id`,
+      );
+      if ((recheck.value ?? []).length === 0) {
+        return { conversationId: id, action, processed: [], failed: [] };
+      }
+      msgs = await this.conversationMessages(id);
+    }
     conversationFetchEmpty(msgs, "outlook", id);
     const processed: string[] = [];
     const failed: string[] = [];

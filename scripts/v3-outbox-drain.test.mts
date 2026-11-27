@@ -428,7 +428,7 @@ try {
   );
   assert.ok(gmailEvents.rows.some((e) => e.kind === "outbox_reconcile_needed"));
 
-  // Outlook adapter: initial conversation fetch 200+empty must reach drain reconcile path.
+  // Outlook adapter: a conversation Outlook no longer has is done for archive, but a restore stays a reconcile.
   const outlookEmptyFetch = (async (url: string, init?: RequestInit) => {
     const u = String(url);
     const method = init?.method ?? "GET";
@@ -450,7 +450,7 @@ try {
   );
   await enqueueOptimistic(
     accountId,
-    { type: "archive", conversationId: outlookEmptyId },
+    { type: "restore", conversationId: outlookEmptyId },
     "outlook-empty-key",
   );
   const outlookProvider = new OutlookProvider({
@@ -470,6 +470,22 @@ try {
     [accountId, "outlook-empty-key"],
   );
   assert.ok(outlookEvents.rows.some((e) => e.kind === "outbox_reconcile_needed"));
+
+  const outlookGoneId = await seedConversation(
+    db.pool,
+    accountId,
+    "p-outlook-gone",
+    ["inbox"],
+    false,
+  );
+  await enqueueOptimistic(
+    accountId,
+    { type: "archive", conversationId: outlookGoneId },
+    "outlook-gone-key",
+  );
+  const goneDrain = await drainOutbox(accountId, outlookProvider, { limit: 1 });
+  assert.equal(goneDrain.failed, 0, "archiving mail Outlook no longer has is not a failure");
+  assert.equal(goneDrain.done, 1);
 
   // -------------------------------------------------------------------------
   // Permanent auth failure — no retry budget consumed
