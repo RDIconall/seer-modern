@@ -1,3 +1,4 @@
+import type { NextStep } from "./next-step";
 import type { Disposition } from "./triage-rank";
 
 export type MailboxFolder = "inbox" | "sent" | "trash";
@@ -6,8 +7,10 @@ export type MailboxFolder = "inbox" | "sent" | "trash";
  * How the list is ordered. `date` is a mail client's newest-first. `triage` is
  * the smart filter: most likely to delete first. `focus` is the live working
  * set for Cards: recent, unread, and open matters, never the whole Inbox.
+ * `matter` is the Inbox: conversations on one matter sit together, and the
+ * groups run oldest first so the work that has waited longest leads.
  */
-export type MailboxSort = "date" | "triage" | "focus";
+export type MailboxSort = "date" | "triage" | "focus" | "matter";
 
 export type MailboxRow = {
   conversationId: string;
@@ -47,6 +50,17 @@ export type MailboxRow = {
    * say what it pulled out of the clear pile rather than silently moving it.
    */
   vetoReasons: string[];
+  /** The matter this conversation is live work on, if its decision says so. */
+  matterId: string | null;
+  /** What should happen next, as the Inbox's Next step column reads it. */
+  nextStep: NextStep;
+  /**
+   * Rows that share a key belong together: one matter, or a conversation that
+   * stands alone. Set on every row so the client never re-groups by title.
+   */
+  groupKey: string;
+  /** When the oldest conversation in this row's group arrived. */
+  groupAt: string;
 };
 
 export type MailboxView = {
@@ -66,4 +80,6 @@ export type MailboxView = {
   /** No placement yet because AI classification has not completed. */
   processing?: number;
   nextCursor: string | null;
+  /** How many groups the whole list holds; set for the matter sort. */
+  groups?: number;
 };
