@@ -38,7 +38,9 @@ async function seedMessage(
     providerId: string;
     fromEmail: string;
     toEmails: string[];
+    ccEmails?: string[];
     fromName?: string;
+    isOutgoing?: boolean;
   },
 ) {
   const c = await pool.query<{ id: string }>(
@@ -51,8 +53,8 @@ async function seedMessage(
   await pool.query(
     `insert into seer.messages
        (account_id, conversation_id, provider_message_id, from_email, from_name,
-        to_emails, sent_at, snippet, is_unread, is_outgoing)
-     values ($1, $2, $3, $4, $5, $6, now(), 'hi', false, false)`,
+        to_emails, cc_emails, sent_at, snippet, is_unread, is_outgoing)
+     values ($1, $2, $3, $4, $5, $6, $7, now(), 'hi', false, $8)`,
     [
       accountId,
       c.rows[0].id,
@@ -60,6 +62,8 @@ async function seedMessage(
       opts.fromEmail,
       opts.fromName ?? null,
       opts.toEmails,
+      opts.ccEmails ?? [],
+      opts.isOutgoing ?? false,
     ],
   );
 }
@@ -110,61 +114,47 @@ try {
     tier: "known",
   });
 
+  const sendTo = (providerId: string, toEmails: string[], ccEmails: string[] = []) =>
+    seedMessage(db.pool, accountA, {
+      providerId,
+      fromEmail: "me@example.com",
+      toEmails,
+      ccEmails,
+      isOutgoing: true,
+    });
+
   // VIP has fewer exchanges than known non-VIP — still ranks first.
-  for (let i = 0; i < 2; i++) {
-    await seedMessage(db.pool, accountA, {
-      providerId: `vip-${i}`,
-      fromEmail: "vip@example.com",
-      toEmails: ["me@example.com"],
-    });
-  }
-  for (let i = 0; i < 10; i++) {
-    await seedMessage(db.pool, accountA, {
-      providerId: `known-ex-${i}`,
-      fromEmail: "known@example.com",
-      toEmails: ["me@example.com"],
-    });
-  }
-  for (let i = 0; i < 3; i++) {
-    await seedMessage(db.pool, accountA, {
-      providerId: `inner-${i}`,
-      fromEmail: "inner@example.com",
-      toEmails: ["me@example.com"],
-    });
-  }
-  for (let i = 0; i < 5; i++) {
-    await seedMessage(db.pool, accountA, {
-      providerId: `machine-${i}`,
-      fromEmail: "noreply@example.com",
-      toEmails: ["me@example.com"],
-    });
-  }
+  for (let i = 0; i < 2; i++) await sendTo(`vip-${i}`, ["vip@example.com"]);
+  for (let i = 0; i < 10; i++) await sendTo(`known-ex-${i}`, ["known@example.com"]);
+  for (let i = 0; i < 3; i++) await sendTo(`inner-${i}`, ["inner@example.com"]);
+  for (let i = 0; i < 5; i++) await sendTo(`machine-${i}`, ["noreply@example.com"]);
   // Equal tier+exchanges: alphabetical email breaks the tie.
   for (let i = 0; i < 4; i++) {
-    await seedMessage(db.pool, accountA, {
-      providerId: `tie-a-${i}`,
-      fromEmail: "aaa-tie@example.com",
-      toEmails: ["me@example.com"],
-    });
-    await seedMessage(db.pool, accountA, {
-      providerId: `tie-z-${i}`,
-      fromEmail: "zzz-tie@example.com",
-      toEmails: ["me@example.com"],
-    });
+    await sendTo(`tie-a-${i}`, ["aaa-tie@example.com"]);
+    await sendTo(`tie-z-${i}`, ["zzz-tie@example.com"]);
   }
 
-  // Mail-only address (never in seer.people), appears as from and as to.
+  // Mail-only address (never in seer.people): sent to once on To, once on Cc.
+  // Its inbound mail does not add to the count.
+  await sendTo("mail-only-1", ["someone@example.com"], ["only-in-mail@example.com"]);
+  await sendTo("mail-only-2", ["only-in-mail@example.com"]);
   await seedMessage(db.pool, accountA, {
-    providerId: "mail-only-1",
+    providerId: "mail-only-3",
     fromEmail: "only-in-mail@example.com",
     toEmails: ["me@example.com"],
     fromName: "Mail Only",
   });
-  await seedMessage(db.pool, accountA, {
-    providerId: "mail-only-2",
-    fromEmail: "someone@example.com",
-    toEmails: ["only-in-mail@example.com"],
-  });
+
+  // Addresses that only ever appear on inbound mail are not suggested, whether
+  // they sent it or were listed on it by someone else.
+  for (let i = 0; i < 6; i++) {
+    await seedMessage(db.pool, accountA, {
+      providerId: `inbound-only-${i}`,
+      fromEmail: "inbound-only-sender@example.com",
+      toEmails: ["me@example.com", "inbound-only-listed@example.com"],
+      ccEmails: ["inbound-only-cc@example.com"],
+    });
+  }
 
   // Other account: must never leak.
   await seedPerson(db.pool, accountB, "secret@other.com", {
@@ -211,13 +201,16 @@ try {
   const zzzIdx = emails.indexOf("zzz-tie@example.com");
   assert.ok(aaaIdx >= 0 && zzzIdx >= 0 && aaaIdx < zzzIdx, "ties break by email");
 
-  // Mail-only address with exchange count from from + to appearances.
+  // Mail-only address with exchange count from mail the user sent.
   const mailOnly = await suggestContacts(accountA, "only-in-mail");
   assert.equal(mailOnly.length, 1);
   assert.equal(mailOnly[0].email, "only-in-mail@example.com");
   assert.equal(mailOnly[0].exchanges, 2);
   assert.equal(mailOnly[0].tier, "unknown");
   assert.equal(mailOnly[0].vip, false);
+
+  const inboundOnly = await suggestContacts(accountA, "inbound-only");
+  assert.deepEqual(inboundOnly, []);
 
   // Account isolation.
   const leaked = await suggestContacts(accountA, "secret");

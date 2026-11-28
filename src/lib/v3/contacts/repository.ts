@@ -7,6 +7,9 @@ const MAX_LIMIT = 25;
 
 /**
  * VIP first, then relationship strength, then how often we actually write.
+ * "Write" means recipients of mail this mailbox sent: inbound From and To
+ * headers are authored by whoever sent the message, so counting them would let
+ * any outside sender buy rank for a lookalike address by mailing us.
  * Expressed in SQL so LIMIT can cut after ranking rather than after a full
  * fetch — the right address must land in the first page, not the twentieth.
  */
@@ -39,7 +42,8 @@ type ContactRow = {
 
 /**
  * Suggest recipients for compose from the active account's person graph and
- * real correspondence. Account isolation is absolute: every source row is
+ * the addresses it has sent mail to. An address seen only on inbound mail is
+ * not suggested. Account isolation is absolute: every source row is
  * filtered by account_id, so an address that only exists on another mailbox
  * can never appear.
  */
@@ -61,23 +65,16 @@ export async function suggestContacts(
         where id = $1
      ),
      exchanges as (
-       select lower(trim(addr)) as email_key,
-              count(*)::int as exchanges,
-              min(trim(addr)) as sample_email
-         from (
-           select m.from_email as addr
-             from seer.messages m
-            where m.account_id = $1
-              and m.from_email is not null
-              and trim(m.from_email) <> ''
-           union all
-           select unnest(m.to_emails) as addr
-             from seer.messages m
-            where m.account_id = $1
-         ) addrs
-        where addr is not null and trim(addr) <> ''
-          and lower(trim(addr)) <> (select email_key from self)
-        group by lower(trim(addr))
+       select lower(trim(r.addr)) as email_key,
+              count(distinct m.id)::int as exchanges,
+              min(trim(r.addr)) as sample_email
+         from seer.messages m
+        cross join lateral unnest(m.to_emails || m.cc_emails) as r(addr)
+        where m.account_id = $1
+          and m.is_outgoing
+          and r.addr is not null and trim(r.addr) <> ''
+          and lower(trim(r.addr)) <> (select email_key from self)
+        group by lower(trim(r.addr))
      ),
      people as (
        select lower(trim(p.email)) as email_key,

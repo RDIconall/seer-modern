@@ -111,6 +111,7 @@ function toMessage(m: GmailMessage, selfEmail: string): Message {
   };
   walkBodies(m.payload, bodies);
   const from = parseAddresses(header(headers, "from"))[0] ?? { email: "" };
+  const labels = m.labelIds ?? [];
   return {
     providerMessageId: m.id,
     from,
@@ -122,8 +123,10 @@ function toMessage(m: GmailMessage, selfEmail: string): Message {
     snippet: m.snippet ?? "",
     bodyHtml: bodies.html ?? null,
     bodyText: bodies.text ?? null,
-    isUnread: (m.labelIds ?? []).includes("UNREAD"),
-    isOutgoing: from.email === selfEmail.toLowerCase(),
+    isUnread: labels.includes("UNREAD"),
+    // The From header is whatever the sender typed, so inbound mail can claim
+    // to be from us. Gmail sets SENT only on mail this mailbox sent.
+    isOutgoing: from.email === selfEmail.toLowerCase() && labels.includes("SENT"),
     attachments: bodies.attachments,
   };
 }

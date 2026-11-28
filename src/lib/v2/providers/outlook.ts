@@ -72,7 +72,7 @@ function addrs(list: GraphRecipient[] | undefined): Address[] {
   return (list ?? []).map(addr).filter((a): a is Address => a !== null);
 }
 
-function toMessage(m: GraphMessage, selfEmail: string): Message {
+function toMessage(m: GraphMessage, isOutgoing: boolean): Message {
   const isHtml = (m.body?.contentType ?? "").toLowerCase() === "html";
   const from = addr(m.from) ?? { email: "" };
   return {
@@ -85,7 +85,7 @@ function toMessage(m: GraphMessage, selfEmail: string): Message {
     bodyHtml: isHtml ? (m.body?.content ?? null) : null,
     bodyText: isHtml ? null : (m.body?.content ?? null),
     isUnread: m.isRead === false,
-    isOutgoing: from.email === selfEmail.toLowerCase(),
+    isOutgoing,
     attachments: (m.attachments ?? []).map((a) => ({
       id: a.id ?? "",
       filename: a.name ?? "",
@@ -99,10 +99,36 @@ export class OutlookProvider implements MailProvider {
   readonly kind: ProviderKind = "microsoft";
   private http: ProviderHttpOptions;
   private pageSize: number;
+  /** Message ids Graph returned from the Sent Items folder listing. */
+  private listedSent = new Set<string>();
+  private sentItemsId: string | null = null;
 
   constructor(private deps: OutlookDeps) {
     this.http = { provider: "outlook", fetchImpl: deps.fetchImpl };
     this.pageSize = deps.pageSize ?? 50;
+  }
+
+  private async sentItemsFolderId(context?: SyncContext): Promise<string> {
+    if (this.sentItemsId === null) {
+      const folder: { id?: string } = await this.get(
+        `${API}/mailFolders/sentitems?$select=id`,
+        context,
+      );
+      if (!folder.id) throw new Error("outlook: sent items folder id unavailable");
+      this.sentItemsId = folder.id;
+    }
+    return this.sentItemsId;
+  }
+
+  /**
+   * The From header is whatever the sender typed, so inbound mail can claim to
+   * be from us. Only mail that lives in Sent Items is ours.
+   */
+  private async isOutgoing(m: GraphMessage, context?: SyncContext): Promise<boolean> {
+    if (addr(m.from)?.email !== this.deps.accountEmail.toLowerCase()) return false;
+    if (this.listedSent.has(m.id)) return true;
+    if (!m.parentFolderId) return false;
+    return m.parentFolderId === (await this.sentItemsFolderId(context));
   }
 
   private auth(): Record<string, string> {
@@ -164,10 +190,14 @@ export class OutlookProvider implements MailProvider {
     return messages;
   }
 
-  private toConversation(id: string, msgs: GraphMessage[]): Conversation {
-    const messages = msgs
-      .map((m) => toMessage(m, this.deps.accountEmail))
-      .sort((a, b) => a.sentAt.localeCompare(b.sentAt));
+  private async toConversation(
+    id: string,
+    msgs: GraphMessage[],
+    context?: SyncContext,
+  ): Promise<Conversation> {
+    const messages: Message[] = [];
+    for (const m of msgs) messages.push(toMessage(m, await this.isOutgoing(m, context)));
+    messages.sort((a, b) => a.sentAt.localeCompare(b.sentAt));
     return {
       providerConversationId: id,
       subject: msgs[0]?.subject ?? "",
@@ -219,6 +249,9 @@ export class OutlookProvider implements MailProvider {
       "@odata.nextLink"?: string;
       "@odata.count"?: number;
     } = await this.get(url, context);
+    if (folder === "sent") {
+      for (const m of page.value ?? []) this.listedSent.add(m.id);
+    }
     // Deduplicate conversation ids while preserving first-seen order on this page.
     const conversationIds = [
       ...new Set((page.value ?? []).map((m) => m.conversationId)),
@@ -227,7 +260,7 @@ export class OutlookProvider implements MailProvider {
     for (const id of conversationIds) {
       assertSyncBudget(context);
       conversations.push(
-        this.toConversation(id, await this.conversationMessages(id, context)),
+        await this.toConversation(id, await this.conversationMessages(id, context), context),
       );
     }
     return {
@@ -241,14 +274,14 @@ export class OutlookProvider implements MailProvider {
   }
 
   async getConversation(id: string): Promise<Conversation> {
-    return this.toConversation(id, await this.conversationMessages(id));
+    return await this.toConversation(id, await this.conversationMessages(id));
   }
 
   async search(query: string, cursor?: string | null): Promise<SearchResult> {
     const providerQuery = compileOutlookSearch(parseMailSearch(query));
     const url =
       cursor ??
-      `${API}/messages?$search=${encodeURIComponent(`"${providerQuery}"`)}&$top=${this.pageSize}&$select=id,conversationId,subject,from,toRecipients,ccRecipients,receivedDateTime,bodyPreview,body,isRead`;
+      `${API}/messages?$search=${encodeURIComponent(`"${providerQuery}"`)}&$top=${this.pageSize}&$select=id,conversationId,subject,from,toRecipients,ccRecipients,receivedDateTime,bodyPreview,body,isRead,parentFolderId`;
     const page: { value?: GraphMessage[]; "@odata.nextLink"?: string } =
       await this.get(url);
     const byConversation = new Map<string, GraphMessage[]>();
@@ -257,12 +290,11 @@ export class OutlookProvider implements MailProvider {
       arr.push(m);
       byConversation.set(m.conversationId, arr);
     }
-    return {
-      conversations: [...byConversation.entries()].map(([id, msgs]) =>
-        this.toConversation(id, msgs),
-      ),
-      nextCursor: page["@odata.nextLink"] ?? null,
-    };
+    const conversations: Conversation[] = [];
+    for (const [id, msgs] of byConversation) {
+      conversations.push(await this.toConversation(id, msgs));
+    }
+    return { conversations, nextCursor: page["@odata.nextLink"] ?? null };
   }
 
   async send(command: SendCommand, _key: string): Promise<SendReceipt> {
