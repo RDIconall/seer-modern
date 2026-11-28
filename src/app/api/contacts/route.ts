@@ -10,8 +10,8 @@ import { NextResponse } from "next/server";
  * CONTACT SUGGESTIONS for compose. Three sources, merged and ranked by
  * how much the user actually deals with someone:
  *   - the saved address book (explicit — they chose to keep them)
- *   - the person graph (real names, VIP flags)
- *   - the mail graph (how often they write to and hear from them)
+ *   - the person graph (real names, VIP flags and tiers the user set)
+ *   - the mail graph (how often they write to them)
  *
  * Ranking matters more than recall here: the right address should be the
  * first suggestion, not the twentieth.
@@ -62,13 +62,23 @@ export async function GET(request: Request) {
   // Auto-collected addresses are weak evidence on their own.
   for (const e of personal?.autoContacts ?? []) add(e, undefined, 2);
 
+  // Only tiers the user set. Evidence and AI tiers can come from inbound mail
+  // alone (repeat sends, a meeting invite, a credible-sounding body), which an
+  // outside sender controls.
   for (const p of Object.values(people)) {
+    if (!p.vip && p.by !== "user") continue;
     add(p.email, p.name, p.vip ? 60 : p.tier === "inner" ? 20 : 5);
   }
 
-  // Revealed preference: who they actually write to.
+  // Revealed preference: who they actually write to. Inbound volume is not a
+  // preference — any sender can raise it.
   for (const c of Object.values(history?.contacts ?? {})) {
-    add(c.email, undefined, Math.min(30, c.sentTo * 6 + c.receivedFrom));
+    if (c.sentTo > 0) add(c.email, undefined, Math.min(30, c.sentTo * 6));
+  }
+
+  for (const p of Object.values(people)) {
+    const existing = byEmail.get(p.email.toLowerCase().trim());
+    if (existing && !existing.name && p.name) existing.name = p.name;
   }
 
   const matches = [...byEmail.values()]
