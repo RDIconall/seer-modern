@@ -11,6 +11,6 @@ export type ContactSuggestion = {
   /** Relationship tier from the person graph. */
   tier: string;
   vip: boolean;
-  /** How many messages have passed between the user and this address. */
+  /** How many messages this mailbox has sent to this address (To or Cc). */
   exchanges: number;
 };
